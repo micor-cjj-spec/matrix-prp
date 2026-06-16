@@ -1,12 +1,12 @@
 # Claude Code Architecture
 
-> This directory stores structured architecture breakdowns after source reading.
+> 本目录用于存放 Claude Code 源码阅读后的结构化架构拆解。
 
-## Purpose
+## 用途
 
-Use this directory to split Claude Code into stable architecture topics. Compared with `notes/`, documents here should be more structured and reusable.
+`architecture/` 目录用于把 Claude Code 拆成稳定的架构专题。这里的内容应该比 `notes/` 更正式、更结构化，能够作为后续复盘和设计参考。
 
-## Planned Documents
+## 规划文件
 
 ```text
 architecture/
@@ -19,24 +19,28 @@ architecture/
 └── java-spring-ai-implementation.md
 ```
 
-## Topic Scope
+## 专题范围
 
-| Document | Scope |
+| 文件 | 范围 |
 |---|---|
-| `agent-harness.md` | Main Agent Loop, orchestration, model interaction, stop conditions. |
-| `tool-system.md` | Built-in tools, tool schema, tool registry, tool execution, error handling. |
-| `context-memory.md` | System prompt, project context, memory files, history compression, token control. |
-| `permission-safety.md` | Permission mode, risky operations, user confirmation, rejection handling. |
-| `skills-hooks-mcp.md` | Skills, hooks, MCP bridge, extension mechanism. |
-| `java-spring-ai-implementation.md` | Java implementation, Spring AI integration, package structure, runtime flow. |
+| `agent-harness.md` | 主 Agent Loop、编排流程、模型交互、终止条件。 |
+| `tool-system.md` | 内置工具、工具 Schema、工具注册、工具执行、异常处理。 |
+| `context-memory.md` | 系统提示词、项目上下文、记忆文件、历史压缩、Token 控制。 |
+| `permission-safety.md` | 权限模式、危险操作、用户确认、拒绝处理。 |
+| `skills-hooks-mcp.md` | Skills、Hooks、MCP 桥接、扩展机制。 |
+| `java-spring-ai-implementation.md` | Java 实现、Spring AI 集成、包结构、运行流程。 |
 
-## Writing Rule
+## 写作规则
 
-Each architecture document should include:
+每个架构文档建议包含：
 
-1. Purpose
-2. Core flow
-3. Key classes or functions
-4. Important design details
-5. Risks or limitations
-6. Reference value for AI Secretary
+1. 研究目标
+2. 核心流程
+3. 关键类或函数
+4. 重要设计细节
+5. 风险或限制
+6. 对 AI 秘书的参考价值
+
+## 当前状态
+
+待源码阅读后补充具体专题文档。
