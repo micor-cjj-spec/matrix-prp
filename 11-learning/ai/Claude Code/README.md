@@ -1,62 +1,102 @@
 # Claude Code
 
-> 简称：cc  
-> 源码地址：https://gitee.com/free/claude-code  
-> 同步日期：2026-06-16
+> Short name: cc  
+> Source: https://gitee.com/free/claude-code  
+> Sync date: 2026-06-16
 
-## 定位
+## Positioning
 
-Claude Code 是当前 AI 学习模块下的一个独立研究对象，用来持续沉淀对 Claude Code / cc 项目的学习计划、源码总结、架构拆解和对个人 AI 秘书项目的启发。
+Claude Code is an independent study topic under the AI learning module. This directory is used to continuously organize learning plans, source-code summaries, architecture notes, running notes, and reusable conclusions related to Claude Code / cc.
 
-这个目录不再放在 `projects/` 下，而是作为 AI 学习模块中的独立主题目录维护。
+This directory should stay directly under `11-learning/ai/` and should not be placed under `projects/`.
 
-## 当前关注点
-
-| 方向 | 说明 |
-|---|---|
-| Agent Loop | 用户输入、模型推理、工具调用、结果回填、继续推理的完整循环 |
-| Agent Harness | Claude Code 编码助手的核心调度框架 |
-| 工具调用体系 | Bash、文件读写、搜索、任务、MCP 等工具如何注册和执行 |
-| 上下文管理 | 项目记忆、会话记忆、上下文压缩、Token 控制 |
-| 权限与安全 | 命令执行、文件修改、危险操作识别、用户确认 |
-| Skills / Hooks / MCP | 可扩展能力体系，适合对照 AI 秘书 Skill 层设计 |
-| Java / Spring AI 实现 | 重点关注 main 分支中的 Java 化实现方式 |
-
-## 与 AI 秘书项目的关系
-
-这个项目与当前 AI 秘书的任务编排层、任务层、技能层都有参考价值：
-
-| AI 秘书方向 | 可参考内容 |
-|---|---|
-| 编排层 | Agent Loop、任务拆解、工具选择、执行状态管理 |
-| 任务层 | 任务创建、查询、更新、状态流转、后台执行 |
-| 技能层 | 工具注册、工具发现、参数校验、工具执行、MCP 桥接 |
-| 记忆系统 | 项目上下文、用户上下文、会话摘要、长期记忆 |
-| 安全机制 | 权限模式、危险命令检测、执行前确认、拒绝追踪 |
-
-## 目录说明
+## Directory Architecture
 
 ```text
 11-learning/ai/Claude Code/
-├── README.md      # 本目录说明和研究入口
-├── 学习计划.md    # 阶段学习计划、检查清单、下一步行动
-└── 源码总结.md    # 源码阅读总结、架构拆解、关键模块记录
+├── README.md                 # Directory entrance and study index
+├── learning-plan.md          # Stage plan, reading checklist, next actions
+├── source-summary.md         # Source-code reading summary and key module notes
+├── architecture/
+│   └── README.md             # Architecture topic index
+├── notes/
+│   └── README.md             # Daily reading notes, issues, commands, experiments
+└── outputs/
+    └── README.md             # Final reusable conclusions and design references
 ```
 
-## 后续可继续补充
+## Why This Structure
 
-后续如果拆得更细，可以继续扩展：
+| Layer | Purpose |
+|---|---|
+| `README.md` | Acts as the entrance of the Claude Code study topic. It should not carry too many details. |
+| `learning-plan.md` | Tracks what to learn, in what order, and what is already done. |
+| `source-summary.md` | Stores stable source-code understanding, module summaries, and important class/function notes. |
+| `architecture/` | Stores deeper architecture breakdowns such as Agent Harness, tool system, memory, permission, and MCP. |
+| `notes/` | Stores temporary reading notes, running logs, questions, and troubleshooting records. |
+| `outputs/` | Stores reusable conclusions that can be migrated into AI Secretary design documents. |
+
+## Current Focus
+
+| Area | Study Focus |
+|---|---|
+| Agent Loop | How user input, model reasoning, tool calls, tool results, and next-round reasoning are connected. |
+| Agent Harness | The core orchestration framework of the Claude Code coding assistant. |
+| Tool System | How Bash, file operations, search, task, MCP, and other tools are registered and executed. |
+| Context Management | Project memory, session memory, context compression, and token control. |
+| Permission and Safety | Command execution, file modification, dangerous operation detection, and user confirmation. |
+| Skills / Hooks / MCP | Extension model that can be compared with the AI Secretary Skill layer. |
+| Java / Spring AI Implementation | Focus on how the Java implementation organizes CLI, tools, model calls, and context. |
+
+## Relationship with AI Secretary
+
+| AI Secretary Area | Reference Value from Claude Code |
+|---|---|
+| Orchestration Layer | Agent Loop, task decomposition, tool selection, execution state management. |
+| Task Layer | Task creation, query, update, status transition, background execution. |
+| Skill Layer | Tool registration, tool discovery, parameter validation, tool execution, MCP bridge. |
+| Memory System | Project context, user context, session summary, long-term memory. |
+| Safety System | Permission mode, dangerous command detection, confirmation before execution, rejection tracking. |
+
+## File Naming Rule
+
+All file names in this directory should use English kebab-case, for example:
 
 ```text
-11-learning/ai/Claude Code/
-├── 01-Agent-Harness.md
-├── 02-工具调用体系.md
-├── 03-上下文与记忆.md
-├── 04-权限与安全.md
-├── 05-Skills-Hooks-MCP.md
-└── 99-对AI秘书的启发.md
+learning-plan.md
+source-summary.md
+agent-harness.md
+tool-system.md
+context-memory.md
+permission-safety.md
+ai-secretary-reference.md
 ```
 
-## 标签
+The document content can be written in Chinese, but file names should remain English for long-term maintainability.
 
-`#AI` `#ClaudeCode` `#cc` `#Agent` `#CLI` `#SpringAI` `#MCP` `#Skill` `#AI秘书`
+## Future Expansion
+
+When source reading becomes deeper, the `architecture/` directory can be expanded like this:
+
+```text
+architecture/
+├── agent-harness.md
+├── tool-system.md
+├── context-memory.md
+├── permission-safety.md
+├── skills-hooks-mcp.md
+└── java-spring-ai-implementation.md
+```
+
+The `outputs/` directory can later contain:
+
+```text
+outputs/
+├── ai-secretary-reference.md
+├── skill-layer-design-reference.md
+└── orchestration-layer-design-reference.md
+```
+
+## Tags
+
+`#AI` `#ClaudeCode` `#cc` `#Agent` `#CLI` `#SpringAI` `#MCP` `#Skill` `#AISecretary`
