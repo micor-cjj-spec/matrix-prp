@@ -15,7 +15,7 @@
 
 | 项目 | 简称 | 位置 | 说明 |
 |---|---|---|---|
-| Claude Code | cc | `projects/20260616-claude-code-cc.md` | Gitee 上的 Claude Code 相关研究项目，重点关注 Agent Harness、工具调用、上下文管理、Skills、MCP、权限机制等。 |
+| Claude Code | cc | `Claude Code/` | 独立学习目录，用于沉淀学习计划、源码总结、架构拆解、运行笔记和对 AI 秘书的设计启发。 |
 
 ## 记录原则
 
