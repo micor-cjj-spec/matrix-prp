@@ -1,66 +1,66 @@
 # Claude Code
 
-> Short name: cc  
-> Source: https://gitee.com/free/claude-code  
-> Sync date: 2026-06-16
+> 简称：cc  
+> 源码地址：https://gitee.com/free/claude-code  
+> 同步日期：2026-06-16
 
-## Positioning
+## 定位
 
-Claude Code is an independent study topic under the AI learning module. This directory is used to continuously organize learning plans, source-code summaries, architecture notes, running notes, and reusable conclusions related to Claude Code / cc.
+`Claude Code/` 是 AI 学习模块下的独立学习目录，用于持续沉淀 Claude Code / cc 项目的学习计划、源码总结、架构拆解、运行记录和最终设计启发。
 
-This directory should stay directly under `11-learning/ai/` and should not be placed under `projects/`.
+这个目录直接放在 `11-learning/ai/` 下，不再放到 `projects/` 目录中。后续所有与 Claude Code 相关的学习材料，都优先收敛到这个目录。
 
-## Directory Architecture
+## 目录架构
 
 ```text
 11-learning/ai/Claude Code/
-├── README.md                 # Directory entrance and study index
-├── learning-plan.md          # Stage plan, reading checklist, next actions
-├── source-summary.md         # Source-code reading summary and key module notes
+├── README.md                 # 目录入口、学习索引、目录规则
+├── learning-plan.md          # 阶段学习计划、阅读清单、下一步行动
+├── source-summary.md         # 源码阅读总结、关键模块记录、稳定结论
 ├── architecture/
-│   └── README.md             # Architecture topic index
+│   └── README.md             # 架构专题索引
 ├── notes/
-│   └── README.md             # Daily reading notes, issues, commands, experiments
+│   └── README.md             # 临时阅读笔记、运行记录、问题记录
 └── outputs/
-    └── README.md             # Final reusable conclusions and design references
+    └── README.md             # 最终沉淀，可复用于 AI 秘书设计
 ```
 
-## Why This Structure
+## 目录设计原则
 
-| Layer | Purpose |
+| 层级 | 用途 |
 |---|---|
-| `README.md` | Acts as the entrance of the Claude Code study topic. It should not carry too many details. |
-| `learning-plan.md` | Tracks what to learn, in what order, and what is already done. |
-| `source-summary.md` | Stores stable source-code understanding, module summaries, and important class/function notes. |
-| `architecture/` | Stores deeper architecture breakdowns such as Agent Harness, tool system, memory, permission, and MCP. |
-| `notes/` | Stores temporary reading notes, running logs, questions, and troubleshooting records. |
-| `outputs/` | Stores reusable conclusions that can be migrated into AI Secretary design documents. |
+| `README.md` | 当前学习主题的入口，只放定位、目录说明、索引规则，不堆太多细节。 |
+| `learning-plan.md` | 管理学习路径，包括先读什么、后读什么、当前完成到哪里。 |
+| `source-summary.md` | 存放源码阅读后的稳定理解，例如模块职责、关键流程、重要类和函数。 |
+| `architecture/` | 存放结构化架构拆解，例如 Agent Harness、工具系统、上下文、权限、MCP。 |
+| `notes/` | 存放临时笔记、运行日志、问题记录、报错排查，后续可整理为正式总结。 |
+| `outputs/` | 存放最终可复用结论，尤其是对 AI 秘书任务编排层、技能层、安全层的启发。 |
 
-## Current Focus
+## 当前重点
 
-| Area | Study Focus |
+| 方向 | 学习重点 |
 |---|---|
-| Agent Loop | How user input, model reasoning, tool calls, tool results, and next-round reasoning are connected. |
-| Agent Harness | The core orchestration framework of the Claude Code coding assistant. |
-| Tool System | How Bash, file operations, search, task, MCP, and other tools are registered and executed. |
-| Context Management | Project memory, session memory, context compression, and token control. |
-| Permission and Safety | Command execution, file modification, dangerous operation detection, and user confirmation. |
-| Skills / Hooks / MCP | Extension model that can be compared with the AI Secretary Skill layer. |
-| Java / Spring AI Implementation | Focus on how the Java implementation organizes CLI, tools, model calls, and context. |
+| Agent Loop | 用户输入、模型推理、工具调用、工具结果回填、继续推理之间如何串起来。 |
+| Agent Harness | Claude Code 编码助手的核心调度框架。 |
+| Tool System | Bash、文件读写、搜索、任务、MCP 等工具如何注册、选择和执行。 |
+| Context Management | 项目记忆、会话记忆、上下文压缩、Token 控制。 |
+| Permission and Safety | 命令执行、文件修改、危险操作识别、用户确认。 |
+| Skills / Hooks / MCP | 可扩展能力体系，可对照 AI 秘书 Skill 层设计。 |
+| Java / Spring AI Implementation | 重点关注 Java 实现中如何组织 CLI、工具、模型调用和上下文。 |
 
-## Relationship with AI Secretary
+## 与 AI 秘书项目的关系
 
-| AI Secretary Area | Reference Value from Claude Code |
+| AI 秘书方向 | Claude Code 可参考内容 |
 |---|---|
-| Orchestration Layer | Agent Loop, task decomposition, tool selection, execution state management. |
-| Task Layer | Task creation, query, update, status transition, background execution. |
-| Skill Layer | Tool registration, tool discovery, parameter validation, tool execution, MCP bridge. |
-| Memory System | Project context, user context, session summary, long-term memory. |
-| Safety System | Permission mode, dangerous command detection, confirmation before execution, rejection tracking. |
+| 编排层 | Agent Loop、任务拆解、工具选择、执行状态管理。 |
+| 任务层 | 任务创建、查询、更新、状态流转、后台执行。 |
+| 技能层 | 工具注册、工具发现、参数校验、工具执行、MCP 桥接。 |
+| 记忆系统 | 项目上下文、用户上下文、会话摘要、长期记忆。 |
+| 安全系统 | 权限模式、危险命令检测、执行前确认、拒绝追踪。 |
 
-## File Naming Rule
+## 文件命名规则
 
-All file names in this directory should use English kebab-case, for example:
+文件名统一使用英文 kebab-case，例如：
 
 ```text
 learning-plan.md
@@ -72,11 +72,11 @@ permission-safety.md
 ai-secretary-reference.md
 ```
 
-The document content can be written in Chinese, but file names should remain English for long-term maintainability.
+文件内容使用中文，方便长期阅读、复盘和迁移到自己的设计文档中。
 
-## Future Expansion
+## 后续扩展建议
 
-When source reading becomes deeper, the `architecture/` directory can be expanded like this:
+当源码阅读深入后，`architecture/` 可以扩展为：
 
 ```text
 architecture/
@@ -88,15 +88,16 @@ architecture/
 └── java-spring-ai-implementation.md
 ```
 
-The `outputs/` directory can later contain:
+`outputs/` 可以扩展为：
 
 ```text
 outputs/
 ├── ai-secretary-reference.md
 ├── skill-layer-design-reference.md
-└── orchestration-layer-design-reference.md
+├── orchestration-layer-design-reference.md
+└── safety-design-reference.md
 ```
 
-## Tags
+## 标签
 
-`#AI` `#ClaudeCode` `#cc` `#Agent` `#CLI` `#SpringAI` `#MCP` `#Skill` `#AISecretary`
+`#AI` `#ClaudeCode` `#cc` `#Agent` `#CLI` `#SpringAI` `#MCP` `#Skill` `#AI秘书`
