@@ -1,95 +1,97 @@
 # Claude Code Source Summary
 
-> This document stores stable source-code reading conclusions. Temporary notes should go to `notes/`; structured architecture breakdowns should go to `architecture/`.
+> 本文件用于沉淀源码阅读后的稳定结论。临时笔记放到 `notes/`，结构化架构拆解放到 `architecture/`。
 
-## Reading Status
+## 阅读状态
 
-| Item | Status | Notes |
+| 项目 | 状态 | 备注 |
 |---|---|---|
-| Repository collected | Done | Source: https://gitee.com/free/claude-code |
-| Local clone | Todo | Pending local operation |
-| Local build | Todo | Pending verification |
-| Local run | Todo | Pending verification |
-| Main branch overview | Todo | Focus on Java / Spring AI implementation |
-| Learn branch overview | Todo | Focus on Agent Harness teaching materials |
-| Claude branch overview | Todo | Focus on original TypeScript source snapshot |
+| 仓库收录 | 已完成 | 源码地址：https://gitee.com/free/claude-code |
+| 本地克隆 | 待完成 | 待本地操作 |
+| 本地编译 | 待完成 | 待验证 |
+| 本地运行 | 待完成 | 待验证 |
+| main 分支总览 | 待完成 | 重点看 Java / Spring AI 实现 |
+| learn 分支总览 | 待完成 | 重点看 Agent Harness 教学材料 |
+| claude 分支总览 | 待完成 | 重点看原始 TypeScript 源码快照 |
 
-## Project Positioning
+## 项目定位
 
-Claude Code / cc should be studied as an AI coding-agent system rather than a normal CLI tool. The key is not only how it sends prompts to a model, but how it organizes a continuous agent loop with tools, context, permissions, and extensions.
+Claude Code / cc 应该作为一个 AI 编码 Agent 系统来研究，而不是只当成普通 CLI 工具。
 
-## High-Level Architecture Hypothesis
+研究重点不只是它如何调用大模型，而是它如何把用户输入、模型推理、工具调用、上下文管理、权限控制和扩展机制组织成一个可持续运行的 Agent Loop。
+
+## 高层架构假设
 
 ```text
-User Input
+用户输入
    ↓
-CLI / Command Layer
+CLI / 命令层
    ↓
-Agent Loop / Orchestration
+Agent Loop / 编排层
    ↓
-Model Call
+模型调用
    ↓
-Tool Call Decision
+工具调用决策
    ↓
-Tool Execution
+工具执行
    ↓
-Tool Result Back to Context
+工具结果回填上下文
    ↓
-Continue / Finish
+继续推理 / 结束
 ```
 
-This is a hypothesis before deep source reading. It should be corrected after reading concrete implementation classes, functions, and modules.
+这是深入阅读源码前的初始假设。后续需要根据真实类、函数、模块进行修正。
 
-## Key Modules to Identify
+## 需要识别的关键模块
 
-| Module | What to Find |
+| 模块 | 需要确认的内容 |
 |---|---|
-| CLI entry | Startup class, command parser, interactive loop |
-| Model client | Model provider abstraction, request/response mapping, streaming handling |
-| Agent loop | Main reasoning loop, stop condition, retry strategy |
-| Tool registry | Tool definition, parameter schema, registration, discovery |
-| Tool executor | Execution flow, error handling, timeout, result formatting |
-| Context builder | System prompt, user message, project memory, conversation history |
-| Memory manager | Project memory file, session summary, compression |
-| Permission manager | User confirmation, allow/deny rules, risky operation detection |
-| MCP bridge | External tool discovery and invocation |
-| Skill system | Skill loading, matching, execution boundary |
+| CLI entry | 启动类、命令解析、交互循环 |
+| Model client | 模型供应商抽象、请求响应映射、流式输出处理 |
+| Agent loop | 主推理循环、终止条件、重试策略 |
+| Tool registry | 工具定义、参数 Schema、注册、发现 |
+| Tool executor | 执行流程、异常处理、超时控制、结果格式化 |
+| Context builder | 系统提示词、用户消息、项目记忆、历史对话 |
+| Memory manager | 项目记忆文件、会话摘要、上下文压缩 |
+| Permission manager | 用户确认、允许/拒绝规则、危险操作识别 |
+| MCP bridge | 外部工具发现与调用 |
+| Skill system | Skill 加载、匹配、执行边界 |
 
-## Source Reading Template
+## 源码阅读记录模板
 
-For each important class, function, or module, use the following format:
+每读一个重要类、函数或模块，建议使用下面格式记录：
 
 ```text
-### Module / Class / Function Name
+### 模块 / 类 / 函数名称
 
-Path:
+路径：
 
-Responsibility:
+职责：
 
-Input:
+输入：
 
-Output:
+输出：
 
-Key Flow:
+核心流程：
 
-Important Details:
+关键细节：
 
-Reference for AI Secretary:
+对 AI 秘书的参考价值：
 ```
 
-## Initial Research Questions
+## 第一轮研究问题
 
-1. What is the real entry point of the Java implementation?
-2. How does the project abstract model providers?
-3. How does it represent messages and tool calls?
-4. How does it register built-in tools?
-5. How does it parse tool calls from model responses?
-6. How does it control command execution permission?
-7. How does it load project memory files?
-8. How does it support MCP and external extensions?
-9. What parts can be reused in AI Secretary orchestration?
-10. What parts should not be reused directly?
+1. Java 实现的真实入口在哪里？
+2. 项目如何抽象模型供应商？
+3. 消息和工具调用是如何表示的？
+4. 内置工具如何注册？
+5. 模型返回的工具调用如何解析？
+6. 命令执行权限如何控制？
+7. 项目记忆文件如何加载？
+8. MCP 和外部扩展如何接入？
+9. 哪些部分可以复用于 AI 秘书编排层？
+10. 哪些部分不能直接照搬，需要结合 AI 秘书业务改造？
 
-## Reusable Conclusions
+## 可复用结论
 
-Pending source reading.
+待源码阅读后补充。
