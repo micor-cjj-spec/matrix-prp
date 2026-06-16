@@ -1,110 +1,110 @@
 # Claude Code Learning Plan
 
-> Goal: systematically study Claude Code / cc, including its architecture, tool calling, context management, permission control, extension model, and reusable design value for the AI Secretary project.
+> 目标：系统学习 Claude Code / cc 的架构、工具调用、上下文管理、权限控制、扩展机制，并提炼出对 AI 秘书项目可复用的设计方案。
 
-## Basic Information
+## 基本信息
 
-| Field | Value |
+| 字段 | 内容 |
 |---|---|
-| Project name | Claude Code |
-| Short name | cc |
-| Source | https://gitee.com/free/claude-code |
-| Module | `11-learning/ai/Claude Code/` |
-| Status | Collected, pending systematic source reading |
-| Priority | P1 |
+| 项目名称 | Claude Code |
+| 简称 | cc |
+| 源码地址 | https://gitee.com/free/claude-code |
+| 所属模块 | `11-learning/ai/Claude Code/` |
+| 当前状态 | 已收录，待系统阅读源码 |
+| 优先级 | P1 |
 
-## Stage 0: Collect and Run
+## 第 0 阶段：项目收集与运行
 
-Goal: run the project first and identify branches, build process, and main entry points.
+目标：先把项目跑起来，确认分支、构建方式和主要入口。
 
-- [ ] Clone source: `git clone https://gitee.com/free/claude-code.git`
-- [ ] Read `README.md`
-- [ ] Read `BUILD.md`
-- [ ] Read requirement or design documents if available
-- [ ] Check `main` branch
-- [ ] Check `learn` branch
-- [ ] Check `claude` branch
-- [ ] Record whether local build succeeds
-- [ ] Record whether local runtime succeeds
-- [ ] Record errors and solutions during setup
+- [ ] 克隆源码：`git clone https://gitee.com/free/claude-code.git`
+- [ ] 查看 `README.md`
+- [ ] 查看 `BUILD.md`
+- [ ] 查看项目需求或设计文档
+- [ ] 查看 `main` 分支
+- [ ] 查看 `learn` 分支
+- [ ] 查看 `claude` 分支
+- [ ] 记录本地是否可以成功编译
+- [ ] 记录本地是否可以成功运行
+- [ ] 记录运行过程中的错误和解决方案
 
-## Stage 1: Architecture Overview
+## 第 1 阶段：总览架构
 
-Goal: draw the first system map of Claude Code as a CLI Agent.
+目标：先画出 Claude Code 作为 CLI Agent 的整体系统图。
 
-- [ ] Entry layer: CLI startup, command parsing, REPL session
-- [ ] Agent layer: message loop, model call, tool selection
-- [ ] Tool layer: tool definition, registration, execution, result return
-- [ ] Context layer: context loading, memory files, compression policy
-- [ ] Security layer: permission mode, dangerous operation detection, confirmation
-- [ ] Extension layer: Skills, Hooks, MCP, Plugin
+- [ ] 入口层：CLI 启动流程、命令解析、交互会话
+- [ ] Agent 层：消息循环、模型调用、工具选择
+- [ ] Tool 层：工具定义、注册、执行、结果回填
+- [ ] Context 层：上下文加载、记忆文件、压缩策略
+- [ ] Security 层：权限模式、危险操作识别、用户确认
+- [ ] Extension 层：Skills、Hooks、MCP、Plugin
 
-## Stage 2: Agent Harness
+## 第 2 阶段：研究 Agent Harness
 
-Goal: understand the core runtime mechanism of Claude Code.
+目标：理解 Claude Code 的核心运行机制。
 
-Key questions:
+重点问题：
 
-1. How is the prompt or message list built after user input?
-2. How does the system parse and dispatch tool calls returned by the model?
-3. How are tool execution results inserted back into context?
-4. What are the stop conditions of the Agent Loop?
-5. How does the system recover from errors, rejections, or permission failures?
-6. Does the project support sub-agents or background tasks with independent state?
+1. 用户输入后，系统如何构造 Prompt 或 Message 列表？
+2. 模型返回工具调用时，系统如何解析和分发？
+3. 工具执行结果如何重新进入上下文？
+4. Agent Loop 的终止条件是什么？
+5. 出错、拒绝、权限不足时，系统如何恢复？
+6. 是否存在子 Agent 或后台任务？如果有，它们是否有独立状态？
 
-## Stage 3: Tool System and Skill Layer
+## 第 3 阶段：研究工具系统与 Skill 层
 
-Goal: extract references for the AI Secretary Skill layer.
+目标：为 AI 秘书的 Skill 层设计提炼参考。
 
-Key questions:
+重点问题：
 
-1. How is a tool interface abstracted?
-2. How are tool parameters declared, validated, and serialized?
-3. Are tool executions synchronous or asynchronous?
-4. How are tool failures returned to the model?
-5. How are MCP tools dynamically connected?
-6. What is the boundary between Skills, Commands, and Tools?
+1. 工具接口如何抽象？
+2. 工具参数如何声明、校验和序列化？
+3. 工具执行是同步还是异步？
+4. 工具失败后如何反馈给模型？
+5. MCP 工具如何动态接入？
+6. Skills、Commands、Tools 三者的边界是什么？
 
-## Stage 4: Context and Memory
+## 第 4 阶段：研究上下文与记忆
 
-Goal: extract references for long-term AI Secretary memory design.
+目标：为长期 AI 秘书记忆机制提炼参考。
 
-Key questions:
+重点问题：
 
-1. How are project-level memory files loaded?
-2. How are user-level, project-level, and directory-level memories merged?
-3. How does the system compress context before token overflow?
-4. How are historical conversations summarized?
-5. How are large tool results truncated?
-6. Which information should become long-term memory, and which should remain short-term context?
+1. 项目级记忆文件如何加载？
+2. 用户级、项目级、目录级记忆如何合并？
+3. Token 超限前如何压缩上下文？
+4. 历史对话如何摘要？
+5. 大型工具结果如何截断？
+6. 哪些信息应该进入长期记忆，哪些信息只保留在短期上下文？
 
-## Stage 5: Permission and Safety
+## 第 5 阶段：研究权限与安全
 
-Goal: understand safety mechanisms around command execution and file modification.
+目标：理解命令执行和文件修改相关的安全机制。
 
-Key questions:
+重点问题：
 
-1. How does the system classify safe and risky operations?
-2. Which operations require confirmation?
-3. How are user decisions recorded?
-4. How does the system prevent accidental destructive commands?
-5. How can this safety model be reused in AI Secretary tools?
+1. 系统如何区分安全操作和危险操作？
+2. 哪些操作必须用户确认？
+3. 用户的允许或拒绝如何记录？
+4. 系统如何避免误执行破坏性命令？
+5. 这套安全模型如何迁移到 AI 秘书工具调用体系？
 
-## Stage 6: Reusable Outputs
+## 第 6 阶段：沉淀可复用输出
 
-Goal: transform source reading into design assets.
+目标：把源码阅读结果转化为自己的设计资产。
 
-- [ ] Output Agent Harness breakdown
-- [ ] Output tool system breakdown
-- [ ] Output context and memory breakdown
-- [ ] Output permission and safety breakdown
-- [ ] Output AI Secretary orchestration reference
-- [ ] Output AI Secretary Skill layer improvement proposal
+- [ ] 输出 Agent Harness 架构拆解
+- [ ] 输出 Tool System 工具体系拆解
+- [ ] 输出 Context Memory 上下文与记忆拆解
+- [ ] 输出 Permission Safety 权限与安全拆解
+- [ ] 输出对 AI 秘书编排层的参考设计
+- [ ] 输出对 AI 秘书 Skill 层的改造建议
 
-## Next Actions
+## 下一步行动
 
-- [ ] Open the Gitee repository locally
-- [ ] Start from the `learn` branch
-- [ ] Compare the `main` Java implementation with the `claude` source snapshot
-- [ ] Fill `source-summary.md` after the first source reading round
-- [ ] Move stable conclusions into `architecture/` and `outputs/`
+- [ ] 本地打开 Gitee 仓库
+- [ ] 优先从 `learn` 分支开始看
+- [ ] 对照 `main` 的 Java 实现和 `claude` 的源码快照
+- [ ] 第一轮源码阅读后，补充 `source-summary.md`
+- [ ] 稳定结论再迁移到 `architecture/` 和 `outputs/`
