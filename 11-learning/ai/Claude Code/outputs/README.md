@@ -1,12 +1,14 @@
 # Claude Code Outputs
 
-> This directory stores final reusable conclusions extracted from Claude Code source reading.
+> 本目录用于存放从 Claude Code 源码学习中提炼出的最终可复用结论。
 
-## Purpose
+## 用途
 
-Use this directory to store materials that can directly support later design work, especially the AI Secretary project.
+`outputs/` 目录保存可以直接支撑后续设计工作的材料，尤其是对 AI 秘书项目的参考设计。
 
-## Planned Documents
+这里不放零散笔记，只放已经整理过、可以复用、可以迁移到正式设计文档中的内容。
+
+## 规划文件
 
 ```text
 outputs/
@@ -17,21 +19,21 @@ outputs/
 └── safety-design-reference.md
 ```
 
-## Output Standards
+## 输出标准
 
-Each output document should be written as a reusable design reference, not as raw notes.
+每份输出文档应该按“可复用设计参考”的方式写，而不是原始阅读笔记。
 
-Recommended structure:
+推荐结构：
 
-1. Background
-2. Problem
-3. Claude Code reference design
-4. What can be reused
-5. What should be changed for AI Secretary
-6. Suggested implementation plan
-7. Risks
-8. Next actions
+1. 背景
+2. 问题
+3. Claude Code 的参考设计
+4. 可以复用的部分
+5. 在 AI 秘书中需要调整的部分
+6. 建议实现方案
+7. 风险点
+8. 下一步行动
 
-## Current Status
+## 当前状态
 
-Pending source reading.
+待源码阅读后补充。
