@@ -19,3 +19,7 @@
 ## 02. 林俊杰
 
 《江南》、《一千年以后》、《曹操》、 $\color{red}{\text{《她说》}}$ 、 $\color{red}{\text{《修炼爱情》}}$ 、 $\color{red}{\text{《可惜没如果》}}$ 、 $\color{red}{\text{《小酒窝》}}$ 、 $\color{red}{\text{《背对背拥抱》}}$ 、 $\color{red}{\text{《不为谁而作的歌》}}$ 、 $\color{red}{\text{《那些你很冒险的梦》}}$ 、《学不会》、 $\color{red}{\text{《关键词》}}$ 、《输了你赢了世界又如何》、 $\color{red}{\text{《醉赤壁》}}$ 、《交换余生》、《美人鱼》、 $\color{red}{\text{《记得》}}$ 、《豆浆油条》、《冻结》、 $\color{red}{\text{《被风吹过的夏天》}}$ 、 $\color{red}{\text{《期待爱》}}$ 、 $\color{red}{\text{《Always Online》}}$ 、 $\color{red}{\text{《爱笑的眼睛》}}$ 、 $\color{red}{\text{《当你》}}$ 、《浪漫血液》、《不潮不用花钱》、《将故事写成我们》、《飞云之下》、 $\color{red}{\text{《手心的蔷薇》}}$ 、《不死之身》、 $\color{red}{\text{《裹着心的光》}}$
+
+## 03. 陈奕迅
+
+《十年》、 $\color{red}{\text{《爱情转移》}}$ 、《富士山下》、《好久不见》、 $\color{red}{\text{《淘汰》}}$ 、《单车》、《阴天快乐》
