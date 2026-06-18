@@ -267,3 +267,19 @@ $\color{red}{\text{《刻在我心底的名字》}}$ 、 $\color{red}{\text{《�
 ## 64. 李宗盛
 
 《山丘》、《漂洋过海来看你》、《鬼迷心窍》、 $\color{red}{\text{《梦醒时分》}}$
+
+## 65. F.I.R. 飞儿乐团
+
+《Lydia》、 $\color{red}{\text{《我们的爱》}}$ 、 $\color{red}{\text{《你的微笑》}}$ 、《千年之恋》、 $\color{red}{\text{《月牙湾》}}$
+
+## 66. S.H.E
+
+《Super Star》、《热带雨林》、 $\color{red}{\text{《你曾是少年》}}$ 、《恋人未满》
+
+## 67. 飞轮海
+
+$\color{red}{\text{《只对你有感觉》}}$
+
+## 68. 南拳妈妈
+
+$\color{red}{\text{《下雨天》}}$
