@@ -147,3 +147,11 @@ $\color{red}{\text{《海芋恋》}}$
 ## 34. 韦礼安
 
 $\color{red}{\text{《女孩》}}$ 、 $\color{red}{\text{《如果可以》}}$ 、《又是艳阳天》
+
+## 35. 徐佳莹
+
+$\color{red}{\text{《身骑白马》}}$ 、 $\color{red}{\text{《最初的记忆》}}$ 、《失落沙洲》、《言不由衷》、《到此为止》、 $\color{red}{\text{《一样的月光》}}$
+
+## 36. 苏打绿
+
+$\color{red}{\text{《小情歌》}}$
