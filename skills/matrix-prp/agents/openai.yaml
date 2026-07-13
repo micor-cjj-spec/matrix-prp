@@ -1,0 +1,4 @@
+interface:
+  display_name: "Matrix PRP"
+  short_description: "Matrix PRP project positioning and technical stack."
+  default_prompt: "Use $matrix-prp to follow the Matrix PRP project positioning and technical stack while developing."
