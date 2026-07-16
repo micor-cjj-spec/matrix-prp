@@ -1,0 +1,22 @@
+# OS and editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Java / Maven
+target/
+*.class
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+unpackage/
+
+# Logs and local env
+*.log
+.env
+.env.*
+!.env.example

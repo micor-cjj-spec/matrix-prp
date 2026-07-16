@@ -1,0 +1,192 @@
+page {
+  min-height: 100%;
+  background: #f6f8fb;
+  color: #1f2937;
+  font-family:
+    Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.screen {
+  min-height: 100vh;
+  padding: 24px 18px 32px;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.brand-mark {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.muted {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.panel,
+.card {
+  border: 1px solid #dce5ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 18px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.input,
+.textarea,
+.select {
+  min-height: 44px;
+  border: 1px solid #d7e1ed;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 12px;
+}
+
+.textarea {
+  min-height: 112px;
+  padding-top: 10px;
+}
+
+.button-primary,
+.button-secondary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.button-primary {
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
+.button-secondary {
+  border: 1px solid #d7e1ed;
+  background: #ffffff;
+  color: #1d4ed8;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.metric-card {
+  border: 1px solid #dce5ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.metric-card text {
+  display: block;
+}
+
+.metric-card .value {
+  margin-top: 8px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quick-card {
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 18px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+}
+
+.quick-card text {
+  display: block;
+}
+
+.section {
+  margin-top: 20px;
+}
+
+.section-title {
+  margin-bottom: 10px;
+  color: #1f2937;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #64748b;
+  padding: 16px;
+  text-align: center;
+}
+
+.list-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  border: 1px solid #dce5ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.list-card text {
+  display: block;
+}
+
+.list-title {
+  margin-bottom: 4px;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.mini-button {
+  flex: 0 0 auto;
+  min-width: 64px;
+  min-height: 32px;
+  border-radius: 6px;
+  background: #eef4ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  line-height: 32px;
+}
+
+.logout-button {
+  margin-top: 18px;
+}

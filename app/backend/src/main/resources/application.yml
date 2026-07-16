@@ -1,0 +1,38 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: matrix-prp-backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/matrix_prp?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: matrix_prp
+    password: matrix_prp
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-timeout: 2000
+      validation-timeout: 1000
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+matrix-prp:
+  knowledge:
+    root: ../../knowledge
+  security:
+    jwt-secret: change-me-in-local-env-change-me-in-local-env
+    jwt-expiration-minutes: 1440
+    development-password: matrix-prp

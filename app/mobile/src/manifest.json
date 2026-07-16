@@ -1,0 +1,16 @@
+{
+  "name": "Matrix PRP",
+  "appid": "__UNI__MATRIXPRP",
+  "description": "Personal resource planning mobile app",
+  "versionName": "0.0.1",
+  "versionCode": "1",
+  "transformPx": false,
+  "h5": {
+    "router": {
+      "mode": "hash"
+    }
+  },
+  "app-plus": {
+    "usingComponents": true
+  }
+}
