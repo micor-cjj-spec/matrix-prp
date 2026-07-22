@@ -2,7 +2,7 @@
 
 > 个人资源计划：一个基于 Markdown、GitHub 和 ChatGPT 的个人资源管理系统。
 
-PRP 是从“个人第二大脑”升级而来的长期系统。它不只是记录知识，而是用于管理、沉淀和优化个人资源：健康、学习、生活、工作、财务、旅行、个人项目、社交、音乐、复盘和临时想法。
+PRP 是从“个人第二大脑”升级而来的长期系统。它不只是记录知识，而是用于管理、沉淀和优化个人资源：健康、学习、生活、工作、财务、旅行、个人项目、社交、音乐、个人成长、复盘和临时想法。
 
 ## 核心定位
 
@@ -41,6 +41,7 @@ PRP = Personal Resource Planning，对标 ERP（Enterprise Resource Planning，�
 | `16-social/` | Social / 社交与关系管理 | 关系地图、沟通复盘、社交场景手册、社交目标 |
 | `17-projects/` | Projects / 个人项目 | 个人 GitHub 项目、开源项目、个人产品、长期 Side Project |
 | `18-music/` | Music / 音乐与声乐成长 | 听歌偏好、歌曲库、声乐练习、线下课程、音乐审美复盘 |
+| `19-human/` | Human / 个人成长系统 | 四象限观察、持续对话、短期计划、行动跟进与成长轨迹 |
 | `90-review/` | Review / 全局复盘 | 周复盘、月复盘、阶段复盘、跨模块总结 |
 | `templates/` | Templates / 模板 | 常用计划、复盘、归档和模块模板 |
 
@@ -62,6 +63,7 @@ PRP = Personal Resource Planning，对标 ERP（Enterprise Resource Planning，�
 | `16` | Social / 社交与关系管理 |
 | `17` | Projects / 个人项目 |
 | `18` | Music / 音乐与声乐成长 |
+| `19` | Human / 个人成长系统 |
 | `90` | Review / 全局复盘 |
 
 ## Work 与 Projects 的边界
@@ -79,6 +81,12 @@ PRP = Personal Resource Planning，对标 ERP（Enterprise Resource Planning，�
 公司相关 → 13-work
 个人 GitHub / 个人产品 / Side Project → 17-projects
 ```
+
+## Human 与 Review 的边界
+
+- `19-human/` 保存围绕个人状态、当前困难、优先目标和下一步行动形成的持续对话记录。
+- `90-review/` 保存跨模块的周复盘、月复盘和阶段复盘。
+- 一次 Human 对话可以聚焦一个当前问题；当积累到周或月周期后，再把变化汇总进入 `90-review/`。
 
 ## 文件命名规则
 
@@ -101,7 +109,7 @@ Capture 收集 → Organize 整理 → Plan 计划 → Execute 执行 → Review
 
 ### 2. Organize 整理
 
-把收集内容归入对应资源域，例如健康、学习、旅行、财务、生活、工作、个人项目、社交、音乐等。
+把收集内容归入对应资源域，例如健康、学习、旅行、财务、生活、工作、个人项目、社交、音乐、个人成长等。
 
 ### 3. Plan 计划
 
@@ -109,7 +117,7 @@ Capture 收集 → Organize 整理 → Plan 计划 → Execute 执行 → Review
 
 ### 4. Execute 执行
 
-记录关键过程数据，例如体重、饮食、学习进度、工作问题、个人项目进度、旅行体验、沟通结果、声乐练习和线下课程反馈。
+记录关键过程数据，例如体重、饮食、学习进度、工作问题、个人项目进度、旅行体验、沟通结果、声乐练习、线下课程反馈和 Human 行动跟进。
 
 ### 5. Review 复盘
 
@@ -129,9 +137,11 @@ Capture 收集 → Organize 整理 → Plan 计划 → Execute 执行 → Review
 - “把这次工作组会记录到 PRP 的 work 模块”
 - “把这个个人 GitHub 项目整理到 PRP 的 projects 模块”
 - “把这次声乐课记录到 PRP 的 music 模块”
+- “开始一次 Human 对话，并在结束后写入 PRP”
+- “继续上一次 Human 记录，检查行动结果并调整计划”
 - “帮我分析一下这首歌为什么好听，以及我适不适合唱”
 - “帮我创建一个本周学习计划”
-- “基于 PRP 总结最近一周的生活、学习、健康、社交、工作、个人项目和音乐状态”
+- “基于 PRP 总结最近一周的生活、学习、健康、社交、工作、个人项目、音乐和个人成长状态”
 - “把这次复盘整理成 PRP 周复盘”
 - “把这次聊天记录到 PRP 的社交模块”
 
