@@ -30,6 +30,7 @@ export interface TaskFilterParams {
 export interface TaskSummary {
   openCount: number
   todayCount: number
+  unscheduledCount: number
   overdueCount: number
   upcomingSevenDaysCount: number
   highPriorityOpenCount: number
