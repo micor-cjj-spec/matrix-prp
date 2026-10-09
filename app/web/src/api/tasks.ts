@@ -17,7 +17,7 @@ export interface CreateTaskRequest {
   title: string
   description: string
   priority: string
-  dueDate?: string
+  dueDate?: string | null
 }
 
 export interface TaskFilterParams {
@@ -30,6 +30,7 @@ export interface TaskFilterParams {
 export interface TaskSummary {
   openCount: number
   todayCount: number
+  unscheduledCount: number
   overdueCount: number
   upcomingSevenDaysCount: number
   highPriorityOpenCount: number

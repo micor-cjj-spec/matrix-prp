@@ -8,11 +8,8 @@ import com.matrix.prp.finance.service.FinanceService;
 import com.matrix.prp.modules.service.ModuleService;
 import com.matrix.prp.records.model.RecordFilter;
 import com.matrix.prp.records.service.RecordService;
-import com.matrix.prp.tasks.model.TaskFilter;
-import com.matrix.prp.tasks.model.TaskItem;
+import com.matrix.prp.tasks.model.TaskOverview;
 import com.matrix.prp.tasks.service.TaskService;
-import java.time.LocalDate;
-import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,30 +36,21 @@ public class DashboardController {
 
     @GetMapping("/summary")
     public ApiResponse<DashboardSummary> summary() {
-        LocalDate today = LocalDate.now();
+        TaskOverview tasks = taskService.overview();
         FinanceMonthlySummary financeSummary = financeService.monthlySummary();
-        List<TaskItem> activeTasks = taskService.list().stream()
-                .filter(task -> !"done".equals(task.status()))
-                .filter(task -> !"canceled".equals(task.status()))
-                .toList();
         DashboardSummary summary = new DashboardSummary(
-                today,
-                taskService.todayCount(),
-                (int) activeTasks.stream()
-                        .filter(task -> task.dueDate() != null && task.dueDate().isBefore(today))
-                        .count(),
+                tasks.date(),
+                tasks.summary().todayCount(),
+                tasks.summary().overdueCount(),
+                tasks.summary().unscheduledCount(),
                 recordService.count(),
                 financeSummary.income(),
                 financeSummary.expense(),
                 financeSummary.balance(),
-                taskService.list(new TaskFilter(null, null, today, null)).stream()
-                        .filter(task -> !"done".equals(task.status()))
-                        .limit(5)
-                        .toList(),
-                activeTasks.stream()
-                        .filter(task -> "high".equals(task.priority()))
-                        .limit(5)
-                        .toList(),
+                tasks.todayTasks(),
+                tasks.overdueTasks(),
+                tasks.unscheduledTasks(),
+                tasks.highPriorityTasks().stream().limit(5).toList(),
                 recordService.list(new RecordFilter(null, null, null, null)).stream()
                         .limit(5)
                         .toList(),

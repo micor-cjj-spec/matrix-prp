@@ -4,7 +4,6 @@ import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.model.TaskFilter;
 import com.matrix.prp.tasks.model.TaskItem;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -101,14 +100,6 @@ public class InMemoryTaskRepository implements TaskRepository {
         }
     }
 
-    @Override
-    public int todayCount() {
-        LocalDate today = LocalDate.now();
-        return (int) tasks.stream()
-                .filter(task -> !"done".equals(task.status()))
-                .filter(task -> task.dueDate() == null || today.equals(task.dueDate()))
-                .count();
-    }
 
     private TaskItem findById(long id) {
         return tasks.stream()

@@ -84,7 +84,7 @@ password: matrix-prp
 - `GET /api/modules`
 - `GET /api/modules/features`
 - `GET /api/modules/domains`
-- `GET /api/dashboard/summary`: 返回今日任务、逾期任务数、高优先级任务、最近记录和财务月度摘要。
+- `GET /api/dashboard/summary`: 返回今日、逾期、待安排任务列表及数量、高优先级任务、最近记录和财务摘要。今日/逾期/待安排使用同一个任务快照；高优先级列表最多展示 5 条。
 
 ### Records
 
@@ -103,11 +103,13 @@ password: matrix-prp
 ### Tasks
 
 - `GET /api/tasks`: 支持 `status`、`moduleCode`、`dueDate`、`priority`。
-- `GET /api/tasks/summary`: 返回未完成、今日、逾期、未来 7 天、高优先级和状态分布概览。
+- `GET /api/tasks/summary`: 返回未完成、今日、待安排（新增 `unscheduledCount`）、逾期、未来 7 天、高优先级和状态分布概览。
 - `POST /api/tasks`: 创建任务，`priority` 允许 `low`、`medium`、`high`。
 - `PUT /api/tasks/{id}`: 更新任务基础信息，`priority` 允许 `low`、`medium`、`high`。
 - `PATCH /api/tasks/{id}/status`: 更新任务状态，`status` 允许 `todo`、`in_progress`、`done`、`canceled`。
 - `DELETE /api/tasks/{id}`: 删除任务。
+
+任务分类规则：仅 `todo`/`in_progress` 视为未完成；今日 = 截止日期为今天；逾期 = 截止日期早于今天；待安排 = 无截止日期；未来 7 天 = 明天至第 7 天（含）。
 
 ### Finance
 

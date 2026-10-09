@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fallbackDomainModules, fetchDomainModules, type ModuleItem } from '@/api/modules'
 import {
@@ -18,6 +18,7 @@ const tasks = ref<TaskItem[]>([])
 const summary = ref<TaskSummary>({
   openCount: 0,
   todayCount: 0,
+  unscheduledCount: 0,
   overdueCount: 0,
   upcomingSevenDaysCount: 0,
   highPriorityOpenCount: 0,
@@ -30,6 +31,35 @@ const editDialogVisible = ref(false)
 const editingTaskId = ref<number | null>(null)
 
 const priorityOptions = ['low', 'medium', 'high']
+const quickFilter = ref('all')
+const quickFilterOptions = [
+  { label: '全部', value: 'all' },
+  { label: '今日', value: 'today' },
+  { label: '逾期', value: 'overdue' },
+  { label: '待安排', value: 'unscheduled' },
+  { label: '未来', value: 'future' },
+]
+
+function localDateString() {
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+const visibleTasks = computed(() => {
+  const today = localDateString()
+  return tasks.value.filter((task) => {
+    if (quickFilter.value === 'all') return true
+    if (task.status === 'done' || task.status === 'canceled') return false
+    if (quickFilter.value === 'today') return task.dueDate === today
+    if (quickFilter.value === 'overdue') return !!task.dueDate && task.dueDate < today
+    if (quickFilter.value === 'unscheduled') return !task.dueDate
+    if (quickFilter.value === 'future') return !!task.dueDate && task.dueDate > today
+    return true
+  })
+})
 const statusOptions = [
   { label: '待办', value: 'todo' },
   { label: '进行中', value: 'in_progress' },
@@ -49,7 +79,7 @@ const form = reactive({
   title: '',
   description: '',
   priority: 'medium',
-  dueDate: new Date().toISOString().slice(0, 10),
+  dueDate: localDateString() as string | null,
 })
 
 const editForm = reactive({
@@ -57,7 +87,7 @@ const editForm = reactive({
   title: '',
   description: '',
   priority: 'medium',
-  dueDate: new Date().toISOString().slice(0, 10),
+  dueDate: localDateString() as string | null,
 })
 
 async function loadTasks() {
@@ -99,7 +129,7 @@ function openEditDialog(task: TaskItem) {
   editForm.title = task.title
   editForm.description = task.description
   editForm.priority = task.priority
-  editForm.dueDate = task.dueDate || new Date().toISOString().slice(0, 10)
+  editForm.dueDate = task.dueDate || null
   editDialogVisible.value = true
 }
 
@@ -184,9 +214,14 @@ onMounted(loadTasks)
         <p>todo {{ summary.statusCounts.todo || 0 }} / doing {{ summary.statusCounts.in_progress || 0 }}</p>
       </article>
       <article class="metric-card">
-        <span>今日关注</span>
+        <span>今日到期</span>
         <strong>{{ summary.todayCount }}</strong>
-        <p>无截止日期或今天到期</p>
+        <p>仅今天到期且未完成</p>
+      </article>
+      <article class="metric-card">
+        <span>待安排</span>
+        <strong>{{ summary.unscheduledCount }}</strong>
+        <p>尚未设置截止日期</p>
       </article>
       <article class="metric-card">
         <span>逾期</span>
@@ -241,9 +276,12 @@ onMounted(loadTasks)
           <el-button @click="clearFilters">清空</el-button>
         </div>
 
-        <el-empty v-if="tasks.length === 0" description="暂无任务" />
+        <div class="filter-row">
+          <el-segmented v-model="quickFilter" :options="quickFilterOptions" />
+        </div>
+        <el-empty v-if="visibleTasks.length === 0" description="没有符合筛选条件的任务" />
         <div v-else class="item-list">
-          <article v-for="task in tasks" :key="task.id" class="list-item">
+          <article v-for="task in visibleTasks" :key="task.id" class="list-item">
             <div class="list-item-row">
               <strong>{{ task.title }}</strong>
               <div class="item-actions">

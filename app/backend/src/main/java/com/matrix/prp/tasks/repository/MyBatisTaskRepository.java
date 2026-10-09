@@ -7,7 +7,6 @@ import com.matrix.prp.tasks.mapper.TaskMapper;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.model.TaskFilter;
 import com.matrix.prp.tasks.model.TaskItem;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.context.annotation.Profile;
@@ -88,16 +87,6 @@ public class MyBatisTaskRepository implements TaskRepository {
         taskMapper.deleteById(id);
     }
 
-    @Override
-    public int todayCount() {
-        LocalDate today = LocalDate.now();
-        Long count = taskMapper.selectCount(new LambdaQueryWrapper<TaskEntity>()
-                .ne(TaskEntity::getStatus, "done")
-                .and(wrapper -> wrapper.isNull(TaskEntity::getDueDate)
-                        .or()
-                        .eq(TaskEntity::getDueDate, today)));
-        return Math.toIntExact(count);
-    }
 
     private TaskEntity findById(long id) {
         TaskEntity entity = taskMapper.selectById(id);
