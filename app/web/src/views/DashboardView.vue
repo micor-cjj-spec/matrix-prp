@@ -161,6 +161,45 @@ onMounted(async () => {
       </el-card>
 
       <el-card shadow="never">
+        <template #header>逾期任务</template>
+        <el-empty v-if="summary.overdueTasks.length === 0" description="没有逾期任务" />
+        <div v-else class="item-list">
+          <article v-for="task in summary.overdueTasks" :key="task.id" class="list-item">
+            <div class="list-item-row">
+              <strong>{{ task.title }}</strong>
+              <el-button size="small" type="success" plain
+                :loading="completingTaskId === task.id"
+                :disabled="!apiOnline || completingTaskId !== null"
+                @click="completeTask(task.id)">完成</el-button>
+            </div>
+            <span>{{ task.moduleCode }} · 截止 {{ task.dueDate }}</span>
+            <p>{{ task.description || '无描述' }}</p>
+          </article>
+        </div>
+      </el-card>
+
+      <el-card shadow="never">
+        <template #header>待安排（无截止日期）</template>
+        <el-empty v-if="summary.unscheduledTasks.length === 0" description="暂无待安排任务" />
+        <div v-else class="item-list">
+          <article v-for="task in summary.unscheduledTasks" :key="task.id" class="list-item">
+            <div class="list-item-row">
+              <strong>{{ task.title }}</strong>
+              <div class="item-actions">
+                <RouterLink to="/tasks">设置日期</RouterLink>
+                <el-button size="small" type="success" plain
+                  :loading="completingTaskId === task.id"
+                  :disabled="!apiOnline || completingTaskId !== null"
+                  @click="completeTask(task.id)">完成</el-button>
+              </div>
+            </div>
+            <span>{{ task.moduleCode }} · {{ task.priority }}</span>
+            <p>{{ task.description || '无描述' }}</p>
+          </article>
+        </div>
+      </el-card>
+
+      <el-card shadow="never">
         <template #header>高优先级</template>
         <el-empty v-if="summary.highPriorityTasks.length === 0" description="暂无高优先级任务" />
         <div v-else class="item-list">
