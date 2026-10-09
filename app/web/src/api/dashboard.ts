@@ -37,11 +37,14 @@ export interface DashboardSummary {
   date: string
   todayTaskCount: number
   overdueTaskCount: number
+  unscheduledTaskCount: number
   recentRecordCount: number
   monthlyIncome: string
   monthlyExpense: string
   monthlyBalance: string
   todayTasks: DashboardTask[]
+  overdueTasks: DashboardTask[]
+  unscheduledTasks: DashboardTask[]
   highPriorityTasks: DashboardTask[]
   recentRecords: DashboardRecord[]
   modules: DashboardModule[]
