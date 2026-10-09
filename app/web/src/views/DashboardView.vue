@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { updateTaskStatus } from '@/api/tasks'
 import { Document, EditPen, Money, Notebook, Operation, Tickets } from '@element-plus/icons-vue'
 import { fetchDashboardSummary, type DashboardSummary } from '@/api/dashboard'
 import { fetchRuntimeHealth, type RuntimeHealth } from '@/api/health'
@@ -17,11 +19,14 @@ const fallbackSummary: DashboardSummary = {
   date: new Date().toISOString().slice(0, 10),
   todayTaskCount: 0,
   overdueTaskCount: 0,
+  unscheduledTaskCount: 0,
   recentRecordCount: 0,
   monthlyIncome: '0',
   monthlyExpense: '0',
   monthlyBalance: '0',
   todayTasks: [],
+  overdueTasks: [],
+  unscheduledTasks: [],
   highPriorityTasks: [],
   recentRecords: [],
   modules: [
@@ -37,6 +42,7 @@ const summary = ref<DashboardSummary>(fallbackSummary)
 const runtime = ref<RuntimeHealth | null>(null)
 const loading = ref(true)
 const apiOnline = ref(false)
+const completingTaskId = ref<number | null>(null)
 
 const formatCurrency = (value: string) =>
   new Intl.NumberFormat('zh-CN', {
@@ -47,6 +53,7 @@ const formatCurrency = (value: string) =>
 const metrics = computed(() => [
   { label: '今日任务', value: String(summary.value.todayTaskCount), hint: '需要关注的行动' },
   { label: '逾期任务', value: String(summary.value.overdueTaskCount), hint: '需要尽快处理' },
+  { label: '待安排', value: String(summary.value.unscheduledTaskCount), hint: '尚无截止日期' },
   { label: '本月支出', value: formatCurrency(summary.value.monthlyExpense), hint: '月度现金流' },
   { label: '最近记录', value: String(summary.value.recentRecordCount), hint: '过程沉淀' },
 ])
@@ -68,6 +75,20 @@ function statusTagType(status: string) {
   if (status === 'in_progress') return 'warning'
   if (status === 'canceled') return 'info'
   return 'primary'
+}
+
+async function completeTask(id: number) {
+  if (!apiOnline.value || completingTaskId.value !== null) return
+  completingTaskId.value = id
+  try {
+    await updateTaskStatus(id, 'done')
+    summary.value = await fetchDashboardSummary()
+    ElMessage.success('任务已完成')
+  } catch {
+    ElMessage.error('完成任务失败，请重试')
+  } finally {
+    completingTaskId.value = null
+  }
 }
 
 onMounted(async () => {
@@ -119,13 +140,19 @@ onMounted(async () => {
 
     <section class="dashboard-grid">
       <el-card shadow="never">
-        <template #header>今日待办</template>
+        <template #header><div class="list-item-row"><span>今日待办</span><RouterLink to="/tasks">管理任务</RouterLink></div></template>
         <el-empty v-if="summary.todayTasks.length === 0" description="暂无今日任务" />
         <div v-else class="item-list">
           <article v-for="task in summary.todayTasks" :key="task.id" class="list-item">
             <div class="list-item-row">
               <strong>{{ task.title }}</strong>
-              <el-tag :type="statusTagType(task.status)">{{ task.status }}</el-tag>
+              <div class="item-actions">
+                <el-tag :type="statusTagType(task.status)">{{ task.status }}</el-tag>
+                <el-button size="small" type="success" plain
+                  :loading="completingTaskId === task.id"
+                  :disabled="!apiOnline || completingTaskId !== null"
+                  @click="completeTask(task.id)">完成</el-button>
+              </div>
             </div>
             <span>{{ task.moduleCode }} · {{ task.priority }} · {{ task.dueDate || '无截止日期' }}</span>
             <p>{{ task.description || '无描述' }}</p>
