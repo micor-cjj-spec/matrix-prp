@@ -3,6 +3,7 @@ package com.matrix.prp.tasks.service;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.model.TaskFilter;
 import com.matrix.prp.tasks.model.TaskItem;
+import com.matrix.prp.tasks.model.TaskOverview;
 import com.matrix.prp.tasks.model.TaskSummary;
 import com.matrix.prp.tasks.repository.TaskRepository;
 import java.time.LocalDate;
@@ -28,27 +29,51 @@ public class TaskService {
         return taskRepository.list(filter);
     }
 
-    public TaskSummary summary() {
+    /**
+     * Use the same date, open-state predicate and task snapshot for all
+     * dashboard lists and counters.
+     *
+     * Today means due today; tasks without a due date are "unscheduled".
+     * Upcoming seven days means tomorrow through the seventh day.
+     */
+    public TaskOverview overview() {
         LocalDate today = LocalDate.now();
-        LocalDate sevenDaysLater = today.plusDays(7);
-        List<TaskItem> tasks = taskRepository.list();
-        Map<String, Integer> statusCounts = tasks.stream()
-                .collect(Collectors.groupingBy(TaskItem::status, Collectors.summingInt(task -> 1)));
-        List<TaskItem> openTasks = tasks.stream()
-                .filter(this::isOpen)
+        List<TaskItem> allTasks = taskRepository.list();
+        List<TaskItem> openTasks = allTasks.stream().filter(this::isOpen).toList();
+        List<TaskItem> todayTasks = openTasks.stream()
+                .filter(task -> today.equals(task.dueDate()))
+                .toList();
+        List<TaskItem> overdueTasks = openTasks.stream()
+                .filter(task -> task.dueDate() != null && task.dueDate().isBefore(today))
+                .toList();
+        List<TaskItem> unscheduledTasks = openTasks.stream()
+                .filter(task -> task.dueDate() == null)
+                .toList();
+        List<TaskItem> highPriorityTasks = openTasks.stream()
+                .filter(task -> "high".equals(task.priority()))
                 .toList();
 
-        return new TaskSummary(
+        Map<String, Integer> statusCounts = allTasks.stream()
+                .collect(Collectors.groupingBy(TaskItem::status, Collectors.summingInt(task -> 1)));
+        TaskSummary summary = new TaskSummary(
                 openTasks.size(),
-                (int) openTasks.stream().filter(task -> task.dueDate() == null || today.equals(task.dueDate())).count(),
-                (int) openTasks.stream().filter(task -> task.dueDate() != null && task.dueDate().isBefore(today)).count(),
+                todayTasks.size(),
+                unscheduledTasks.size(),
+                overdueTasks.size(),
                 (int) openTasks.stream()
                         .filter(task -> task.dueDate() != null
-                                && !task.dueDate().isBefore(today)
-                                && !task.dueDate().isAfter(sevenDaysLater))
+                                && task.dueDate().isAfter(today)
+                                && !task.dueDate().isAfter(today.plusDays(7)))
                         .count(),
-                (int) openTasks.stream().filter(task -> "high".equals(task.priority())).count(),
+                highPriorityTasks.size(),
                 statusCounts);
+
+        return new TaskOverview(today, summary,
+                todayTasks, overdueTasks, unscheduledTasks, highPriorityTasks);
+    }
+
+    public TaskSummary summary() {
+        return overview().summary();
     }
 
     public TaskItem create(CreateTaskRequest request) {
@@ -68,7 +93,7 @@ public class TaskService {
     }
 
     public int todayCount() {
-        return taskRepository.todayCount();
+        return overview().summary().todayCount();
     }
 
     private boolean isOpen(TaskItem task) {
