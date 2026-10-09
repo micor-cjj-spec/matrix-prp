@@ -17,7 +17,7 @@ export interface CreateTaskRequest {
   title: string
   description: string
   priority: string
-  dueDate?: string
+  dueDate?: string | null
 }
 
 export interface TaskFilterParams {
