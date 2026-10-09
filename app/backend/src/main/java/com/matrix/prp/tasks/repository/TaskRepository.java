@@ -19,5 +19,4 @@ public interface TaskRepository {
 
     void delete(long id);
 
-    int todayCount();
 }
