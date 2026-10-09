@@ -18,6 +18,7 @@ const tasks = ref<TaskItem[]>([])
 const summary = ref<TaskSummary>({
   openCount: 0,
   todayCount: 0,
+  unscheduledCount: 0,
   overdueCount: 0,
   upcomingSevenDaysCount: 0,
   highPriorityOpenCount: 0,
