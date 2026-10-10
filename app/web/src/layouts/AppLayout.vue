@@ -24,13 +24,13 @@ async function inviteFriend() {
 }
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: DataAnalysis },
-  { to: '/records', label: 'Records', icon: Document },
-  { to: '/tasks', label: 'Tasks', icon: Tickets },
-  { to: '/finance', label: 'Finance', icon: Money },
-  { to: '/reviews', label: 'Reviews', icon: EditPen },
-  { to: '/tags', label: 'Tags', icon: CollectionTag },
-  { to: '/knowledge', label: 'Knowledge', icon: Notebook },
+  { to: '/', label: '首页概览', icon: DataAnalysis },
+  { to: '/records', label: '记录管理', icon: Document },
+  { to: '/tasks', label: '任务计划', icon: Tickets },
+  { to: '/finance', label: '财务管理', icon: Money },
+  { to: '/reviews', label: '复盘中心', icon: EditPen },
+  { to: '/tags', label: '标签管理', icon: CollectionTag },
+  { to: '/knowledge', label: '知识库', icon: Notebook },
   { to: '/videos', label: '视频学习库', icon: VideoCamera },
   { to: '/notifications', label: '消息与提醒', icon: Bell },
 ]
@@ -50,7 +50,7 @@ async function logout() {
         <div class="brand-mark">M</div>
         <div>
           <strong>Matrix PRP</strong>
-          <span>Personal resource planning</span>
+          <span>个人资源管理平台</span>
         </div>
       </div>
 

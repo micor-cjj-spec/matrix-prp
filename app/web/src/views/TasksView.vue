@@ -13,6 +13,7 @@ import {
   type TaskSummary,
 } from '@/api/tasks'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { moduleLabel, priorityLabel } from '@/utils/labels'
 
 const tasks = ref<TaskItem[]>([])
 const summary = ref<TaskSummary>({
@@ -30,7 +31,7 @@ const apiOnline = ref(false)
 const editDialogVisible = ref(false)
 const editingTaskId = ref<number | null>(null)
 
-const priorityOptions = ['low', 'medium', 'high']
+const priorityOptions = [{ label: '低', value: 'low' }, { label: '中', value: 'medium' }, { label: '高', value: 'high' }]
 const quickFilter = ref('all')
 const quickFilterOptions = [
   { label: '全部', value: 'all' },
@@ -198,11 +199,11 @@ onMounted(loadTasks)
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Tasks</p>
+        <p class="eyebrow">任务管理</p>
         <h1>任务计划</h1>
         <p>管理今日和近期事项，把记录沉淀成下一步行动。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ apiOnline ? 'Tasks API 已连接' : '后端未连接，列表暂不可同步' }}
+          {{ apiOnline ? '任务服务已连接' : '后端未连接，列表暂不可同步' }}
         </span>
       </div>
     </header>
@@ -211,7 +212,7 @@ onMounted(loadTasks)
       <article class="metric-card">
         <span>未完成</span>
         <strong>{{ summary.openCount }}</strong>
-        <p>todo {{ summary.statusCounts.todo || 0 }} / doing {{ summary.statusCounts.in_progress || 0 }}</p>
+        <p>待办 {{ summary.statusCounts.todo || 0 }} / 进行中 {{ summary.statusCounts.in_progress || 0 }}</p>
       </article>
       <article class="metric-card">
         <span>今日到期</span>
@@ -270,7 +271,7 @@ onMounted(loadTasks)
             <el-option v-for="module in modules" :key="module.code" :label="module.name" :value="module.code" />
           </el-select>
           <el-select v-model="filters.priority" clearable placeholder="按优先级筛选" @change="loadTasks" @clear="loadTasks">
-            <el-option v-for="priority in priorityOptions" :key="priority" :label="priority" :value="priority" />
+            <el-option v-for="priority in priorityOptions" :key="priority.value" :label="priority.label" :value="priority.value" />
           </el-select>
           <el-date-picker v-model="filters.dueDate" type="date" value-format="YYYY-MM-DD" placeholder="按截止日期筛选" @change="loadTasks" />
           <el-button @click="clearFilters">清空</el-button>
@@ -285,13 +286,13 @@ onMounted(loadTasks)
             <div class="list-item-row">
               <strong>{{ task.title }}</strong>
               <div class="item-actions">
-                <el-tag :type="priorityTagType(task.priority)">{{ task.priority }}</el-tag>
+                <el-tag :type="priorityTagType(task.priority)">{{ priorityLabel(task.priority) }}</el-tag>
                 <el-tag :type="statusTagType(task.status)">{{ statusLabel(task.status) }}</el-tag>
                 <el-button size="small" text @click="openEditDialog(task)">编辑</el-button>
                 <el-button size="small" text type="danger" @click="removeTask(task)">删除</el-button>
               </div>
             </div>
-            <span>{{ task.moduleCode }} · {{ task.dueDate || '无截止日期' }}</span>
+            <span>{{ moduleLabel(task.moduleCode) }} · {{ task.dueDate || '无截止日期' }}</span>
             <p>{{ task.description || '无描述' }}</p>
             <div class="item-actions">
               <el-select

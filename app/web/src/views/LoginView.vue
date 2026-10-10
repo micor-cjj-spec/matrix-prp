@@ -44,12 +44,12 @@ async function submitLogin() {
         <div class="brand-mark">M</div>
         <div>
           <strong>Matrix PRP</strong>
-          <span>Personal resource planning</span>
+          <span>个人资源管理平台</span>
         </div>
       </div>
 
       <div class="login-copy">
-        <p class="eyebrow">Phase 1</p>
+        <p class="eyebrow">个人空间</p>
         <h1>进入个人资源管理平台</h1>
         <p>使用个人账号登录；新朋友需要邀请码才能注册。</p>
       </div>
