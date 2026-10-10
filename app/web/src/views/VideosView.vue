@@ -178,7 +178,7 @@ onBeforeUnmount(() => { void savePosition() })
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Video Library</p>
+        <p class="eyebrow">视频学习</p>
         <h1>我的视频学习库</h1>
         <p>建立课程目录、上传视频、调整倍速，自动保存观看位置。</p>
       </div>

@@ -171,11 +171,11 @@ onMounted(loadTree)
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Knowledge</p>
+        <p class="eyebrow">知识管理</p>
         <h1>知识库浏览</h1>
         <p>读取仓库里的 `knowledge/` 目录树，搜索并预览 Markdown 内容。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ apiOnline ? 'Knowledge API 已连接' : '后端未连接，知识库暂不可浏览' }}
+          {{ apiOnline ? '知识库服务已连接' : '后端未连接，知识库暂不可浏览' }}
         </span>
       </div>
     </header>
@@ -215,7 +215,7 @@ onMounted(loadTree)
           >
             <div class="search-result-title">
               <strong>{{ result.name }}</strong>
-              <em>score {{ result.score }}</em>
+              <em>匹配度 {{ result.score }}</em>
             </div>
             <span>{{ result.path }}</span>
             <p>{{ result.snippet }}</p>

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { notificationCategoryLabel, notificationPermissionLabel } from '@/utils/labels'
 import {
   getReminders, createReminder, updateReminder, changeReminderStatus, removeReminder, sendNow,
   getInbox, markRead, getDevices, getVapidKey, registerSubscription, removeDevice, testPush,
@@ -97,7 +98,7 @@ function keyBytes(base64: string): Uint8Array {
   return Uint8Array.from(raw, char => char.charCodeAt(0))
 }
 async function enablePush() {
-  if (!supportsPush) { ElMessage.warning('需要 HTTPS 和支持 Push 的浏览器；iPhone 请先添加到主屏幕并从桌面打开'); return }
+  if (!supportsPush) { ElMessage.warning('需要 HTTPS 和支持系统推送的浏览器；iPhone 请先添加到主屏幕并从桌面打开'); return }
   try {
     // Permission request must be triggered by the user's explicit click.
     const granted = await Notification.requestPermission()
@@ -112,7 +113,7 @@ async function enablePush() {
     if (!json.keys?.p256dh || !json.keys.auth) throw new Error('订阅密钥不完整')
     await registerSubscription({
       endpoint: sub.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth,
-      deviceName: navigator.userAgent.includes('iPhone') ? 'iPhone PWA' : 'Web 浏览器'
+      deviceName: navigator.userAgent.includes('iPhone') ? 'iPhone 主屏幕应用' : '网页浏览器'
     })
     ElMessage.success('当前设备已订阅推送')
     await refresh()
@@ -137,7 +138,7 @@ onMounted(refresh)
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Notification Center</p>
+        <p class="eyebrow">消息管理</p>
         <h1>消息与提醒中心</h1>
         <p>创建自己的提醒规则，接收 iPhone 和电脑上的系统通知。</p>
       </div>
@@ -191,7 +192,7 @@ onMounted(refresh)
           <div class="notification-side">
             <el-card shadow="never">
               <template #header><strong>通知预览</strong></template>
-              <p class="muted">Matrix PRP · {{ category }}</p>
+              <p class="muted">Matrix PRP · {{ notificationCategoryLabel(category) }}</p>
               <h3>{{ currentPreview }}</h3>
               <p>{{ body || '这里会显示你填写的通知正文。' }}</p>
             </el-card>
@@ -221,14 +222,14 @@ onMounted(refresh)
               <el-tag v-if="!item.readAt" size="small">未读</el-tag>
             </div>
             <p>{{ item.body }}</p>
-            <small>{{ item.category }} · {{ item.createdAt }}</small>
+            <small>{{ notificationCategoryLabel(item.category) }} · {{ item.createdAt }}</small>
           </div>
         </el-card>
       </el-tab-pane>
       <el-tab-pane label="推送设备" name="devices">
         <el-card shadow="never">
           <h3>系统推送</h3>
-          <p class="muted">通知权限：{{ permission }}。iPhone 必须先添加到主屏幕，并从桌面打开 App。</p>
+          <p class="muted">通知权限：{{ notificationPermissionLabel(permission) }}。iPhone 必须先添加到主屏幕，并从桌面打开 App。</p>
           <div class="notification-actions">
             <el-button type="primary" @click="enablePush">开启当前设备通知</el-button>
             <el-button @click="sendTest">发送测试通知</el-button>

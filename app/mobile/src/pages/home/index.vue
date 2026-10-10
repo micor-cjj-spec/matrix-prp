@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { clearToken } from '@/api/client'
+import { moduleLabel, priorityLabel, taskStatusLabel } from '@/utils/labels'
 import { fetchDashboardSummary, type DashboardSummary } from '@/api/dashboard'
 import { fetchFinanceMonthlySummary, type FinanceMonthlySummary } from '@/api/finance'
 import { fetchTaskSummary, updateTaskStatus, type TaskItem, type TaskSummary } from '@/api/tasks'
@@ -87,7 +88,7 @@ onMounted(loadToday)
       <view class="brand-mark">M</view>
       <view>
         <view class="title">今日</view>
-        <text class="muted">{{ apiOnline ? 'API 已连接' : '后端未连接，显示占位数据' }}</text>
+        <text class="muted">{{ apiOnline ? '服务已连接' : '后端未连接，显示占位数据' }}</text>
       </view>
     </view>
 
@@ -145,7 +146,7 @@ onMounted(loadToday)
         <view v-for="task in todayTasks" :key="task.id" class="list-card">
           <view>
             <text class="list-title">{{ task.title }}</text>
-            <text class="muted">{{ task.moduleCode }} · {{ task.priority }} · {{ task.dueDate || '无截止日期' }}</text>
+            <text class="muted">{{ moduleLabel(task.moduleCode) }} · {{ priorityLabel(task.priority) }} · {{ task.dueDate || '无截止日期' }}</text>
           </view>
           <button class="mini-button" @click="completeTask(task)">完成</button>
         </view>
@@ -159,7 +160,7 @@ onMounted(loadToday)
         <view v-for="task in highPriorityTasks" :key="task.id" class="list-card">
           <view>
             <text class="list-title">{{ task.title }}</text>
-            <text class="muted">{{ task.moduleCode }} · {{ task.status }} · {{ task.dueDate || '无截止日期' }}</text>
+            <text class="muted">{{ moduleLabel(task.moduleCode) }} · {{ taskStatusLabel(task.status) }} · {{ task.dueDate || '无截止日期' }}</text>
           </view>
           <button v-if="task.status !== 'done'" class="mini-button" @click="completeTask(task)">完成</button>
         </view>
@@ -173,7 +174,7 @@ onMounted(loadToday)
         <view v-for="record in recentRecords" :key="record.id" class="list-card">
           <view>
             <text class="list-title">{{ record.title }}</text>
-            <text class="muted">{{ record.moduleCode }} · {{ record.recordDate }}</text>
+            <text class="muted">{{ moduleLabel(record.moduleCode) }} · {{ record.recordDate }}</text>
           </view>
         </view>
       </template>

@@ -5,6 +5,7 @@ import { fallbackDomainModules, fetchDomainModules, type ModuleItem } from '@/ap
 import { createRecord, deleteRecord, fetchRecords, updateRecord, type RecordItem } from '@/api/records'
 import { fetchTags, type TagItem } from '@/api/tags'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { moduleLabel } from '@/utils/labels'
 
 const records = ref<RecordItem[]>([])
 const modules = ref<ModuleItem[]>(fallbackDomainModules)
@@ -119,11 +120,11 @@ onMounted(loadRecords)
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Records</p>
+        <p class="eyebrow">记录管理</p>
         <h1>通用记录</h1>
         <p>用一套记录模型承载生活、学习、工作、兴趣和社交中的过程数据。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ apiOnline ? 'Records API 已连接' : '后端未连接，列表暂不可同步' }}
+          {{ apiOnline ? '记录服务已连接' : '后端未连接，列表暂不可同步' }}
         </span>
       </div>
     </header>
@@ -185,7 +186,7 @@ onMounted(loadRecords)
                 <el-button size="small" text type="danger" @click="removeRecord(record)">删除</el-button>
               </div>
             </div>
-            <span>{{ record.moduleCode }} · {{ record.recordDate }}</span>
+            <span>{{ moduleLabel(record.moduleCode) }} · {{ record.recordDate }}</span>
             <div v-if="record.tags.length > 0" class="inline-tags">
               <el-tag v-for="tag in record.tags" :key="tag.id" size="small" :color="tag.color" effect="dark">
                 {{ tag.name }}
