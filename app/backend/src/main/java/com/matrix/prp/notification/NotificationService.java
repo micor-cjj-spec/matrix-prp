@@ -87,10 +87,16 @@ public class NotificationService {
         if(jdbc.update("UPDATE prp_notification_messages SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=?",ReminderSchedule.utc(Instant.now()),id,CurrentUser.id())==0) throw notFound();
     }
     @Transactional
-    public long sendTest() { return enqueue(CurrentUser.id(),null,null,"Matrix PRP 测试通知","设备推送已连接，欢迎使用消息与提醒中心！","SYSTEM"); }
+    public long sendTest() { rateLimit(); return enqueue(CurrentUser.id(),null,null,"Matrix PRP 测试通知","设备推送已连接，欢迎使用消息与提醒中心！","SYSTEM"); }
     @Transactional
     public long sendNow(RuleRequest r) {
+        rateLimit();
         return enqueue(CurrentUser.id(),null,null,required(r.title(),120),required(r.body(),500),category(r.category()));
+    }
+    private void rateLimit() {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM prp_notification_messages WHERE user_id=? AND rule_id IS NULL AND created_at>=?", Integer.class,
+            CurrentUser.id(),ReminderSchedule.utc(Instant.now().minusSeconds(60)));
+        if(count != null && count >= 10) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,"Too many immediate notifications");
     }
     long enqueue(long user,Long rule,LocalDateTime scheduled,String title,String body,String kind){
         var key=new GeneratedKeyHolder();
@@ -111,7 +117,7 @@ public class NotificationService {
         LocalDateTime next=null;
         if(!"ONCE".equals(type)){
             next=ReminderSchedule.utc(ReminderSchedule.next(type,(String)row.get("timezone"),(String)row.get("local_time"),
-               (String)row.get("weekdays"),(Integer)row.get("month_day"),null,due.toInstant(ZoneOffset.UTC)));
+               (String)row.get("weekdays"),(Integer)row.get("month_day"),null,Instant.now()));
         }
         int changed=jdbc.update("UPDATE prp_notification_rules SET next_fire_at=?,enabled=?,updated_at=? WHERE id=? AND enabled=1 AND next_fire_at=?",
             next,"ONCE".equals(type)?0:1,ReminderSchedule.utc(Instant.now()),id,due);
@@ -144,4 +150,5 @@ public class NotificationService {
     }
     private static ResponseStatusException notFound(){return new ResponseStatusException(HttpStatus.NOT_FOUND,"Resource not found");}
 }
+
 

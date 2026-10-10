@@ -87,7 +87,7 @@ jobs:
           for schema in app/docker/mysql/init/*.sql; do
             MYSQL_PWD=ci-app-password mysql -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
           done
-      - name: Verify private video flows and byte range
+      - name: Verify video and private notification rules against MySQL
         working-directory: app/backend
         env:
           MATRIX_PRP_DB_PASSWORD: ci-app-password
@@ -97,4 +97,5 @@ jobs:
           MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
         run: |
           chmod +x mvnw
-          ./mvnw -B -Dtest=VideoDatabaseIT test
+          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT test
+
