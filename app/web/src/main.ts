@@ -26,3 +26,8 @@ window.addEventListener('matrix-prp:unauthorized', () => {
 })
 
 app.mount('#app')
+
+if ('serviceWorker' in navigator && (window.isSecureContext || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js').catch(() => {}) })
+}
+
