@@ -248,8 +248,13 @@ public class VideoLibraryService {
                 return ps;
             }, holder);
             long assetId = holder.getKey().longValue();
-            jdbc.update("UPDATE prp_video_uploads SET state='COMPLETE',asset_id=? " +
-                    "WHERE id=? AND user_id=? AND state='UPLOADING'", assetId, id, user);
+            int transitioned = jdbc.update(
+                    "UPDATE prp_video_uploads SET state='COMPLETE',asset_id=? " +
+                    "WHERE id=? AND user_id=? AND state='UPLOADING' " +
+                    "AND expires_at>CURRENT_TIMESTAMP(6)", assetId, id, user);
+            if (transitioned != 1) {
+                throw new IllegalStateException("Upload expired while being assembled");
+            }
             Video saved = findVideo(user, assetId);
             afterCommit(() -> storage.removeUpload(user, id));
             return saved;

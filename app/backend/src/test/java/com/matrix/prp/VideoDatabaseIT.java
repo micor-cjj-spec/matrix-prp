@@ -139,7 +139,9 @@ class VideoDatabaseIT {
         mvc.perform(auth(put("/api/video/uploads/{id}/parts/0", expiredUpload)
                 .contentType(MediaType.APPLICATION_OCTET_STREAM).content(content), admin))
                 .andExpect(status().isOk());
-        assertThat(storage.hasPart(1L, expiredUpload, 0, content.length)).isTrue();
+        long adminId = jdbc.queryForObject(
+                "SELECT id FROM prp_users WHERE username='video_admin'", Long.class);
+        assertThat(storage.hasPart(adminId, expiredUpload, 0, content.length)).isTrue();
 
         String liveUpload = postJson("/api/video/uploads", admin,
                 Map.of("title", "Live.mp4", "sizeBytes", content.length)).path("uploadId").asText();
@@ -152,7 +154,7 @@ class VideoDatabaseIT {
         assertThat(maintenance.cleanupExpiredUploads()).isGreaterThanOrEqualTo(1);
         mvc.perform(auth(get("/api/video/uploads/{id}", expiredUpload), admin))
                 .andExpect(status().isNotFound());
-        assertThat(storage.hasPart(1L, expiredUpload, 0, content.length)).isFalse();
-        assertThat(storage.hasPart(1L, liveUpload, 0, content.length)).isTrue();
+        assertThat(storage.hasPart(adminId, expiredUpload, 0, content.length)).isFalse();
+        assertThat(storage.hasPart(adminId, liveUpload, 0, content.length)).isTrue();
     }
 }
