@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import com.matrix.prp.video.VideoUploadMaintenance;
+import com.matrix.prp.video.VideoStorage;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
@@ -31,6 +32,7 @@ class VideoDatabaseIT {
     @Autowired private ObjectMapper mapper;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private VideoUploadMaintenance maintenance;
+    @Autowired private VideoStorage storage;
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request, String token) {
         return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
@@ -127,12 +129,30 @@ class VideoDatabaseIT {
         mvc.perform(auth(delete("/api/video/folders/{id}", folderId), friend))
                 .andExpect(status().isNotFound());
 
+        JsonNode friendUsage = mapper.readTree(mvc.perform(auth(
+                get("/api/video/storage/usage"), friend)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(friendUsage.path("bytesUsed").asLong()).isZero();
+
         String expiredUpload = postJson("/api/video/uploads", admin,
-                Map.of("title", "Expired.mp4", "sizeBytes", 20)).path("uploadId").asText();
+                Map.of("title", "Expired.mp4", "sizeBytes", content.length)).path("uploadId").asText();
+        mvc.perform(auth(put("/api/video/uploads/{id}/parts/0", expiredUpload)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM).content(content), admin))
+                .andExpect(status().isOk());
+        assertThat(storage.hasPart(1L, expiredUpload, 0, content.length)).isTrue();
+
+        String liveUpload = postJson("/api/video/uploads", admin,
+                Map.of("title", "Live.mp4", "sizeBytes", content.length)).path("uploadId").asText();
+        mvc.perform(auth(put("/api/video/uploads/{id}/parts/0", liveUpload)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM).content(content), admin))
+                .andExpect(status().isOk());
+
         jdbc.update("UPDATE prp_video_uploads SET expires_at=DATE_SUB(CURRENT_TIMESTAMP(6), INTERVAL 1 DAY) " +
                 "WHERE id=?", expiredUpload);
         assertThat(maintenance.cleanupExpiredUploads()).isGreaterThanOrEqualTo(1);
         mvc.perform(auth(get("/api/video/uploads/{id}", expiredUpload), admin))
                 .andExpect(status().isNotFound());
+        assertThat(storage.hasPart(1L, expiredUpload, 0, content.length)).isFalse();
+        assertThat(storage.hasPart(1L, liveUpload, 0, content.length)).isTrue();
     }
 }
