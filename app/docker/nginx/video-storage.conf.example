@@ -1,0 +1,26 @@
+# Example fragment: merge into your HTTPS server { } after configuring TLS.
+# The application must have MATRIX_PRP_VIDEO_DELIVERY=nginx.
+# Never expose the /srv/matrix-prp/video tree via a public static route.
+
+location ^~ /_internal_prp_video/ {
+    internal;
+    alias /srv/matrix-prp/video/media/;
+    add_header Cache-Control "private, no-store" always;
+    add_header X-Content-Type-Options "nosniff" always;
+}
+
+location ^~ /api/video/media/ {
+    access_log off; # Signed ticket is embedded in the URL: don't log it.
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 300s;
+}
+
+# Merge this setting with your existing /api/ proxy, not as a duplicate:
+# client_max_body_size 10m;  # each video chunk is 8 MiB
+#
+# Checks:
+#   curl -I https://your-domain/_internal_prp_video/1/example.mp4 => 404
+#   Valid signed /api/video/media/{id}?ticket=... => 200 / 206
+#   Invalid / expired ticket => 403

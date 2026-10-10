@@ -13,6 +13,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import com.matrix.prp.video.VideoUploadMaintenance;
+import com.matrix.prp.video.VideoStorage;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
@@ -27,6 +30,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 class VideoDatabaseIT {
     @Autowired private MockMvc mvc;
     @Autowired private ObjectMapper mapper;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private VideoUploadMaintenance maintenance;
+    @Autowired private VideoStorage storage;
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request, String token) {
         return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
@@ -79,6 +85,11 @@ class VideoDatabaseIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"positionSeconds\":8.5,\"durationSeconds\":20}"), admin))
                 .andExpect(status().isOk());
+        JsonNode usage = mapper.readTree(mvc.perform(auth(get("/api/video/storage/usage"), admin))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(usage.path("bytesUsed").asLong()).isGreaterThanOrEqualTo(content.length);
+        assertThat(usage.path("quotaBytes").asLong()).isGreaterThan(usage.path("bytesUsed").asLong());
+
         JsonNode afterProgress = mapper.readTree(mvc.perform(auth(get("/api/video/items"), admin))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
         assertThat(afterProgress.get(0).path("positionSeconds").asDouble()).isEqualTo(8.5);
@@ -117,5 +128,33 @@ class VideoDatabaseIT {
                 .andExpect(status().isNotFound());
         mvc.perform(auth(delete("/api/video/folders/{id}", folderId), friend))
                 .andExpect(status().isNotFound());
+
+        JsonNode friendUsage = mapper.readTree(mvc.perform(auth(
+                get("/api/video/storage/usage"), friend)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(friendUsage.path("bytesUsed").asLong()).isZero();
+
+        String expiredUpload = postJson("/api/video/uploads", admin,
+                Map.of("title", "Expired.mp4", "sizeBytes", content.length)).path("uploadId").asText();
+        mvc.perform(auth(put("/api/video/uploads/{id}/parts/0", expiredUpload)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM).content(content), admin))
+                .andExpect(status().isOk());
+        long adminId = jdbc.queryForObject(
+                "SELECT id FROM prp_users WHERE username='video_admin'", Long.class);
+        assertThat(storage.hasPart(adminId, expiredUpload, 0, content.length)).isTrue();
+
+        String liveUpload = postJson("/api/video/uploads", admin,
+                Map.of("title", "Live.mp4", "sizeBytes", content.length)).path("uploadId").asText();
+        mvc.perform(auth(put("/api/video/uploads/{id}/parts/0", liveUpload)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM).content(content), admin))
+                .andExpect(status().isOk());
+
+        jdbc.update("UPDATE prp_video_uploads SET expires_at=DATE_SUB(CURRENT_TIMESTAMP(6), INTERVAL 1 DAY) " +
+                "WHERE id=?", expiredUpload);
+        assertThat(maintenance.cleanupExpiredUploads()).isGreaterThanOrEqualTo(1);
+        mvc.perform(auth(get("/api/video/uploads/{id}", expiredUpload), admin))
+                .andExpect(status().isNotFound());
+        assertThat(storage.hasPart(adminId, expiredUpload, 0, content.length)).isFalse();
+        assertThat(storage.hasPart(adminId, liveUpload, 0, content.length)).isTrue();
     }
 }

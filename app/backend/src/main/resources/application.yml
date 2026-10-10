@@ -34,6 +34,7 @@ matrix-prp:
     root: ../../knowledge
   video:
     storage-root: ${MATRIX_PRP_VIDEO_ROOT:./data/videos}
+    delivery: ${MATRIX_PRP_VIDEO_DELIVERY:java}
   bootstrap:
     username: ${MATRIX_PRP_BOOTSTRAP_USERNAME:}
     password: ${MATRIX_PRP_BOOTSTRAP_PASSWORD:}

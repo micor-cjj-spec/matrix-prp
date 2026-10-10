@@ -4,20 +4,12 @@ import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.video.VideoDtos.*;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,6 +17,10 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -34,22 +30,20 @@ public class VideoLibraryService {
     private static final long MAX_FILE_SIZE = 2L * 1024 * 1024 * 1024;
     private static final long MAX_USER_STORAGE = 20L * 1024 * 1024 * 1024;
 
+    private static final Logger log = LoggerFactory.getLogger(VideoLibraryService.class);
     private final JdbcTemplate jdbc;
     private final MediaTicketService tickets;
-    private final Path root;
+    private final VideoStorage storage;
     private final RowMapper<Folder> folderRow = (rs, i) -> new Folder(rs.getLong("id"),
             rs.getObject("parent_id", Long.class), rs.getString("name"), rs.getInt("sort_order"));
     private final RowMapper<Video> videoRow = (rs, i) -> new Video(rs.getLong("id"),
             rs.getObject("folder_id", Long.class), rs.getString("title"), rs.getLong("size_bytes"),
             rs.getTimestamp("created_at").toLocalDateTime(), rs.getDouble("position_seconds"));
 
-    public VideoLibraryService(JdbcTemplate jdbc, MediaTicketService tickets,
-            @Value("${matrix-prp.video.storage-root:./data/videos}") String storageRoot) throws IOException {
+    public VideoLibraryService(JdbcTemplate jdbc, MediaTicketService tickets, VideoStorage storage) {
         this.jdbc = jdbc;
         this.tickets = tickets;
-        this.root = Path.of(storageRoot).toAbsolutePath().normalize();
-        Files.createDirectories(root.resolve("media"));
-        Files.createDirectories(root.resolve("temp"));
+        this.storage = storage;
     }
 
     public List<Folder> folders() {
@@ -123,8 +117,7 @@ public class VideoLibraryService {
         long user = CurrentUser.id();
         Asset asset = requireVideo(user, id);
         jdbc.update("DELETE FROM prp_video_assets WHERE id=? AND user_id=?", id, user);
-        // A failed file deletion leaves an inaccessible orphan; routine storage GC will clean it up.
-        Files.deleteIfExists(mediaPath(user, asset.storageKey));
+        afterCommit(() -> storage.removeMedia(user, asset.storageKey()));
     }
 
     public Video saveProgress(long id, Progress request) {
@@ -150,12 +143,24 @@ public class VideoLibraryService {
         return new Playback("/api/video/media/" + id + "?ticket=" + ticket.value(), ticket.expiresAtEpochSeconds());
     }
 
-    public Path authorizedMedia(long id, String token) {
+    public MediaHandle authorizedMedia(long id, String token) {
         long user = tickets.verify(token, id);
         Asset asset = requireVideo(user, id);
-        Path path = mediaPath(user, asset.storageKey);
-        if (!Files.isRegularFile(path)) throw new ResourceNotFoundException("Video file is missing");
-        return path;
+        if (!storage.mediaExists(user, asset.storageKey())) {
+            throw new ResourceNotFoundException("Video file is missing");
+        }
+        return new MediaHandle(user, asset.storageKey());
+    }
+
+    public record MediaHandle(long userId, String key) { }
+
+    public StorageUsage usage() {
+        long user = CurrentUser.id();
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) AS file_count,COALESCE(SUM(size_bytes),0) AS bytes_used " +
+                "FROM prp_video_assets WHERE user_id=?",
+                (rs, row) -> new StorageUsage(rs.getLong("file_count"), rs.getLong("bytes_used"),
+                        MAX_USER_STORAGE), user);
     }
 
     public UploadSession beginUpload(UploadRequest request) {
@@ -165,7 +170,13 @@ public class VideoLibraryService {
         if (size > MAX_FILE_SIZE) throw new ResponseStatusException(HttpStatus.valueOf(413), "Video exceeds 2 GiB");
         Long used = jdbc.queryForObject("SELECT COALESCE(SUM(size_bytes),0) FROM prp_video_assets WHERE user_id=?",
                 Long.class, user);
-        if (used + size > MAX_USER_STORAGE) throw new ResponseStatusException(HttpStatus.valueOf(413), "Storage quota exceeded");
+        Long reserved = jdbc.queryForObject(
+                "SELECT COALESCE(SUM(size_bytes),0) FROM prp_video_uploads " +
+                "WHERE user_id=? AND state='UPLOADING' AND expires_at>CURRENT_TIMESTAMP(6)",
+                Long.class, user);
+        if (used + reserved + size > MAX_USER_STORAGE) {
+            throw new ResponseStatusException(HttpStatus.valueOf(413), "Storage quota exceeded");
+        }
         int parts = (int) ((size + CHUNK_SIZE - 1) / CHUNK_SIZE);
         String id = UUID.randomUUID().toString();
         jdbc.update("INSERT INTO prp_video_uploads (id,user_id,folder_id,title,size_bytes,part_count,state,expires_at) " +
@@ -180,12 +191,10 @@ public class VideoLibraryService {
         if (!"COMPLETE".equals(upload.state)) requireActive(upload);
         List<Integer> received = new ArrayList<>();
         if ("UPLOADING".equals(upload.state)) {
-            Path dir = uploadDir(user, id);
             for (int number = 0; number < upload.partCount; number++) {
-                Path part = dir.resolve(number + ".part");
                 long expected = number == upload.partCount - 1
                         ? upload.sizeBytes - (long) number * CHUNK_SIZE : CHUNK_SIZE;
-                if (Files.isRegularFile(part) && Files.size(part) == expected) received.add(number);
+                if (storage.hasPart(user, id, number, expected)) received.add(number);
             }
         }
         return new UploadState(id, CHUNK_SIZE, upload.partCount, upload.state, List.copyOf(received));
@@ -199,15 +208,7 @@ public class VideoLibraryService {
         long expected = number == upload.partCount - 1
                 ? upload.sizeBytes - (long) number * CHUNK_SIZE : CHUNK_SIZE;
         if (contents.length != expected) throw new IllegalArgumentException("Incorrect chunk length");
-        Path dir = uploadDir(user, id);
-        Files.createDirectories(dir);
-        Path tmp = Files.createTempFile(dir, "chunk-", ".writing");
-        try {
-            Files.write(tmp, contents);
-            Files.move(tmp, dir.resolve(number + ".part"), StandardCopyOption.REPLACE_EXISTING);
-        } finally {
-            Files.deleteIfExists(tmp);
-        }
+        storage.writePart(user, id, number, contents);
     }
 
     @Transactional
@@ -218,37 +219,21 @@ public class VideoLibraryService {
             return findVideo(user, upload.assetId);
         }
         requireActive(upload);
-        Path dir = uploadDir(user, id);
         for (int i = 0; i < upload.partCount; i++) {
-            Path part = dir.resolve(i + ".part");
             long expected = i == upload.partCount - 1
                     ? upload.sizeBytes - (long) i * CHUNK_SIZE : CHUNK_SIZE;
-            if (!Files.isRegularFile(part) || Files.size(part) != expected) {
+            if (!storage.hasPart(user, id, i, expected)) {
                 throw new IllegalArgumentException("Missing or invalid upload part: " + i);
             }
         }
-        // The ISO BMFF ftyp signature is required for an MP4 container.
-        try (var input = Files.newInputStream(dir.resolve("0.part"))) {
-            byte[] header = input.readNBytes(8);
-            if (header.length != 8 || header[4] != 'f' || header[5] != 't'
-                    || header[6] != 'y' || header[7] != 'p') {
-                throw new IllegalArgumentException("Only MP4 video is supported");
-            }
+        byte[] header = storage.firstPartHeader(user, id);
+        if (header.length != 8 || header[4] != 'f' || header[5] != 't'
+                || header[6] != 'y' || header[7] != 'p') {
+            throw new IllegalArgumentException("Only MP4 video is supported");
         }
         String storageKey = UUID.randomUUID().toString();
-        Path finalPath = mediaPath(user, storageKey);
-        Files.createDirectories(finalPath.getParent());
-        Path assembling = Files.createTempFile(finalPath.getParent(), "assembly-", ".tmp");
+        storage.complete(user, id, storageKey, upload.partCount, upload.sizeBytes);
         try {
-            try (OutputStream out = Files.newOutputStream(assembling)) {
-                for (int i = 0; i < upload.partCount; i++) {
-                    Files.copy(dir.resolve(i + ".part"), out);
-                }
-            }
-            if (Files.size(assembling) != upload.sizeBytes) {
-                throw new IllegalArgumentException("Total upload size mismatch");
-            }
-            Files.move(assembling, finalPath, StandardCopyOption.REPLACE_EXISTING);
             GeneratedKeyHolder holder = new GeneratedKeyHolder();
             jdbc.update(conn -> {
                 PreparedStatement ps = conn.prepareStatement(
@@ -263,14 +248,21 @@ public class VideoLibraryService {
                 return ps;
             }, holder);
             long assetId = holder.getKey().longValue();
-            jdbc.update("UPDATE prp_video_uploads SET state='COMPLETE',asset_id=? " +
-                    "WHERE id=? AND user_id=? AND state='UPLOADING'", assetId, id, user);
-            // Temp cleanup is best effort; uploaded media is already readable.
-            for (int i = 0; i < upload.partCount; i++) Files.deleteIfExists(dir.resolve(i + ".part"));
-            Files.deleteIfExists(dir);
-            return findVideo(user, assetId);
-        } finally {
-            Files.deleteIfExists(assembling);
+            int transitioned = jdbc.update(
+                    "UPDATE prp_video_uploads SET state='COMPLETE',asset_id=? " +
+                    "WHERE id=? AND user_id=? AND state='UPLOADING' " +
+                    "AND expires_at>CURRENT_TIMESTAMP(6)", assetId, id, user);
+            if (transitioned != 1) {
+                throw new IllegalStateException("Upload expired while being assembled");
+            }
+            Video saved = findVideo(user, assetId);
+            afterCommit(() -> storage.removeUpload(user, id));
+            return saved;
+        } catch (Exception exception) {
+            // The database transaction may roll back; the completed file is then orphaned.
+            // Keep it inaccessible and let a separate orphan-media sweep clean it later.
+            log.error("Video metadata persistence failed after assembling storage key {}", storageKey, exception);
+            throw exception;
         }
     }
 
@@ -313,14 +305,21 @@ public class VideoLibraryService {
         }
     }
 
-    private Path mediaPath(long user, String storageKey) {
-        // storage keys are generated exclusively server-side UUIDs.
-        return root.resolve("media").resolve(Long.toString(user)).resolve(storageKey + ".mp4");
+    private void afterCommit(IoWork work) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    work.perform();
+                } catch (IOException e) {
+                    log.warn("Video storage post-commit cleanup failed; will require retry", e);
+                }
+            }
+        });
     }
 
-    private Path uploadDir(long user, String uploadId) {
-        return root.resolve("temp").resolve(Long.toString(user)).resolve(uploadId);
-    }
+    @FunctionalInterface
+    private interface IoWork { void perform() throws IOException; }
 
     private record Asset(String storageKey, long sizeBytes) { }
     private record Upload(Long folderId, String title, long sizeBytes, int partCount,

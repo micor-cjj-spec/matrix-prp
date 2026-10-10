@@ -3,8 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import {
-  createFolder, deleteFolder, deleteVideo, getFolders, getPlayback, getVideos, renameFolder,
-  saveVideoProgress, updateVideo, uploadVideo, type VideoFolder, type VideoItem,
+  createFolder, deleteFolder, deleteVideo, getFolders, getPlayback, getVideos, getStorageUsage, renameFolder,
+  saveVideoProgress, updateVideo, uploadVideo, type VideoFolder, type VideoItem, type StorageUsage,
 } from '@/api/video'
 
 const folders = ref<VideoFolder[]>([])
@@ -19,6 +19,8 @@ const uploadPercent = ref(0)
 const uploading = ref(false)
 const selectedFilename = ref('')
 const busy = ref(false)
+const storageUsage = ref<StorageUsage | null>(null)
+const usagePercent = computed(() => storageUsage.value ? Math.min(100,Math.round(storageUsage.value.bytesUsed / storageUsage.value.quotaBytes * 100)) : 0)
 const lastSavedAt = ref(0)
 
 const folderTitle = computed(() =>
@@ -38,11 +40,18 @@ const flatFolders = computed(() => {
   return rows
 })
 
+function formatBytes(value: number): string {
+  return value >= 1073741824 ? (value / 1073741824).toFixed(2) + ' GiB'
+    : (value / 1048576).toFixed(1) + ' MiB'
+}
+async function loadUsage() {
+  storageUsage.value = await getStorageUsage()
+}
 async function loadFolders() { folders.value = await getFolders() }
 async function loadVideos() { videos.value = await getVideos(folderId.value) }
 async function refresh() {
   busy.value = true
-  try { await Promise.all([loadFolders(), loadVideos()]) }
+  try { await Promise.all([loadFolders(), loadVideos(), loadUsage()]) }
   catch { ElMessage.error('无法加载视频库') }
   finally { busy.value = false }
 }
@@ -85,7 +94,7 @@ async function onFileChange(event: Event) {
   try {
     const video = await uploadVideo(file, folderId.value, p => { uploadPercent.value = p })
     ElMessage.success('上传成功：' + video.title)
-    await loadVideos()
+    await Promise.all([loadVideos(), loadUsage()])
   } catch {
     ElMessage.error('上传失败。重新选择同一文件可重试未完成的上传。')
   } finally {
@@ -158,7 +167,7 @@ async function removeVideo(video: VideoItem) {
     await ElMessageBox.confirm('视频文件将从服务器删除且无法恢复，确定删除吗？', '删除视频', { type: 'warning' })
     await deleteVideo(video.id)
     if (playing.value?.id === video.id) { playing.value = null; playbackUrl.value = '' }
-    await loadVideos()
+    await Promise.all([loadVideos(), loadUsage()])
   } catch { /* dismissed */ }
 }
 onMounted(refresh)
@@ -227,6 +236,15 @@ onBeforeUnmount(() => { void savePosition() })
             <el-button size="small" text @click="editVideo(video)">编辑</el-button>
             <el-button size="small" type="danger" text @click="removeVideo(video)">删除</el-button>
           </div>
+        </el-card>
+
+        <el-card v-if="storageUsage" shadow="never">
+          <div class="videos-actions">
+            <strong>我的视频空间</strong>
+            <span>{{ formatBytes(storageUsage.bytesUsed) }} / {{ formatBytes(storageUsage.quotaBytes) }}
+              （{{ storageUsage.fileCount }} 个视频）</span>
+          </div>
+          <el-progress :percentage="usagePercent" :stroke-width="8" :show-text="false" style="margin-top: 12px" />
         </el-card>
 
         <el-card shadow="never" class="video-player-panel">

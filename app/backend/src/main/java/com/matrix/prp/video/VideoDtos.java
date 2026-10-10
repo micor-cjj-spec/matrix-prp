@@ -20,5 +20,6 @@ public final class VideoDtos {
     public record UploadState(String uploadId, int chunkSize, int partCount, String state,
                               java.util.List<Integer> receivedParts) { }
     public record Playback(String url, long expiresAtEpochSeconds) { }
+    public record StorageUsage(long fileCount, long bytesUsed, long quotaBytes) { }
     public record Progress(@NotNull Double positionSeconds, @NotNull Double durationSeconds) { }
 }
