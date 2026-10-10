@@ -1,6 +1,7 @@
 package com.matrix.prp.tasks.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.tasks.entity.TaskEntity;
 import com.matrix.prp.tasks.mapper.TaskMapper;
@@ -15,8 +16,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 @Profile("!test")
 public class MyBatisTaskRepository implements TaskRepository {
-
-    private static final long DEFAULT_USER_ID = 1L;
 
     private final TaskMapper taskMapper;
 
@@ -42,7 +41,7 @@ public class MyBatisTaskRepository implements TaskRepository {
     public TaskItem create(CreateTaskRequest request) {
         LocalDateTime now = LocalDateTime.now();
         TaskEntity entity = new TaskEntity();
-        entity.setUserId(DEFAULT_USER_ID);
+        entity.setUserId(CurrentUser.id());
         entity.setModuleCode(request.moduleCode());
         entity.setTitle(request.title());
         entity.setDescription(request.description() == null ? "" : request.description());
@@ -90,7 +89,7 @@ public class MyBatisTaskRepository implements TaskRepository {
 
     private TaskEntity findById(long id) {
         TaskEntity entity = taskMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !java.util.Objects.equals(entity.getUserId(), CurrentUser.id())) {
             throw new ResourceNotFoundException("Task not found: " + id);
         }
         return entity;
@@ -98,7 +97,8 @@ public class MyBatisTaskRepository implements TaskRepository {
 
     private LambdaQueryWrapper<TaskEntity> buildFilterQuery(TaskFilter filter) {
         TaskFilter effectiveFilter = filter == null ? new TaskFilter(null, null, null, null) : filter;
-        LambdaQueryWrapper<TaskEntity> query = new LambdaQueryWrapper<>();
+        LambdaQueryWrapper<TaskEntity> query = new LambdaQueryWrapper<TaskEntity>()
+                .eq(TaskEntity::getUserId, CurrentUser.id());
         if (effectiveFilter.status() != null && !effectiveFilter.status().isBlank()) {
             query.eq(TaskEntity::getStatus, effectiveFilter.status());
         }

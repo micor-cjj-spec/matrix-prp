@@ -1,6 +1,7 @@
 package com.matrix.prp.reviews.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.reviews.entity.ReviewEntity;
 import com.matrix.prp.reviews.mapper.ReviewMapper;
@@ -17,8 +18,6 @@ import org.springframework.stereotype.Repository;
 @Profile("!test")
 public class MyBatisReviewRepository implements ReviewRepository {
 
-    private static final long DEFAULT_USER_ID = 1L;
-
     private final ReviewMapper reviewMapper;
 
     public MyBatisReviewRepository(ReviewMapper reviewMapper) {
@@ -34,6 +33,7 @@ public class MyBatisReviewRepository implements ReviewRepository {
     public List<ReviewItem> list(ReviewFilter filter) {
         ReviewFilter effectiveFilter = filter == null ? new ReviewFilter(null, null, null, null) : filter;
         LambdaQueryWrapper<ReviewEntity> wrapper = new LambdaQueryWrapper<ReviewEntity>()
+                .eq(ReviewEntity::getUserId, CurrentUser.id())
                 .eq(effectiveFilter.reviewType() != null && !effectiveFilter.reviewType().isBlank(),
                         ReviewEntity::getReviewType,
                         effectiveFilter.reviewType())
@@ -58,7 +58,7 @@ public class MyBatisReviewRepository implements ReviewRepository {
         LocalDate today = LocalDate.now();
         LocalDateTime now = LocalDateTime.now();
         ReviewEntity entity = new ReviewEntity();
-        entity.setUserId(DEFAULT_USER_ID);
+        entity.setUserId(CurrentUser.id());
         entity.setReviewType(request.reviewType());
         entity.setModuleCode(request.moduleCode());
         entity.setTitle(request.title());
@@ -101,7 +101,7 @@ public class MyBatisReviewRepository implements ReviewRepository {
 
     private ReviewEntity findById(long id) {
         ReviewEntity entity = reviewMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !java.util.Objects.equals(entity.getUserId(), CurrentUser.id())) {
             throw new ResourceNotFoundException("Review not found: " + id);
         }
         return entity;

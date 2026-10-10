@@ -1,6 +1,7 @@
 package com.matrix.prp.records.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.records.entity.RecordEntity;
 import com.matrix.prp.records.entity.RecordTagEntity;
@@ -23,8 +24,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 @Profile("!test")
 public class MyBatisRecordRepository implements RecordRepository {
-
-    private static final long DEFAULT_USER_ID = 1L;
 
     private final RecordMapper recordMapper;
     private final RecordTagMapper recordTagMapper;
@@ -49,6 +48,7 @@ public class MyBatisRecordRepository implements RecordRepository {
             return List.of();
         }
         LambdaQueryWrapper<RecordEntity> query = new LambdaQueryWrapper<RecordEntity>()
+                .eq(RecordEntity::getUserId, CurrentUser.id())
                 .orderByDesc(RecordEntity::getCreatedAt);
         if (effectiveFilter.moduleCode() != null && !effectiveFilter.moduleCode().isBlank()) {
             query.eq(RecordEntity::getModuleCode, effectiveFilter.moduleCode());
@@ -77,7 +77,7 @@ public class MyBatisRecordRepository implements RecordRepository {
     public RecordItem create(CreateRecordRequest request) {
         LocalDateTime now = LocalDateTime.now();
         RecordEntity entity = new RecordEntity();
-        entity.setUserId(DEFAULT_USER_ID);
+        entity.setUserId(CurrentUser.id());
         entity.setModuleCode(request.moduleCode());
         entity.setTitle(request.title());
         entity.setContent(request.content() == null ? "" : request.content());
@@ -93,7 +93,7 @@ public class MyBatisRecordRepository implements RecordRepository {
     @Override
     public RecordItem update(long id, CreateRecordRequest request) {
         RecordEntity entity = recordMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !java.util.Objects.equals(entity.getUserId(), CurrentUser.id())) {
             throw new ResourceNotFoundException("Record not found: " + id);
         }
         LocalDateTime now = LocalDateTime.now();
@@ -120,13 +120,15 @@ public class MyBatisRecordRepository implements RecordRepository {
 
     @Override
     public int count() {
-        return Math.toIntExact(recordMapper.selectCount(new LambdaQueryWrapper<>()));
+        return Math.toIntExact(recordMapper.selectCount(new LambdaQueryWrapper<RecordEntity>()
+                .eq(RecordEntity::getUserId, CurrentUser.id())));
     }
 
     private void saveTagLinks(Long recordId, List<Long> tagIds, LocalDateTime now) {
         if (tagIds == null || tagIds.isEmpty()) {
             return;
         }
+        validateOwnedTags(tagIds);
         for (Long tagId : tagIds) {
             RecordTagEntity link = new RecordTagEntity();
             link.setRecordId(recordId);
@@ -146,6 +148,8 @@ public class MyBatisRecordRepository implements RecordRepository {
         if (tagId == null) {
             return List.of();
         }
+        // Ensure foreign tag IDs never select or expose links.
+        validateOwnedTags(List.of(tagId));
         return recordTagMapper.selectList(new LambdaQueryWrapper<RecordTagEntity>()
                         .eq(RecordTagEntity::getTagId, tagId))
                 .stream()
@@ -168,6 +172,7 @@ public class MyBatisRecordRepository implements RecordRepository {
                         .distinct()
                         .toList())
                 .stream()
+                .filter(tag -> java.util.Objects.equals(tag.getUserId(), CurrentUser.id()))
                 .collect(Collectors.toMap(TagEntity::getId, tag -> tag));
         return links.stream()
                 .filter(link -> tagsById.containsKey(link.getTagId()))
@@ -179,10 +184,23 @@ public class MyBatisRecordRepository implements RecordRepository {
         if (tagIds == null || tagIds.isEmpty()) {
             return List.of();
         }
+        validateOwnedTags(tagIds);
         return tagMapper.selectBatchIds(tagIds).stream()
                 .map(this::toRecordTagItem)
                 .filter(tag -> tag != null)
                 .toList();
+    }
+
+    private void validateOwnedTags(List<Long> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) {
+            return;
+        }
+        long owned = tagMapper.selectBatchIds(tagIds).stream()
+                .filter(tag -> java.util.Objects.equals(tag.getUserId(), CurrentUser.id()))
+                .map(TagEntity::getId).distinct().count();
+        if (owned != tagIds.stream().distinct().count()) {
+            throw new ResourceNotFoundException("Tag not found");
+        }
     }
 
     private RecordTagItem toRecordTagItem(TagEntity tag) {
