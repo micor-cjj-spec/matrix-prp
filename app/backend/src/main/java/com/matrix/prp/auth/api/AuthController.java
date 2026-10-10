@@ -1,7 +1,9 @@
 package com.matrix.prp.auth.api;
 
+import com.matrix.prp.auth.model.InvitationResponse;
 import com.matrix.prp.auth.model.LoginRequest;
 import com.matrix.prp.auth.model.LoginResponse;
+import com.matrix.prp.auth.model.RegisterRequest;
 import com.matrix.prp.auth.model.UserProfile;
 import com.matrix.prp.auth.service.AuthService;
 import com.matrix.prp.common.api.ApiResponse;
@@ -15,7 +17,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class AuthController {
-
     private final AuthService authService;
 
     public AuthController(AuthService authService) {
@@ -27,8 +28,19 @@ public class AuthController {
         return ApiResponse.success(authService.login(request));
     }
 
+    @PostMapping("/auth/register")
+    public ApiResponse<LoginResponse> register(@Valid @RequestBody RegisterRequest request) {
+        return ApiResponse.success(authService.register(request));
+    }
+
+    @PostMapping("/auth/invitations")
+    public ApiResponse<InvitationResponse> issueInvitation() {
+        return ApiResponse.success(authService.issueInvitation());
+    }
+
     @GetMapping("/users/me")
     public ApiResponse<UserProfile> me() {
         return ApiResponse.success(authService.currentUser());
     }
 }
+
