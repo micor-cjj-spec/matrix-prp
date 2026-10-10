@@ -48,7 +48,7 @@ public class NotificationService {
             r.monthDay(),r.onceAt()==null?null:ReminderSchedule.utc(r.onceAt()),ReminderSchedule.utc(next));
     }
     public List<Map<String,Object>> rules() {
-        return jdbc.queryForList("SELECT id,title,body,category,schedule_type AS scheduleType,timezone,local_time AS localTime,weekdays,month_day AS monthDay,next_fire_at AS nextFireAt,once_at AS onceAt,enabled FROM prp_notification_rules WHERE user_id=? ORDER BY id DESC LIMIT 200",CurrentUser.id());
+        return jdbc.queryForList("SELECT id,title,body,category,schedule_type AS scheduleType,timezone,local_time AS `localTime`,weekdays,month_day AS monthDay,next_fire_at AS nextFireAt,once_at AS onceAt,enabled FROM prp_notification_rules WHERE user_id=? ORDER BY id DESC LIMIT 200",CurrentUser.id());
     }
     public long create(RuleRequest r) {
         var p=prepare(r); long user=CurrentUser.id(); var now=ReminderSchedule.utc(Instant.now());
