@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @Profile("!test")
@@ -70,5 +71,13 @@ public class JdbcUserStore implements UserStore {
         return jdbc.update("UPDATE prp_invitations SET used_at = ? WHERE code_hash = ? " +
                         "AND used_at IS NULL AND expires_at > ?", now, codeHash, now) == 1;
     }
+    @Override
+    @Transactional
+    public UserAccount registerInvited(String username, String displayName, String passwordHash,
+                                       String invitationHash, LocalDateTime now) {
+        if (!consumeInvitation(invitationHash, now)) {
+            throw new IllegalArgumentException("Invalid or expired invitation");
+        }
+        return create(username, displayName, passwordHash, false);
+    }
 }
-

@@ -62,5 +62,12 @@ public class InMemoryUserStore implements UserStore {
         invitations.remove(hash);
         return true;
     }
+    @Override
+    public synchronized UserAccount registerInvited(String username, String displayName, String passwordHash,
+                                                     String invitationHash, LocalDateTime now) {
+        if (!consumeInvitation(invitationHash, now)) {
+            throw new IllegalArgumentException("Invalid or expired invitation");
+        }
+        return create(username, displayName, passwordHash, false);
+    }
 }
-

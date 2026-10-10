@@ -19,7 +19,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -43,16 +42,12 @@ public class AuthService {
         return loggedIn(user);
     }
 
-    @Transactional
     public LoginResponse register(RegisterRequest request) {
         if (users.findByUsername(request.username()).isPresent()) {
             throw new IllegalArgumentException("Username already exists");
         }
-        if (!users.consumeInvitation(hashCode(request.invitationCode()), LocalDateTime.now())) {
-            throw new IllegalArgumentException("Invalid or expired invitation");
-        }
-        UserAccount user = users.create(request.username(), request.displayName(),
-                passwords.encode(request.password()), false);
+        UserAccount user = users.registerInvited(request.username(), request.displayName(),
+                passwords.encode(request.password()), hashCode(request.invitationCode()), LocalDateTime.now());
         return loggedIn(user);
     }
 

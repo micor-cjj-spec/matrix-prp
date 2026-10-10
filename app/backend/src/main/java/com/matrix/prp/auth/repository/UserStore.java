@@ -11,5 +11,7 @@ public interface UserStore {
     UserAccount create(String username, String displayName, String passwordHash, boolean administrator);
     void addInvitation(String codeHash, long issuerUserId, LocalDateTime expiresAt);
     boolean consumeInvitation(String codeHash, LocalDateTime now);
+    UserAccount registerInvited(String username, String displayName, String passwordHash,
+                                String invitationHash, LocalDateTime now);
 }
 
