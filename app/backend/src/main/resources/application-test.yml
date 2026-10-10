@@ -3,3 +3,7 @@ spring:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
+
+matrix-prp:
+  security:
+    jwt-secret: test-only-jwt-key-do-not-use-in-prod-012345678901

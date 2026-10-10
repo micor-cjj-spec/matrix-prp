@@ -1,45 +1,97 @@
 package com.matrix.prp.auth.service;
 
+import com.matrix.prp.auth.model.InvitationResponse;
 import com.matrix.prp.auth.model.LoginRequest;
 import com.matrix.prp.auth.model.LoginResponse;
+import com.matrix.prp.auth.model.RegisterRequest;
+import com.matrix.prp.auth.model.UserAccount;
 import com.matrix.prp.auth.model.UserProfile;
-import org.springframework.beans.factory.annotation.Value;
+import com.matrix.prp.auth.repository.UserStore;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.util.Base64;
+import java.util.HexFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AuthService {
-
-    private static final UserProfile DEVELOPMENT_USER = new UserProfile(1L, "admin", "Matrix PRP");
-
+    private static final SecureRandom RANDOM = new SecureRandom();
     private final JwtService jwtService;
-    private final String developmentPassword;
+    private final UserStore users;
+    private final PasswordEncoder passwords;
 
-    public AuthService(JwtService jwtService,
-            @Value("${matrix-prp.security.development-password:matrix-prp}") String developmentPassword) {
+    public AuthService(JwtService jwtService, UserStore users, PasswordEncoder passwords) {
         this.jwtService = jwtService;
-        this.developmentPassword = developmentPassword;
+        this.users = users;
+        this.passwords = passwords;
     }
 
     public LoginResponse login(LoginRequest request) {
-        if (!DEVELOPMENT_USER.username().equals(request.username())
-                || !developmentPassword.equals(request.password())) {
-            throw new IllegalArgumentException("Invalid username or password");
+        UserAccount user = users.findByUsername(request.username()).orElse(null);
+        if (user == null || !user.enabled() || !passwords.matches(request.password(), user.passwordHash())) {
+            throw new BadCredentialsException("Invalid username or password");
         }
+        return loggedIn(user);
+    }
 
-        return new LoginResponse(
-                jwtService.issueToken(DEVELOPMENT_USER),
-                "Bearer",
-                jwtService.expirationSeconds(),
-                DEVELOPMENT_USER);
+    public LoginResponse register(RegisterRequest request) {
+        if (users.findByUsername(request.username()).isPresent()) {
+            throw new IllegalArgumentException("Username already exists");
+        }
+        UserAccount user = users.registerInvited(request.username(), request.displayName(),
+                passwords.encode(request.password()), hashCode(request.invitationCode()), LocalDateTime.now());
+        return loggedIn(user);
+    }
+
+    public InvitationResponse issueInvitation() {
+        UserProfile issuer = requireAdmin();
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        String code = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        LocalDateTime expiresAt = LocalDateTime.now().plusDays(7);
+        users.addInvitation(hashCode(code), issuer.id(), expiresAt);
+        return new InvitationResponse(code, expiresAt);
+    }
+
+    public UserProfile requireAdmin() {
+        UserProfile user = currentUser();
+        UserAccount account = users.findById(user.id()).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+        if (!account.enabled() || !account.administrator()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required");
+        }
+        return user;
     }
 
     public UserProfile currentUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.getPrincipal() instanceof UserProfile user) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof UserProfile user) {
             return user;
         }
-        return DEVELOPMENT_USER;
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication is required");
+    }
+
+    private LoginResponse loggedIn(UserAccount user) {
+        return new LoginResponse(jwtService.issueToken(user.profile()), "Bearer",
+                jwtService.expirationSeconds(), user.profile());
+    }
+
+    private String hashCode(String code) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(code.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }
+

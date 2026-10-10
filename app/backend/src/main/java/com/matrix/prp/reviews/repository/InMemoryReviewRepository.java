@@ -1,6 +1,8 @@
 package com.matrix.prp.reviews.repository;
 
 import com.matrix.prp.common.api.ResourceNotFoundException;
+import com.matrix.prp.auth.security.TestTenant;
+import java.util.concurrent.ConcurrentHashMap;
 import com.matrix.prp.reviews.model.CreateReviewRequest;
 import com.matrix.prp.reviews.model.ReviewFilter;
 import com.matrix.prp.reviews.model.ReviewItem;
@@ -8,6 +10,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.context.annotation.Profile;
@@ -19,6 +22,7 @@ public class InMemoryReviewRepository implements ReviewRepository {
 
     private final AtomicLong idGenerator = new AtomicLong(4000);
     private final CopyOnWriteArrayList<ReviewItem> reviews = new CopyOnWriteArrayList<>();
+    private final Map<Long,Long> owners = new ConcurrentHashMap<>();
 
     @Override
     public List<ReviewItem> list() {
@@ -29,6 +33,7 @@ public class InMemoryReviewRepository implements ReviewRepository {
     public List<ReviewItem> list(ReviewFilter filter) {
         ReviewFilter effectiveFilter = filter == null ? new ReviewFilter(null, null, null, null) : filter;
         return reviews.stream()
+                .filter(item -> java.util.Objects.equals(owners.get(item.id()), TestTenant.id()))
                 .filter(review -> effectiveFilter.reviewType() == null || effectiveFilter.reviewType().isBlank()
                         || effectiveFilter.reviewType().equals(review.reviewType()))
                 .filter(review -> effectiveFilter.moduleCode() == null || effectiveFilter.moduleCode().isBlank()
@@ -57,6 +62,7 @@ public class InMemoryReviewRepository implements ReviewRepository {
                 request.periodEnd() == null ? today : request.periodEnd(),
                 OffsetDateTime.now());
         reviews.add(review);
+        owners.put(review.id(), TestTenant.id());
         return review;
     }
 
@@ -83,7 +89,7 @@ public class InMemoryReviewRepository implements ReviewRepository {
 
     @Override
     public void delete(long id) {
-        boolean removed = reviews.removeIf(review -> review.id() == id);
+        boolean removed = reviews.removeIf(review -> review.id() == id && java.util.Objects.equals(owners.get(id), TestTenant.id()));
         if (!removed) {
             throw new ResourceNotFoundException("Review not found: " + id);
         }
@@ -91,7 +97,7 @@ public class InMemoryReviewRepository implements ReviewRepository {
 
     private ReviewItem findById(long id) {
         return reviews.stream()
-                .filter(review -> review.id() == id)
+                .filter(review -> review.id() == id && java.util.Objects.equals(owners.get(id), TestTenant.id()))
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Review not found: " + id));
     }

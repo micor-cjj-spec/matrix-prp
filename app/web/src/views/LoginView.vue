@@ -7,23 +7,30 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const loading = ref(false)
+const isRegister = ref(false)
 const errorMessage = ref('')
 
 const form = reactive({
-  username: 'admin',
-  password: 'matrix-prp',
+  username: '',
+  password: '',
+  displayName: '',
+  invitationCode: '',
 })
 
 async function submitLogin() {
   errorMessage.value = ''
   loading.value = true
   try {
-    await authStore.loginWithPassword(form.username, form.password)
+    if (isRegister.value) {
+      await authStore.registerWithInvitation(form)
+    } else {
+      await authStore.loginWithPassword(form.username, form.password)
+    }
     await authStore.loadCurrentUser()
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     router.push(redirect)
   } catch {
-    errorMessage.value = '账号或密码不正确，开发默认账号：admin / matrix-prp'
+    errorMessage.value = isRegister.value ? '注册失败，请检查邀请码、用户名和密码' : '账号或密码不正确'
   } finally {
     loading.value = false
   }
@@ -44,7 +51,7 @@ async function submitLogin() {
       <div class="login-copy">
         <p class="eyebrow">Phase 1</p>
         <h1>进入个人资源管理平台</h1>
-        <p>先用开发账号登录，进入 Dashboard、记录、任务、财务和知识库。</p>
+        <p>使用个人账号登录；新朋友需要邀请码才能注册。</p>
       </div>
 
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon :closable="false" />
@@ -56,7 +63,14 @@ async function submitLogin() {
         <el-form-item label="密码">
           <el-input v-model="form.password" type="password" autocomplete="current-password" show-password />
         </el-form-item>
-        <el-button type="primary" :loading="loading" @click="submitLogin">登录</el-button>
+
+        <template v-if="isRegister">
+          <el-form-item label="显示名称"><el-input v-model="form.displayName" autocomplete="nickname" /></el-form-item>
+          <el-form-item label="邀请码"><el-input v-model="form.invitationCode" autocomplete="off" /></el-form-item>
+          <p>密码至少 12 位；用户名只能包含字母、数字和下划线。</p>
+        </template>
+        <el-button type="primary" :loading="loading" @click="submitLogin">{{ isRegister ? '注册并登录' : '登录' }}</el-button>
+        <el-button text @click="isRegister = !isRegister">{{ isRegister ? '已有账号？返回登录' : '收到邀请码？注册账号' }}</el-button>
       </el-form>
     </section>
   </main>

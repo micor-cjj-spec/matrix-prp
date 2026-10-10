@@ -5,9 +5,9 @@ spring:
   application:
     name: matrix-prp-backend
   datasource:
-    url: jdbc:mysql://localhost:3306/matrix_prp?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: matrix_prp
-    password: matrix_prp
+    url: ${MATRIX_PRP_DB_URL:jdbc:mysql://localhost:3306/matrix_prp?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MATRIX_PRP_DB_USER:matrix_prp}
+    password: ${MATRIX_PRP_DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       connection-timeout: 2000
@@ -32,7 +32,10 @@ springdoc:
 matrix-prp:
   knowledge:
     root: ../../knowledge
+  bootstrap:
+    username: ${MATRIX_PRP_BOOTSTRAP_USERNAME:}
+    password: ${MATRIX_PRP_BOOTSTRAP_PASSWORD:}
   security:
-    jwt-secret: change-me-in-local-env-change-me-in-local-env
+    jwt-secret: ${MATRIX_PRP_JWT_SECRET}
     jwt-expiration-minutes: 1440
-    development-password: matrix-prp
+

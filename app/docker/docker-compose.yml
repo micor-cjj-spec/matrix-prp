@@ -4,13 +4,13 @@ services:
     container_name: matrix-prp-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MATRIX_PRP_MYSQL_ROOT_PASSWORD:?Set a strong MySQL root password}
       MYSQL_DATABASE: matrix_prp
       MYSQL_USER: matrix_prp
-      MYSQL_PASSWORD: matrix_prp
+      MYSQL_PASSWORD: ${MATRIX_PRP_DB_PASSWORD:?Set a strong DB password}
       TZ: Asia/Shanghai
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - matrix_prp_mysql_data:/var/lib/mysql
       - ./mysql/init:/docker-entrypoint-initdb.d:ro

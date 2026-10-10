@@ -3,6 +3,8 @@ package com.matrix.prp.common.api;
 import jakarta.validation.ConstraintViolationException;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -39,6 +41,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(IllegalArgumentException exception) {
         return error(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", exception.getMessage());
+    }
+
+    @ExceptionHandler(BadCredentialsException.class)
+    public ResponseEntity<ApiResponse<Void>> badCredentials(BadCredentialsException e) {
+        return error(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid username or password");
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> status(ResponseStatusException e) {
+        return ResponseEntity.status(e.getStatusCode())
+                .body(ApiResponse.error("ACCESS_DENIED", e.getReason() == null ? "Access denied" : e.getReason()));
     }
 
     @ExceptionHandler(Exception.class)

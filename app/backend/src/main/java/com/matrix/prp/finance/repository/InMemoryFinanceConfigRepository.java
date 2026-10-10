@@ -1,6 +1,8 @@
 package com.matrix.prp.finance.repository;
 
 import com.matrix.prp.common.api.ResourceNotFoundException;
+import com.matrix.prp.auth.security.TestTenant;
+import java.util.concurrent.ConcurrentHashMap;
 import com.matrix.prp.finance.model.CreateFinanceAccountRequest;
 import com.matrix.prp.finance.model.CreateFinanceCategoryRequest;
 import com.matrix.prp.finance.model.FinanceAccountItem;
@@ -8,6 +10,7 @@ import com.matrix.prp.finance.model.FinanceCategoryItem;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.context.annotation.Profile;
@@ -20,11 +23,14 @@ public class InMemoryFinanceConfigRepository implements FinanceConfigRepository 
     private final AtomicLong accountIdGenerator = new AtomicLong(7000);
     private final AtomicLong categoryIdGenerator = new AtomicLong(8000);
     private final CopyOnWriteArrayList<FinanceAccountItem> accounts = new CopyOnWriteArrayList<>();
+    private final Map<Long,Long> owners = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<FinanceCategoryItem> categories = new CopyOnWriteArrayList<>();
+    private final Map<Long,Long> categoryOwners = new ConcurrentHashMap<>();
 
     @Override
     public List<FinanceAccountItem> listAccounts() {
         return accounts.stream()
+                .filter(item -> java.util.Objects.equals(owners.get(item.id()), TestTenant.id()))
                 .sorted(Comparator.comparing(FinanceAccountItem::createdAt).reversed())
                 .toList();
     }
@@ -40,6 +46,7 @@ public class InMemoryFinanceConfigRepository implements FinanceConfigRepository 
                 defaultText(request.note()),
                 OffsetDateTime.now());
         accounts.add(account);
+        owners.put(account.id(), TestTenant.id());
         return account;
     }
 
@@ -61,7 +68,7 @@ public class InMemoryFinanceConfigRepository implements FinanceConfigRepository 
 
     @Override
     public void deleteAccount(long id) {
-        boolean removed = accounts.removeIf(account -> account.id() == id);
+        boolean removed = accounts.removeIf(account -> account.id() == id && java.util.Objects.equals(owners.get(id), TestTenant.id()));
         if (!removed) {
             throw new ResourceNotFoundException("Finance account not found: " + id);
         }
@@ -70,6 +77,7 @@ public class InMemoryFinanceConfigRepository implements FinanceConfigRepository 
     @Override
     public List<FinanceCategoryItem> listCategories(String type) {
         return categories.stream()
+                .filter(item -> java.util.Objects.equals(categoryOwners.get(item.id()), TestTenant.id()))
                 .filter(category -> type == null || type.isBlank() || type.equals(category.type()))
                 .sorted(Comparator.comparing(FinanceCategoryItem::createdAt).reversed())
                 .toList();
@@ -85,6 +93,7 @@ public class InMemoryFinanceConfigRepository implements FinanceConfigRepository 
                 defaultText(request.note()),
                 OffsetDateTime.now());
         categories.add(category);
+        categoryOwners.put(category.id(), TestTenant.id());
         return category;
     }
 
@@ -105,7 +114,7 @@ public class InMemoryFinanceConfigRepository implements FinanceConfigRepository 
 
     @Override
     public void deleteCategory(long id) {
-        boolean removed = categories.removeIf(category -> category.id() == id);
+        boolean removed = categories.removeIf(category -> category.id() == id && java.util.Objects.equals(categoryOwners.get(id), TestTenant.id()));
         if (!removed) {
             throw new ResourceNotFoundException("Finance category not found: " + id);
         }
@@ -113,14 +122,14 @@ public class InMemoryFinanceConfigRepository implements FinanceConfigRepository 
 
     private FinanceAccountItem findAccount(long id) {
         return accounts.stream()
-                .filter(account -> account.id() == id)
+                .filter(account -> account.id() == id && java.util.Objects.equals(owners.get(id), TestTenant.id()))
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Finance account not found: " + id));
     }
 
     private FinanceCategoryItem findCategory(long id) {
         return categories.stream()
-                .filter(category -> category.id() == id)
+                .filter(category -> category.id() == id && java.util.Objects.equals(categoryOwners.get(id), TestTenant.id()))
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Finance category not found: " + id));
     }

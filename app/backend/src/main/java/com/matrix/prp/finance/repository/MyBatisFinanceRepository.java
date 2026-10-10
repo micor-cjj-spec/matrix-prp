@@ -1,6 +1,7 @@
 package com.matrix.prp.finance.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.finance.entity.FinanceTransactionEntity;
 import com.matrix.prp.finance.mapper.FinanceTransactionMapper;
@@ -24,8 +25,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 @Profile("!test")
 public class MyBatisFinanceRepository implements FinanceRepository {
-
-    private static final long DEFAULT_USER_ID = 1L;
 
     private final FinanceTransactionMapper financeTransactionMapper;
 
@@ -51,7 +50,7 @@ public class MyBatisFinanceRepository implements FinanceRepository {
     public FinanceTransactionItem createTransaction(CreateFinanceTransactionRequest request) {
         LocalDateTime now = LocalDateTime.now();
         FinanceTransactionEntity entity = new FinanceTransactionEntity();
-        entity.setUserId(DEFAULT_USER_ID);
+        entity.setUserId(CurrentUser.id());
         entity.setType(request.type());
         entity.setAmount(request.amount());
         entity.setCategory(request.category());
@@ -93,6 +92,7 @@ public class MyBatisFinanceRepository implements FinanceRepository {
         YearMonth current = filter == null || filter.month() == null ? YearMonth.now() : filter.month();
         List<FinanceTransactionEntity> rows = financeTransactionMapper.selectList(
                 new LambdaQueryWrapper<FinanceTransactionEntity>()
+                        .eq(FinanceTransactionEntity::getUserId, CurrentUser.id())
                         .ge(FinanceTransactionEntity::getTransactionDate, current.atDay(1))
                         .le(FinanceTransactionEntity::getTransactionDate, current.atEndOfMonth()));
 
@@ -160,7 +160,8 @@ public class MyBatisFinanceRepository implements FinanceRepository {
 
     private LambdaQueryWrapper<FinanceTransactionEntity> buildFilterQuery(FinanceTransactionFilter filter) {
         FinanceTransactionFilter effectiveFilter = filter == null ? new FinanceTransactionFilter(null, null, null) : filter;
-        LambdaQueryWrapper<FinanceTransactionEntity> query = new LambdaQueryWrapper<>();
+        LambdaQueryWrapper<FinanceTransactionEntity> query = new LambdaQueryWrapper<FinanceTransactionEntity>()
+                .eq(FinanceTransactionEntity::getUserId, CurrentUser.id());
         if (effectiveFilter.month() != null) {
             query.ge(FinanceTransactionEntity::getTransactionDate, effectiveFilter.month().atDay(1))
                     .le(FinanceTransactionEntity::getTransactionDate, effectiveFilter.month().atEndOfMonth());
@@ -176,7 +177,7 @@ public class MyBatisFinanceRepository implements FinanceRepository {
 
     private FinanceTransactionEntity findById(long id) {
         FinanceTransactionEntity entity = financeTransactionMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !java.util.Objects.equals(entity.getUserId(), CurrentUser.id())) {
             throw new ResourceNotFoundException("Finance transaction not found: " + id);
         }
         return entity;

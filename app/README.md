@@ -111,10 +111,7 @@ npx tsx src/index.ts --help
 npm run dev -- health
 ```
 
-开发期默认账号：
-
-- Username: `admin`
-- Password: `matrix-prp`
+测试环境（仅 `test` Profile）存在 `admin / matrix-prp`。常规运行使用真实数据库用户，需配置安全环境变量，详见 `app/docs/technical/multi-user-foundation.md`。
 
 ## 本地验证
 

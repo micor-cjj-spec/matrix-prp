@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/today-workbench]
+    branches: [main, feat/multi-user-foundation]
   pull_request:
     branches: [main]
 
@@ -38,3 +38,21 @@ jobs:
       - name: Typecheck and build Web
         working-directory: app/web
         run: npm run build
+
+  mobile-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/mobile/package-lock.json
+      - name: Install mobile dependencies
+        working-directory: app/mobile
+        run: npm ci
+      - name: Typecheck and build Mobile H5
+        working-directory: app/mobile
+        run: |
+          npm run type-check
+          npm run build:h5

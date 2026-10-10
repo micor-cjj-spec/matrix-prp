@@ -1,6 +1,7 @@
 package com.matrix.prp.finance.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.finance.entity.FinanceAccountEntity;
 import com.matrix.prp.finance.entity.FinanceCategoryEntity;
@@ -19,8 +20,6 @@ import org.springframework.stereotype.Repository;
 @Profile("!test")
 public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
 
-    private static final long DEFAULT_USER_ID = 1L;
-
     private final FinanceAccountMapper accountMapper;
     private final FinanceCategoryMapper categoryMapper;
 
@@ -32,6 +31,7 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
     @Override
     public List<FinanceAccountItem> listAccounts() {
         return accountMapper.selectList(new LambdaQueryWrapper<FinanceAccountEntity>()
+                        .eq(FinanceAccountEntity::getUserId, CurrentUser.id())
                         .orderByDesc(FinanceAccountEntity::getCreatedAt))
                 .stream()
                 .map(FinanceAccountEntity::toItem)
@@ -43,7 +43,7 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
         LocalDateTime now = LocalDateTime.now();
         FinanceAccountEntity entity = new FinanceAccountEntity();
         applyAccountRequest(entity, request);
-        entity.setUserId(DEFAULT_USER_ID);
+        entity.setUserId(CurrentUser.id());
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         entity.setDeleted(0);
@@ -62,6 +62,7 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
 
     @Override
     public void deleteAccount(long id) {
+        findAccount(id);
         int deleted = accountMapper.deleteById(id);
         if (deleted == 0) {
             throw new ResourceNotFoundException("Finance account not found: " + id);
@@ -71,6 +72,7 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
     @Override
     public List<FinanceCategoryItem> listCategories(String type) {
         LambdaQueryWrapper<FinanceCategoryEntity> query = new LambdaQueryWrapper<FinanceCategoryEntity>()
+                .eq(FinanceCategoryEntity::getUserId, CurrentUser.id())
                 .orderByDesc(FinanceCategoryEntity::getCreatedAt);
         if (type != null && !type.isBlank()) {
             query.eq(FinanceCategoryEntity::getType, type);
@@ -86,7 +88,7 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
         LocalDateTime now = LocalDateTime.now();
         FinanceCategoryEntity entity = new FinanceCategoryEntity();
         applyCategoryRequest(entity, request);
-        entity.setUserId(DEFAULT_USER_ID);
+        entity.setUserId(CurrentUser.id());
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         entity.setDeleted(0);
@@ -105,6 +107,7 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
 
     @Override
     public void deleteCategory(long id) {
+        findCategory(id);
         int deleted = categoryMapper.deleteById(id);
         if (deleted == 0) {
             throw new ResourceNotFoundException("Finance category not found: " + id);
@@ -113,7 +116,7 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
 
     private FinanceAccountEntity findAccount(long id) {
         FinanceAccountEntity entity = accountMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !java.util.Objects.equals(entity.getUserId(), CurrentUser.id())) {
             throw new ResourceNotFoundException("Finance account not found: " + id);
         }
         return entity;
@@ -121,7 +124,7 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
 
     private FinanceCategoryEntity findCategory(long id) {
         FinanceCategoryEntity entity = categoryMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !java.util.Objects.equals(entity.getUserId(), CurrentUser.id())) {
             throw new ResourceNotFoundException("Finance category not found: " + id);
         }
         return entity;

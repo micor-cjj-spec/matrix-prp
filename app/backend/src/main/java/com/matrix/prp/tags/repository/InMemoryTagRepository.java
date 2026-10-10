@@ -1,12 +1,15 @@
 package com.matrix.prp.tags.repository;
 
 import com.matrix.prp.common.api.ResourceNotFoundException;
+import com.matrix.prp.auth.security.TestTenant;
+import java.util.concurrent.ConcurrentHashMap;
 import com.matrix.prp.tags.model.CreateTagRequest;
 import com.matrix.prp.tags.model.TagItem;
 import com.matrix.prp.tags.model.UpdateTagRequest;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.context.annotation.Profile;
@@ -18,10 +21,12 @@ public class InMemoryTagRepository implements TagRepository {
 
     private final AtomicLong idGenerator = new AtomicLong(5000);
     private final CopyOnWriteArrayList<TagItem> tags = new CopyOnWriteArrayList<>();
+    private final Map<Long,Long> owners = new ConcurrentHashMap<>();
 
     @Override
     public List<TagItem> list() {
         return tags.stream()
+                .filter(item -> java.util.Objects.equals(owners.get(item.id()), TestTenant.id()))
                 .sorted(Comparator.comparing(TagItem::createdAt).reversed())
                 .toList();
     }
@@ -35,6 +40,7 @@ public class InMemoryTagRepository implements TagRepository {
                 request.description() == null ? "" : request.description(),
                 OffsetDateTime.now());
         tags.add(tag);
+        owners.put(tag.id(), TestTenant.id());
         return tag;
     }
 
@@ -54,7 +60,7 @@ public class InMemoryTagRepository implements TagRepository {
 
     @Override
     public void delete(long id) {
-        boolean removed = tags.removeIf(tag -> tag.id() == id);
+        boolean removed = tags.removeIf(tag -> tag.id() == id && java.util.Objects.equals(owners.get(id), TestTenant.id()));
         if (!removed) {
             throw new ResourceNotFoundException("Tag not found: " + id);
         }
@@ -62,7 +68,7 @@ public class InMemoryTagRepository implements TagRepository {
 
     private TagItem findById(long id) {
         return tags.stream()
-                .filter(tag -> tag.id() == id)
+                .filter(tag -> tag.id() == id && java.util.Objects.equals(owners.get(id), TestTenant.id()))
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Tag not found: " + id));
     }

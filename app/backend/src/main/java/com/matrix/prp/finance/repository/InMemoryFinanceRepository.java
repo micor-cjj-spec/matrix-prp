@@ -1,6 +1,8 @@
 package com.matrix.prp.finance.repository;
 
 import com.matrix.prp.common.api.ResourceNotFoundException;
+import com.matrix.prp.auth.security.TestTenant;
+import java.util.concurrent.ConcurrentHashMap;
 import com.matrix.prp.finance.model.CreateFinanceTransactionRequest;
 import com.matrix.prp.finance.model.FinanceAccountSummary;
 import com.matrix.prp.finance.model.FinanceCategorySummary;
@@ -26,6 +28,7 @@ public class InMemoryFinanceRepository implements FinanceRepository {
 
     private final AtomicLong idGenerator = new AtomicLong(3000);
     private final CopyOnWriteArrayList<FinanceTransactionItem> transactions = new CopyOnWriteArrayList<>();
+    private final Map<Long,Long> owners = new ConcurrentHashMap<>();
 
     @Override
     public List<FinanceTransactionItem> listTransactions() {
@@ -36,6 +39,7 @@ public class InMemoryFinanceRepository implements FinanceRepository {
     public List<FinanceTransactionItem> listTransactions(FinanceTransactionFilter filter) {
         FinanceTransactionFilter effectiveFilter = filter == null ? new FinanceTransactionFilter(null, null, null) : filter;
         return transactions.stream()
+                .filter(item -> java.util.Objects.equals(owners.get(item.id()), TestTenant.id()))
                 .filter(transaction -> effectiveFilter.month() == null
                         || YearMonth.from(transaction.transactionDate()).equals(effectiveFilter.month()))
                 .filter(transaction -> effectiveFilter.type() == null || effectiveFilter.type().isBlank()
@@ -59,6 +63,7 @@ public class InMemoryFinanceRepository implements FinanceRepository {
                 request.transactionDate() == null ? LocalDate.now() : request.transactionDate(),
                 OffsetDateTime.now());
         transactions.add(transaction);
+        owners.put(transaction.id(), TestTenant.id());
         return transaction;
     }
 
@@ -82,7 +87,7 @@ public class InMemoryFinanceRepository implements FinanceRepository {
 
     @Override
     public void deleteTransaction(long id) {
-        boolean removed = transactions.removeIf(transaction -> transaction.id() == id);
+        boolean removed = transactions.removeIf(transaction -> transaction.id() == id && java.util.Objects.equals(owners.get(id), TestTenant.id()));
         if (!removed) {
             throw new ResourceNotFoundException("Finance transaction not found: " + id);
         }
@@ -95,6 +100,7 @@ public class InMemoryFinanceRepository implements FinanceRepository {
         BigDecimal expense = BigDecimal.ZERO;
 
         for (FinanceTransactionItem transaction : transactions) {
+            if (!java.util.Objects.equals(owners.get(transaction.id()), TestTenant.id())) continue;
             if (!YearMonth.from(transaction.transactionDate()).equals(current)) {
                 continue;
             }
@@ -158,7 +164,7 @@ public class InMemoryFinanceRepository implements FinanceRepository {
 
     private FinanceTransactionItem findById(long id) {
         return transactions.stream()
-                .filter(transaction -> transaction.id() == id)
+                .filter(transaction -> transaction.id() == id && java.util.Objects.equals(owners.get(id), TestTenant.id()))
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Finance transaction not found: " + id));
     }
