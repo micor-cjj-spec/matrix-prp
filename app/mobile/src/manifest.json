@@ -1,7 +1,7 @@
 {
   "name": "Matrix PRP",
   "appid": "__UNI__MATRIXPRP",
-  "description": "Personal resource planning mobile app",
+  "description": "个人资源管理移动端",
   "versionName": "0.0.1",
   "versionCode": "1",
   "transformPx": false,
