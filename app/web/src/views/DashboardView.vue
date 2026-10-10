@@ -6,6 +6,7 @@ import { Document, EditPen, Money, Notebook, Operation, Tickets } from '@element
 import { fetchDashboardSummary, type DashboardSummary } from '@/api/dashboard'
 import { fetchRuntimeHealth, type RuntimeHealth } from '@/api/health'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { moduleLabel, priorityLabel, taskStatusLabel } from '@/utils/labels'
 
 const iconMap = {
   records: Document,
@@ -30,11 +31,11 @@ const fallbackSummary: DashboardSummary = {
   highPriorityTasks: [],
   recentRecords: [],
   modules: [
-    { code: 'records', name: 'Records', description: '沉淀学习、生活、工作和兴趣记录', enabled: true },
-    { code: 'tasks', name: 'Tasks', description: '管理今日任务和近期计划', enabled: true },
-    { code: 'finance', name: 'Finance', description: '记录收入支出并查看月度概览', enabled: true },
-    { code: 'reviews', name: 'Reviews', description: '沉淀周、月和模块复盘', enabled: true },
-    { code: 'knowledge', name: 'Knowledge', description: '浏览现有 Markdown 知识库', enabled: true },
+    { code: 'records', name: '记录管理', description: '沉淀学习、生活、工作和兴趣记录', enabled: true },
+    { code: 'tasks', name: '任务计划', description: '管理今日任务和近期计划', enabled: true },
+    { code: 'finance', name: '财务管理', description: '记录收入支出并查看月度概览', enabled: true },
+    { code: 'reviews', name: '复盘中心', description: '沉淀周、月和模块复盘', enabled: true },
+    { code: 'knowledge', name: '知识库', description: '浏览现有 Markdown 知识库', enabled: true },
   ],
 }
 
@@ -60,7 +61,7 @@ const metrics = computed(() => [
 
 const runtimeStatus = computed(() => {
   if (!runtime.value) return '运行环境未确认'
-  return `${runtime.value.persistence} · ${runtime.value.database} · knowledge ${runtime.value.knowledgeAvailable ? 'ready' : 'missing'}`
+  return `${runtime.value.persistence} · ${runtime.value.database} · 知识库${runtime.value.knowledgeAvailable ? '可用' : '不可用'}`
 })
 
 const modules = computed(() =>
@@ -114,11 +115,11 @@ onMounted(async () => {
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Phase 1</p>
+        <p class="eyebrow">今日概览</p>
         <h1>个人资源管理工作台</h1>
-        <p>把登录、Dashboard、记录、任务、财务、复盘和知识库浏览打通，先形成每天能用的基础闭环。</p>
+        <p>集中查看今日任务、财务、记录和知识库，随时掌握个人计划。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ loading ? '连接 Dashboard API 中' : apiOnline ? 'Dashboard API 已连接' : '后端未连接，显示本地占位数据' }}
+          {{ loading ? '正在连接服务' : apiOnline ? '服务已连接' : '后端未连接，显示本地占位数据' }}
         </span>
         <span class="api-status" :class="{ online: runtime?.status === 'UP' }">
           {{ runtimeStatus }}
@@ -147,14 +148,14 @@ onMounted(async () => {
             <div class="list-item-row">
               <strong>{{ task.title }}</strong>
               <div class="item-actions">
-                <el-tag :type="statusTagType(task.status)">{{ task.status }}</el-tag>
+                <el-tag :type="statusTagType(task.status)">{{ taskStatusLabel(task.status) }}</el-tag>
                 <el-button size="small" type="success" plain
                   :loading="completingTaskId === task.id"
                   :disabled="!apiOnline || completingTaskId !== null"
                   @click="completeTask(task.id)">完成</el-button>
               </div>
             </div>
-            <span>{{ task.moduleCode }} · {{ task.priority }} · {{ task.dueDate || '无截止日期' }}</span>
+            <span>{{ moduleLabel(task.moduleCode) }} · {{ priorityLabel(task.priority) }} · {{ task.dueDate || '无截止日期' }}</span>
             <p>{{ task.description || '无描述' }}</p>
           </article>
         </div>
@@ -172,7 +173,7 @@ onMounted(async () => {
                 :disabled="!apiOnline || completingTaskId !== null"
                 @click="completeTask(task.id)">完成</el-button>
             </div>
-            <span>{{ task.moduleCode }} · 截止 {{ task.dueDate }}</span>
+            <span>{{ moduleLabel(task.moduleCode) }} · 截止 {{ task.dueDate }}</span>
             <p>{{ task.description || '无描述' }}</p>
           </article>
         </div>
@@ -193,7 +194,7 @@ onMounted(async () => {
                   @click="completeTask(task.id)">完成</el-button>
               </div>
             </div>
-            <span>{{ task.moduleCode }} · {{ task.priority }}</span>
+            <span>{{ moduleLabel(task.moduleCode) }} · {{ priorityLabel(task.priority) }}</span>
             <p>{{ task.description || '无描述' }}</p>
           </article>
         </div>
@@ -206,9 +207,9 @@ onMounted(async () => {
           <article v-for="task in summary.highPriorityTasks" :key="task.id" class="list-item">
             <div class="list-item-row">
               <strong>{{ task.title }}</strong>
-              <el-tag type="danger">high</el-tag>
+              <el-tag type="danger">高优先级</el-tag>
             </div>
-            <span>{{ task.moduleCode }} · {{ task.status }} · {{ task.dueDate || '无截止日期' }}</span>
+            <span>{{ moduleLabel(task.moduleCode) }} · {{ taskStatusLabel(task.status) }} · {{ task.dueDate || '无截止日期' }}</span>
             <p>{{ task.description || '无描述' }}</p>
           </article>
         </div>
@@ -220,7 +221,7 @@ onMounted(async () => {
         <div v-else class="item-list">
           <article v-for="record in summary.recentRecords" :key="record.id" class="list-item">
             <strong>{{ record.title }}</strong>
-            <span>{{ record.moduleCode }} · {{ record.recordDate }}</span>
+            <span>{{ moduleLabel(record.moduleCode) }} · {{ record.recordDate }}</span>
             <p>{{ record.content || '无内容' }}</p>
           </article>
         </div>

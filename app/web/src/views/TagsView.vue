@@ -77,7 +77,7 @@ onMounted(loadTags)
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Tags</p>
+        <p class="eyebrow">标签管理</p>
         <h1>标签管理</h1>
         <p>维护一套跨记录、任务、财务和复盘通用的标签字典，让后续检索和分析更稳定。</p>
         <span class="api-status" :class="{ online: apiOnline }">
@@ -91,7 +91,7 @@ onMounted(loadTags)
         <template #header>新增标签</template>
         <el-form label-position="top" @submit.prevent>
           <el-form-item label="名称">
-            <el-input v-model="form.name" placeholder="例如：phase-one" />
+            <el-input v-model="form.name" placeholder="例如：学习、工作、重要" />
           </el-form-item>
           <el-form-item label="颜色">
             <el-color-picker v-model="form.color" />

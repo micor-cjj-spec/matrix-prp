@@ -25,6 +25,7 @@ import {
   type FinanceTransactionItem,
 } from '@/api/finance'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { accountTypeLabel, financeTypeLabel } from '@/utils/labels'
 
 const transactions = ref<FinanceTransactionItem[]>([])
 const accounts = ref<FinanceAccountItem[]>([])
@@ -81,10 +82,11 @@ const formatCurrency = (value: string | number, currency = 'CNY') =>
 
 const formatPercent = (value: string | number) => `${(Number(value) * 100).toFixed(1)}%`
 
+const transactionTypeOptions = [{ label: '支出', value: 'expense' }, { label: '收入', value: 'income' }]
 const metrics = computed(() => [
-  { label: 'Income', value: formatCurrency(summary.value.income) },
-  { label: 'Expense', value: formatCurrency(summary.value.expense) },
-  { label: 'Balance', value: formatCurrency(summary.value.balance) },
+  { label: '收入', value: formatCurrency(summary.value.income) },
+  { label: '支出', value: formatCurrency(summary.value.expense) },
+  { label: '结余', value: formatCurrency(summary.value.balance) },
 ])
 
 const accountOptions = computed(() => {
@@ -152,10 +154,10 @@ async function submitTransaction() {
   if (!transactionForm.amount || !transactionForm.category.trim() || !transactionForm.account.trim()) return
   if (editingTransactionId.value === null) {
     await createFinanceTransaction({ ...transactionForm })
-    ElMessage.success('Transaction created')
+    ElMessage.success('收支记录已创建')
   } else {
     await updateFinanceTransaction(editingTransactionId.value, { ...transactionForm })
-    ElMessage.success('Transaction updated')
+    ElMessage.success('收支记录已更新')
   }
   resetTransactionForm()
   await loadFinance()
@@ -174,16 +176,16 @@ function editTransaction(transaction: FinanceTransactionItem) {
 
 async function removeTransaction(transaction: FinanceTransactionItem) {
   try {
-    await ElMessageBox.confirm(`Delete ${transaction.category} ${formatCurrency(transaction.amount)}?`, 'Delete transaction', {
-      confirmButtonText: 'Delete',
-      cancelButtonText: 'Cancel',
+    await ElMessageBox.confirm(`确定删除「${transaction.category}」这笔 ${formatCurrency(transaction.amount)} 的记录吗？`, '删除收支记录', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
       type: 'warning',
     })
   } catch {
     return
   }
   await deleteFinanceTransaction(transaction.id)
-  ElMessage.success('Transaction deleted')
+  ElMessage.success('收支记录已删除')
   await loadFinance()
 }
 
@@ -200,10 +202,10 @@ async function submitAccount() {
   if (!accountForm.name.trim()) return
   if (editingAccountId.value === null) {
     await createFinanceAccount({ ...accountForm })
-    ElMessage.success('Account created')
+    ElMessage.success('账户已创建')
   } else {
     await updateFinanceAccount(editingAccountId.value, { ...accountForm })
-    ElMessage.success('Account updated')
+    ElMessage.success('账户已更新')
   }
   resetAccountForm()
   await loadFinance()
@@ -220,16 +222,16 @@ function editAccount(account: FinanceAccountItem) {
 
 async function removeAccount(account: FinanceAccountItem) {
   try {
-    await ElMessageBox.confirm(`Delete account ${account.name}?`, 'Delete account', {
-      confirmButtonText: 'Delete',
-      cancelButtonText: 'Cancel',
+    await ElMessageBox.confirm(`确定删除账户「${account.name}」吗？`, '删除账户', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
       type: 'warning',
     })
   } catch {
     return
   }
   await deleteFinanceAccount(account.id)
-  ElMessage.success('Account deleted')
+  ElMessage.success('账户已删除')
   await loadFinance()
 }
 
@@ -245,10 +247,10 @@ async function submitCategory() {
   if (!categoryForm.name.trim()) return
   if (editingCategoryId.value === null) {
     await createFinanceCategory({ ...categoryForm })
-    ElMessage.success('Category created')
+    ElMessage.success('分类已创建')
   } else {
     await updateFinanceCategory(editingCategoryId.value, { ...categoryForm })
-    ElMessage.success('Category updated')
+    ElMessage.success('分类已更新')
   }
   resetCategoryForm()
   await loadFinance()
@@ -264,16 +266,16 @@ function editCategory(category: FinanceCategoryItem) {
 
 async function removeCategory(category: FinanceCategoryItem) {
   try {
-    await ElMessageBox.confirm(`Delete category ${category.name}?`, 'Delete category', {
-      confirmButtonText: 'Delete',
-      cancelButtonText: 'Cancel',
+    await ElMessageBox.confirm(`确定删除分类「${category.name}」吗？`, '删除分类', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
       type: 'warning',
     })
   } catch {
     return
   }
   await deleteFinanceCategory(category.id)
-  ElMessage.success('Category deleted')
+  ElMessage.success('分类已删除')
   await loadFinance()
 }
 
@@ -287,11 +289,11 @@ onMounted(async () => {
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Finance</p>
-        <h1>Finance Workspace</h1>
-        <p>Track transactions, maintain accounts, and keep income or expense categories ready for review.</p>
+        <p class="eyebrow">财务管理</p>
+        <h1>个人财务工作台</h1>
+        <p>管理收支记录、账户与分类，清晰掌握每月资金变化。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ apiOnline ? 'Finance API connected' : 'Finance API offline' }}
+          {{ apiOnline ? '财务服务已连接' : '财务服务未连接' }}
         </span>
       </div>
     </header>
@@ -305,36 +307,36 @@ onMounted(async () => {
 
     <section class="finance-grid">
       <el-card shadow="never">
-        <template #header>{{ editingTransactionId === null ? 'New Transaction' : 'Edit Transaction' }}</template>
+        <template #header>{{ editingTransactionId === null ? '新增收支' : '编辑收支' }}</template>
         <el-form label-position="top" @submit.prevent>
-          <el-form-item label="Type">
-            <el-segmented v-model="transactionForm.type" :options="['expense', 'income']" />
+          <el-form-item label="类型">
+            <el-segmented v-model="transactionForm.type" :options="transactionTypeOptions" />
           </el-form-item>
-          <el-form-item label="Amount">
+          <el-form-item label="金额">
             <el-input-number v-model="transactionForm.amount" :precision="2" :min="0" />
           </el-form-item>
-          <el-form-item label="Category">
-            <el-select v-model="transactionForm.category" filterable allow-create placeholder="Select or create">
+          <el-form-item label="分类">
+            <el-select v-model="transactionForm.category" filterable allow-create placeholder="选择或输入新名称">
               <el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" />
             </el-select>
           </el-form-item>
-          <el-form-item label="Account">
-            <el-select v-model="transactionForm.account" filterable allow-create placeholder="Select or create">
+          <el-form-item label="账户">
+            <el-select v-model="transactionForm.account" filterable allow-create placeholder="选择或输入新名称">
               <el-option v-for="account in accountOptions" :key="account" :label="account" :value="account" />
             </el-select>
           </el-form-item>
-          <el-form-item label="Merchant">
+          <el-form-item label="商家 / 对方">
             <el-input v-model="transactionForm.merchant" />
           </el-form-item>
-          <el-form-item label="Date">
+          <el-form-item label="日期">
             <el-date-picker v-model="transactionForm.transactionDate" type="date" value-format="YYYY-MM-DD" />
           </el-form-item>
-          <el-form-item label="Note">
+          <el-form-item label="备注">
             <el-input v-model="transactionForm.note" type="textarea" :rows="2" />
           </el-form-item>
           <div class="form-actions">
             <el-button type="primary" :loading="loading" @click="submitTransaction">
-              {{ editingTransactionId === null ? 'Create' : 'Save' }}
+              {{ editingTransactionId === null ? '创建' : '保存' }}
             </el-button>
             <el-button v-if="editingTransactionId !== null" @click="resetTransactionForm">Cancel</el-button>
           </div>
@@ -342,26 +344,26 @@ onMounted(async () => {
       </el-card>
 
       <el-card shadow="never">
-        <template #header>{{ editingAccountId === null ? 'Accounts' : 'Edit Account' }}</template>
+        <template #header>{{ editingAccountId === null ? '账户管理' : '编辑账户' }}</template>
         <el-form label-position="top" @submit.prevent>
-          <el-form-item label="Name">
-            <el-input v-model="accountForm.name" placeholder="cash, bank, alipay" />
+          <el-form-item label="名称">
+            <el-input v-model="accountForm.name" placeholder="例如：现金、银行卡、支付宝" />
           </el-form-item>
-          <el-form-item label="Type">
-            <el-input v-model="accountForm.type" placeholder="cash, bank, card" />
+          <el-form-item label="类型">
+            <el-input v-model="accountForm.type" placeholder="例如：cash、bank、card" />
           </el-form-item>
-          <el-form-item label="Currency">
+          <el-form-item label="币种">
             <el-input v-model="accountForm.currency" />
           </el-form-item>
-          <el-form-item label="Opening Balance">
+          <el-form-item label="期初余额">
             <el-input-number v-model="accountForm.openingBalance" :precision="2" :min="0" />
           </el-form-item>
-          <el-form-item label="Note">
+          <el-form-item label="备注">
             <el-input v-model="accountForm.note" />
           </el-form-item>
           <div class="form-actions">
             <el-button type="primary" @click="submitAccount">
-              {{ editingAccountId === null ? 'Add Account' : 'Save Account' }}
+              {{ editingAccountId === null ? '新增账户' : '保存账户' }}
             </el-button>
             <el-button v-if="editingAccountId !== null" @click="resetAccountForm">Cancel</el-button>
           </div>
@@ -371,36 +373,36 @@ onMounted(async () => {
           <article v-for="account in accounts" :key="account.id" class="compact-row">
             <div>
               <strong>{{ account.name }}</strong>
-              <span>{{ account.type }} / {{ account.currency }}</span>
+              <span>{{ accountTypeLabel(account.type) }} / {{ account.currency }}</span>
             </div>
             <div class="item-actions">
               <el-tag>{{ formatCurrency(account.openingBalance, account.currency) }}</el-tag>
-              <el-button size="small" text @click="editAccount(account)">Edit</el-button>
-              <el-button size="small" text type="danger" @click="removeAccount(account)">Delete</el-button>
+              <el-button size="small" text @click="editAccount(account)">编辑</el-button>
+              <el-button size="small" text type="danger" @click="removeAccount(account)">删除</el-button>
             </div>
           </article>
-          <el-empty v-if="accounts.length === 0" description="No accounts yet" />
+          <el-empty v-if="accounts.length === 0" description="暂无账户" />
         </div>
       </el-card>
 
       <el-card shadow="never">
-        <template #header>{{ editingCategoryId === null ? 'Categories' : 'Edit Category' }}</template>
+        <template #header>{{ editingCategoryId === null ? '分类管理' : '编辑分类' }}</template>
         <el-form label-position="top" @submit.prevent>
-          <el-form-item label="Name">
-            <el-input v-model="categoryForm.name" placeholder="food, salary, traffic" />
+          <el-form-item label="名称">
+            <el-input v-model="categoryForm.name" placeholder="例如：餐饮、工资、交通" />
           </el-form-item>
-          <el-form-item label="Type">
-            <el-segmented v-model="categoryForm.type" :options="['expense', 'income']" />
+          <el-form-item label="类型">
+            <el-segmented v-model="categoryForm.type" :options="transactionTypeOptions" />
           </el-form-item>
-          <el-form-item label="Color">
+          <el-form-item label="颜色">
             <el-color-picker v-model="categoryForm.color" />
           </el-form-item>
-          <el-form-item label="Note">
+          <el-form-item label="备注">
             <el-input v-model="categoryForm.note" />
           </el-form-item>
           <div class="form-actions">
             <el-button type="primary" @click="submitCategory">
-              {{ editingCategoryId === null ? 'Add Category' : 'Save Category' }}
+              {{ editingCategoryId === null ? '新增分类' : '保存分类' }}
             </el-button>
             <el-button v-if="editingCategoryId !== null" @click="resetCategoryForm">Cancel</el-button>
           </div>
@@ -410,23 +412,23 @@ onMounted(async () => {
           <article v-for="category in categories" :key="category.id" class="compact-row">
             <div>
               <strong>{{ category.name }}</strong>
-              <span>{{ category.type }}</span>
+              <span>{{ financeTypeLabel(category.type) }}</span>
             </div>
             <div class="item-actions">
               <span class="swatch" :style="{ backgroundColor: category.color }" />
-              <el-button size="small" text @click="editCategory(category)">Edit</el-button>
-              <el-button size="small" text type="danger" @click="removeCategory(category)">Delete</el-button>
+              <el-button size="small" text @click="editCategory(category)">编辑</el-button>
+              <el-button size="small" text type="danger" @click="removeCategory(category)">删除</el-button>
             </div>
           </article>
-          <el-empty v-if="categories.length === 0" description="No categories yet" />
+          <el-empty v-if="categories.length === 0" description="暂无分类" />
         </div>
       </el-card>
     </section>
 
     <section class="work-grid">
       <el-card shadow="never">
-        <template #header>Category Expense</template>
-        <el-empty v-if="categorySummary.length === 0" description="No expense categories this month" />
+        <template #header>本月支出分类</template>
+        <el-empty v-if="categorySummary.length === 0" description="本月暂无支出分类数据" />
         <div v-else class="summary-list">
           <div v-for="item in categorySummary" :key="item.category" class="summary-item">
             <div>
@@ -440,8 +442,8 @@ onMounted(async () => {
       </el-card>
 
       <el-card shadow="never">
-        <template #header>Account Summary</template>
-        <el-empty v-if="accountSummary.length === 0" description="No account activity this month" />
+        <template #header>账户收支汇总</template>
+        <el-empty v-if="accountSummary.length === 0" description="本月暂无账户变动" />
         <div v-else class="item-list">
           <article v-for="item in accountSummary" :key="item.account" class="list-item">
             <div class="list-item-row">
@@ -450,38 +452,38 @@ onMounted(async () => {
                 {{ formatCurrency(item.balance) }}
               </el-tag>
             </div>
-            <span>Income {{ formatCurrency(item.income) }} / Expense {{ formatCurrency(item.expense) }}</span>
+            <span>收入 {{ formatCurrency(item.income) }} / 支出 {{ formatCurrency(item.expense) }}</span>
           </article>
         </div>
       </el-card>
 
       <el-card shadow="never" class="transaction-list-card">
-        <template #header>Transactions</template>
+        <template #header>收支明细</template>
         <div class="filter-row">
-          <el-date-picker v-model="filters.month" type="month" value-format="YYYY-MM" placeholder="Month" @change="loadFinance" />
-          <el-select v-model="filters.type" clearable placeholder="Type" @change="loadFinance" @clear="loadFinance">
-            <el-option label="Expense" value="expense" />
-            <el-option label="Income" value="income" />
+          <el-date-picker v-model="filters.month" type="month" value-format="YYYY-MM" placeholder="选择月份" @change="loadFinance" />
+          <el-select v-model="filters.type" clearable placeholder="收支类型" @change="loadFinance" @clear="loadFinance">
+            <el-option label="支出" value="expense" />
+            <el-option label="收入" value="income" />
           </el-select>
-          <el-select v-model="filters.category" clearable filterable allow-create placeholder="Category" @change="loadFinance" @clear="loadFinance">
+          <el-select v-model="filters.category" clearable filterable allow-create placeholder="分类" @change="loadFinance" @clear="loadFinance">
             <el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" />
           </el-select>
         </div>
-        <el-empty v-if="transactions.length === 0" description="No transactions" />
+        <el-empty v-if="transactions.length === 0" description="暂无收支记录" />
         <div v-else class="item-list">
           <article v-for="transaction in transactions" :key="transaction.id" class="list-item">
             <div class="list-item-row">
               <strong>{{ transaction.category }}</strong>
               <div class="item-actions">
                 <el-tag :type="transaction.type === 'income' ? 'success' : 'warning'">
-                  {{ transaction.type }}
+                  {{ financeTypeLabel(transaction.type) }}
                 </el-tag>
-                <el-button size="small" text @click="editTransaction(transaction)">Edit</el-button>
-                <el-button size="small" text type="danger" @click="removeTransaction(transaction)">Delete</el-button>
+                <el-button size="small" text @click="editTransaction(transaction)">编辑</el-button>
+                <el-button size="small" text type="danger" @click="removeTransaction(transaction)">删除</el-button>
               </div>
             </div>
             <span>{{ transaction.transactionDate }} / {{ transaction.account }}</span>
-            <p>{{ formatCurrency(transaction.amount) }} / {{ transaction.merchant || 'No merchant' }}</p>
+            <p>{{ formatCurrency(transaction.amount) }} / {{ transaction.merchant || '未填写商家' }}</p>
           </article>
         </div>
       </el-card>

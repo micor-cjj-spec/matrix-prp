@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { notificationCategoryLabel, notificationPermissionLabel } from '@/utils/labels'
 import {
   getReminders, createReminder, updateReminder, changeReminderStatus, removeReminder, sendNow,
   getInbox, markRead, getDevices, getVapidKey, registerSubscription, removeDevice, testPush,
@@ -137,7 +138,7 @@ onMounted(refresh)
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Notification Center</p>
+        <p class="eyebrow">消息管理</p>
         <h1>消息与提醒中心</h1>
         <p>创建自己的提醒规则，接收 iPhone 和电脑上的系统通知。</p>
       </div>
@@ -191,7 +192,7 @@ onMounted(refresh)
           <div class="notification-side">
             <el-card shadow="never">
               <template #header><strong>通知预览</strong></template>
-              <p class="muted">Matrix PRP · {{ category }}</p>
+              <p class="muted">Matrix PRP · {{ notificationCategoryLabel(category) }}</p>
               <h3>{{ currentPreview }}</h3>
               <p>{{ body || '这里会显示你填写的通知正文。' }}</p>
             </el-card>
@@ -221,14 +222,14 @@ onMounted(refresh)
               <el-tag v-if="!item.readAt" size="small">未读</el-tag>
             </div>
             <p>{{ item.body }}</p>
-            <small>{{ item.category }} · {{ item.createdAt }}</small>
+            <small>{{ notificationCategoryLabel(item.category) }} · {{ item.createdAt }}</small>
           </div>
         </el-card>
       </el-tab-pane>
       <el-tab-pane label="推送设备" name="devices">
         <el-card shadow="never">
           <h3>系统推送</h3>
-          <p class="muted">通知权限：{{ permission }}。iPhone 必须先添加到主屏幕，并从桌面打开 App。</p>
+          <p class="muted">通知权限：{{ notificationPermissionLabel(permission) }}。iPhone 必须先添加到主屏幕，并从桌面打开 App。</p>
           <div class="notification-actions">
             <el-button type="primary" @click="enablePush">开启当前设备通知</el-button>
             <el-button @click="sendTest">发送测试通知</el-button>

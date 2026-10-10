@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { fallbackDomainModules, fetchDomainModules, type ModuleItem } from '@/api/modules'
 import { createReview, deleteReview, fetchReviews, updateReview, type ReviewItem } from '@/api/reviews'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { moduleLabel, reviewTypeLabel } from '@/utils/labels'
 
 const reviews = ref<ReviewItem[]>([])
 const modules = ref<ModuleItem[]>(fallbackDomainModules)
@@ -13,7 +14,7 @@ const editDialogVisible = ref(false)
 const editingReviewId = ref<number | null>(null)
 const today = new Date().toISOString().slice(0, 10)
 const weekStart = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-const reviewTypeOptions = ['weekly', 'monthly', 'module']
+const reviewTypeOptions = [{ label: '每周复盘', value: 'weekly' }, { label: '每月复盘', value: 'monthly' }, { label: '专题复盘', value: 'module' }]
 
 const filters = reactive({
   reviewType: '',
@@ -133,7 +134,7 @@ onMounted(loadReviews)
   <AppLayout>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Reviews</p>
+        <p class="eyebrow">复盘管理</p>
         <h1>复盘中心</h1>
         <p>把一周、一个月或某个模块的记录整理成判断和下一步行动。</p>
         <span class="api-status" :class="{ online: apiOnline }">
@@ -183,7 +184,7 @@ onMounted(loadReviews)
         <template #header>复盘列表</template>
         <div class="filter-row">
           <el-select v-model="filters.reviewType" clearable placeholder="按类型筛选" @change="loadReviews" @clear="loadReviews">
-            <el-option v-for="type in reviewTypeOptions" :key="type" :label="type" :value="type" />
+            <el-option v-for="type in reviewTypeOptions" :key="type.value" :label="type.label" :value="type.value" />
           </el-select>
           <el-select v-model="filters.moduleCode" clearable placeholder="按模块筛选" @change="loadReviews" @clear="loadReviews">
             <el-option v-for="module in modules" :key="module.code" :label="module.name" :value="module.code" />
@@ -199,12 +200,12 @@ onMounted(loadReviews)
             <div class="list-item-row">
               <strong>{{ review.title }}</strong>
               <div class="item-actions">
-                <el-tag>{{ review.reviewType }}</el-tag>
+                <el-tag>{{ reviewTypeLabel(review.reviewType) }}</el-tag>
                 <el-button size="small" text @click="openEditDialog(review)">编辑</el-button>
                 <el-button size="small" text type="danger" @click="removeReview(review)">删除</el-button>
               </div>
             </div>
-            <span>{{ review.moduleCode }} · {{ review.periodStart }} 至 {{ review.periodEnd }}</span>
+            <span>{{ moduleLabel(review.moduleCode) }} · {{ review.periodStart }} 至 {{ review.periodEnd }}</span>
             <p>{{ review.summary || '无总结' }}</p>
             <p v-if="review.nextActions">下一步：{{ review.nextActions }}</p>
           </article>
