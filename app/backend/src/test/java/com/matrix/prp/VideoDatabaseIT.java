@@ -57,9 +57,15 @@ class VideoDatabaseIT {
                 Map.of("folderId", folderId, "title", "Lesson 01.mp4", "sizeBytes", content.length))
                 .path("uploadId").asText();
 
+
         mvc.perform(auth(put("/api/video/uploads/{id}/parts/0", uploadId)
                 .contentType(MediaType.APPLICATION_OCTET_STREAM).content(content), admin))
                 .andExpect(status().isOk());
+        JsonNode uploadState = mapper.readTree(mvc.perform(
+                auth(get("/api/video/uploads/{id}", uploadId), admin))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .path("data");
+        assertThat(uploadState.path("receivedParts").get(0).asInt()).isEqualTo(0);
 
         long videoId = Long.parseLong(postJson("/api/video/uploads/" + uploadId + "/complete", admin, Map.of())
                 .path("id").asText());

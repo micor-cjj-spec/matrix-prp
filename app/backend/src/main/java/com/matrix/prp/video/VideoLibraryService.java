@@ -15,6 +15,7 @@ import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -171,6 +172,23 @@ public class VideoLibraryService {
                         "VALUES (?,?,?,?,?,?,'UPLOADING',?)",
                 id, user, request.folderId(), request.title().trim(), size, parts, LocalDateTime.now().plusHours(24));
         return new UploadSession(id, CHUNK_SIZE, parts);
+    }
+
+    public UploadState uploadStatus(String id) throws IOException {
+        long user = CurrentUser.id();
+        Upload upload = ownedUpload(id, user);
+        if (!"COMPLETE".equals(upload.state)) requireActive(upload);
+        List<Integer> received = new ArrayList<>();
+        if ("UPLOADING".equals(upload.state)) {
+            Path dir = uploadDir(user, id);
+            for (int number = 0; number < upload.partCount; number++) {
+                Path part = dir.resolve(number + ".part");
+                long expected = number == upload.partCount - 1
+                        ? upload.sizeBytes - (long) number * CHUNK_SIZE : CHUNK_SIZE;
+                if (Files.isRegularFile(part) && Files.size(part) == expected) received.add(number);
+            }
+        }
+        return new UploadState(id, CHUNK_SIZE, upload.partCount, upload.state, List.copyOf(received));
     }
 
     public void writeChunk(String id, int number, byte[] contents) throws IOException {

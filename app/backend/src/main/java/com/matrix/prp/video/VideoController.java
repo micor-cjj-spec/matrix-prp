@@ -87,6 +87,11 @@ public class VideoController {
         return ApiResponse.success(library.beginUpload(request));
     }
 
+    @GetMapping("/uploads/{id}")
+    public ApiResponse<UploadState> uploadState(@PathVariable String id) throws IOException {
+        return ApiResponse.success(library.uploadStatus(id));
+    }
+
     @PutMapping(value = "/uploads/{id}/parts/{number}", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ApiResponse<Void> part(@PathVariable String id, @PathVariable int number,
                                   @RequestBody byte[] bytes) throws IOException {

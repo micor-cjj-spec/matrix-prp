@@ -11,6 +11,7 @@ export interface VideoItem {
   positionSeconds: number
 }
 export interface UploadSession { uploadId: string; chunkSize: number; partCount: number }
+export interface UploadState extends UploadSession { state: string; receivedParts: number[] }
 export interface VideoPlayback { url: string; expiresAtEpochSeconds: number }
 
 export async function getFolders() {
@@ -41,6 +42,9 @@ export async function startUpload(title: string, folderId: number | null, sizeBy
     title, folderId, sizeBytes,
   })).data.data
 }
+export async function getUploadState(id: string) {
+  return (await apiClient.get<ApiResponse<UploadState>>(`/video/uploads/${id}`)).data.data
+}
 export async function uploadPart(id: string, number: number, chunk: Blob) {
   await apiClient.put(`/video/uploads/${id}/parts/${number}`, chunk, {
     headers: { 'Content-Type': 'application/octet-stream' },
@@ -62,14 +66,29 @@ export async function uploadVideo(file: File, folderId: number | null, onProgres
   if (!file.name.toLowerCase().endsWith('.mp4')) throw new Error('目前仅支持 MP4')
   const key = `matrix-prp-upload:${folderId ?? 'root'}:${file.name}:${file.size}:${file.lastModified}`
   let session: UploadSession
+  let received = new Set<number>()
   const cached = localStorage.getItem(key)
   if (cached) {
-    session = JSON.parse(cached) as UploadSession
+    try {
+      session = JSON.parse(cached) as UploadSession
+      const state = await getUploadState(session.uploadId)
+      if (state.state === 'COMPLETE') {
+        const result = await completeUpload(session.uploadId)
+        localStorage.removeItem(key)
+        return result
+      }
+      received = new Set(state.receivedParts)
+    } catch {
+      session = await startUpload(file.name, folderId, file.size)
+      localStorage.setItem(key, JSON.stringify(session))
+    }
   } else {
     session = await startUpload(file.name, folderId, file.size)
     localStorage.setItem(key, JSON.stringify(session))
   }
+  onProgress(Math.round(received.size / session.partCount * 100))
   for (let part = 0; part < session.partCount; part++) {
+    if (received.has(part)) continue
     const start = part * session.chunkSize
     const chunk = file.slice(start, Math.min(start + session.chunkSize, file.size))
     let lastError: unknown
@@ -83,7 +102,8 @@ export async function uploadVideo(file: File, folderId: number | null, onProgres
       }
     }
     if (lastError) throw lastError
-    onProgress(Math.round((part + 1) / session.partCount * 100))
+    received.add(part)
+    onProgress(Math.round(received.size / session.partCount * 100))
   }
   const result = await completeUpload(session.uploadId)
   localStorage.removeItem(key)

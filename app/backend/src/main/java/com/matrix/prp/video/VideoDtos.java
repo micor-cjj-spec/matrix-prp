@@ -17,6 +17,8 @@ public final class VideoDtos {
     public record UploadRequest(Long folderId, @NotBlank @Size(max = 255) String title,
                                 @NotNull @Positive Long sizeBytes) { }
     public record UploadSession(String uploadId, int chunkSize, int partCount) { }
+    public record UploadState(String uploadId, int chunkSize, int partCount, String state,
+                              java.util.List<Integer> receivedParts) { }
     public record Playback(String url, long expiresAtEpochSeconds) { }
     public record Progress(@NotNull Double positionSeconds, @NotNull Double durationSeconds) { }
 }
