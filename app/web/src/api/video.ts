@@ -10,10 +10,14 @@ export interface VideoItem {
   createdAt: string
   positionSeconds: number
 }
+export interface StorageUsage { fileCount: number; bytesUsed: number; quotaBytes: number }
 export interface UploadSession { uploadId: string; chunkSize: number; partCount: number }
 export interface UploadState extends UploadSession { state: string; receivedParts: number[] }
 export interface VideoPlayback { url: string; expiresAtEpochSeconds: number }
 
+export async function getStorageUsage() {
+  return (await apiClient.get<ApiResponse<StorageUsage>>('/video/storage/usage')).data.data
+}
 export async function getFolders() {
   return (await apiClient.get<ApiResponse<VideoFolder[]>>('/video/folders')).data.data
 }
