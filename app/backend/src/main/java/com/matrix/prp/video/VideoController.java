@@ -9,11 +9,9 @@ import jakarta.validation.constraints.NotBlank;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.List;
 import org.springframework.context.annotation.Profile;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,9 +28,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/video")
 public class VideoController {
     private final VideoLibraryService library;
+    private final VideoStorage storage;
+    private final boolean nginxDelivery;
 
-    public VideoController(VideoLibraryService library) {
+    public VideoController(VideoLibraryService library, VideoStorage storage,
+            @Value("${matrix-prp.video.delivery:java}") String delivery) {
         this.library = library;
+        this.storage = storage;
+        if (!"java".equalsIgnoreCase(delivery) && !"nginx".equalsIgnoreCase(delivery)) {
+            throw new IllegalArgumentException("matrix-prp.video.delivery must be java or nginx");
+        }
+        this.nginxDelivery = "nginx".equalsIgnoreCase(delivery);
     }
 
     @GetMapping("/folders")
@@ -82,6 +88,11 @@ public class VideoController {
         return ApiResponse.success(library.playback(id));
     }
 
+    @GetMapping("/storage/usage")
+    public ApiResponse<StorageUsage> storageUsage() {
+        return ApiResponse.success(library.usage());
+    }
+
     @PostMapping("/uploads")
     public ApiResponse<UploadSession> initiate(@Valid @RequestBody UploadRequest request) {
         return ApiResponse.success(library.beginUpload(request));
@@ -111,13 +122,19 @@ public class VideoController {
     @GetMapping("/media/{id}")
     public void media(@PathVariable long id, @RequestParam @NotBlank String ticket,
                       HttpServletRequest request, HttpServletResponse response) throws IOException {
-        Path path = library.authorizedMedia(id, ticket);
-        long size = Files.size(path);
+        VideoLibraryService.MediaHandle media = library.authorizedMedia(id, ticket);
         response.setHeader("Cache-Control", "private, no-store");
         response.setHeader("Referrer-Policy", "no-referrer");
         response.setHeader("X-Content-Type-Options", "nosniff");
-        response.setHeader("Accept-Ranges", "bytes");
         response.setContentType("video/mp4");
+        if (nginxDelivery) {
+            // Nginx internal location alone serves the bytes and handles Range/HEAD.
+            // NEVER accept the internal path from a request parameter.
+            response.setHeader("X-Accel-Redirect", storage.internalRedirect(media.userId(), media.key()));
+            return;
+        }
+        response.setHeader("Accept-Ranges", "bytes");
+        long size = storage.mediaSize(media.userId(), media.key());
 
         String rangeHeader = request.getHeader("Range");
         ByteRanges.Span span;
@@ -139,7 +156,7 @@ public class VideoController {
         if ("HEAD".equalsIgnoreCase(request.getMethod())) return;
 
         byte[] buffer = new byte[64 * 1024];
-        try (SeekableByteChannel channel = Files.newByteChannel(path, StandardOpenOption.READ)) {
+        try (SeekableByteChannel channel = storage.readMedia(media.userId(), media.key())) {
             channel.position(span.start());
             long remaining = span.length();
             while (remaining > 0) {
