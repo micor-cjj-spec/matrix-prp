@@ -32,6 +32,8 @@ springdoc:
 matrix-prp:
   knowledge:
     root: ../../knowledge
+  video:
+    storage-root: ${MATRIX_PRP_VIDEO_ROOT:./data/videos}
   bootstrap:
     username: ${MATRIX_PRP_BOOTSTRAP_USERNAME:}
     password: ${MATRIX_PRP_BOOTSTRAP_PASSWORD:}
