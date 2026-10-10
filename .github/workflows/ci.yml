@@ -97,5 +97,5 @@ jobs:
           MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
         run: |
           chmod +x mvnw
-          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT test
+          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,AiDatabaseIT test
 
