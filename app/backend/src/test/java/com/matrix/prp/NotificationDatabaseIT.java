@@ -31,7 +31,7 @@ class NotificationDatabaseIT {
  @Autowired NotificationService rules;
 
  private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder req,String jwt) {
-   return req.header(HttpHeaders.AUTHORIZATION,"Bearer "+jwt);
+   return jwt == null ? req : req.header(HttpHeaders.AUTHORIZATION,"Bearer "+jwt);
  }
  private JsonNode json(MockHttpServletRequestBuilder req) throws Exception {
    return mapper.readTree(mvc.perform(req).andExpect(status().isOk())
