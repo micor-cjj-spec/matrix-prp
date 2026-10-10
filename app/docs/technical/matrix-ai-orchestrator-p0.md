@@ -28,6 +28,7 @@
 | GET | `/api/ai/usage` | own UTC-month quotas |
 | POST | `/api/ai/chat/stream` | SSE, JSON: `{"conversationId":null,"content":"你好"}` |
 | GET | `/api/ai/codex/capabilities` | administrator-only disabled placeholder |
+| POST | `/api/ai/codex/jobs` | administrator-only, fails closed with 503 in P0; future worker contract |
 
 Responses for history and usage use the usual `ApiResponse` envelope; streaming uses `text/event-stream` and Bearer auth. Each stream sends a `meta` event with conversation ID, multiple `delta` events, and one `done` event. If the provider errors, an `error` event is sent and the user message is still recorded; users can retry manually.
 

@@ -79,6 +79,12 @@ class AiAccessTests {
         mvc.perform(get("/api/ai/codex/capabilities")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.enabled").value(false));
+
+        String job = "{\"taskType\":\"CODE_REVIEW\",\"target\":\"matrix-prp\"}";
+        mvc.perform(post("/api/ai/codex/jobs").contentType(MediaType.APPLICATION_JSON).content(job)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + friend)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/ai/codex/jobs").contentType(MediaType.APPLICATION_JSON).content(job)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)).andExpect(status().isServiceUnavailable());
         mvc.perform(get("/api/ai/usage")).andExpect(status().isUnauthorized());
     }
 

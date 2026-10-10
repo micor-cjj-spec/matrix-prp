@@ -39,12 +39,26 @@ public class AiController {
         return service.chat(request.conversationId(), request.content());
     }
 
-    /** P0 has no Codex execution capability, only an administrator-only placeholder. */
-    @GetMapping("/codex/capabilities")
-    public ApiResponse<Map<String,Object>> codexCapabilities() {
+    public record CodexJobRequest(@NotBlank @Size(max=80) String taskType,
+                                  @NotBlank @Size(max=300) String target) {}
+
+    @PostMapping("/codex/jobs")
+    public ApiResponse<Map<String,Object>> createCodexJob(@Valid @RequestBody CodexJobRequest request) {
+        requireAdministrator();
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Codex Worker is not configured; no server execution in P0");
+    }
+
+    private static void requireAdministrator() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         if (!(principal instanceof UserProfile user) || !user.administrator())
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Administrator only");
+    }
+
+    /** P0 has no Codex execution capability, only an administrator-only placeholder. */
+    @GetMapping("/codex/capabilities")
+    public ApiResponse<Map<String,Object>> codexCapabilities() {
+        requireAdministrator();
         return ApiResponse.success(Map.of("enabled", false, "status", "NOT_CONFIGURED",
                 "message", "Codex Worker is reserved for a future isolated administrator-only phase"));
     }
