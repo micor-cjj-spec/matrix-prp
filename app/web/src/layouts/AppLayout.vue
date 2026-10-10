@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CollectionTag, DataAnalysis, Document, EditPen, Money, Notebook, Tickets } from '@element-plus/icons-vue'
+import { CollectionTag, DataAnalysis, Document, EditPen, Money, Notebook, Tickets, VideoCamera } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createInvitation } from '@/api/auth'
@@ -30,6 +30,7 @@ const navItems = [
   { to: '/reviews', label: 'Reviews', icon: EditPen },
   { to: '/tags', label: 'Tags', icon: CollectionTag },
   { to: '/knowledge', label: 'Knowledge', icon: Notebook },
+  { to: '/videos', label: '视频学习库', icon: VideoCamera },
 ]
 
 function logout() {

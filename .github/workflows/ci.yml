@@ -56,3 +56,45 @@ jobs:
         run: |
           npm run type-check
           npm run build:h5
+
+  video-db-integration:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: matrix_prp
+          MYSQL_USER: matrix_prp
+          MYSQL_PASSWORD: ci-app-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Apply video schema to real MySQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y default-mysql-client
+          for schema in app/docker/mysql/init/*.sql; do
+            MYSQL_PWD=ci-app-password mysql -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+          done
+      - name: Verify private video flows and byte range
+        working-directory: app/backend
+        env:
+          MATRIX_PRP_DB_PASSWORD: ci-app-password
+          MATRIX_PRP_BOOTSTRAP_USERNAME: video_admin
+          MATRIX_PRP_BOOTSTRAP_PASSWORD: video-test-admin-password-2026
+          MATRIX_PRP_JWT_SECRET: ci-integration-only-secret-key-at-least-32-bytes
+          MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -Dtest=VideoDatabaseIT test

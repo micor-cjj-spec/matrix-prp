@@ -131,6 +131,10 @@ onMounted(loadToday)
         <text>快速记账</text>
         <text class="muted">收入支出马上录入</text>
       </view>
+      <view class="quick-card" @click="go('/pages/video/index')">
+        <text>视频学习库</text>
+        <text class="muted">按课程章节观看视频</text>
+      </view>
     </view>
 
     <view class="section">

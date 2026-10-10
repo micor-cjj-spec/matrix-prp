@@ -29,6 +29,12 @@
       "style": {
         "navigationBarTitleText": "快速记账"
       }
+    },
+    {
+      "path": "pages/video/index",
+      "style": {
+        "navigationBarTitleText": "视频学习库"
+      }
     }
   ],
   "globalStyle": {
