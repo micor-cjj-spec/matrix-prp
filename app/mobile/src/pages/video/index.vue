@@ -58,9 +58,11 @@ async function play(video: VideoItem) {
     uni.showToast({ title: '视频暂时无法播放', icon: 'none' })
   }
 }
-function onTimeUpdate(event: { detail: { currentTime: number; duration: number } }) {
-  positionSeconds.value = event.detail.currentTime
-  durationSeconds.value = event.detail.duration
+function onTimeUpdate(event: Event) {
+  const detail = (event as Event & { detail?: { currentTime?: number; duration?: number } }).detail
+  const element = event.target as HTMLVideoElement | null
+  positionSeconds.value = detail?.currentTime ?? element?.currentTime ?? 0
+  durationSeconds.value = detail?.duration ?? element?.duration ?? 0
   if (Date.now() - lastSavedAt.value > 15_000) {
     lastSavedAt.value = Date.now()
     persistProgress()
