@@ -74,7 +74,7 @@ class MultiUserIsolationTests {
                     .andExpect(jsonPath("$.data.length()").value(0));
         }
         mvc.perform(authenticated(get("/api/dashboard/summary"), friend)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.recordCount").value(0));
+                .andExpect(jsonPath("$.data.recentRecordCount").value(0));
         mvc.perform(authenticated(put("/api/tasks/{id}", taskId)
                 .contentType(MediaType.APPLICATION_JSON).content(task), friend)).andExpect(status().isNotFound());
         mvc.perform(authenticated(delete("/api/tasks/{id}", taskId), friend)).andExpect(status().isNotFound());
