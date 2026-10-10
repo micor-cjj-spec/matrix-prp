@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("video-integration")
-class VideoDatabaseIntegrationTests {
+class VideoDatabaseIT {
     @Autowired private MockMvc mvc;
     @Autowired private ObjectMapper mapper;
 
@@ -66,7 +66,7 @@ class VideoDatabaseIntegrationTests {
         JsonNode results = mapper.readTree(mvc.perform(auth(
                 get("/api/video/items").param("folderId", Long.toString(folderId)), admin))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
-        assertThat(results).hasSize(1);
+        assertThat(results.size()).isEqualTo(1);
         assertThat(results.get(0).path("id").asLong()).isEqualTo(videoId);
 
         mvc.perform(auth(put("/api/video/items/{id}/progress", videoId)
@@ -96,7 +96,7 @@ class VideoDatabaseIntegrationTests {
                 "displayName", "Friend", "invitationCode", invite)).path("token").asText();
         JsonNode friendVideos = mapper.readTree(mvc.perform(auth(get("/api/video/items"), friend))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
-        assertThat(friendVideos).isEmpty();
+        assertThat(friendVideos.size()).isZero();
         mvc.perform(auth(get("/api/video/items").param("folderId", Long.toString(folderId)), friend))
                 .andExpect(status().isNotFound());
         mvc.perform(auth(get("/api/video/items/{id}/playback", videoId), friend))
