@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { fetchCurrentUser, login, type UserProfile } from '@/api/auth'
+import { fetchCurrentUser, login, register, type RegisterRequest, type UserProfile } from '@/api/auth'
 import { getStoredToken, removeStoredToken, setStoredToken } from '@/utils/token'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -11,6 +11,13 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function loginWithPassword(username: string, password: string) {
     const response = await login(username, password)
+    token.value = response.token
+    user.value = response.user
+    setStoredToken(response.token)
+  }
+
+  async function registerWithInvitation(request: RegisterRequest) {
+    const response = await register(request)
     token.value = response.token
     user.value = response.user
     setStoredToken(response.token)
@@ -37,6 +44,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     isAuthenticated,
     loginWithPassword,
+    registerWithInvitation,
     loadCurrentUser,
     logout,
   }
