@@ -37,6 +37,12 @@ public class NotificationController {
     public ApiResponse<String> publicKey(){return ApiResponse.success(publicKey);}
     @PostMapping("/api/push/subscriptions")
     public ApiResponse<String> subscribe(@RequestBody SubscriptionRequest r){return ApiResponse.success(service.subscribe(r));}
+    public record EndpointRequest(String endpoint) {}
+    @PostMapping("/api/push/subscriptions/unsubscribe-current")
+    public ApiResponse<Void> unsubscribeCurrent(@RequestBody EndpointRequest request){
+        service.unsubscribeCurrent(request.endpoint());
+        return ApiResponse.success();
+    }
     @GetMapping("/api/push/subscriptions")
     public ApiResponse<List<Map<String,Object>>> devices(){return ApiResponse.success(service.devices());}
     @DeleteMapping("/api/push/subscriptions/{id}")
@@ -44,4 +50,5 @@ public class NotificationController {
     @PostMapping("/api/push/test")
     public ApiResponse<Long> test(){return ApiResponse.success(service.sendTest());}
 }
+
 

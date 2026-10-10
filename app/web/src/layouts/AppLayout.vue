@@ -3,6 +3,7 @@ import { Bell, CollectionTag, DataAnalysis, Document, EditPen, Money, Notebook, 
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createInvitation } from '@/api/auth'
+import { disconnectCurrentDevice } from '@/api/notifications'
 import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -34,7 +35,9 @@ const navItems = [
   { to: '/notifications', label: '消息与提醒', icon: Bell },
 ]
 
-function logout() {
+async function logout() {
+  try { await disconnectCurrentDevice() }
+  catch { ElMessage.warning('当前设备推送解绑失败，请在通知中心移除设备或关闭系统通知') }
   authStore.logout()
   router.push('/login')
 }
@@ -70,4 +73,5 @@ function logout() {
     </section>
   </main>
 </template>
+
 

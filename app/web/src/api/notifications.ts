@@ -46,4 +46,14 @@ export const registerSubscription = (payload: { endpoint: string; p256dh: string
   data(apiClient.post<ApiResponse<string>>('/push/subscriptions', payload))
 export const removeDevice = (id: number) => data(apiClient.delete<ApiResponse<void>>(`/push/subscriptions/${id}`))
 export const testPush = () => data(apiClient.post<ApiResponse<number>>('/push/test'))
+export async function disconnectCurrentDevice() {
+  if (!('serviceWorker' in navigator)) return
+  const registration = await navigator.serviceWorker.getRegistration('/')
+  const subscription = await registration?.pushManager.getSubscription()
+  if (!subscription) return
+  // Remove server registration before the browser destroys its local subscription.
+  await apiClient.post('/push/subscriptions/unsubscribe-current', { endpoint: subscription.endpoint })
+  await subscription.unsubscribe()
+}
+
 

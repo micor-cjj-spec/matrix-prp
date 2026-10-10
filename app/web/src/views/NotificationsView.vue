@@ -52,7 +52,10 @@ async function save(immediate = false) {
   if (!title.value.trim() || !body.value.trim()) { ElMessage.warning('标题和正文不能为空'); return }
   saving.value = true
   try {
-    const p = payload()
+    const p: ReminderPayload = immediate ? {
+      title: title.value.trim(), body: body.value.trim(), category: category.value,
+      scheduleType: 'ONCE', timezone, localTime: null, weekdays: '', monthDay: null, onceAt: null
+    } : payload()
     if (immediate) await sendNow(p)
     else if (editId.value !== null) await updateReminder(editId.value, p)
     else await createReminder(p)
@@ -252,4 +255,5 @@ onMounted(refresh)
 .entry-heading {display:flex;align-items:center;justify-content:space-between;gap:10px;}
 @media(max-width:960px){.notification-grid{grid-template-columns:1fr;}}
 </style>
+
 
