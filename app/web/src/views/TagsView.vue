@@ -81,7 +81,7 @@ onMounted(loadTags)
         <h1>标签管理</h1>
         <p>维护一套跨记录、任务、财务和复盘通用的标签字典，让后续检索和分析更稳定。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ apiOnline ? 'Tags API 已连接' : '后端未连接，列表暂不可同步' }}
+          {{ apiOnline ? '标签服务已连接' : '后端未连接，列表暂不可同步' }}
         </span>
       </div>
     </header>

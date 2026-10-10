@@ -124,7 +124,7 @@ onMounted(loadRecords)
         <h1>通用记录</h1>
         <p>用一套记录模型承载生活、学习、工作、兴趣和社交中的过程数据。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ apiOnline ? 'Records API 已连接' : '后端未连接，列表暂不可同步' }}
+          {{ apiOnline ? '记录服务已连接' : '后端未连接，列表暂不可同步' }}
         </span>
       </div>
     </header>

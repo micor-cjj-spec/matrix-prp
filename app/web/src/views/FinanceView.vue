@@ -338,7 +338,7 @@ onMounted(async () => {
             <el-button type="primary" :loading="loading" @click="submitTransaction">
               {{ editingTransactionId === null ? '创建' : '保存' }}
             </el-button>
-            <el-button v-if="editingTransactionId !== null" @click="resetTransactionForm">Cancel</el-button>
+            <el-button v-if="editingTransactionId !== null" @click="resetTransactionForm">取消</el-button>
           </div>
         </el-form>
       </el-card>
@@ -350,7 +350,11 @@ onMounted(async () => {
             <el-input v-model="accountForm.name" placeholder="例如：现金、银行卡、支付宝" />
           </el-form-item>
           <el-form-item label="类型">
-            <el-input v-model="accountForm.type" placeholder="例如：cash、bank、card" />
+            <el-select v-model="accountForm.type" filterable allow-create default-first-option placeholder="选择账户类型">
+              <el-option label="现金" value="cash" />
+              <el-option label="银行账户" value="bank" />
+              <el-option label="银行卡" value="card" />
+            </el-select>
           </el-form-item>
           <el-form-item label="币种">
             <el-input v-model="accountForm.currency" />
@@ -365,7 +369,7 @@ onMounted(async () => {
             <el-button type="primary" @click="submitAccount">
               {{ editingAccountId === null ? '新增账户' : '保存账户' }}
             </el-button>
-            <el-button v-if="editingAccountId !== null" @click="resetAccountForm">Cancel</el-button>
+            <el-button v-if="editingAccountId !== null" @click="resetAccountForm">取消</el-button>
           </div>
         </el-form>
 
@@ -404,7 +408,7 @@ onMounted(async () => {
             <el-button type="primary" @click="submitCategory">
               {{ editingCategoryId === null ? '新增分类' : '保存分类' }}
             </el-button>
-            <el-button v-if="editingCategoryId !== null" @click="resetCategoryForm">Cancel</el-button>
+            <el-button v-if="editingCategoryId !== null" @click="resetCategoryForm">取消</el-button>
           </div>
         </el-form>
 

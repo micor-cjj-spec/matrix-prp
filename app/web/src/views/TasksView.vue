@@ -203,7 +203,7 @@ onMounted(loadTasks)
         <h1>任务计划</h1>
         <p>管理今日和近期事项，把记录沉淀成下一步行动。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ apiOnline ? 'Tasks API 已连接' : '后端未连接，列表暂不可同步' }}
+          {{ apiOnline ? '任务服务已连接' : '后端未连接，列表暂不可同步' }}
         </span>
       </div>
     </header>

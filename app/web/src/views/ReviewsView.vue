@@ -138,7 +138,7 @@ onMounted(loadReviews)
         <h1>复盘中心</h1>
         <p>把一周、一个月或某个模块的记录整理成判断和下一步行动。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ apiOnline ? 'Reviews API 已连接' : '后端未连接，列表暂不可同步' }}
+          {{ apiOnline ? '复盘服务已连接' : '后端未连接，列表暂不可同步' }}
         </span>
       </div>
     </header>

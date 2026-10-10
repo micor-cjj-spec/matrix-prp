@@ -175,7 +175,7 @@ onMounted(loadTree)
         <h1>知识库浏览</h1>
         <p>读取仓库里的 `knowledge/` 目录树，搜索并预览 Markdown 内容。</p>
         <span class="api-status" :class="{ online: apiOnline }">
-          {{ apiOnline ? 'Knowledge API 已连接' : '后端未连接，知识库暂不可浏览' }}
+          {{ apiOnline ? '知识库服务已连接' : '后端未连接，知识库暂不可浏览' }}
         </span>
       </div>
     </header>

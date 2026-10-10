@@ -98,7 +98,7 @@ function keyBytes(base64: string): Uint8Array {
   return Uint8Array.from(raw, char => char.charCodeAt(0))
 }
 async function enablePush() {
-  if (!supportsPush) { ElMessage.warning('需要 HTTPS 和支持 Push 的浏览器；iPhone 请先添加到主屏幕并从桌面打开'); return }
+  if (!supportsPush) { ElMessage.warning('需要 HTTPS 和支持系统推送的浏览器；iPhone 请先添加到主屏幕并从桌面打开'); return }
   try {
     // Permission request must be triggered by the user's explicit click.
     const granted = await Notification.requestPermission()
@@ -113,7 +113,7 @@ async function enablePush() {
     if (!json.keys?.p256dh || !json.keys.auth) throw new Error('订阅密钥不完整')
     await registerSubscription({
       endpoint: sub.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth,
-      deviceName: navigator.userAgent.includes('iPhone') ? 'iPhone PWA' : 'Web 浏览器'
+      deviceName: navigator.userAgent.includes('iPhone') ? 'iPhone 主屏幕应用' : '网页浏览器'
     })
     ElMessage.success('当前设备已订阅推送')
     await refresh()
