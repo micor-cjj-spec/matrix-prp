@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "Matrix PRP",
+  "short_name": "PRP",
+  "description": "个人资源与提醒管理",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f8fb",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
