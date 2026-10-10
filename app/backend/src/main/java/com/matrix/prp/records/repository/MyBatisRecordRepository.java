@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @Profile("!test")
@@ -74,7 +75,9 @@ public class MyBatisRecordRepository implements RecordRepository {
     }
 
     @Override
+    @Transactional
     public RecordItem create(CreateRecordRequest request) {
+        validateOwnedTags(request.tagIds());
         LocalDateTime now = LocalDateTime.now();
         RecordEntity entity = new RecordEntity();
         entity.setUserId(CurrentUser.id());
@@ -91,7 +94,9 @@ public class MyBatisRecordRepository implements RecordRepository {
     }
 
     @Override
+    @Transactional
     public RecordItem update(long id, CreateRecordRequest request) {
+        validateOwnedTags(request.tagIds());
         RecordEntity entity = recordMapper.selectById(id);
         if (entity == null || !java.util.Objects.equals(entity.getUserId(), CurrentUser.id())) {
             throw new ResourceNotFoundException("Record not found: " + id);
@@ -108,6 +113,7 @@ public class MyBatisRecordRepository implements RecordRepository {
     }
 
     @Override
+    @Transactional
     public void delete(long id) {
         RecordEntity entity = recordMapper.selectById(id);
         if (entity == null) {
