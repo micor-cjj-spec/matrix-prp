@@ -26,7 +26,8 @@ class PersistentRepositoryOwnershipTests {
     private void asUser(long id) {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(
-                        new UserProfile(id, "user" + id, "User " + id), null));
+                        new UserProfile(id, "user" + id, "User " + id), null,
+                        java.util.List.of()));
     }
 
     @AfterEach
@@ -71,4 +72,21 @@ class PersistentRepositoryOwnershipTests {
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(records, never()).deleteById(22L);
     }
+    @Test
+    void financeCategoryCannotBeDeletedByAnotherUser() {
+        asUser(2);
+        com.matrix.prp.finance.mapper.FinanceAccountMapper accounts =
+                mock(com.matrix.prp.finance.mapper.FinanceAccountMapper.class);
+        com.matrix.prp.finance.mapper.FinanceCategoryMapper categories =
+                mock(com.matrix.prp.finance.mapper.FinanceCategoryMapper.class);
+        com.matrix.prp.finance.entity.FinanceCategoryEntity entity =
+                new com.matrix.prp.finance.entity.FinanceCategoryEntity();
+        entity.setUserId(1L);
+        when(categories.selectById(88L)).thenReturn(entity);
+        assertThatThrownBy(() -> new com.matrix.prp.finance.repository.MyBatisFinanceConfigRepository(
+                accounts, categories).deleteCategory(88L))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(categories, never()).deleteById(88L);
+    }
+
 }

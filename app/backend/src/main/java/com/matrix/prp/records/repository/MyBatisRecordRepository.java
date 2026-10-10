@@ -116,7 +116,7 @@ public class MyBatisRecordRepository implements RecordRepository {
     @Transactional
     public void delete(long id) {
         RecordEntity entity = recordMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !java.util.Objects.equals(entity.getUserId(), CurrentUser.id())) {
             throw new ResourceNotFoundException("Record not found: " + id);
         }
         recordTagMapper.delete(new LambdaQueryWrapper<RecordTagEntity>()

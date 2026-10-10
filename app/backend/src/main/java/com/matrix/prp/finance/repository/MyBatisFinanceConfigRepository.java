@@ -124,7 +124,7 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
 
     private FinanceCategoryEntity findCategory(long id) {
         FinanceCategoryEntity entity = categoryMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !java.util.Objects.equals(entity.getUserId(), CurrentUser.id())) {
             throw new ResourceNotFoundException("Finance category not found: " + id);
         }
         return entity;
