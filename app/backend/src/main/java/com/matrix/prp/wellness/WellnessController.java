@@ -5,12 +5,11 @@ import com.matrix.prp.wellness.WellnessModels.*;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
-import org.springframework.context.annotation.Profile;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@Profile("!test")
+@org.springframework.context.annotation.Profile("!test")
 @RequestMapping("/api/wellness")
 public class WellnessController {
     private final WellnessService service;

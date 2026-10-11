@@ -5,6 +5,10 @@ export interface Food {
   protein100g: string; carbs100g: string; fat100g: string
   sourceNote: string | null; custom: boolean
 }
+export interface FoodInput {
+  name: string; preparation: string; calories100g: number; protein100g: number
+  carbs100g: number; fat100g: number; sourceNote: string
+}
 export interface MealItem {
   id: number; foodId: number; foodName: string; grams: string
   calories: string; proteinG: string; carbsG: string; fatG: string; estimate: boolean
@@ -66,7 +70,7 @@ async function del(url: string): Promise<void> { await apiClient.delete(url) }
 export const wellnessApi = {
   foods: (q = '') => get<Food[]>('/wellness/foods', { q }),
   frequent: () => get<Food[]>('/wellness/foods/frequent'),
-  addFood: (form: Omit<Food, 'id' | 'custom'>) => post<Food>('/wellness/foods', form),
+  addFood: (form: FoodInput) => post<Food>('/wellness/foods', form),
   meals: (date: string) => get<Meal[]>('/wellness/meals', { date }),
   addMeal: (form: MealInput) => post<Meal>('/wellness/meals', form),
   updateMeal: (id: number, form: MealInput) => put<Meal>('/wellness/meals/' + id, form),

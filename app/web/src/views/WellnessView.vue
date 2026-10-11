@@ -47,6 +47,7 @@ async function loadDay() {
     ElMessage.error('获取健康记录失败，请确认服务器已执行健康模块数据库迁移')
   } finally { loading.value = false }
 }
+function onTabChange(tab: string | number) { if (tab === 'goals') loadGoal() }
 async function loadAll() {
   await Promise.all([
     loadDay(),
@@ -211,7 +212,7 @@ async function saveProfile() {
         <div><h1>健康中心</h1><p>饮食、运动与身体指标，记录每一天</p></div>
         <el-date-picker v-model="date" type="date" value-format="YYYY-MM-DD" :clearable="false" @change="loadDay" />
       </div>
-      <el-tabs v-model="activeTab" class="wellness-tabs" @tab-change="tab => { if (tab === 'goals') loadGoal() }">
+      <el-tabs v-model="activeTab" class="wellness-tabs" @tab-change="onTabChange">
         <el-tab-pane label="今日概览" name="today">
           <section class="metric-grid">
             <article class="tile hero">
