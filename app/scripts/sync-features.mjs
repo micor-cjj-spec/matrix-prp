@@ -47,6 +47,16 @@ for (const m of modules) {
 const features = modules.filter(m => m.type === 'feature')
 const domains = modules.filter(m => m.type === 'domain')
 requireField(features.length > 0 && features.some(m => m.code === 'dashboard'), 'Missing dashboard or all features')
+// Reverse-check real page declarations to prevent adding unregistered user features.
+// Login is an infrastructure page rather than a feature; other pages must be registered.
+const registeredWebRoutes = new Set(features.map(m => m.webRoute).filter(Boolean))
+const registeredMobileRoutes = new Set(features.map(m => m.mobileRoute).filter(Boolean))
+for (const path of webRoutes) {
+  if (path !== '/login') requireField(registeredWebRoutes.has(path), 'Unregistered Web route: ' + path)
+}
+for (const path of mobileRoutes) {
+  if (path !== 'pages/login/index') requireField(registeredMobileRoutes.has(path), 'Unregistered Mobile page: ' + path)
+}
 if (errors.length > 0) {
   for (const error of errors) console.error('Feature registry: ' + error)
   process.exit(1)
