@@ -134,7 +134,7 @@ async function enablePush() {
 
     stage = 'serviceWorker'
     pushStatus.value = '正在' + pushStageLabels[stage] + '…'
-    await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+    await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
     const registration = await navigator.serviceWorker.ready
 
     stage = 'browserSubscription'
