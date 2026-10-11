@@ -739,7 +739,9 @@ body { background:#f5f7fc; }
   .prp-topbar {height:61px;margin-bottom:20px;}
   .prp-mobile-mark {display:grid;place-items:center;width:27px;height:27px;border-radius:8px;background:#4180ed;color:white;font-size:13px;font-weight:800;}
   .prp-mobile-exit {display:inline-flex;}
-  .prp-topbar-avatar,.prp-invite-button {display:none;}
+  .prp-topbar-avatar {display:none;}
+  .prp-topbar-actions {gap:6px;}
+  .prp-invite-button {display:inline-flex;}
   .prp-mobile-tabs {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;bottom:0;left:0;right:0;z-index:30;height:calc(66px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);border-top:1px solid #e6ebf4;background:rgba(255,255,255,.97);box-shadow:0 -8px 26px rgba(35,60,95,.05);}
   .prp-mobile-tab {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-decoration:none;color:#92a0b5;font-size:11px;}
   .prp-mobile-tab .el-icon {font-size:21px;}
