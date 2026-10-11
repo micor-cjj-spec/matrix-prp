@@ -134,8 +134,10 @@ async function enablePush() {
 
     stage = 'serviceWorker'
     pushStatus.value = '正在' + pushStageLabels[stage] + '…'
-    await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
-    const registration = await navigator.serviceWorker.ready
+    // Use this app's registration, not navigator.serviceWorker.ready which can resolve
+    // to a legacy root-scope worker still controlling the page after a /prp/ migration.
+    const registration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
+    await navigator.serviceWorker.ready
 
     stage = 'browserSubscription'
     pushStatus.value = '正在' + pushStageLabels[stage] + '…'
