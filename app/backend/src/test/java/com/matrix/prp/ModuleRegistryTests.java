@@ -14,7 +14,7 @@ class ModuleRegistryTests {
     @Test
     void listsAllShippedUserFacingModules() {
         assertThat(modules.listFeatures()).extracting("code")
-                .containsExactly("dashboard", "records", "tasks", "finance", "reviews", "tags",
+                .containsExactly("dashboard", "records", "tasks", "finance", "wellness", "reviews", "tags",
                         "knowledge", "videos", "notifications");
         assertThat(modules.listDomains()).extracting("code")
                 .containsExactly("life", "learning", "work", "interests", "social", "finance");

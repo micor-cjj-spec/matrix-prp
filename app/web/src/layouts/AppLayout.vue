@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bell, CollectionTag, DataAnalysis, Document, EditPen, Menu, Money, Notebook, Tickets, VideoCamera } from '@element-plus/icons-vue'
+import { Bell, CollectionTag, DataAnalysis, Document, EditPen, Food, Menu, Money, Notebook, Tickets, VideoCamera } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createInvitation } from '@/api/auth'
@@ -30,6 +30,7 @@ const iconByCode: Record<string, Component> = {
   records: Document,
   tasks: Tickets,
   finance: Money,
+  wellness: Food,
   reviews: EditPen,
   tags: CollectionTag,
   knowledge: Notebook,

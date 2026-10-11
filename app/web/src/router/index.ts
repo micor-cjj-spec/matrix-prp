@@ -30,6 +30,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/wellness',
+      name: 'wellness',
+      component: () => import('@/views/WellnessView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/reviews',
       name: 'reviews',
       component: () => import('@/views/ReviewsView.vue'),

@@ -41,6 +41,16 @@ export const features = [
     "visibleInNav": true
   },
   {
+    "code": "wellness",
+    "name": "健康中心",
+    "sortOrder": 35,
+    "enabled": true,
+    "status": "implemented",
+    "webRoute": "/wellness",
+    "visibility": "authenticated",
+    "visibleInNav": true
+  },
+  {
     "code": "reviews",
     "name": "复盘中心",
     "sortOrder": 40,
