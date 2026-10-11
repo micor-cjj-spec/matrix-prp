@@ -7,6 +7,8 @@ export default defineConfig(({ mode }) => {
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:8080'
 
   return {
+    // Default to root for development; set VITE_APP_BASE=/prp/ for Nginx deployments.
+    base: env.VITE_APP_BASE || '/',
     plugins: [vue()],
     resolve: {
       alias: {
