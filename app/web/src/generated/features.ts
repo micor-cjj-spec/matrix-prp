@@ -101,3 +101,59 @@ export const features = [
     "visibleInNav": true
   }
 ] as const
+export const domains = [
+  {
+    "code": "life",
+    "name": "生活",
+    "sortOrder": 110,
+    "enabled": true,
+    "status": "landing",
+    "webRoute": "/life",
+    "visibleInNav": true
+  },
+  {
+    "code": "learning",
+    "name": "学习",
+    "sortOrder": 120,
+    "enabled": true,
+    "status": "landing",
+    "webRoute": "/learning",
+    "visibleInNav": true
+  },
+  {
+    "code": "work",
+    "name": "工作",
+    "sortOrder": 130,
+    "enabled": true,
+    "status": "category",
+    "webRoute": null,
+    "visibleInNav": false
+  },
+  {
+    "code": "interests",
+    "name": "兴趣",
+    "sortOrder": 140,
+    "enabled": true,
+    "status": "category",
+    "webRoute": null,
+    "visibleInNav": false
+  },
+  {
+    "code": "social",
+    "name": "社交",
+    "sortOrder": 150,
+    "enabled": true,
+    "status": "category",
+    "webRoute": null,
+    "visibleInNav": false
+  },
+  {
+    "code": "finance",
+    "name": "财务",
+    "sortOrder": 160,
+    "enabled": true,
+    "status": "category",
+    "webRoute": null,
+    "visibleInNav": false
+  }
+] as const

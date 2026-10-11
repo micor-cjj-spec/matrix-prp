@@ -148,12 +148,12 @@
       "type": "domain",
       "sortOrder": 110,
       "enabled": true,
-      "status": "category",
-      "webRoute": null,
+      "status": "landing",
+      "webRoute": "/life",
       "mobileRoute": null,
       "backendPackage": null,
       "visibility": "authenticated",
-      "visibleInNav": false
+      "visibleInNav": true
     },
     {
       "code": "learning",
@@ -162,12 +162,12 @@
       "type": "domain",
       "sortOrder": 120,
       "enabled": true,
-      "status": "category",
-      "webRoute": null,
+      "status": "landing",
+      "webRoute": "/learning",
       "mobileRoute": null,
       "backendPackage": null,
       "visibility": "authenticated",
-      "visibleInNav": false
+      "visibleInNav": true
     },
     {
       "code": "work",
