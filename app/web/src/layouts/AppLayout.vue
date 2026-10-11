@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { Bell, CollectionTag, DataAnalysis, Document, EditPen, Money, Notebook, Tickets, VideoCamera } from '@element-plus/icons-vue'
+import { Bell, CollectionTag, DataAnalysis, Document, EditPen, Menu, Money, Notebook, Tickets, VideoCamera } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createInvitation } from '@/api/auth'
 import { disconnectCurrentDevice } from '@/api/notifications'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import type { Component } from 'vue'
+import { features } from '@/generated/features'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -23,17 +25,28 @@ async function inviteFriend() {
   }
 }
 
-const navItems = [
-  { to: '/', label: '首页概览', icon: DataAnalysis },
-  { to: '/records', label: '记录管理', icon: Document },
-  { to: '/tasks', label: '任务计划', icon: Tickets },
-  { to: '/finance', label: '财务管理', icon: Money },
-  { to: '/reviews', label: '复盘中心', icon: EditPen },
-  { to: '/tags', label: '标签管理', icon: CollectionTag },
-  { to: '/knowledge', label: '知识库', icon: Notebook },
-  { to: '/videos', label: '视频学习库', icon: VideoCamera },
-  { to: '/notifications', label: '消息与提醒', icon: Bell },
-]
+const iconByCode: Record<string, Component> = {
+  dashboard: DataAnalysis,
+  records: Document,
+  tasks: Tickets,
+  finance: Money,
+  reviews: EditPen,
+  tags: CollectionTag,
+  knowledge: Notebook,
+  videos: VideoCamera,
+  notifications: Bell,
+}
+
+// Name, route, order and role visibility are sourced from the registry.
+const navItems = computed(() => features
+  .filter(feature => feature.enabled && feature.visibleInNav
+    && (feature.visibility !== 'admin' || authStore.user?.administrator))
+  .sort((a, b) => a.sortOrder - b.sortOrder)
+  .map(feature => ({
+    to: feature.webRoute,
+    label: feature.name,
+    icon: iconByCode[feature.code] ?? Menu,
+  })))
 
 async function logout() {
   try { await disconnectCurrentDevice() }
