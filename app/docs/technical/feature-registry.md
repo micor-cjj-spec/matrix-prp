@@ -25,6 +25,10 @@
 4. 执行 `node app/scripts/sync-features.mjs --check`；现有 Web CI 构建也会执行该校验。
 5. 执行后端测试、Web 与 Mobile 构建；涉及权限时增加跨用户/非管理员回归。
 
+## P1：自动变更影响分析
+
+每个 feature 的 `impact.apiPrefixes`、`impact.tests`、`impact.docs` 必须指向实际 API 路径和仓库内已存在的测试、文档。`app/scripts/feature-impact.mjs` 会根据 Git diff 输出候选影响范围；PR 工作流自动生成摘要和报告附件。详见 [功能变更影响分析](feature-impact.md)。
+
 ## 范围边界
 
-P0 保留模块化单体，不拆微服务。清单涵盖用户业务入口和业务资源域，不枚举每个按钮/API/内部子能力；身份认证、通知投递、存储、CLI 等应有各自技术文档。模块功能中心、依赖图、自动影响分析等属于 P1/P2。
+P0 保留模块化单体，不拆微服务。清单涵盖用户业务入口和业务资源域，不枚举每个按钮/API/内部子能力；身份认证、通知投递、存储、CLI 等应有各自技术文档。自动影响分析属于 P1，模块功能中心和依赖图属于 P2。
