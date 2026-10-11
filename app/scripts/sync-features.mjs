@@ -59,6 +59,10 @@ const registeredWebRoutes = new Set([...features.map(m => m.webRoute),
 for (const path of webRoutes) {
   if (path !== '/login') requireField(registeredWebRoutes.has(path), 'Unregistered Web route: ' + path)
 }
+const registeredMobileRoutes = new Set(features.map(m => m.mobileRoute).filter(Boolean))
+for (const path of mobileRoutes) {
+  if (path !== 'pages/login/index') requireField(registeredMobileRoutes.has(path), 'Unregistered Mobile page: ' + path)
+}
 
 if (errors.length > 0) {
   for (const error of errors) console.error('Feature registry: ' + error)

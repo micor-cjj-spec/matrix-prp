@@ -1,0 +1,32 @@
+name: Feature Impact Report
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  impact-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate feature impact mappings and tests
+        run: node --test app/scripts/feature-impact.test.mjs
+      - name: Analyze PR changes and publish job summary
+        run: node app/scripts/feature-impact.mjs --base "origin/${{ github.base_ref }}" --head HEAD --out impact-report.md --json impact-report.json
+      - name: Save report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-prp-impact-report
+          path: |
+            impact-report.md
+            impact-report.json
+          retention-days: 14
