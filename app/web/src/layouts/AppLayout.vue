@@ -47,6 +47,7 @@ const utilities = computed<NavItem[]>(() => features
 
 const learningLinks = computed<NavItem[]>(() => [
   { code: 'videos', label: '视频课程', to: featurePath('videos'), icon: VideoCamera },
+  { code: 'practice', label: '智能刷题', to: featurePath('practice'), icon: CollectionTag },
   ...(auth.user?.administrator
     ? [{ code: 'knowledge', label: '知识库', to: featurePath('knowledge'), icon: Notebook }]
     : []),
@@ -55,7 +56,7 @@ const showLearningChildren = computed(() =>
   route.path === domainPath('learning') || learningLinks.value.some(item => item.to === route.path))
 const activeMain = computed(() => {
   const path = route.path
-  if (path === '/videos' || path === '/knowledge') return 'learning'
+  if (path === '/videos' || path === '/knowledge' || path === '/practice') return 'learning'
   if (path === '/records' || path === '/tasks' || path === '/reviews' || path === '/tags' || path === '/notifications') return 'life'
   return mainNav.find(item => item.to === path)?.code ?? 'dashboard'
 })
@@ -108,7 +109,6 @@ async function logout() {
               class="prp-subnav-link" active-class="is-active">
               <el-icon><component :is="child.icon" /></el-icon>{{ child.label }}
             </RouterLink>
-            <span class="prp-subnav-upcoming">智能刷题 · 待接入</span>
           </div>
         </template>
       </nav>

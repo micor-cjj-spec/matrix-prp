@@ -17,6 +17,7 @@
 | `knowledge` | 知识库 | `/knowledge` | `—` | 仅管理员 | `knowledge` |
 | `videos` | 视频学习库 | `/videos` | `pages/video/index` | 登录用户 | `video` |
 | `notifications` | 消息与提醒 | `/notifications` | `—` | 登录用户 | `notification` |
+| `practice` | 智能刷题中心 | `/practice` | `—` | 登录用户 | `practice` |
 
 ## 业务资源域（部分为聚合入口，其余仅分类）
 
@@ -33,6 +34,6 @@
 
 - 登录和数据隔离为基础服务；PWA、视频存储与通知投递为模块内部能力。
 - Web 导航由生成的 `app/web/src/generated/features.ts` 提供功能和领域聚合页清单，路由由校验脚本核实。
-- 学习、生活聚合页不引入虚构的业务模块；仅组织已有功能。未合并的刷题和 AI 不显示为已上线。
+- 学习、生活聚合页不引入虚构的业务模块；仅组织已有功能。未合并的 AI 不显示为已上线。
 - Mobile 只登记已存在的页面，没有入口不意味着该功能已在移动端实现。
 - 详细维护方式参阅 `app/docs/technical/feature-registry.md`。

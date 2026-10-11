@@ -272,6 +272,32 @@
       }
     },
     {
+      "code": "practice",
+      "name": "智能刷题中心",
+      "description": "自定义学科、题库导入、AI 出题、练习与解答",
+      "type": "feature",
+      "sortOrder": 80,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/practice",
+      "mobileRoute": null,
+      "backendPackage": "practice",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/practice"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/PracticeImportParserTests.java",
+          "app/backend/src/test/java/com/matrix/prp/VideoDatabaseIT.java"
+        ],
+        "docs": [
+          "app/docs/technical/practice-center.md"
+        ]
+      }
+    },
+    {
       "code": "life",
       "name": "生活",
       "description": "日常、习惯、健康和家庭事务",
