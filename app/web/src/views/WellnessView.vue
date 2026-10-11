@@ -23,6 +23,7 @@ const exercises = ref<Exercise[]>([])
 const metrics = ref<BodyMetric[]>([])
 const goals = ref<Goal[]>([])
 const trend = ref<TrendPoint[]>([])
+const trendDays = ref(14)
 const foods = ref<Food[]>([])
 const frequentFoods = ref<Food[]>([])
 const profile = reactive<Profile>({ heightCm: null, timezone: 'Asia/Shanghai' })
@@ -31,6 +32,19 @@ const calories = computed(() => summary.value?.calories === null || summary.valu
 const dailyGoal = computed(() => Number(selectedGoal.value?.dailyCalories || 0))
 const pct = computed(() => dailyGoal.value && calories.value !== null ? Math.min(100, Math.round(calories.value / dailyGoal.value * 100)) : 0)
 const maxTrend = computed(() => Math.max(1, ...trend.value.map(x => Number(x.calories || 0))))
+const weightHistory = computed(() => trend.value.filter(x => x.weightKg !== null))
+const weightChart = computed(() => {
+  const points = weightHistory.value
+  const values = points.map(x => Number(x.weightKg))
+  const min = Math.min(...values) - 0.5
+  const max = Math.max(...values) + 0.5
+  return points.map((p, idx) => ({
+    x: points.length === 1 ? 170 : 10 + idx * 320 / (points.length - 1),
+    y: 110 - (Number(p.weightKg) - min) / (max - min) * 94,
+    label: p.date + ' · ' + p.weightKg + ' kg',
+  }))
+})
+const weightPolyline = computed(() => weightChart.value.map(p => p.x.toFixed(2) + ',' + p.y.toFixed(2)).join(' '))
 const label = (kind: string) => ({ BREAKFAST: '早餐', LUNCH: '午餐', DINNER: '晚餐', SNACK: '加餐' }[kind] || kind)
 const n = (x: string | number | null | undefined, digits = 0) => x == null ? '—' : Number(x).toFixed(digits)
 const total = (meal: Meal) => meal.items.reduce((sum, x) => sum + Number(x.calories), 0)
@@ -109,7 +123,7 @@ async function copyMeal(meal: Meal) {
   try { await wellnessApi.copyMeal(meal.id, today); date.value = today; await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已复制到今天') }
   catch { ElMessage.error('复制失败') }
 }
-async function loadTrend() { trend.value = await wellnessApi.trends(14) }
+async function loadTrend() { trend.value = await wellnessApi.trends(trendDays.value) }
 
 const foodDialog = ref(false)
 const foodForm = reactive({ name: '', preparation: 'unspecified',
@@ -222,7 +236,7 @@ async function saveProfile() {
               <p v-else>尚未设置每日热量目标</p>
               <el-progress v-if="dailyGoal && calories !== null" :percentage="pct" :show-text="false" />
             </article>
-            <article class="tile"><span>蛋白质</span><strong>{{ n(summary?.proteinG, 1) }} <small>g</small></strong><p>今日摄入合计</p></article>
+            <article class="tile"><span>蛋白质</span><strong>{{ n(summary?.proteinG, 1) }} <small>g</small></strong><p>碳水 {{ n(summary?.carbsG,1) }}g · 脂肪 {{ n(summary?.fatG,1) }}g</p></article>
             <article class="tile"><span>运动时长</span><strong>{{ n(summary?.exerciseMinutes) }} <small>分钟</small></strong><p>消耗估算 {{ n(summary?.exerciseEstimatedKcal) }} kcal</p></article>
             <article class="tile"><span>最近体重</span><strong>{{ n(summary?.latestWeightKg, 1) }} <small>kg</small></strong><p>仅显示所选日期及之前的记录</p></article>
           </section>
@@ -240,7 +254,11 @@ async function saveProfile() {
             </div>
           </section>
           <section class="panel">
-            <div class="panel-head"><h2>近 14 天摄入趋势</h2><span class="muted">未记录不计为 0</span></div>
+            <div class="panel-head"><h2>近期摄入趋势</h2><el-select v-model="trendDays" style="width:112px" @change="loadTrend">
+              <el-option :value="7" label="近7天"/><el-option :value="14" label="近14天"/>
+              <el-option :value="30" label="近30天"/><el-option :value="90" label="近90天"/>
+            </el-select></div>
+            <p class="muted">未记录不计为 0；不同天数可切换趋势窗口。</p>
             <div class="bars">
               <div v-for="point in trend" :key="point.date" class="bar-column" :title="point.date + ': ' + (point.calories === null ? '未记录' : n(point.calories) + ' kcal')">
                 <div class="bar-track"><div v-if="point.calories !== null" class="bar-value" :style="{ height: Math.max(3, Number(point.calories) / maxTrend * 100) + '%' }"></div></div>
@@ -289,6 +307,20 @@ async function saveProfile() {
         </el-tab-pane>
 
         <el-tab-pane label="身体指标" name="metrics">
+          <section class="panel">
+            <div class="panel-head"><h2>体重趋势 · 近 {{ trendDays }} 天</h2><span class="muted">单位：kg</span></div>
+            <div v-if="!weightChart.length" class="empty">尚无这个时间范围内的体重测量。</div>
+            <template v-else>
+              <svg class="weight-chart" viewBox="0 0 340 130" role="img" aria-label="体重趋势曲线">
+                <line x1="8" y1="114" x2="332" y2="114" stroke="currentColor" opacity=".2"/>
+                <polyline :points="weightPolyline" fill="none" stroke="#4b91e1" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
+                <circle v-for="(point,idx) in weightChart" :key="idx" :cx="point.x" :cy="point.y"
+                  r="4" fill="#4b91e1"><title>{{ point.label }}</title></circle>
+              </svg>
+              <div class="weight-labels"><span>{{ weightHistory[0]?.date }} · {{ n(weightHistory[0]?.weightKg,1) }}kg</span>
+                <span>{{ weightHistory[weightHistory.length-1]?.date }} · {{ n(weightHistory[weightHistory.length-1]?.weightKg,1) }}kg</span></div>
+            </template>
+          </section>
           <section class="panel">
             <div class="panel-head"><h2>身体数据 · 最近 90 天</h2><el-button type="primary" @click="openMetric()">新增测量</el-button></div>
             <div v-if="!metrics.length" class="empty">尚未记录身体指标。</div>
@@ -408,7 +440,9 @@ async function saveProfile() {
 .bar-value{background:var(--el-color-primary);width:100%;border-radius:4px 4px 0 0}.bar-column small{color:var(--el-text-color-secondary)}
 .form-panel{max-width:640px}.form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .food-row{display:flex;align-items:center;gap:9px;margin-bottom:10px}.food-row .el-select{flex:1;min-width:0}.food-row .el-input-number{width:140px}
-.meal-total{font-size:18px;font-weight:700;margin-top:18px}.chips{display:flex;flex-wrap:wrap;gap:8px}.food-chip{cursor:pointer}
+.meal-total{font-size:18px;font-weight:700;margin-top:18px}
+.weight-chart{width:100%;height:170px;background:var(--el-fill-color-lighter);border-radius:8px}
+.weight-labels{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--el-text-color-secondary);flex-wrap:wrap;margin-top:7px}.chips{display:flex;flex-wrap:wrap;gap:8px}.food-chip{cursor:pointer}
 @media(max-width:900px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.wellness-page{padding:14px 12px 36px}.head{align-items:start;flex-wrap:wrap}
 .head h1{font-size:21px}.metric-grid{gap:8px}.tile{padding:12px;min-height:118px}.tile strong{font-size:20px}
