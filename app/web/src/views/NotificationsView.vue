@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { notificationCategoryLabel, notificationPermissionLabel } from '@/utils/labels'
+import { decodeVapidPublicKey, describePushFailure, isInstalledPwa, isIosDevice, pushStageLabels, samePublicKey, type PushStage } from '@/utils/pushDiagnostics'
 import {
   getReminders, createReminder, updateReminder, changeReminderStatus, removeReminder, sendNow,
   getInbox, markRead, getDevices, getVapidKey, registerSubscription, removeDevice, testPush,
@@ -28,6 +29,11 @@ const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shang
 const repeatLabels: Record<Frequency, string> = { ONCE: '指定时间', DAILY: '每天', WEEKDAYS: '工作日', WEEKLY: '每周', MONTHLY: '每月' }
 const currentPreview = computed(() => title.value.trim() || '我的新提醒')
 const supportsPush = typeof window !== 'undefined' && window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+const iosDevice = isIosDevice()
+const standalonePwa = isInstalledPwa()
+const subscribing = ref(false)
+const pushStatus = ref('')
+const pushNextStep = ref('')
 async function refresh() {
   try {
     const [r, m, d] = await Promise.all([getReminders(), getInbox(), getDevices()])
@@ -93,31 +99,89 @@ async function remove(item: Reminder) {
     await removeReminder(item.id); await refresh()
   } catch { /* canceled */ }
 }
-function keyBytes(base64: string): Uint8Array {
-  const raw = atob(base64.replace(/-/g, '+').replace(/_/g, '/'))
-  return Uint8Array.from(raw, char => char.charCodeAt(0))
-}
 async function enablePush() {
-  if (!supportsPush) { ElMessage.warning('需要 HTTPS 和支持系统推送的浏览器；iPhone 请先添加到主屏幕并从桌面打开'); return }
+  if (subscribing.value) return
+  pushStatus.value = ''
+  pushNextStep.value = ''
+  // iOS Web Push requires the installed home-screen web app, not a Safari tab.
+  if (iosDevice && !standalonePwa) {
+    pushStatus.value = '当前未在 iPhone 主屏幕应用中运行'
+    pushNextStep.value = '请用 Safari 将网站添加到主屏幕，随后从桌面图标启动 Matrix PRP。'
+    ElMessage.warning(pushStatus.value)
+    return
+  }
+  if (!supportsPush) {
+    const failure = describePushFailure('environment', null)
+    pushStatus.value = failure.message
+    pushNextStep.value = failure.nextStep
+    ElMessage.warning(failure.message)
+    return
+  }
+  subscribing.value = true
+  let stage: PushStage = 'permission'
   try {
-    // Permission request must be triggered by the user's explicit click.
-    const granted = await Notification.requestPermission()
+    pushStatus.value = '正在' + pushStageLabels[stage] + '…'
+    // Request permission before network calls to retain the user's click gesture.
+    const granted = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
     permission.value = granted
-    if (granted !== 'granted') { ElMessage.warning('通知权限尚未允许'); return }
-    const key = await getVapidKey()
-    if (!key) { ElMessage.error('服务端尚未配置 VAPID 公钥'); return }
-    const registration = await navigator.serviceWorker.register('/sw.js')
-    let sub = await registration.pushManager.getSubscription()
-    if (!sub) sub = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) as BufferSource })
-    const json = sub.toJSON()
-    if (!json.keys?.p256dh || !json.keys.auth) throw new Error('订阅密钥不完整')
+    if (granted !== 'granted') throw new Error('Notification permission is ' + granted)
+
+    stage = 'vapid'
+    pushStatus.value = '正在' + pushStageLabels[stage] + '…'
+    const publicKey = await getVapidKey()
+    if (!publicKey) throw new Error('Server VAPID public key is empty')
+    const applicationServerKey = decodeVapidPublicKey(publicKey)
+
+    stage = 'serviceWorker'
+    pushStatus.value = '正在' + pushStageLabels[stage] + '…'
+    await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+    const registration = await navigator.serviceWorker.ready
+
+    stage = 'browserSubscription'
+    pushStatus.value = '正在' + pushStageLabels[stage] + '…'
+    let subscription = await registration.pushManager.getSubscription()
+    if (subscription && !samePublicKey(subscription.options.applicationServerKey, applicationServerKey)) {
+      // A rotated VAPID key cannot work with a subscription bound to the old key.
+      const removed = await subscription.unsubscribe()
+      if (!removed) throw new Error('Previous VAPID subscription could not be removed')
+      subscription = null
+    }
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: applicationServerKey as BufferSource,
+      })
+    }
+    const json = subscription.toJSON()
+    if (!json.keys?.p256dh || !json.keys.auth) throw new Error('Incomplete browser subscription keys')
+
+    stage = 'serverRegistration'
+    pushStatus.value = '正在' + pushStageLabels[stage] + '…'
     await registerSubscription({
-      endpoint: sub.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth,
-      deviceName: navigator.userAgent.includes('iPhone') ? 'iPhone 主屏幕应用' : '网页浏览器'
+      endpoint: subscription.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+      deviceName: iosDevice ? 'iPhone 主屏幕应用' : '网页浏览器',
     })
+    pushStatus.value = '当前设备已成功订阅推送'
+    pushNextStep.value = '可以点击“发送测试通知”验证实际投递。'
     ElMessage.success('当前设备已订阅推送')
     await refresh()
-  } catch { ElMessage.error('订阅失败，请检查 HTTPS、通知权限和 VAPID 配置') }
+  } catch (error) {
+    // Log only the stage, exception type and HTTP status; never log subscription keys or JWT.
+    const status = (error as { response?: { status?: unknown } } | null)?.response?.status
+    console.error('[Matrix PRP Push]', {
+      stage,
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      httpStatus: typeof status === 'number' ? status : undefined,
+    })
+    const failure = describePushFailure(stage, error)
+    pushStatus.value = failure.message
+    pushNextStep.value = failure.nextStep
+    ElMessage.error({ message: failure.message, duration: 6000, showClose: true })
+  } finally {
+    subscribing.value = false
+  }
 }
 async function sendTest() {
   try { await testPush(); ElMessage.success('测试消息已写入收件箱，正在投递已订阅设备'); await refresh() }
@@ -230,8 +294,11 @@ onMounted(refresh)
         <el-card shadow="never">
           <h3>系统推送</h3>
           <p class="muted">通知权限：{{ notificationPermissionLabel(permission) }}。iPhone 必须先添加到主屏幕，并从桌面打开 App。</p>
+          <p v-if="iosDevice && !standalonePwa" class="push-warning">检测到 iPhone 当前未以主屏幕应用模式运行。Safari 标签页无法完成 iOS Web Push 订阅。</p>
+          <p v-if="pushStatus" class="push-diagnostic" role="status">{{ pushStatus }}</p>
+          <p v-if="pushNextStep" class="muted push-next-step">下一步：{{ pushNextStep }}</p>
           <div class="notification-actions">
-            <el-button type="primary" @click="enablePush">开启当前设备通知</el-button>
+            <el-button type="primary" :loading="subscribing" @click="enablePush">开启当前设备通知</el-button>
             <el-button @click="sendTest">发送测试通知</el-button>
           </div>
           <el-divider />
@@ -253,6 +320,10 @@ onMounted(refresh)
 .notification-entry {padding:12px 0; border-bottom:1px solid #e5e7eb;cursor:pointer;}
 .notification-entry p {margin:7px 0;white-space:pre-wrap;overflow-wrap:anywhere;}
 .notification-entry small,.muted {color:#64748b;}
+
+.push-warning {color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;padding:10px 12px;border-radius:8px;}
+.push-diagnostic {font-weight:600;overflow-wrap:anywhere;}
+.push-next-step {overflow-wrap:anywhere;}
 .entry-heading {display:flex;align-items:center;justify-content:space-between;gap:10px;}
 @media(max-width:960px){.notification-grid{grid-template-columns:1fr;}}
 </style>
