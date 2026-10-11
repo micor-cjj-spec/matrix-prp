@@ -70,4 +70,4 @@ CSV：UTF-8，表头固定 type,stem,options,answers,explanation,difficulty；op
 后端：cd app/backend && ./mvnw -B test。
 Web：cd app/web && npm ci && npm run build。
 MySQL：在有真实数据库的环境按用户 A/B 分别创建学科、题库、题目和练习，测试猜测 ID 的跨用户访问、导入回滚和重复导入。
-手机：通过已部署的 Web PWA /prp/ 访问（需另行验收路由基础路径适配 PR #11）。
+手机：通过已部署的 Web PWA /prp/ 访问（子路径适配 PR #11 已合并，仍须验证生产环境与 iPhone PWA）。
