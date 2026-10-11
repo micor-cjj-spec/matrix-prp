@@ -48,7 +48,7 @@ export const removeDevice = (id: number) => data(apiClient.delete<ApiResponse<vo
 export const testPush = () => data(apiClient.post<ApiResponse<number>>('/push/test'))
 export async function disconnectCurrentDevice() {
   if (!('serviceWorker' in navigator)) return
-  const registration = await navigator.serviceWorker.getRegistration('/')
+  const registration = await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
   const subscription = await registration?.pushManager.getSubscription()
   if (!subscription) return
   // Remove server registration before the browser destroys its local subscription.
