@@ -38,6 +38,11 @@ jobs:
       - name: Typecheck and build Web
         working-directory: app/web
         run: npm run build
+      - name: Verify /prp/ production path build
+        working-directory: app/web
+        run: |
+          VITE_APP_BASE=/prp/ npm run build
+          node scripts/verify-deploy-base.mjs /prp/
 
   mobile-build:
     runs-on: ubuntu-latest
