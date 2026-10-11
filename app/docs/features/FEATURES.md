@@ -11,6 +11,7 @@
 | `records` | 记录管理 | `/records` | `pages/record/index` | 登录用户 | `records` |
 | `tasks` | 任务计划 | `/tasks` | `pages/task/index` | 登录用户 | `tasks` |
 | `finance` | 财务管理 | `/finance` | `pages/finance/index` | 登录用户 | `finance` |
+| `wellness` | 健康中心 | `/wellness` | `—` | 登录用户 | `wellness` |
 | `reviews` | 复盘中心 | `/reviews` | `—` | 登录用户 | `reviews` |
 | `tags` | 标签管理 | `/tags` | `—` | 登录用户 | `tags` |
 | `knowledge` | 知识库 | `/knowledge` | `—` | 仅管理员 | `knowledge` |

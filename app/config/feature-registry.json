@@ -58,6 +58,20 @@
       "visibleInNav": true
     },
     {
+      "code": "wellness",
+      "name": "健康中心",
+      "description": "饮食热量、运动、体重指标与健康目标管理",
+      "type": "feature",
+      "sortOrder": 35,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/wellness",
+      "mobileRoute": null,
+      "backendPackage": "wellness",
+      "visibility": "authenticated",
+      "visibleInNav": true
+    },
+    {
       "code": "reviews",
       "name": "复盘中心",
       "description": "周月复盘和阶段总结",
