@@ -3,7 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
@@ -57,6 +57,12 @@ const router = createRouter({
       path: '/notifications',
       name: 'notifications',
       component: () => import('@/views/NotificationsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/practice',
+      name: 'practice',
+      component: () => import('@/views/PracticeView.vue'),
       meta: { requiresAuth: true },
     },
     {

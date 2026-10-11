@@ -35,6 +35,7 @@ const iconByCode: Record<string, Component> = {
   knowledge: Notebook,
   videos: VideoCamera,
   notifications: Bell,
+  practice: Notebook,
 }
 
 // Name, route, order and role visibility are sourced from the registry.

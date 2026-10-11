@@ -16,6 +16,7 @@
 | `knowledge` | 知识库 | `/knowledge` | `—` | 仅管理员 | `knowledge` |
 | `videos` | 视频学习库 | `/videos` | `pages/video/index` | 登录用户 | `video` |
 | `notifications` | 消息与提醒 | `/notifications` | `—` | 登录用户 | `notification` |
+| `practice` | 智能刷题中心 | `/practice` | `—` | 登录用户 | `practice` |
 
 ## 业务资源域（仅分类，不代表已有独立功能）
 
