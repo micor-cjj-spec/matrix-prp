@@ -261,7 +261,7 @@ onMounted(async()=>{await refreshSubjects();const s=await execute(api.getStatist
             <el-checkbox-group v-if="active.type==='multiple'" v-model="selected" :disabled="result!==null">
               <div v-for="o in active.options" :key="o.key"><el-checkbox :value="o.key">{{o.key}}. {{o.text}}</el-checkbox></div>
             </el-checkbox-group>
-            <el-radio-group v-else :model-value="selected[0]??''" :disabled="result!==null" @update:model-value="v=>selected=[String(v)]">
+            <el-radio-group v-else :model-value="selected[0]??''" :disabled="result!==null" @update:model-value="selected=[String($event)]">
               <div v-for="o in active.options" :key="o.key"><el-radio :value="o.key">{{o.key}}. {{o.text}}</el-radio></div>
             </el-radio-group>
             <div style="margin-top:16px">
