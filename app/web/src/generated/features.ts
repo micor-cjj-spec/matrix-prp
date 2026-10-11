@@ -99,6 +99,16 @@ export const features = [
     "webRoute": "/notifications",
     "visibility": "authenticated",
     "visibleInNav": true
+  },
+  {
+    "code": "practice",
+    "name": "智能刷题中心",
+    "sortOrder": 80,
+    "enabled": true,
+    "status": "implemented",
+    "webRoute": "/practice",
+    "visibility": "authenticated",
+    "visibleInNav": true
   }
 ] as const
 export const domains = [

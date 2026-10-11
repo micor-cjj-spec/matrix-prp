@@ -157,4 +157,57 @@ class VideoDatabaseIT {
         assertThat(storage.hasPart(adminId, expiredUpload, 0, content.length)).isFalse();
         assertThat(storage.hasPart(adminId, liveUpload, 0, content.length)).isTrue();
     }
+
+    @Test
+    void practiceSubjectBankQuizAndTenantIsolationWorkAgainstRealMySql() throws Exception {
+        String owner = login("video_admin", "video-test-admin-password-2026");
+        long subject = postJson("/api/practice/subjects", owner,
+                Map.of("name", "Java", "description", "")).path("id").asLong();
+        long bank = postJson("/api/practice/banks", owner,
+                Map.of("subjectId", subject, "title", "Java Basics", "description", "",
+                       "sourceName", "test", "licenseNote", "private")).path("id").asLong();
+        String payload = """
+             [{"type":"single","stem":"Java uses which keyword for classes?",
+             "options":[{"key":"A","text":"class"},{"key":"B","text":"function"}],
+             "answers":["A"],"explanation":"class declares a class","difficulty":"easy"}]
+             """;
+        Map<String,String> imported = Map.of("format", "json", "content", payload, "sourceName", "test");
+        assertThat(postJson("/api/practice/imports/preview", owner, imported).path("total").asInt()).isEqualTo(1);
+        assertThat(postJson("/api/practice/banks/" + bank + "/imports", owner, imported)
+                .path("imported").asInt()).isEqualTo(1);
+        assertThat(postJson("/api/practice/banks/" + bank + "/imports", owner, imported)
+                .path("duplicates").asInt()).isEqualTo(1);
+        long question = Long.parseLong(mapper.readTree(mvc.perform(auth(
+                get("/api/practice/banks/{id}/questions", bank), owner))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .path("data").get(0).path("id").asText());
+        mvc.perform(auth(put("/api/practice/questions/{id}/status", question)
+                .param("status", "published"), owner)).andExpect(status().isOk());
+        mvc.perform(auth(put("/api/practice/banks/{id}/status", bank)
+                .param("status", "published"), owner)).andExpect(status().isOk());
+        JsonNode quiz = mapper.readTree(mvc.perform(auth(get("/api/practice/banks/{id}/play", bank), owner))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(quiz.size()).isEqualTo(1);
+        assertThat(quiz.get(0).has("answers")).isFalse();
+        assertThat(postJson("/api/practice/questions/" + question + "/check", owner,
+                Map.of("answers", java.util.List.of("A"))).path("correct").asBoolean()).isTrue();
+
+        String invite = postJson("/api/auth/invitations", owner, Map.of()).path("code").asText();
+        String guest = postJson("/api/auth/register", null, Map.of(
+                "username", "practice_guest_case", "password", "practice-password-2026",
+                "displayName", "Practice Guest", "invitationCode", invite)).path("token").asText();
+        mvc.perform(auth(get("/api/practice/subjects/{id}/banks", subject), guest))
+                .andExpect(status().isNotFound());
+        mvc.perform(auth(get("/api/practice/banks/{id}/questions", bank), guest))
+                .andExpect(status().isNotFound());
+        mvc.perform(auth(post("/api/practice/questions/{id}/check", question)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"answers\":[\"A\"]}"), guest))
+                .andExpect(status().isNotFound());
+        mvc.perform(auth(put("/api/practice/questions/{id}/status", question)
+                .param("status", "draft"), guest)).andExpect(status().isNotFound());
+        mvc.perform(auth(post("/api/practice/banks").contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsBytes(Map.of("subjectId",subject,
+                        "title","Attacker bank"))),guest)).andExpect(status().isNotFound());
+    }
+
 }

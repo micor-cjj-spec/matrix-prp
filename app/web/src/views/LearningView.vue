@@ -28,10 +28,10 @@ const canOpenKnowledge = computed(() => Boolean(auth.user?.administrator))
           <span class="tool-icon tool-blue"><el-icon><VideoCamera /></el-icon></span>
           <div><h3>视频课程</h3><p>课程目录、章节播放、倍速和学习进度</p><span class="tool-action">进入视频学习 <el-icon><ArrowRight /></el-icon></span></div>
         </RouterLink>
-        <div class="domain-tool-card is-upcoming" aria-label="智能刷题：待上线">
+        <RouterLink class="domain-tool-card" to="/practice">
           <span class="tool-icon tool-violet"><el-icon><Collection /></el-icon></span>
-          <div><h3>智能刷题 <span class="coming-tag">待接入</span></h3><p>多学科题库与 AI 答疑正在开发，相关 PR 合并后开放。</p><span class="upcoming-note">暂不可用 · 不展示虚构题目或进度</span></div>
-        </div>
+          <div><h3>智能刷题</h3><p>多学科题库、题库导入、错题练习与 AI 辅助解答</p><span class="tool-action">进入智能刷题 <el-icon><ArrowRight /></el-icon></span></div>
+        </RouterLink>
         <RouterLink class="domain-tool-card" to="/records">
           <span class="tool-icon tool-amber"><el-icon><Document /></el-icon></span>
           <div><h3>学习笔记与记录</h3><p>记录学习心得、内容摘要和进展</p><span class="tool-action">查看记录 <el-icon><ArrowRight /></el-icon></span></div>
@@ -44,7 +44,7 @@ const canOpenKnowledge = computed(() => Boolean(auth.user?.administrator))
 
       <section class="domain-help-panel">
         <h2>推荐的学习路径</h2>
-        <p>看课程 → 写记录 → 回顾总结。智能刷题功能发布后，会加入练习、错题与 AI 解答环节。</p>
+        <p>看课程 → 做题练习 → 记录错题 → 回顾总结。AI 辅助出题与解答需要服务器配置 DeepSeek API。</p>
         <div class="domain-mini-links">
           <RouterLink to="/tasks">安排学习任务 <el-icon><ArrowRight /></el-icon></RouterLink>
           <RouterLink to="/reviews">查看学习复盘 <el-icon><ArrowRight /></el-icon></RouterLink>
