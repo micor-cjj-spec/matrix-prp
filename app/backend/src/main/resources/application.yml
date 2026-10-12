@@ -51,6 +51,11 @@ matrix-prp:
     jwt-expiration-minutes: 1440
 
   ai:
+    # P4: privileged actions token is server-only. Codex executes exclusively in ephemeral GitHub Actions.
+    codex:
+      enabled: ${MATRIX_PRP_CODEX_ENABLED:false}
+      github-token: ${MATRIX_PRP_CODEX_GITHUB_TOKEN:}
+      repository: ${MATRIX_PRP_CODEX_REPOSITORY:micor-cjj-spec/matrix-prp}
     # P2 OpenClaw requires a dedicated isolated instance; shared Gateway token carries operator privileges.
     openclaw:
       enabled: ${MATRIX_PRP_OPENCLAW_ENABLED:false}
