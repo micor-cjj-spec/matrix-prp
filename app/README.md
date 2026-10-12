@@ -126,3 +126,7 @@ npm run dev -- health
 ```powershell
 .\app\scripts\verify.ps1 -SkipMobile
 ```
+
+## 数据库无损升级
+
+旧数据库不可直接启用 Flyway 自动基线。执行升级前必须阅读 [P0 数据库迁移与回滚手册](docs/technical/safe-db-migrations-p0.md)。

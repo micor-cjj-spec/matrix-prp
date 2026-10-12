@@ -3,12 +3,24 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
       name: 'dashboard',
       component: () => import('@/views/DashboardView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/learning',
+      name: 'learning',
+      component: () => import('@/views/LearningView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/life',
+      name: 'life',
+      component: () => import('@/views/LifeView.vue'),
       meta: { requiresAuth: true },
     },
     {
@@ -27,6 +39,12 @@ const router = createRouter({
       path: '/finance',
       name: 'finance',
       component: () => import('@/views/FinanceView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/wellness',
+      name: 'wellness',
+      component: () => import('@/views/WellnessView.vue'),
       meta: { requiresAuth: true },
     },
     {
@@ -54,16 +72,55 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/ai',
-      name: 'ai',
-      component: () => import('@/views/AiChatView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
       path: '/notifications',
       name: 'notifications',
       component: () => import('@/views/NotificationsView.vue'),
       meta: { requiresAuth: true },
+    },
+    {
+      path: '/practice',
+      name: 'practice',
+      component: () => import('@/views/PracticeView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/apps',
+      name: 'apps',
+      component: () => import('@/views/AppsView.vue'),
+      meta: { requiresAuth: true, title: '应用中心' },
+    },
+    {
+      path: '/chat',
+      name: 'chat',
+      component: () => import('@/views/ChatView.vue'),
+      meta: { requiresAuth: true, title: 'AI 聊天' },
+    },
+    {
+      path: '/me',
+      name: 'me',
+      component: () => import('@/views/MeView.vue'),
+      meta: { requiresAuth: true, title: '我的' },
+    },
+    {
+      path: '/me/settings',
+      name: 'my-settings',
+      component: () => import('@/views/MeDetailView.vue'),
+      props: { section: 'settings' },
+      meta: { requiresAuth: true, title: '设置' },
+    },
+    {
+      path: '/me/guide',
+      name: 'my-guide',
+      component: () => import('@/views/MeDetailView.vue'),
+      props: { section: 'guide' },
+      meta: { requiresAuth: true, title: '使用说明书' },
+    },
+    {
+      path: '/me/about',
+      name: 'my-about',
+      component: () => import('@/views/MeDetailView.vue'),
+      props: { section: 'about' },
+      meta: { requiresAuth: true, title: '关于' },
     },
     {
       path: '/login',

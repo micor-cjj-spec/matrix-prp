@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "code": "dashboard",
+      "name": "首页概览",
+      "description": "今日概览和跨模块工作台",
+      "type": "feature",
+      "sortOrder": 0,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/",
+      "mobileRoute": "pages/home/index",
+      "backendPackage": "dashboard",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/dashboard"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/ApiContractTests.java",
+          "app/backend/src/test/java/com/matrix/prp/TaskOverviewTests.java"
+        ],
+        "docs": [
+          "app/docs/api/overview.md"
+        ]
+      }
+    },
+    {
+      "code": "records",
+      "name": "记录管理",
+      "description": "学习、生活和工作记录",
+      "type": "feature",
+      "sortOrder": 10,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/records",
+      "mobileRoute": "pages/record/index",
+      "backendPackage": "records",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/records"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/PhaseOneServiceTests.java",
+          "app/backend/src/test/java/com/matrix/prp/MultiUserIsolationTests.java",
+          "app/backend/src/test/java/com/matrix/prp/PersistentRepositoryOwnershipTests.java"
+        ],
+        "docs": [
+          "app/docs/data/model.md"
+        ]
+      }
+    },
+    {
+      "code": "tasks",
+      "name": "任务计划",
+      "description": "今日任务、逾期任务和计划",
+      "type": "feature",
+      "sortOrder": 20,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/tasks",
+      "mobileRoute": "pages/task/index",
+      "backendPackage": "tasks",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/tasks"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/TaskOverviewTests.java",
+          "app/backend/src/test/java/com/matrix/prp/PhaseOneServiceTests.java",
+          "app/backend/src/test/java/com/matrix/prp/MultiUserIsolationTests.java"
+        ],
+        "docs": [
+          "app/docs/api/overview.md"
+        ]
+      }
+    },
+    {
+      "code": "finance",
+      "name": "财务管理",
+      "description": "账户、分类、收支流水和月度统计",
+      "type": "feature",
+      "sortOrder": 30,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/finance",
+      "mobileRoute": "pages/finance/index",
+      "backendPackage": "finance",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/finance"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/PhaseOneServiceTests.java",
+          "app/backend/src/test/java/com/matrix/prp/PersistentRepositoryOwnershipTests.java",
+          "app/backend/src/test/java/com/matrix/prp/MultiUserIsolationTests.java"
+        ],
+        "docs": [
+          "app/docs/data/model.md"
+        ]
+      }
+    },
+    {
+      "code": "wellness",
+      "name": "健康中心",
+      "description": "饮食热量、运动、体重指标与健康目标管理",
+      "type": "feature",
+      "sortOrder": 35,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/wellness",
+      "mobileRoute": null,
+      "backendPackage": "wellness",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/wellness"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/WellnessDatabaseIT.java",
+          "app/backend/src/test/java/com/matrix/prp/WellnessNutritionTests.java"
+        ],
+        "docs": [
+          "app/docs/technical/wellness-center-p0.md"
+        ]
+      }
+    },
+    {
+      "code": "reviews",
+      "name": "复盘中心",
+      "description": "周月复盘和阶段总结",
+      "type": "feature",
+      "sortOrder": 40,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/reviews",
+      "mobileRoute": null,
+      "backendPackage": "reviews",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/reviews"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/PhaseOneServiceTests.java",
+          "app/backend/src/test/java/com/matrix/prp/MultiUserIsolationTests.java"
+        ],
+        "docs": [
+          "app/docs/product/phase-1-product-design.md"
+        ]
+      }
+    },
+    {
+      "code": "tags",
+      "name": "标签管理",
+      "description": "记录与业务对象标签",
+      "type": "feature",
+      "sortOrder": 45,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/tags",
+      "mobileRoute": null,
+      "backendPackage": "tags",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/tags"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/PhaseOneServiceTests.java",
+          "app/backend/src/test/java/com/matrix/prp/MultiUserIsolationTests.java"
+        ],
+        "docs": [
+          "app/docs/api/overview.md"
+        ]
+      }
+    },
+    {
+      "code": "knowledge",
+      "name": "知识库",
+      "description": "只读浏览和搜索服务器 Markdown 知识库",
+      "type": "feature",
+      "sortOrder": 50,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/knowledge",
+      "mobileRoute": null,
+      "backendPackage": "knowledge",
+      "visibility": "admin",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/knowledge"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/KnowledgeServiceTests.java",
+          "app/backend/src/test/java/com/matrix/prp/ApiContractTests.java",
+          "app/backend/src/test/java/com/matrix/prp/MultiUserIsolationTests.java"
+        ],
+        "docs": [
+          "app/docs/technical/multi-user-foundation.md"
+        ]
+      }
+    },
+    {
+      "code": "videos",
+      "name": "视频学习库",
+      "description": "私有课程目录、MP4 上传播放和进度",
+      "type": "feature",
+      "sortOrder": 60,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/videos",
+      "mobileRoute": "pages/video/index",
+      "backendPackage": "video",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/video"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/VideoDatabaseIT.java",
+          "app/backend/src/test/java/com/matrix/prp/VideoSecurityPrimitivesTests.java",
+          "app/backend/src/test/java/com/matrix/prp/LocalVideoStorageTests.java",
+          "app/backend/src/test/java/com/matrix/prp/VideoNginxDeliveryTests.java"
+        ],
+        "docs": [
+          "app/docs/technical/video-library-mvp.md",
+          "app/docs/technical/video-storage-v1-1.md"
+        ]
+      }
+    },
+    {
+      "code": "notifications",
+      "name": "消息与提醒",
+      "description": "提醒规则、站内消息和 Web Push",
+      "type": "feature",
+      "sortOrder": 70,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/notifications",
+      "mobileRoute": null,
+      "backendPackage": "notification",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/notification-rules",
+          "/api/notifications",
+          "/api/push"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/NotificationDatabaseIT.java",
+          "app/backend/src/test/java/com/matrix/prp/ReminderScheduleTests.java"
+        ],
+        "docs": [
+          "app/docs/technical/notification-center-p0.md",
+          "app/docs/technical/push-subscription-diagnostics.md"
+        ]
+      }
+    },
+    {
+      "code": "practice",
+      "name": "智能刷题中心",
+      "description": "自定义学科、题库导入、AI 出题、练习与解答",
+      "type": "feature",
+      "sortOrder": 80,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/practice",
+      "mobileRoute": null,
+      "backendPackage": "practice",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/practice"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/PracticeImportParserTests.java",
+          "app/backend/src/test/java/com/matrix/prp/VideoDatabaseIT.java"
+        ],
+        "docs": [
+          "app/docs/technical/practice-center.md"
+        ]
+      }
+    },
+    {
+      "code": "life",
+      "name": "生活",
+      "description": "日常、习惯、健康和家庭事务",
+      "type": "domain",
+      "sortOrder": 110,
+      "enabled": true,
+      "status": "landing",
+      "webRoute": "/life",
+      "mobileRoute": null,
+      "backendPackage": null,
+      "visibility": "authenticated",
+      "visibleInNav": true
+    },
+    {
+      "code": "learning",
+      "name": "学习",
+      "description": "课程、考试、证书和成长记录",
+      "type": "domain",
+      "sortOrder": 120,
+      "enabled": true,
+      "status": "landing",
+      "webRoute": "/learning",
+      "mobileRoute": null,
+      "backendPackage": null,
+      "visibility": "authenticated",
+      "visibleInNav": true
+    },
+    {
+      "code": "work",
+      "name": "工作",
+      "description": "项目、会议、任务和职业成长",
+      "type": "domain",
+      "sortOrder": 130,
+      "enabled": true,
+      "status": "category",
+      "webRoute": null,
+      "mobileRoute": null,
+      "backendPackage": null,
+      "visibility": "authenticated",
+      "visibleInNav": false
+    },
+    {
+      "code": "interests",
+      "name": "兴趣",
+      "description": "阅读、旅行、音乐和长期爱好",
+      "type": "domain",
+      "sortOrder": 140,
+      "enabled": true,
+      "status": "category",
+      "webRoute": null,
+      "mobileRoute": null,
+      "backendPackage": null,
+      "visibility": "authenticated",
+      "visibleInNav": false
+    },
+    {
+      "code": "social",
+      "name": "社交",
+      "description": "联系人、互动和关系维护",
+      "type": "domain",
+      "sortOrder": 150,
+      "enabled": true,
+      "status": "category",
+      "webRoute": null,
+      "mobileRoute": null,
+      "backendPackage": null,
+      "visibility": "authenticated",
+      "visibleInNav": false
+    },
+    {
+      "code": "finance",
+      "name": "财务",
+      "description": "收入、支出、账单和财务复盘",
+      "type": "domain",
+      "sortOrder": 160,
+      "enabled": true,
+      "status": "category",
+      "webRoute": null,
+      "mobileRoute": null,
+      "backendPackage": null,
+      "visibility": "authenticated",
+      "visibleInNav": false
+    }
+  ]
+}

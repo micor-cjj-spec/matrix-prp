@@ -1,4 +1,4 @@
--- Apply manually to existing volumes after 001-004. Do not reset persistent data.
+-- Flyway V8: add AI-only tables after immutable V1-V7. Never reset existing volumes.
 -- AI conversations are strictly keyed by JWT user_id; 0 in usage represents the global ceiling.
 CREATE TABLE IF NOT EXISTS prp_ai_conversations (
   id CHAR(36) NOT NULL PRIMARY KEY,

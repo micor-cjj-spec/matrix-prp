@@ -26,12 +26,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.users = users;
     }
 
-    // MVC SSE uses an async servlet dispatch. Re-authenticate that dispatch
-    // so the response can complete without anonymous-access rejection.
+    // SSE resumes on a servlet async dispatch. Restore the JWT principal on that dispatch.
     @Override
-    protected boolean shouldNotFilterAsyncDispatch() {
-        return false;
-    }
+    protected boolean shouldNotFilterAsyncDispatch() { return false; }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,

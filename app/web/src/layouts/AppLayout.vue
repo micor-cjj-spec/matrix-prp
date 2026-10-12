@@ -1,78 +1,80 @@
 <script setup lang="ts">
-import { ChatDotRound, Bell, CollectionTag, DataAnalysis, Document, EditPen, Money, Notebook, Tickets, VideoCamera } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { createInvitation } from '@/api/auth'
-import { disconnectCurrentDevice } from '@/api/notifications'
-import { ref } from 'vue'
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { Bell, ChatDotRound, DataAnalysis, Grid, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { domains, features } from '@/generated/features'
 
-const router = useRouter()
-const authStore = useAuthStore()
-const inviting = ref(false)
+const route = useRoute()
+const auth = useAuthStore()
+const mainNav = [
+  { code: 'home', label: '首页', to: '/', icon: DataAnalysis },
+  { code: 'apps', label: '应用', to: '/apps', icon: Grid },
+  { code: 'chat', label: '聊天', to: '/chat', icon: ChatDotRound },
+  { code: 'me', label: '我的', to: '/me', icon: User },
+] as const
 
-async function inviteFriend() {
-  inviting.value = true
-  try {
-    const invitation = await createInvitation()
-    await ElMessageBox.alert('邀请码：' + invitation.code + '（7 天有效，仅限一次注册）', '邀请朋友')
-  } catch {
-    ElMessage.error('生成邀请码失败')
-  } finally {
-    inviting.value = false
-  }
-}
-
-const navItems = [
-  { to: '/', label: '首页概览', icon: DataAnalysis },
-  { to: '/records', label: '记录管理', icon: Document },
-  { to: '/tasks', label: '任务计划', icon: Tickets },
-  { to: '/finance', label: '财务管理', icon: Money },
-  { to: '/reviews', label: '复盘中心', icon: EditPen },
-  { to: '/tags', label: '标签管理', icon: CollectionTag },
-  { to: '/knowledge', label: '知识库', icon: Notebook },
-  { to: '/ai', label: 'Matrix AI', icon: ChatDotRound },
-  { to: '/videos', label: '视频学习库', icon: VideoCamera },
-  { to: '/notifications', label: '消息与提醒', icon: Bell },
-]
-
-async function logout() {
-  try { await disconnectCurrentDevice() }
-  catch { ElMessage.warning('当前设备推送解绑失败，请在通知中心移除设备或关闭系统通知') }
-  authStore.logout()
-  router.push('/login')
-}
+const activeMain = computed(() => {
+  const path = route.path
+  if (path === '/') return 'home'
+  if (path === '/chat' || path.startsWith('/chat/')) return 'chat'
+  if (path === '/me' || path.startsWith('/me/') || path === '/notifications') return 'me'
+  return 'apps'
+})
+const currentTitle = computed(() => {
+  const routeTitle = route.meta.title
+  if (typeof routeTitle === 'string') return routeTitle
+  const currentFeature = features.find(item => item.webRoute === route.path)
+  const currentDomain = domains.find(item => item.webRoute === route.path)
+  return currentFeature?.name ?? currentDomain?.name
+    ?? mainNav.find(item => item.code === activeMain.value)?.label ?? '应用'
+})
 </script>
 
 <template>
-  <main class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">M</div>
-        <div>
-          <strong>Matrix PRP</strong>
-          <span>个人资源管理平台</span>
-        </div>
-      </div>
-
-      <nav class="nav-list">
-        <RouterLink v-for="item in navItems" :key="item.to" class="nav-item" :to="item.to">
-          <el-icon><component :is="item.icon" /></el-icon>
-          {{ item.label }}
+  <main class="app-shell prp-shell">
+    <aside class="sidebar prp-sidebar" aria-label="主导航">
+      <RouterLink to="/" class="brand prp-brand">
+        <span class="brand-mark">M</span>
+        <span class="brand-copy"><strong>Matrix PRP</strong><small>个人成长与生活空间</small></span>
+      </RouterLink>
+      <p class="nav-caption">个人工作空间</p>
+      <nav class="nav-list prp-main-nav" aria-label="主要空间">
+        <RouterLink v-for="item in mainNav" :key="item.code" :to="item.to"
+          class="nav-item prp-nav-link" :class="{ 'is-active': activeMain === item.code }"
+          :aria-current="route.path === item.to ? 'page' : undefined">
+          <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
         </RouterLink>
       </nav>
-
-      <div class="sidebar-footer">
-        <span>{{ authStore.user?.displayName || 'Matrix PRP' }}</span>
-        <el-button v-if="authStore.user?.administrator" size="small" :loading="inviting" @click="inviteFriend">邀请朋友</el-button>
-        <el-button size="small" @click="logout">退出</el-button>
+      <div class="sidebar-footer prp-sidebar-footer">
+        <RouterLink to="/me" class="prp-user-card">
+          <span class="prp-user-avatar">{{ (auth.user?.displayName || '我').slice(0, 1) }}</span>
+          <span class="prp-user-name"><strong>{{ auth.user?.displayName || '我的空间' }}</strong>
+            <small>{{ auth.user?.administrator ? '管理员' : '个人用户' }}</small></span>
+        </RouterLink>
       </div>
     </aside>
 
-    <section class="workspace">
-      <slot />
-    </section>
+    <div class="workspace prp-workspace">
+      <div class="prp-topbar">
+        <div class="prp-topbar-title"><span class="prp-mobile-mark">M</span><span>{{ currentTitle }}</span></div>
+        <div class="prp-topbar-actions">
+          <RouterLink to="/notifications" class="prp-icon-link" aria-label="消息与提醒">
+            <el-icon><Bell /></el-icon>
+          </RouterLink>
+          <RouterLink to="/me" class="prp-user-card prp-topbar-user" aria-label="个人中心">
+            <span class="prp-topbar-avatar">{{ (auth.user?.displayName || '我').slice(0, 1) }}</span>
+          </RouterLink>
+        </div>
+      </div>
+      <section class="prp-page-content"><slot /></section>
+    </div>
+    <nav class="prp-mobile-tabs" aria-label="手机主要导航">
+      <RouterLink v-for="item in mainNav" :key="item.code" :to="item.to"
+        class="prp-mobile-tab" :class="{ 'is-active': activeMain === item.code }"
+        :aria-current="route.path === item.to ? 'page' : undefined">
+        <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
+      </RouterLink>
+    </nav>
   </main>
 </template>
-
-

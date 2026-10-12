@@ -68,7 +68,7 @@ onBeforeUnmount(() => controller?.abort())
 <template>
   <AppLayout>
     <header class="page-header">
-      <div><p class="eyebrow">Matrix AI</p><h1>AI 助手</h1>
+      <div><p class="eyebrow">Matrix AI</p><h1>AI 聊天</h1>
         <p>DeepSeek 对话与学习辅助。AI 不会自动运行服务器命令。</p></div>
     </header>
     <div class="chat-grid">
