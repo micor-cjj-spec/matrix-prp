@@ -58,10 +58,10 @@ class FlywayMigrationIT {
     void newSchemaMigratesTwiceWithoutChangingExistingRows() throws SQLException {
         String url = System.getenv("MATRIX_PRP_FLYWAY_FRESH_URL");
         Flyway migration = flyway(url);
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(9);
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(10);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(9);
-        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(5);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(10);
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(6);
 
         insertSentinel(url, "flyway_fresh_ci");
         long before = count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'");
@@ -79,12 +79,12 @@ class FlywayMigrationIT {
         long seedRows = count(url, "SELECT COUNT(*) FROM prp_wellness_foods");
         Flyway migration = flyway(url);
         assertThat(migration.baseline().successfullyBaselined).isTrue();
-        // V8 and V9 are pending after V7 baseline. Apply the migration, then validate.
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(2);
+        // V8, V9 and V10 are pending after V7 baseline. Apply the migration, then validate.
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(3);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'")).isEqualTo(before);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isEqualTo(seedRows);
-        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(5);
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(6);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(3);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(4);
     }
 }
