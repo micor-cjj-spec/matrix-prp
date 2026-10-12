@@ -1,3 +1,5 @@
+> 历史方案：本文记录旧版布尔 consent 协议。最新安全流程参阅 [PRP Assistant](prp-assistant-chat-mentions.md)，旧 contextConsent 不能继续授权发送上下文。
+
 # Matrix AI P3 — 每次明确授权的只读业务摘要
 
 ## 本次功能

@@ -13,6 +13,8 @@ import com.matrix.prp.ai.AiStore;
 import com.matrix.prp.ai.DeepSeekClient;
 import com.matrix.prp.auth.repository.UserStore;
 import java.util.Map;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,12 +38,15 @@ class AiAccessTests {
     @Autowired AiStore store;
     @Autowired UserStore users;
     @MockitoBean DeepSeekClient deepSeek;
+    private final AtomicReference<List<DeepSeekClient.ChatMessage>> outbound = new AtomicReference<>();
 
     @BeforeEach
     @SuppressWarnings("unchecked")
     void stubDeepSeek() throws Exception {
         when(deepSeek.model()).thenReturn("deepseek-chat");
+        outbound.set(null);
         when(deepSeek.stream(anyList(), anyInt(), any())).thenAnswer(invocation -> {
+            outbound.set(List.copyOf(invocation.getArgument(0)));
             Consumer<String> delta = invocation.getArgument(2);
             delta.accept("AI test response");
             return new DeepSeekClient.Result("AI test response", 16, 4);
@@ -100,6 +105,9 @@ class AiAccessTests {
         mvc.perform(asyncDispatch(result)).andExpect(status().isOk());
         String output = result.getResponse().getContentAsString();
         assertThat(output).contains("AI test response").contains("event:done");
+        assertThat(outbound.get().getFirst().role()).isEqualTo("system");
+        assertThat(outbound.get().getFirst().content()).contains("PRP 助手", "Matrix PRP");
+        assertThat(outbound.get().getLast().content()).isEqualTo("Hello AI");
         assertThat(store.list(users.findByUsername("admin").orElseThrow().id())).isNotEmpty();
         assertThat(store.usage(users.findByUsername("admin").orElseThrow().id(),
                 java.time.YearMonth.now(java.time.ZoneOffset.UTC).toString()).requests()).isGreaterThan(0);
