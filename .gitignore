@@ -17,6 +17,8 @@ unpackage/
 
 # Logs and local env
 *.log
+__pycache__/
+release.tar.gz
 .env
 .env.*
 !.env.example
