@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,7 @@ public final class LoginAttemptLimiter {
     private final Duration period;
     private final boolean enabled;
 
+    @Autowired
     public LoginAttemptLimiter(
             @Value("${matrix-prp.security.login-max-failures:8}") int maxFailures,
             @Value("${matrix-prp.security.login-window-minutes:10}") int windowMinutes,

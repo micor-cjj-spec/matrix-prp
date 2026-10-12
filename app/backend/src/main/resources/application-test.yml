@@ -6,4 +6,5 @@ spring:
 
 matrix-prp:
   security:
+    login-rate-limit-enabled: false
     jwt-secret: test-only-jwt-key-do-not-use-in-prod-012345678901
