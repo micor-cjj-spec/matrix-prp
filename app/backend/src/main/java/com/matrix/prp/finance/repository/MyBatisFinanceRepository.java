@@ -5,6 +5,9 @@ import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.finance.entity.FinanceTransactionEntity;
 import com.matrix.prp.finance.mapper.FinanceTransactionMapper;
+import com.matrix.prp.finance.mapper.FinanceAccountMapper;
+import com.matrix.prp.finance.entity.FinanceAccountEntity;
+import org.springframework.transaction.annotation.Transactional;
 import com.matrix.prp.finance.model.CreateFinanceTransactionRequest;
 import com.matrix.prp.finance.model.FinanceAccountSummary;
 import com.matrix.prp.finance.model.FinanceCategorySummary;
@@ -27,9 +30,35 @@ import org.springframework.stereotype.Repository;
 public class MyBatisFinanceRepository implements FinanceRepository {
 
     private final FinanceTransactionMapper financeTransactionMapper;
+    private final FinanceAccountMapper accountMapper;
 
-    public MyBatisFinanceRepository(FinanceTransactionMapper financeTransactionMapper) {
+    public MyBatisFinanceRepository(FinanceTransactionMapper financeTransactionMapper,
+                                    FinanceAccountMapper accountMapper) {
         this.financeTransactionMapper = financeTransactionMapper;
+        this.accountMapper = accountMapper;
+    }
+
+    /** Compatibility: old clients send a label, new rows also receive an immutable account ID. */
+    private FinanceAccountEntity resolveAccount(String requested) {
+        String name=requested==null || requested.isBlank() ? "default" : requested.trim();
+        var query=new LambdaQueryWrapper<FinanceAccountEntity>()
+                .eq(FinanceAccountEntity::getUserId,CurrentUser.id())
+                .eq(FinanceAccountEntity::getName,name);
+        var existing=accountMapper.selectList(query);
+        if(!existing.isEmpty()) return existing.get(0);
+        // Preserve legacy create-with-free-text account behavior, without orphaning a new row.
+        FinanceAccountEntity a=new FinanceAccountEntity();
+        a.setUserId(CurrentUser.id()); a.setName(name); a.setType("cash");
+        a.setCurrency("CNY"); a.setOpeningBalance(BigDecimal.ZERO);
+        a.setNote("通过记账自动创建，请核对期初余额");
+        a.setCreatedAt(LocalDateTime.now()); a.setUpdatedAt(a.getCreatedAt()); a.setDeleted(0);
+        try { accountMapper.insert(a); }
+        catch (org.springframework.dao.DuplicateKeyException collision) {
+            var concurrent=accountMapper.selectList(query);
+            if(!concurrent.isEmpty()) return concurrent.get(0);
+            throw collision;
+        }
+        return a;
     }
 
     @Override
@@ -47,6 +76,7 @@ public class MyBatisFinanceRepository implements FinanceRepository {
     }
 
     @Override
+    @Transactional
     public FinanceTransactionItem createTransaction(CreateFinanceTransactionRequest request) {
         LocalDateTime now = LocalDateTime.now();
         FinanceTransactionEntity entity = new FinanceTransactionEntity();
@@ -54,7 +84,9 @@ public class MyBatisFinanceRepository implements FinanceRepository {
         entity.setType(request.type());
         entity.setAmount(request.amount());
         entity.setCategory(request.category());
-        entity.setAccount(request.account() == null ? "default" : request.account());
+        FinanceAccountEntity account=resolveAccount(request.account());
+        entity.setAccount(account.getName());
+        entity.setAccountId(account.getId());
         entity.setMerchant(request.merchant() == null ? "" : request.merchant());
         entity.setNote(request.note() == null ? "" : request.note());
         entity.setTransactionDate(request.transactionDate() == null ? LocalDate.now() : request.transactionDate());
@@ -66,13 +98,16 @@ public class MyBatisFinanceRepository implements FinanceRepository {
     }
 
     @Override
+    @Transactional
     public FinanceTransactionItem updateTransaction(long id, CreateFinanceTransactionRequest request) {
         FinanceTransactionEntity entity = findById(id);
         LocalDateTime now = LocalDateTime.now();
         entity.setType(request.type());
         entity.setAmount(request.amount());
         entity.setCategory(request.category());
-        entity.setAccount(request.account() == null ? "default" : request.account());
+        FinanceAccountEntity account=resolveAccount(request.account());
+        entity.setAccount(account.getName());
+        entity.setAccountId(account.getId());
         entity.setMerchant(request.merchant() == null ? "" : request.merchant());
         entity.setNote(request.note() == null ? "" : request.note());
         entity.setTransactionDate(request.transactionDate() == null ? LocalDate.now() : request.transactionDate());
