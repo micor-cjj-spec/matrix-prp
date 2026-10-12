@@ -3,6 +3,10 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createFinanceAccount,
+  createFinanceTransfer,
+  deleteFinanceTransfer,
+  fetchFinanceAccountBalances,
+  fetchFinanceTransfers,
   createFinanceCategory,
   createFinanceTransaction,
   deleteFinanceAccount,
@@ -18,6 +22,8 @@ import {
   updateFinanceCategory,
   updateFinanceTransaction,
   type FinanceAccountItem,
+  type FinanceAccountBalance,
+  type FinanceTransferItem,
   type FinanceAccountSummary,
   type FinanceCategoryItem,
   type FinanceCategorySummary,
@@ -30,6 +36,17 @@ import { accountTypeLabel, financeTypeLabel } from '@/utils/labels'
 const transactions = ref<FinanceTransactionItem[]>([])
 const accounts = ref<FinanceAccountItem[]>([])
 const categories = ref<FinanceCategoryItem[]>([])
+const balances = ref<FinanceAccountBalance[]>([])
+const transfers = ref<FinanceTransferItem[]>([])
+const transferring = ref(false)
+const transferRequestId = ref(crypto.randomUUID())
+const transferForm = reactive<{fromAccountId: number | undefined; toAccountId: number | undefined; amount: number; transferDate: string; note: string}>({
+  fromAccountId: undefined,
+  toAccountId: undefined,
+  amount: 0,
+  transferDate: new Date().toISOString().slice(0, 10),
+  note: '',
+})
 const categorySummary = ref<FinanceCategorySummary[]>([])
 const accountSummary = ref<FinanceAccountSummary[]>([])
 const summary = ref<FinanceMonthlySummary>({ income: '0', expense: '0', balance: '0' })
@@ -113,6 +130,8 @@ async function loadFinance() {
       nextAccountSummary,
       nextAccounts,
       nextCategories,
+      nextBalances,
+      nextTransfers,
     ] = await Promise.all([
       fetchFinanceTransactions({
         month: filters.month || undefined,
@@ -124,6 +143,8 @@ async function loadFinance() {
       fetchFinanceAccountSummary(filters.month || undefined),
       fetchFinanceAccounts(),
       fetchFinanceCategories(),
+      fetchFinanceAccountBalances(),
+      fetchFinanceTransfers(),
     ])
     transactions.value = nextTransactions
     summary.value = nextSummary
@@ -131,6 +152,8 @@ async function loadFinance() {
     accountSummary.value = nextAccountSummary
     accounts.value = nextAccounts
     categories.value = nextCategories
+    balances.value = nextBalances
+    transfers.value = nextTransfers
     apiOnline.value = true
   } catch {
     apiOnline.value = false
@@ -279,6 +302,46 @@ async function removeCategory(category: FinanceCategoryItem) {
   await loadFinance()
 }
 
+async function submitTransfer() {
+  if (!transferForm.fromAccountId || !transferForm.toAccountId || transferForm.amount <= 0) {
+    ElMessage.warning('请选择转出、转入账户并填写正数金额')
+    return
+  }
+  if (transferForm.fromAccountId === transferForm.toAccountId) {
+    ElMessage.warning('转入与转出账户不能相同')
+    return
+  }
+  transferring.value = true
+  try {
+    await createFinanceTransfer({
+      fromAccountId: transferForm.fromAccountId,
+      toAccountId: transferForm.toAccountId,
+      amount: transferForm.amount,
+      transferDate: transferForm.transferDate,
+      note: transferForm.note,
+      clientRequestId: transferRequestId.value,
+    })
+    transferRequestId.value = crypto.randomUUID()
+    transferForm.amount = 0
+    transferForm.note = ''
+    ElMessage.success('内部转账已记录，不计入收支')
+    await loadFinance()
+  } catch {
+    ElMessage.error('转账记录失败，请检查账户币种或连接状态；重试不会产生重复流水')
+  } finally {
+    transferring.value = false
+  }
+}
+async function removeTransfer(id: number) {
+  try { await ElMessageBox.confirm('删除此笔内部转账记录？账户账面余额将重新计算。', '确认删除', { type: 'warning' }) }
+  catch { return }
+  try {
+    await deleteFinanceTransfer(id)
+    ElMessage.success('转账记录已删除')
+    await loadFinance()
+  } catch { ElMessage.error('删除转账失败') }
+}
+
 onMounted(async () => {
   await loadFinance()
   resetTransactionForm()
@@ -291,7 +354,7 @@ onMounted(async () => {
       <div>
         <p class="eyebrow">财务管理</p>
         <h1>个人财务工作台</h1>
-        <p>管理收支记录、账户与分类，清晰掌握每月资金变化。</p>
+        <p>账户真实账面余额、内部转账与月度收支。余额仅来自本应用记录，不会自动同步银行。</p>
         <span class="api-status" :class="{ online: apiOnline }">
           {{ apiOnline ? '财务服务已连接' : '财务服务未连接' }}
         </span>
@@ -303,6 +366,59 @@ onMounted(async () => {
         <span>{{ metric.label }}</span>
         <strong>{{ metric.value }}</strong>
       </article>
+    </section>
+
+    <section class="work-grid" style="margin-bottom:16px">
+      <el-card shadow="never">
+        <template #header>账户账面余额（截至今天）</template>
+        <p class="muted">期初余额 + 历史收入 - 历史支出 + 转入 - 转出。各币种独立计算，未做汇率换算。</p>
+        <el-empty v-if="balances.length === 0" description="请先建立账户" />
+        <div v-else class="item-list">
+          <article v-for="a in balances" :key="a.accountId" class="list-item">
+            <div class="list-item-row">
+              <strong>{{ a.account }}（{{ a.currency }}）</strong>
+              <strong>{{ formatCurrency(a.currentBalance, a.currency) }}</strong>
+            </div>
+            <span>期初 {{ formatCurrency(a.openingBalance, a.currency) }} · 历史流入 {{ formatCurrency(a.income, a.currency) }} · 历史流出 {{ formatCurrency(a.expense, a.currency) }}</span>
+            <span>内部转入 {{ formatCurrency(a.transferIn, a.currency) }} · 内部转出 {{ formatCurrency(a.transferOut, a.currency) }}</span>
+          </article>
+        </div>
+      </el-card>
+      <el-card shadow="never">
+        <template #header>账户间转账（不计入收支）</template>
+        <el-form label-position="top" @submit.prevent>
+          <el-form-item label="转出账户">
+            <el-select v-model="transferForm.fromAccountId" placeholder="选择账户" style="width:100%">
+              <el-option v-for="a in accounts" :key="a.id" :value="a.id" :label="a.name+' ('+a.currency+')'" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="转入账户">
+            <el-select v-model="transferForm.toAccountId" placeholder="选择账户" style="width:100%">
+              <el-option v-for="a in accounts" :key="a.id" :value="a.id" :label="a.name+' ('+a.currency+')'" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="金额"><el-input-number v-model="transferForm.amount" :min="0" :precision="2" /></el-form-item>
+          <el-form-item label="日期"><el-date-picker v-model="transferForm.transferDate" type="date" value-format="YYYY-MM-DD" :disabled-date="(date: Date) => date.getTime() > Date.now()" /></el-form-item>
+          <el-form-item label="备注"><el-input v-model="transferForm.note" maxlength="500" /></el-form-item>
+          <el-button type="primary" :loading="transferring" @click="submitTransfer">记录内部转账</el-button>
+          <p class="muted">暂不支持跨币种兑换或预约未来转账。</p>
+        </el-form>
+      </el-card>
+    </section>
+    <section v-if="transfers.length" class="work-grid" style="margin-bottom:16px">
+      <el-card shadow="never" style="grid-column:1/-1">
+        <template #header>内部转账记录</template>
+        <div class="item-list">
+          <article v-for="t in transfers" :key="t.id" class="list-item">
+            <div class="list-item-row">
+              <strong>{{ t.fromAccount }} → {{ t.toAccount }}</strong>
+              <span>{{ formatCurrency(t.amount, t.currency) }}</span>
+              <el-button text type="danger" @click="removeTransfer(t.id)">删除</el-button>
+            </div>
+            <span>{{ t.transferDate }} · {{ t.note || '无备注' }}</span>
+          </article>
+        </div>
+      </el-card>
     </section>
 
     <section class="finance-grid">
@@ -446,7 +562,7 @@ onMounted(async () => {
       </el-card>
 
       <el-card shadow="never">
-        <template #header>账户收支汇总</template>
+        <template #header>本月账户净流入（非账户余额）</template>
         <el-empty v-if="accountSummary.length === 0" description="本月暂无账户变动" />
         <div v-else class="item-list">
           <article v-for="item in accountSummary" :key="item.account" class="list-item">
