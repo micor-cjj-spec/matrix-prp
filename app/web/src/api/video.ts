@@ -59,7 +59,9 @@ export async function completeUpload(id: string) {
   return (await apiClient.post<ApiResponse<VideoItem>>(`/video/uploads/${id}/complete`)).data.data
 }
 export async function getPlayback(id: number) {
-  return (await apiClient.get<ApiResponse<VideoPlayback>>(`/video/items/${id}/playback`)).data.data
+  const playback = (await apiClient.get<ApiResponse<VideoPlayback>>(`/video/items/${id}/playback`)).data.data
+  const apiBase = (import.meta.env.VITE_API_BASE || `${import.meta.env.BASE_URL}api`).replace(/\/$/, '')
+  return { ...playback, url: playback.url.startsWith('/api/') ? `${apiBase}${playback.url.slice(4)}` : playback.url }
 }
 export async function saveVideoProgress(id: number, positionSeconds: number, durationSeconds: number) {
   await apiClient.put(`/video/items/${id}/progress`, { positionSeconds, durationSeconds })

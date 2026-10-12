@@ -86,9 +86,9 @@ public class WellnessService {
                 this::mapFood, CurrentUser.id(),"%"+term+"%", CurrentUser.id());
     }
     public List<Food> frequentFoods() {
-        return db.query("SELECT "+FOOD_COLUMNS+" FROM prp_wellness_foods WHERE id IN (" +
+        return db.query("SELECT "+FOOD_COLUMNS+" FROM prp_wellness_foods WHERE id IN (SELECT frequent.food_id FROM (" +
                 "SELECT i.food_id FROM prp_wellness_meal_items i JOIN prp_wellness_meals m ON m.id=i.meal_id " +
-                "WHERE m.user_id=? GROUP BY i.food_id ORDER BY COUNT(*) DESC LIMIT 12) " +
+                "WHERE m.user_id=? GROUP BY i.food_id ORDER BY COUNT(*) DESC LIMIT 12) frequent) " +
                 "AND (owner_user_id IS NULL OR owner_user_id=?) ORDER BY name",
                 this::mapFood,CurrentUser.id(),CurrentUser.id());
     }

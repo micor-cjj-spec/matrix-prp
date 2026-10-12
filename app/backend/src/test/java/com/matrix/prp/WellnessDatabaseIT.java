@@ -60,6 +60,7 @@ class WellnessDatabaseIT {
         assertThat(postJson("/api/wellness/meals",a,meal).path("id").asLong())
                 .isEqualTo(first.path("id").asLong());
         long mealId=first.path("id").asLong();
+        assertThat(getData("/api/wellness/foods/frequent",a).get(0).path("id").asLong()).isEqualTo(foodId);
         JsonNode summary=getData("/api/wellness/summary/daily?date=2026-10-11",a);
         assertThat(summary.path("calories").decimalValue()).isEqualByComparingTo("250.00");
         assertThat(summary.path("mealCount").asInt()).isEqualTo(1);
@@ -69,6 +70,7 @@ class WellnessDatabaseIT {
                 "username","wellness_friend_case","password","friend-password-2026",
                 "displayName","Second User","invitationCode",invite)).path("token").asText();
         assertThat(getData("/api/wellness/meals?date=2026-10-11",b).size()).isZero();
+        assertThat(getData("/api/wellness/foods/frequent",b).size()).isZero();
         assertThat(getData("/api/wellness/foods?q=Private%20bowl",b).size()).isZero();
         mvc.perform(auth(delete("/api/wellness/meals/{id}",mealId),b)).andExpect(status().isNotFound());
         mvc.perform(auth(post("/api/wellness/meals/{id}/copy?date=2026-10-11",mealId),b))
