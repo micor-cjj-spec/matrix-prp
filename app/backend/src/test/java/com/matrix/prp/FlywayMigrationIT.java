@@ -61,9 +61,9 @@ class FlywayMigrationIT {
                 Statement statement = connection.createStatement()) {
             // Reproduce a UTF-8 file imported through a latin1 MySQL client.
             assertThat(statement.executeUpdate(
-                    "UPDATE prp_wellness_foods SET name=CONVERT(0xE59C9FE8B186 USING latin1),"
-                            + "source_note=CONVERT(0xE7A4BAE4BE8BE58F82E88083E580BCEFBC8CE697A0E9A29DE5A496E6B2B9E88482 USING latin1) "
-                            + "WHERE owner_user_id IS NULL AND name=CONVERT(0xE59C9FE8B186 USING utf8mb4)"
+                    "UPDATE prp_wellness_foods SET CAST(name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING latin1) AS BINARY),"
+                            + "CAST(source_note AS BINARY)=CAST(CONVERT(0xE7A4BAE4BE8BE58F82E88083E580BCEFBC8CE697A0E9A29DE5A496E6B2B9E88482 USING latin1) AS BINARY) "
+                            + "WHERE owner_user_id IS NULL AND CAST(name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING utf8mb4) AS BINARY)"
                             + " AND preparation='cooked' AND calories_100g=87")).isEqualTo(1);
             statement.executeUpdate(
                     "INSERT INTO prp_wellness_meals(user_id,meal_date,meal_type,note)"
@@ -117,15 +117,15 @@ class FlywayMigrationIT {
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isEqualTo(seedRows);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(7);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods "
-                + "WHERE owner_user_id IS NULL AND name=CONVERT(0xE59C9FE8B186 USING utf8mb4)"
-                + " AND source_note=CONVERT(0xE7A4BAE4BE8BE58F82E88083E580BCEFBC8CE697A0E9A29DE5A496E6B2B9E88482 USING utf8mb4)")).isEqualTo(1);
+                + "WHERE owner_user_id IS NULL AND CAST(name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING utf8mb4) AS BINARY)"
+                + " AND CAST(source_note AS BINARY)=CAST(CONVERT(0xE7A4BAE4BE8BE58F82E88083E580BCEFBC8CE697A0E9A29DE5A496E6B2B9E88482 USING utf8mb4) AS BINARY)")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meal_items "
-                + "WHERE food_name=CONVERT(0xE59C9FE8B186 USING utf8mb4) "
+                + "WHERE CAST(food_name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING utf8mb4) AS BINARY) "
                 + "AND meal_id IN (SELECT id FROM prp_wellness_meals "
                 + "WHERE note='MIGRATION_TEXT_SENTINEL')")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods "
                 + "WHERE owner_user_id IS NOT NULL "
-                + "AND name=CONVERT(0xE59C9FE8B186 USING latin1)")).isEqualTo(1);
+                + "AND CAST(name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING latin1) AS BINARY)")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meals "
                 + "WHERE note='MIGRATION_TEXT_SENTINEL'")).isEqualTo(1);
         assertThat(migration.migrate().migrationsExecuted).isZero();
