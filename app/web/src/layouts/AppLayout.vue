@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Bell, ChatDotRound, DataAnalysis, Grid, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { domains, features } from '@/generated/features'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -22,9 +23,11 @@ const activeMain = computed(() => {
 })
 const currentTitle = computed(() => {
   const routeTitle = route.meta.title
-  return typeof routeTitle === 'string'
-    ? routeTitle
-    : mainNav.find(item => item.code === activeMain.value)?.label ?? '应用'
+  if (typeof routeTitle === 'string') return routeTitle
+  const currentFeature = features.find(item => item.webRoute === route.path)
+  const currentDomain = domains.find(item => item.webRoute === route.path)
+  return currentFeature?.name ?? currentDomain?.name
+    ?? mainNav.find(item => item.code === activeMain.value)?.label ?? '应用'
 })
 </script>
 
