@@ -66,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd app/backend && chmod +x mvnw && ./mvnw -B -q -DskipTests dependency:go-offline)
+          (cd app/backend && bash mvnw -B -q -DskipTests dependency:go-offline)
           (cd app/web && npm ci --ignore-scripts)
           (cd app/mobile && npm ci --ignore-scripts)
       - name: Run Codex in workspace permission profile
@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd app/backend && ./mvnw -B test)
+          (cd app/backend && bash mvnw -B test)
           (cd app/web && npm run build)
           (cd app/mobile && npm run type-check && npm run build:h5)
       - name: Upload audited patch only

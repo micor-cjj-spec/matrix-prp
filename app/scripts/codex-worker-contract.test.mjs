@@ -16,7 +16,7 @@ test('Unprivileged agent never receives publisher credentials and runs tests fir
   assert.match(workflow,/permission-profile: ":workspace"/)
   assert.match(workflow,/safety-strategy: drop-sudo/)
   assert.match(workflow,/git diff --check/)
-  assert.match(workflow,/\.\/mvnw -B test/)
+  assert.match(workflow,/bash mvnw -B test/)
   assert.match(workflow,/npm run build:h5/)
   assert.match(workflow,/needs: develop/)
   assert.match(workflow,/if: \$\{\{ needs\.develop\.result == 'success' \}\}/)
