@@ -12,7 +12,7 @@ if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) throw new Error('Unsafe database nam
 
 function query(sql) {
   const result = spawnSync('mysql', [
-    '--batch', '--skip-column-names', '--raw',
+    '--batch', '--skip-column-names', '--raw', '--default-character-set=utf8mb4',
     '--host=' + host, '--port=' + port, '--user=' + user, '--database=' + name,
     '--execute=' + sql,
   ], { encoding: 'utf8', env: process.env, timeout: 15000, maxBuffer: 1024 * 1024 })
