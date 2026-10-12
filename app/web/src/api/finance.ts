@@ -160,3 +160,49 @@ export async function updateFinanceCategory(id: number, payload: CreateFinanceCa
 export async function deleteFinanceCategory(id: number) {
   await apiClient.delete<ApiResponse<void>>(`/finance/categories/${id}`)
 }
+
+export interface FinanceAccountBalance {
+  accountId: number
+  account: string
+  currency: string
+  openingBalance: string
+  income: string
+  expense: string
+  transferIn: string
+  transferOut: string
+  currentBalance: string
+}
+export interface FinanceTransferItem {
+  id: number
+  fromAccountId: number
+  fromAccount: string
+  toAccountId: number
+  toAccount: string
+  amount: string
+  currency: string
+  transferDate: string
+  note: string
+}
+export interface CreateFinanceTransferRequest {
+  fromAccountId: number
+  toAccountId: number
+  amount: number
+  transferDate: string
+  note: string
+  clientRequestId: string
+}
+export async function fetchFinanceAccountBalances() {
+  const response = await apiClient.get<ApiResponse<FinanceAccountBalance[]>>('/finance/accounts/balances')
+  return response.data.data
+}
+export async function fetchFinanceTransfers() {
+  const response = await apiClient.get<ApiResponse<FinanceTransferItem[]>>('/finance/transfers')
+  return response.data.data
+}
+export async function createFinanceTransfer(payload: CreateFinanceTransferRequest) {
+  const response = await apiClient.post<ApiResponse<FinanceTransferItem>>('/finance/transfers', payload)
+  return response.data.data
+}
+export async function deleteFinanceTransfer(id: number) {
+  await apiClient.delete<ApiResponse<void>>(`/finance/transfers/${id}`)
+}
