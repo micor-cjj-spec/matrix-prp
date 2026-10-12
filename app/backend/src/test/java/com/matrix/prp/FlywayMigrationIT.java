@@ -140,7 +140,7 @@ class FlywayMigrationIT {
                 + "WHERE note='MIGRATION_TEXT_SENTINEL')")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods "
                 + "WHERE owner_user_id IS NOT NULL "
-                + "AND CAST(name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING latin1) AS BINARY)")).isEqualTo(1);
+                + "AND CAST(name AS BINARY)=CAST(CONVERT(CONVERT(0xE59C9FE8B186 USING latin1) USING utf8mb4) AS BINARY)")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meals "
                 + "WHERE note='MIGRATION_TEXT_SENTINEL'")).isEqualTo(1);
         assertThat(migration.migrate().migrationsExecuted).isZero();
