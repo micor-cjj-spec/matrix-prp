@@ -24,13 +24,13 @@ public class AiService {
     private final DeepSeekClient deepSeek;
     private final AiSettingsService settings;
     private final AiProviderClient providerClient;
-    private final AiContextService context;
+    private final AiContextConsentService consents;
     private final TaskExecutor executor;
     private final int outputLimit, perUserRequests, globalRequests;
     private final long perUserTokens, globalTokens;
 
     public AiService(AiStore store, DeepSeekClient deepSeek, AiSettingsService settings,
-                     AiProviderClient providerClient, AiContextService context,
+                     AiProviderClient providerClient, AiContextConsentService consents,
                      @Qualifier("aiExecutor") TaskExecutor executor,
                      @Value("${matrix-prp.ai.max-output-tokens:1024}") int outputLimit,
                      @Value("${matrix-prp.ai.user-monthly-requests:200}") int perUserRequests,
@@ -41,7 +41,7 @@ public class AiService {
         this.deepSeek = deepSeek;
         this.settings = settings;
         this.providerClient = providerClient;
-        this.context = context;
+        this.consents = consents;
         this.executor = executor;
         this.outputLimit = outputLimit;
         this.perUserRequests = perUserRequests;
@@ -65,24 +65,22 @@ public class AiService {
     }
 
     public SseEmitter chat(String id, String prompt) {
-        return chat(id, prompt, List.of(), false);
+        return chat(id, prompt, List.of(), null);
     }
 
-    public SseEmitter chat(String id, String prompt, List<String> scopes, boolean explicitConsent) {
+    public SseEmitter chat(String id, String prompt, List<String> scopes, String contextToken) {
         long user = CurrentUser.id();
         String content = prompt == null ? "" : prompt.trim();
         if (content.isEmpty() || content.length() > 4000)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message must be 1-4000 characters");
         if (id != null && !id.isBlank()) ensureOwner(user, id);
         List<String> selectedScopes = scopes == null ? List.of() : scopes;
-        if (selectedScopes.isEmpty() && explicitConsent)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Select a scope to share");
-        if (!selectedScopes.isEmpty() && !explicitConsent)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "One-time context consent required");
-        // Fetch only the authenticated user's selected data before leaving the request thread.
-        // Never persist the actual context in conversation history.
-        String providerPrompt = selectedScopes.isEmpty() ? content
-            : context.augmentPrompt(content, context.preview(selectedScopes));
+        if (selectedScopes.isEmpty() != (contextToken == null || contextToken.isBlank()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A confirmed one-time context token is required");
+        // Bind authorization to the authenticated user, selected model and exact preview.
+        // The checked snapshot is never persisted as a chat message.
+        AiContextService.Snapshot snapshot = selectedScopes.isEmpty() ? null : consents.consume(contextToken, selectedScopes);
+        String providerPrompt = snapshot == null ? content : consents.augment(content, snapshot);
         AiSettingsStore.Selection selected = settings.selection(user);
         boolean legacy = selected.provider().equals("deepseek")
             && selected.model().equals(deepSeek.model())
@@ -90,6 +88,7 @@ public class AiService {
         AiSettingsService.Runtime provider = legacy ? null : settings.resolve(user);
         if (legacy) deepSeek.requireConfigured();
         List<DeepSeekClient.ChatMessage> history = new ArrayList<>();
+        history.add(new DeepSeekClient.ChatMessage("system", AiPersona.SYSTEM_PROMPT));
         if (id != null && !id.isBlank()) {
             List<Message> previous = store.messages(user, id);
             int start = Math.max(0, previous.size() - 12);
@@ -98,7 +97,7 @@ public class AiService {
                     history.add(new DeepSeekClient.ChatMessage(message.role(), message.content()));
         }
         history.add(new DeepSeekClient.ChatMessage("user", providerPrompt));
-        while (history.size() > 1 && estimatedInput(history) > 16000) history.removeFirst();
+        while (history.size() > 2 && estimatedInput(history) > 16000) history.remove(1);
         long reserved = estimatedInput(history) + outputLimit + 256L;
         String month = month();
         store.reserve(user, month, reserved, perUserRequests, perUserTokens, globalRequests, globalTokens);
