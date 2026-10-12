@@ -62,8 +62,10 @@ for (const path of webRoutes) {
   if (path !== '/login' && !shellRoutes.has(path)) requireField(registeredWebRoutes.has(path), 'Unregistered Web route: ' + path)
 }
 const registeredMobileRoutes = new Set(features.map(m => m.mobileRoute).filter(Boolean))
+const shellMobileRoutes = new Set(['pages/ai/index'])
 for (const path of mobileRoutes) {
-  if (path !== 'pages/login/index') requireField(registeredMobileRoutes.has(path), 'Unregistered Mobile page: ' + path)
+  if (path !== 'pages/login/index' && !shellMobileRoutes.has(path))
+    requireField(registeredMobileRoutes.has(path), 'Unregistered Mobile page: ' + path)
 }
 
 if (errors.length > 0) {
