@@ -108,7 +108,11 @@ public class FinanceLedgerService {
         t.setNote(request.note()==null?"":request.note());
         t.setClientRequestId(request.clientRequestId());
         t.setCreatedAt(LocalDateTime.now()); t.setUpdatedAt(t.getCreatedAt()); t.setDeleted(0);
-        transfers.insert(t);
+        try { transfers.insert(t); }
+        catch (org.springframework.dao.DuplicateKeyException collision) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This transfer request was already recorded; refresh transfers before retrying", collision);
+        }
         return item(t,Map.of(from.getId(),from,to.getId(),to));
     }
 
