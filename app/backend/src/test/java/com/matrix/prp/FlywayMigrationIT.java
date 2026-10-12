@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import java.sql.SQLException;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -54,13 +55,43 @@ class FlywayMigrationIT {
         }
     }
 
+
+    private void createLegacyMojibakeFixtures(String url) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(url, user(), password());
+                Statement statement = connection.createStatement()) {
+            // Reproduce a UTF-8 file imported through a latin1 MySQL client.
+            assertThat(statement.executeUpdate(
+                    "UPDATE prp_wellness_foods SET name=CONVERT(0xE59C9FE8B186 USING latin1),"
+                            + "source_note=CONVERT(0xE7A4BAE4BE8BE58F82E88083E580BCEFBC8CE697A0E9A29DE5A496E6B2B9E88482 USING latin1) "
+                            + "WHERE owner_user_id IS NULL AND CAST(name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING utf8mb4) AS BINARY)"
+                            + " AND preparation='cooked' AND calories_100g=87")).isEqualTo(1);
+            statement.executeUpdate(
+                    "INSERT INTO prp_wellness_meals(user_id,meal_date,meal_type,note)"
+                    + " SELECT id,'2026-10-11','BREAKFAST','MIGRATION_TEXT_SENTINEL'"
+                    + " FROM prp_users WHERE username='flyway_legacy_ci'");
+            statement.executeUpdate(
+                    "INSERT INTO prp_wellness_meal_items(meal_id,food_id,food_name,grams,calories,"
+                    + "protein_g,carbs_g,fat_g,is_estimate)"
+                    + " SELECT m.id,f.id,f.name,100,87,1.9,20.1,0.1,1"
+                    + " FROM prp_wellness_meals m JOIN prp_wellness_foods f"
+                    + " ON f.owner_user_id IS NULL AND f.calories_100g=87"
+                    + " WHERE m.note='MIGRATION_TEXT_SENTINEL'");
+            // Identical-looking PRIVATE data must not be globally rewritten.
+            statement.executeUpdate(
+                    "INSERT INTO prp_wellness_foods(owner_user_id,name,preparation,calories_100g,"
+                    + "protein_100g,carbs_100g,fat_100g,source_note)"
+                    + " SELECT id,CONVERT(0xE59C9FE8B186 USING latin1),'cooked',87,1.9,20.1,0.1,"
+                    + "'user supplied' FROM prp_users WHERE username='flyway_legacy_ci'");
+        }
+    }
+
     @Test
     void newSchemaMigratesTwiceWithoutChangingExistingRows() throws SQLException {
         String url = System.getenv("MATRIX_PRP_FLYWAY_FRESH_URL");
         Flyway migration = flyway(url);
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(11);
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(12);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(11);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(12);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(7);
 
         insertSentinel(url, "flyway_fresh_ci");
@@ -76,15 +107,33 @@ class FlywayMigrationIT {
         String url = System.getenv("MATRIX_PRP_FLYWAY_LEGACY_URL");
         insertSentinel(url, "flyway_legacy_ci");
         long before = count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'");
+        createLegacyMojibakeFixtures(url);
         long seedRows = count(url, "SELECT COUNT(*) FROM prp_wellness_foods");
         Flyway migration = flyway(url);
         assertThat(migration.baseline().successfullyBaselined).isTrue();
-        // V8, V9, V10 and V11 are pending after V7 baseline. Apply the migration, then validate.
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(4);
+        // V8-V12 are pending after V7 baseline, including safe starter-food repair.
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(5);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'")).isEqualTo(before);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isEqualTo(seedRows);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(7);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods "
+                + "WHERE owner_user_id IS NULL AND CAST(name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING utf8mb4) AS BINARY)"))
+                .as("legacy global seed name restored").isEqualTo(1);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods "
+                + "WHERE owner_user_id IS NULL AND calories_100g=87"
+                + " AND CAST(source_note AS BINARY)=CAST(CONVERT(0xE7A4BAE4BE8BE58F82E88083E580BCEFBC8CE697A0E9A29DE5A496E6B2B9E88482 USING utf8mb4) AS BINARY)"))
+                .as("legacy global seed source note restored").isEqualTo(1);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meal_items "
+                + "WHERE CAST(food_name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING utf8mb4) AS BINARY) "
+                + "AND meal_id IN (SELECT id FROM prp_wellness_meals "
+                + "WHERE note='MIGRATION_TEXT_SENTINEL')")).isEqualTo(1);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods "
+                + "WHERE owner_user_id IS NOT NULL "
+                + "AND CAST(name AS BINARY)=CAST(CONVERT(CONVERT(0xE59C9FE8B186 USING latin1) USING utf8mb4) AS BINARY)")).isEqualTo(1);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meals "
+                + "WHERE note='MIGRATION_TEXT_SENTINEL'")).isEqualTo(1);
+        assertThat(migration.migrate().migrationsExecuted).isZero();
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(5);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(6);
     }
 }
