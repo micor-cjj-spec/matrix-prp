@@ -3,7 +3,7 @@
 ## 范围
 
 - Web/PWA「我的 → AI 模型与接口」和「聊天」模型切换入口
-- 固定支持 DeepSeek、Kimi、OpenAI、Gemini、Claude、Qwen；可输入模型 ID（不是自定义 API URL）
+- 固定支持 DeepSeek、Kimi（中国区与国际区独立配置）、OpenAI、Gemini、Claude、Qwen；可输入模型 ID（不是自定义 API URL）
 - 个人 API Key AES-256-GCM 加密存储、用户 ID 与 provider 绑定为附加认证数据（AAD）
 - API 仅返回 `configured` / `personalKey` 布尔值，永不返回密钥、密文或最后几位
 - 账户互相隔离；不能读取、更改、删除别人的密钥
@@ -23,6 +23,7 @@
 
 - 已有 `MATRIX_PRP_DEEPSEEK_API_KEY`、`MATRIX_PRP_DEEPSEEK_MODEL` 是兼容回退：用户未设置自己 DeepSeek 密钥时仍可以使用原来的服务器配置，受现有全站/用户用量约束。生产环境若不希望朋友们使用共享 Key，应清除该环境变量或者增加专门的管理员共享策略。
 - 若无 `MATRIX_PRP_AI_KEY_ENCRYPTION_SECRET`，旧服务器 DeepSeek 回退仍可聊天；保存/读取个人加密密钥将拒绝操作，不会明文落库。
+- Kimi 中国区使用 api.moonshot.cn，国际区使用 api.moonshot.ai；两区密钥不可混用，在页面分别选择「Kimi（中国区）」与「Kimi（国际区）」。
 - 接口固定 provider 域名，**不**接收客户端指定的 URL，阻止代理任意内网地址。Qwen 默认北京地域旧域名；需其它地域/工作空间可在后续版本加入服务端配置与白名单。
 - 连接测试调用模型生成短文本并产生少量供应商费用，不是纯 DNS 检查。计入原有月度用量；额度是预留估算，不是供应商真实账单封顶。
 - 同一会话允许切换模型（历史消息仍归该账号所有），消息不记录逐条模型归属，本阶段 UI 仅显示通用「AI」标签。
