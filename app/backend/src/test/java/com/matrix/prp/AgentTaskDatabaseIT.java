@@ -16,7 +16,7 @@ class AgentTaskDatabaseIT {
         long owner = 908951L, other = 908952L;
         AgentTaskStore.AgentTask t = store.create(owner,"PLAN","Database integration " + UUID.randomUUID());
         assertThat(store.find(other,t.id())).isEmpty();
-        assertThat(store.list(other())).noneMatch(item -> item.id().equals(t.id()));
+        assertThat(store.list(other)).noneMatch(item -> item.id().equals(t.id()));
         assertThat(store.claim(other,t.id(),other)).isFalse();
         assertThat(store.claim(owner,t.id(),owner)).isTrue();
         assertThat(store.claim(owner,t.id(),owner)).isFalse();
