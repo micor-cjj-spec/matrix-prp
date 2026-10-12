@@ -114,6 +114,12 @@ const router = createRouter({
       meta: { requiresAuth: true, adminOnly: true, title: 'OpenClaw 任务工作台' },
     },
     {
+      path: '/me/codex-jobs',
+      name: 'my-codex-jobs',
+      component: () => import('@/views/CodexJobsView.vue'),
+      meta: { requiresAuth: true, adminOnly: true, title: 'Codex 开发任务' },
+    },
+    {
       path: '/me/settings',
       name: 'my-settings',
       component: () => import('@/views/MeDetailView.vue'),

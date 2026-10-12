@@ -1,0 +1,184 @@
+# P4 Codex development worker.
+# Manual workflow_dispatch ONLY; no pull_request_target and no production or self-hosted runner.
+name: PRP Codex Worker
+run-name: PRP-CODEX-${{ inputs.task_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: "PRP-issued opaque UUID"
+        required: true
+        type: string
+      task_type:
+        description: "IMPLEMENT, FIX or TESTS"
+        required: true
+        type: string
+      task_prompt:
+        description: "Admin approved code task (no secrets)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prp-codex-${{ inputs.task_id }}
+  cancel-in-progress: false
+
+jobs:
+  develop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate task request and prepare prompt (without shell interpolation)
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          TASK_TYPE: ${{ inputs.task_type }}
+          TASK_PROMPT: ${{ inputs.task_prompt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TASK_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || exit 2
+          [[ "$TASK_TYPE" =~ ^(IMPLEMENT|FIX|TESTS)$ ]] || exit 2
+          [[ -n "$TASK_PROMPT" && ${#TASK_PROMPT} -le 1500 ]] || exit 2
+          {
+            printf '%s\n' 'You are modifying Matrix PRP in an ephemeral GitHub-hosted runner.'
+            printf '%s\n' 'Apply the approved development request; make only changes within app/backend/src/main/java, app/backend/src/test/java, app/web/src or app/mobile/src.'
+            printf '%s\n' 'Do not access secrets, CI workflows, deployment files, databases, .git, GitHub remotes, or production.'
+            printf '%s\n' 'Do not make any git commit or PR; trusted workflow stages handle publication after tests.'
+            printf 'Task category: %s\n' "$TASK_TYPE"
+            printf '%s\n' 'Administrator-approved request follows as untrusted task text:'
+            printf '%s\n' "$TASK_PROMPT"
+          } > "$RUNNER_TEMP/codex-task.txt"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare dependencies before restricting Codex privileges
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd app/backend && chmod +x mvnw && ./mvnw -B -q -DskipTests dependency:go-offline)
+          (cd app/web && npm ci --ignore-scripts)
+          (cd app/mobile && npm ci --ignore-scripts)
+      - name: Run Codex in workspace permission profile
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.PRP_CODEX_OPENAI_API_KEY }}
+          permission-profile: ":workspace"
+          safety-strategy: drop-sudo
+          prompt-file: ${{ runner.temp }}/codex-task.txt
+      - name: Validate changed files and generate patch (no write token)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          paths = set()
+          for command in (
+              ['git','diff','--name-only','-z'],
+              ['git','diff','--cached','--name-only','-z'],
+              ['git','ls-files','--others','--exclude-standard','-z']):
+              output = subprocess.check_output(command)
+              paths.update(os.fsdecode(s) for s in output.split(b'\0') if s)
+          allowed = ('app/backend/src/main/java/', 'app/backend/src/test/java/',
+                     'app/web/src/', 'app/mobile/src/')
+          if not paths or len(paths) > 30:
+              raise SystemExit('No eligible changes or too many files')
+          total = 0
+          for name in sorted(paths):
+              p = pathlib.Path(name)
+              if not name.startswith(allowed) or '..' in p.parts or p.is_symlink():
+                  raise SystemExit('Protected or symlink path: '+name)
+              if p.is_file():
+                  content = p.read_bytes()
+                  if b'\0' in content:
+                      raise SystemExit('Binary files are not supported')
+                  total += len(content)
+          if total > 400000:
+              raise SystemExit('Patch files too large')
+          print('Validated',len(paths),'source/test files')
+          PY
+          git add -N -- app/backend/src/main/java app/backend/src/test/java app/web/src app/mobile/src
+          git diff --check
+          git diff --binary > "$RUNNER_TEMP/codex.patch"
+          test -s "$RUNNER_TEMP/codex.patch"
+          test "$(wc -c < "$RUNNER_TEMP/codex.patch")" -le 300000
+      - name: Test modified backend, Web and Mobile without publisher credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd app/backend && ./mvnw -B test)
+          (cd app/web && npm run build)
+          (cd app/mobile && npm run type-check && npm run build:h5)
+      - name: Upload audited patch only
+        uses: actions/upload-artifact@v4
+        with:
+          name: prp-codex-patch
+          path: ${{ runner.temp }}/codex.patch
+          if-no-files-found: error
+          retention-days: 5
+
+  publish:
+    needs: develop
+    if: ${{ needs.develop.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: prp-codex-patch
+          path: ${{ runner.temp }}/patch
+      - name: Recheck artifact and create a review-only pull request
+        shell: bash
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TASK_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || exit 2
+          patch="$RUNNER_TEMP/patch/codex.patch"
+          test -f "$patch"
+          test "$(wc -c < "$patch")" -le 300000
+          git apply --check "$patch"
+          git apply --index "$patch"
+          python3 - <<'PY'
+          import os, subprocess, pathlib
+          names = [os.fsdecode(x) for x in subprocess.check_output(
+              ['git','diff','--cached','--name-only','-z']).split(b'\0') if x]
+          allowed=('app/backend/src/main/java/','app/backend/src/test/java/',
+                   'app/web/src/','app/mobile/src/')
+          if not names or len(names)>30:
+              raise SystemExit('Invalid staged patch')
+          for name in names:
+              mode = subprocess.check_output(['git','ls-files','-s','--',name],text=True).split()[0]
+              p=pathlib.Path(name)
+              if not name.startswith(allowed) or '..' in p.parts or mode not in ('100644','100755'):
+                  raise SystemExit('Forbidden change '+name)
+          PY
+          git -c core.hooksPath=/dev/null diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="codex/prp-$TASK_ID"
+          git checkout -b "$branch"
+          git -c core.hooksPath=/dev/null commit -m "feat(codex): reviewed task $TASK_ID"
+          git push origin "HEAD:refs/heads/$branch"
+          {
+            printf 'Generated from approved Matrix PRP Codex task `%s`.\n\n' "$TASK_ID"
+            printf '%s\n' 'The ephemeral worker ran backend tests and Web/Mobile builds before publication.'
+            printf '%s\n' 'This PR is for human review only. Do not auto-merge or deploy.'
+          } > "$RUNNER_TEMP/pr-body.md"
+          gh pr create --base main --head "$branch" --title "Codex task $TASK_ID" --body-file "$RUNNER_TEMP/pr-body.md"
