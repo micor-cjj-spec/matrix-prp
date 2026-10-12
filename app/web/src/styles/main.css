@@ -861,6 +861,6 @@ body { background:#f5f7fc; }
   .prp-shell-chat { height:100dvh; padding-bottom:calc(66px + env(safe-area-inset-bottom,0px)); }
   .prp-workspace-chat { padding:0; }
   .prp-page-chat { height:100%; }
-  .prp-shell-chat:has(.chat-input:focus) { padding-bottom:0; }
-  .prp-shell-chat:has(.chat-input:focus) .prp-mobile-tabs { display:none; }
+  .prp-shell-chat:has(.chat-input textarea:focus) { padding-bottom:0; }
+  .prp-shell-chat:has(.chat-input textarea:focus) .prp-mobile-tabs { display:none; }
 }

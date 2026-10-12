@@ -110,7 +110,7 @@ function removeScope(scope: string) {
   invalidatePreview()
 }
 function handleInput(value: string) {
-  const mention = value.match(/(?:^|[\s，,。])@([^\s@]*)$/u)
+  const mention = value.match(/@([^\s@]*)$/u)
   mentionOpen.value = Boolean(mention)
   mentionQuery.value = mention?.[1] ?? ''
 }
