@@ -122,11 +122,34 @@ class AiBusinessContextTests {
             .doesNotContain("Private admin project").doesNotContain("NOT FOR MODEL CONTEXT")
             .doesNotContain("latestWeightKg");
 
+        String previewId = json.readTree(preview).path("data").path("previewId").asText();
+        // Other accounts cannot approve someone else's preview.
+        mvc.perform(post("/api/ai/context/confirm")
+            .header(HttpHeaders.AUTHORIZATION,bearer(admin)).contentType(MediaType.APPLICATION_JSON)
+            .content(json.writeValueAsString(Map.of("previewId", previewId))))
+            .andExpect(status().isBadRequest());
+        // A preview alone is not sufficient authorization.
+        mvc.perform(post("/api/ai/chat/stream")
+            .header(HttpHeaders.AUTHORIZATION,bearer(friend)).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"content\":\"No token\",\"contextConsent\":true,\"contextScopes\":[\"tasks\",\"practice\",\"wellness\"]}"))
+            .andExpect(status().isBadRequest());
+        String token = json.readTree(mvc.perform(post("/api/ai/context/confirm")
+            .header(HttpHeaders.AUTHORIZATION,bearer(friend)).contentType(MediaType.APPLICATION_JSON)
+            .content(json.writeValueAsString(Map.of("previewId", previewId))))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+            .path("data").path("contextToken").asText();
         MvcResult streamed = mvc.perform(post("/api/ai/chat/stream")
             .header(HttpHeaders.AUTHORIZATION,bearer(friend)).contentType(MediaType.APPLICATION_JSON)
-            .content("{\"content\":\"How am I doing?\",\"contextConsent\":true,\"contextScopes\":[\"tasks\",\"practice\",\"wellness\"]}"))
+            .content(json.writeValueAsString(Map.of("content","How am I doing?",
+                "contextToken",token,"contextScopes",List.of("tasks","practice","wellness")))))
             .andExpect(request().asyncStarted()).andReturn();
         mvc.perform(asyncDispatch(streamed)).andExpect(status().isOk());
+        // Replay is rejected even by the original owner.
+        mvc.perform(post("/api/ai/chat/stream")
+            .header(HttpHeaders.AUTHORIZATION,bearer(friend)).contentType(MediaType.APPLICATION_JSON)
+            .content(json.writeValueAsString(Map.of("content","replay", "contextToken",token,
+                "contextScopes",List.of("tasks","practice","wellness")))))
+            .andExpect(status().isBadRequest());
         String outbound = observed.get().getLast().content();
         assertThat(outbound).contains("Friend learning task", "How am I doing?", "exerciseMinutes", "attempted")
             .doesNotContain("Private admin project").doesNotContain("NOT FOR MODEL CONTEXT")

@@ -56,7 +56,7 @@ onBeforeUnmount(()=>controller?.abort())
   <view class="screen">
     <view class="brand-row">
       <view class="brand-mark">AI</view>
-      <view><view class="title">Matrix AI</view><text class="muted">DeepSeek 智能对话</text></view>
+      <view><view class="title">PRP 助手</view><text class="muted">你的个人智能助手</text></view>
     </view>
     <view class="section">
       <view class="chat-actions">
@@ -72,7 +72,7 @@ onBeforeUnmount(()=>controller?.abort())
       <view v-if="!messages.length" class="empty">你好！可以让我辅助学习、整理思路或回答问题。</view>
       <view v-for="(message,i) in messages" :key="message.id||i" class="chat-bubble"
         :class="{mine:message.role==='user'}">
-        <text class="muted">{{ message.role==='user'?'我':'DeepSeek' }}</text>
+        <text class="muted">{{ message.role==='user'?'我':'PRP 助手' }}</text>
         <text class="bubble-text">{{ message.content||'正在思考...' }}</text>
       </view>
     </scroll-view>

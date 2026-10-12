@@ -30,8 +30,14 @@ public class AiProviderClient {
         AiProviderCatalog.Provider provider = config.provider();
         byte[] body;
         if (provider.anthropic()) {
+            // Anthropic accepts system instructions as a top-level field, not as a message role.
+            String system = messages.stream().filter(m -> m.role().equals("system"))
+                .map(DeepSeekClient.ChatMessage::content).reduce((a,b) -> a + "\n" + b).orElse("");
+            List<DeepSeekClient.ChatMessage> chatMessages = messages.stream()
+                .filter(m -> !m.role().equals("system")).toList();
             body = json.writeValueAsBytes(Map.of(
-                "model", config.model(), "max_tokens", outputLimit, "messages", messages, "stream", true));
+                "model", config.model(), "max_tokens", outputLimit, "system", system,
+                "messages", chatMessages, "stream", true));
         } else {
             Map<String, Object> payload = new java.util.LinkedHashMap<>();
             payload.put("model", config.model());

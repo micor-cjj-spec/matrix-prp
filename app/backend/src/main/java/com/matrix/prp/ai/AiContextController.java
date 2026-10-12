@@ -9,20 +9,25 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/** Preview grants no persistent permission; chat must carry a separate explicit one-shot consent. */
+/** Data access is explicit: preview -> confirm -> single use stream token. */
 @RestController
 @RequestMapping("/api/ai/context")
 public class AiContextController {
     public record PreviewRequest(@NotEmpty @Size(max = 3) List<String> scopes) {}
-    private final AiContextService context;
-    public AiContextController(AiContextService context) { this.context = context; }
+    public record ConfirmRequest(@NotEmpty String previewId) {}
+    private final AiContextConsentService consents;
+    public AiContextController(AiContextConsentService consents) { this.consents = consents; }
 
     @PostMapping("/preview")
-    public ResponseEntity<ApiResponse<AiContextService.Snapshot>> preview(
+    public ResponseEntity<ApiResponse<AiContextConsentService.Prepared>> preview(
             @Valid @RequestBody PreviewRequest request) {
-        AiContextService.Snapshot snapshot = context.preview(request.scopes());
-        context.json(snapshot); // enforce same size bound as actual provider request
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-            .body(ApiResponse.success(snapshot));
+            .body(ApiResponse.success(consents.preview(request.scopes())));
+    }
+    @PostMapping("/confirm")
+    public ResponseEntity<ApiResponse<AiContextConsentService.Confirmed>> confirm(
+            @Valid @RequestBody ConfirmRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+            .body(ApiResponse.success(consents.confirm(request.previewId())));
     }
 }

@@ -1,229 +1,410 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
-import { fetchUsage, listConversations, listMessages, streamChat, type AiUsage, type ChatMessage, type Conversation, previewAiContext, type AiContextPreview } from '@/api/ai'
+import { fetchUsage, listConversations, listMessages, streamChat, previewAiContext, confirmAiContext,
+  type AiUsage, type ChatMessage, type Conversation, type AiContextPreview } from '@/api/ai'
+import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 
+type ContextOption = { value: string; label: string; hint: string }
+const options: ContextOption[] = [
+  { value: 'tasks', label: '任务', hint: '今日待办与任务概览' },
+  { value: 'practice', label: '刷题', hint: '答题正确率与练习统计' },
+  { value: 'wellness', label: '健康', hint: '今日饮食与运动汇总' },
+]
+const optionByValue = (value: string) => options.find(option => option.value === value)
 const conversations = ref<Conversation[]>([])
 const messages = ref<ChatMessage[]>([])
 const selectedId = ref<string | null>(null)
 const input = ref('')
 const sending = ref(false)
+const historyOpen = ref(false)
 const usage = ref<AiUsage | null>(null)
-const aiSettings = ref<AiSettings | null>(null)
-const currentProvider = ref('deepseek')
-const currentModel = ref('deepseek-chat')
+const settings = ref<AiSettings | null>(null)
+const provider = ref('deepseek')
+const model = ref('deepseek-chat')
 const savingModel = ref(false)
-const contextOptions = [
-  { label: '任务概览', value: 'tasks' },
-  { label: '刷题统计', value: 'practice' },
-  { label: '今日健康汇总', value: 'wellness' },
-]
 const selectedScopes = ref<string[]>([])
-const approvedScopes = ref<string[]>([])
+const mentionOpen = ref(false)
+const mentionQuery = ref('')
 const preview = ref<AiContextPreview | null>(null)
-const previewing = ref(false)
 const previewVisible = ref(false)
-const approved = computed(() => selectedScopes.value.length > 0 &&
-  selectedScopes.value.length === approvedScopes.value.length &&
-  selectedScopes.value.every(scope => approvedScopes.value.includes(scope)))
-function invalidateApproval() {
-  approvedScopes.value = []
-  preview.value = null
-}
-async function showPreview() {
-  if (!selectedScopes.value.length || sending.value) return
-  previewing.value = true
+const previewing = ref(false)
+const confirming = ref(false)
+const streamError = ref('')
+const scroller = ref<HTMLElement | null>(null)
+const models = computed(() => settings.value?.providers.find(item => item.id === provider.value)?.models ?? [])
+const currentProviderName = computed(() => settings.value?.providers.find(item => item.id === provider.value)?.name ?? provider.value)
+const filteredOptions = computed(() =>
+  options.filter(item => item.label.includes(mentionQuery.value) || item.value.includes(mentionQuery.value.toLowerCase())))
+const isEmpty = computed(() => messages.value.length === 0)
+let controller: AbortController | null = null
+
+async function loadSettings() {
   try {
-    preview.value = await previewAiContext(selectedScopes.value)
-    previewVisible.value = true
-  } catch {
-    ElMessage.error('读取本次共享摘要失败，请检查对应业务模块是否可用')
-  } finally { previewing.value = false }
-}
-function approveSharing() {
-  if (!preview.value) return
-  approvedScopes.value = [...preview.value.scopes]
-  previewVisible.value = false
-}
-const models = computed(() => aiSettings.value?.providers.find(p => p.id === currentProvider.value)?.models ?? [])
-async function loadModels() {
-  try {
-    aiSettings.value = await getAiSettings()
-    currentProvider.value = aiSettings.value.selectedProvider
-    currentModel.value = aiSettings.value.selectedModel
-  } catch { ElMessage.warning('AI 模型配置暂时无法读取') }
-}
-async function saveModel() {
-  savingModel.value = true
-  try { aiSettings.value = await setAiSelection(currentProvider.value, currentModel.value) }
-  catch { ElMessage.error('切换模型失败，请检查设置'); await loadModels() }
-  finally { savingModel.value = false }
+    settings.value = await getAiSettings()
+    provider.value = settings.value.selectedProvider
+    model.value = settings.value.selectedModel
+  } catch { ElMessage.warning('模型配置暂时不可用') }
 }
 async function changeProvider(id: string) {
-  if (sending.value) return
-  currentProvider.value = id
-  currentModel.value = aiSettings.value?.providers.find(p => p.id === id)?.defaultModel ?? ''
-  await saveModel()
+  if (sending.value || savingModel.value || !settings.value) return
+  const previous = { provider: provider.value, model: model.value }
+  provider.value = id
+  model.value = settings.value.providers.find(item => item.id === id)?.defaultModel ?? ''
+  await persistModel(previous)
 }
 async function changeModel(id: string) {
-  if (sending.value) return
-  currentModel.value = id
-  await saveModel()
+  if (sending.value || savingModel.value) return
+  const previous = { provider: provider.value, model: model.value }
+  model.value = id
+  await persistModel(previous)
 }
-let controller: AbortController | null = null
+async function persistModel(previous: { provider: string; model: string }) {
+  savingModel.value = true
+  preview.value = null // preview binds to the selected provider + model
+  try { settings.value = await setAiSelection(provider.value, model.value) }
+  catch {
+    provider.value = previous.provider
+    model.value = previous.model
+    ElMessage.error('切换模型失败，请检查配置')
+  } finally { savingModel.value = false }
+}
 
 async function refresh() {
   try {
     const [items, current] = await Promise.all([listConversations(), fetchUsage()])
     conversations.value = items
     usage.value = current
-  } catch { ElMessage.error('无法加载 AI 会话') }
+  } catch { ElMessage.error('无法加载历史会话') }
 }
+function bottom() {
+  void nextTick(() => {
+    if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight
+  })
+}
+watch(messages, bottom, { deep: true })
 async function select(id: string) {
   if (sending.value) return
-  selectedId.value = id
-  try { messages.value = await listMessages(id) }
-  catch { ElMessage.error('无法加载聊天记录') }
+  try {
+    const data = await listMessages(id)
+    selectedId.value = id
+    messages.value = data
+    historyOpen.value = false
+    streamError.value = ''
+    bottom()
+  } catch { ElMessage.error('无法加载聊天记录') }
 }
 function newChat() {
   if (sending.value) return
   selectedId.value = null
   messages.value = []
+  streamError.value = ''
+  historyOpen.value = false
 }
-async function send() {
+function invalidatePreview() { preview.value = null }
+function removeScope(scope: string) {
+  selectedScopes.value = selectedScopes.value.filter(value => value !== scope)
+  invalidatePreview()
+}
+function handleInput(value: string) {
+  const mention = value.match(/@([^\s@]*)$/u)
+  mentionOpen.value = Boolean(mention)
+  mentionQuery.value = mention?.[1] ?? ''
+}
+function pickMention(item: ContextOption) {
+  if (!selectedScopes.value.includes(item.value)) selectedScopes.value.push(item.value)
+  input.value = input.value.replace(/@([^\s@]*)$/u, '@' + item.label + ' ')
+  invalidatePreview()
+  mentionOpen.value = false
+}
+async function showPreview() {
+  if (!selectedScopes.value.length || sending.value || previewing.value) return
+  previewing.value = true
+  try {
+    preview.value = await previewAiContext([...selectedScopes.value])
+    previewVisible.value = true
+    mentionOpen.value = false
+  } catch { ElMessage.error('数据预览失败，请检查相关应用是否可用') }
+  finally { previewing.value = false }
+}
+async function confirmShare() {
+  if (!preview.value || confirming.value) return
+  confirming.value = true
+  try {
+    const approved = await confirmAiContext(preview.value.previewId)
+    previewVisible.value = false
+    preview.value = null
+    await send(approved.contextToken)
+  } catch { ElMessage.error('授权已过期或确认失败，请重新预览') }
+  finally { confirming.value = false }
+}
+function copy(content: string) {
+  void navigator.clipboard?.writeText(content).then(() => ElMessage.success('已复制')).catch(() => ElMessage.error('复制失败'))
+}
+function retry() {
+  const last = [...messages.value].reverse().find(m => m.role === 'user')
+  if (last && !sending.value) { input.value = last.content; ElMessage.info('已填入上一条问题，请确认后重新发送') }
+}
+async function send(contextToken?: string) {
   const content = input.value.trim()
   if (!content || sending.value || content.length > 4000) return
-  if (selectedScopes.value.length && !approved.value) {
-    ElMessage.warning('请先预览并确认本次要共享给 AI 的数据')
-    return
-  }
-  const scopesToShare = [...approvedScopes.value]
-  // An approval is one-shot. Selecting context next time requires a new preview and confirmation.
-  selectedScopes.value = []
-  invalidateApproval()
+  if (selectedScopes.value.length > 0 && !contextToken) { await showPreview(); return }
+  if (selectedScopes.value.length === 0 && contextToken) return
+  const scopes = [...selectedScopes.value]
   input.value = ''
+  selectedScopes.value = []
+  invalidatePreview()
+  mentionOpen.value = false
   sending.value = true
-  const user: ChatMessage = { id: -Date.now(), role: 'user', content, createdAt: new Date().toISOString() }
-  const assistant: ChatMessage = { id: -Date.now()-1, role: 'assistant', content: '', createdAt: new Date().toISOString() }
-  messages.value.push(user, assistant)
+  streamError.value = ''
+  const id = -Date.now()
+  messages.value.push(
+    { id, role: 'user', content, createdAt: new Date().toISOString() },
+    { id: id - 1, role: 'assistant', content: '', createdAt: new Date().toISOString() },
+  )
+  const reply = messages.value[messages.value.length - 1]!
   controller = new AbortController()
   let completed = false
-  let streamError = false
+  let eventError = false
   try {
     await streamChat(selectedId.value, content, ({ event, data }) => {
       if (event === 'meta') selectedId.value = String(data.conversationId)
-      if (event === 'delta') assistant.content += String(data.text ?? '')
+      if (event === 'delta') reply.content += String(data.text ?? '')
       if (event === 'done') completed = true
-      if (event === 'error') { streamError = true; ElMessage.error(String(data.message ?? 'AI 请求失败')) }
-    }, controller.signal, scopesToShare)
+      if (event === 'error') {
+        eventError = true
+        streamError.value = '生成失败，请稍后重试。'
+      }
+    }, controller.signal, scopes, contextToken)
     if (!completed) throw new Error('Stream interrupted')
   } catch {
-    if (!streamError) ElMessage.error('连接中断或额度已用完，请稍后重试')
+    if (!eventError) streamError.value = '连接中断或额度不足，请检查网络后重试。'
   } finally {
     sending.value = false
     controller = null
     await refresh()
     if (selectedId.value) {
       try { messages.value = await listMessages(selectedId.value) }
-      catch { /* keep already received streaming text */ }
+      catch { /* preserve partial streamed content if refresh fails */ }
     }
+    bottom()
   }
 }
-onMounted(() => { void refresh(); void loadModels() })
+onMounted(() => { void refresh(); void loadSettings() })
 onBeforeUnmount(() => controller?.abort())
 </script>
 
 <template>
   <AppLayout>
-    <header class="page-header">
-      <div><p class="eyebrow">Matrix AI</p><h1>AI 聊天</h1>
-        <p>个人多模型 AI 对话与学习辅助。OpenClaw / Codex 执行能力尚未启用。</p></div>
-    </header>
-    <div class="model-toolbar" v-if="aiSettings">
-      <label>服务商
-        <el-select :model-value="currentProvider" :disabled="sending || savingModel" @change="changeProvider" style="width:170px">
-          <el-option v-for="item in aiSettings.providers" :key="item.id" :value="item.id" :label="item.name" />
-        </el-select>
-      </label>
-      <label>模型
-        <el-select :model-value="currentModel" :disabled="sending || savingModel" filterable allow-create
-          default-first-option @change="changeModel" style="width:210px">
-          <el-option v-for="id in models" :key="id" :label="id" :value="id" />
-          <el-option v-if="currentModel && !models.includes(currentModel)" :key="currentModel" :label="currentModel" :value="currentModel" />
-        </el-select>
-      </label>
-      <RouterLink to="/me/ai-settings">管理 API Key</RouterLink>
-    </div>
-    <div class="chat-grid">
-      <el-card shadow="never">
-        <template #header>
-          <div class="chat-row"><strong>历史会话</strong><el-button size="small" type="primary" @click="newChat">新对话</el-button></div>
-        </template>
-        <div v-for="item in conversations" :key="item.id" class="conversation"
-          :class="{ active: item.id === selectedId }" @click="select(item.id)">{{ item.title }}</div>
-        <el-empty v-if="conversations.length === 0" description="暂无对话" />
-        <p v-if="usage" class="usage">本月请求 {{ usage.requests }}/{{ usage.maxRequests }} · 配额预留 {{ usage.reservedTokens }}/{{ usage.maxReservedTokens }} Token</p>
-      </el-card>
-      <el-card shadow="never" class="chat-panel">
-        <div class="message-list" role="log" aria-live="polite">
-          <div v-if="messages.length === 0" class="intro">向 Matrix AI 提问，开始新的对话。</div>
-          <div v-for="(message, index) in messages" :key="message.id || index" class="bubble"
-            :class="message.role === 'user' ? 'from-user' : 'from-ai'">
-            <span class="role">{{ message.role === 'user' ? '我' : 'AI' }}</span>
-            <p>{{ message.content || '正在思考...' }}</p>
+    <div class="prp-chat-screen">
+      <header class="prp-chat-header">
+        <div class="chat-header-left">
+          <button class="chat-icon-button" aria-label="打开历史会话" title="历史会话" @click="historyOpen = true"><el-icon><Menu /></el-icon></button>
+          <div class="chat-brand">
+            <div class="chat-title">PRP 助手 <el-icon class="chat-brand-icon"><ArrowDown /></el-icon></div>
+            <div class="chat-subtitle">{{ currentProviderName }} · {{ model }}</div>
           </div>
         </div>
-        <div class="chat-compose">
-          <div class="context-consent">
-            <strong>本次可选共享资料 <small>默认关闭 · 仅本次生效</small></strong>
-            <el-checkbox-group v-model="selectedScopes" :disabled="sending" @change="invalidateApproval">
-              <el-checkbox v-for="item in contextOptions" :key="item.value"
-                :label="item.label" :value="item.value" />
-            </el-checkbox-group>
-            <div class="chat-row">
-              <small>选择后先预览；确认才会将摘要传给当前 AI 服务商，不包含财务信息、健康详情或任务描述。</small>
-              <el-button size="small" :disabled="!selectedScopes.length || sending" :loading="previewing"
-                @click="showPreview">预览共享内容</el-button>
+        <div class="chat-header-actions">
+          <el-popover v-if="settings" placement="bottom-end" :width="290" trigger="click">
+            <template #reference>
+              <button class="chat-icon-button" title="切换模型" aria-label="切换模型"><el-icon><Setting /></el-icon></button>
+            </template>
+            <div class="model-panel">
+              <strong>聊天模型</strong>
+              <label>服务商</label>
+              <el-select :model-value="provider" :disabled="sending || savingModel" @change="changeProvider">
+                <el-option v-for="item in settings.providers" :key="item.id" :value="item.id" :label="item.name" />
+              </el-select>
+              <label>模型</label>
+              <el-select :model-value="model" :disabled="sending || savingModel" filterable allow-create default-first-option @change="changeModel">
+                <el-option v-for="name in models" :key="name" :value="name" :label="name" />
+              </el-select>
+              <RouterLink to="/me/ai-settings">配置 API Key</RouterLink>
             </div>
-            <p v-if="approved" class="consent-ready">已确认本次共享：{{ approvedScopes.join('、') }}。发送后自动取消授权。</p>
+          </el-popover>
+          <button class="chat-icon-button" aria-label="新对话" title="新对话" :disabled="sending" @click="newChat"><el-icon><Edit /></el-icon></button>
+        </div>
+      </header>
+
+      <div ref="scroller" class="prp-chat-messages" role="log" aria-label="聊天消息">
+        <section v-if="isEmpty" class="chat-welcome">
+          <div class="chat-welcome-icon"><el-icon><ChatDotRound /></el-icon></div>
+          <h1>今天有什么可以帮你？</h1>
+          <p>我是 PRP 助手，可以陪你学习、规划任务和管理生活。</p>
+          <div class="chat-suggestions">
+            <button @click="input = '帮我制定今天的学习计划'">帮我制定学习计划</button>
+            <button @click="input = '@健康 分析一下今天的饮食'; selectedScopes = ['wellness']">分析今天的饮食</button>
+            <button @click="input = '@任务 今天有什么待办？'; selectedScopes = ['tasks']">看看今天的待办</button>
+            <button @click="input = '@刷题 我最近练习得怎么样？'; selectedScopes = ['practice']">查看刷题统计</button>
           </div>
-          <el-input v-model="input" type="textarea" :rows="3" :maxlength="4000"
-            placeholder="输入问题，按 Ctrl+Enter 发送" :disabled="sending" @keydown.ctrl.enter.prevent="send" />
-          <div class="chat-row"><small>回答由 AI 生成，请核实重要信息。</small>
-            <el-button type="primary" :disabled="!input.trim() || sending" :loading="sending" @click="send">发送</el-button>
+        </section>
+        <div v-for="(message, index) in messages" :key="message.id || index" class="chat-message"
+          :class="message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'">
+          <div v-if="message.role === 'assistant'" class="chat-ai-mark"><el-icon><ChatDotRound /></el-icon></div>
+          <div class="chat-message-content">
+            <div v-if="message.role === 'assistant' && !message.content" class="chat-typing">正在思考 <span>···</span></div>
+            <div v-else-if="message.role === 'assistant'" class="markdown-body" v-html="renderSafeMarkdown(message.content)" />
+            <div v-else class="chat-user-text">{{ message.content }}</div>
+            <div v-if="message.role === 'assistant' && message.content" class="chat-message-actions">
+              <button title="复制回复" aria-label="复制回复" @click="copy(message.content)"><el-icon><CopyDocument /></el-icon></button>
+              <button v-if="index === messages.length - 1 && !sending" title="重新提问" aria-label="重新提问" @click="retry"><el-icon><RefreshRight /></el-icon></button>
+            </div>
           </div>
         </div>
-      </el-card>
+        <p v-if="streamError" class="chat-error" role="alert">{{ streamError }}</p>
+      </div>
+
+      <div class="prp-chat-footer">
+        <div class="chat-footer-inner">
+          <div v-if="selectedScopes.length" class="chat-context-chips">
+            <span v-for="scope in selectedScopes" :key="scope" class="chat-context-chip">
+              @{{ optionByValue(scope)?.label }}
+              <button :aria-label="'移除' + optionByValue(scope)?.label + '引用'" @click="removeScope(scope)"><el-icon><Close /></el-icon></button>
+            </span>
+            <span class="chat-private-note">发送前预览 · 仅本次授权</span>
+          </div>
+          <div v-if="mentionOpen" class="chat-mention-menu" role="listbox" aria-label="选择 PRP 应用引用">
+            <div class="mention-heading">引用 PRP 应用数据</div>
+            <button v-for="item in filteredOptions" :key="item.value" role="option" aria-selected="false" @click="pickMention(item)">
+              <strong>@{{ item.label }}</strong><span>{{ item.hint }}</span>
+            </button>
+            <div v-if="filteredOptions.length === 0" class="mention-empty">暂无匹配的可授权应用</div>
+            <div class="mention-hint">目前仅开放只读摘要；财务等敏感模块尚未接入。</div>
+          </div>
+          <div class="chat-composer">
+            <el-input v-model="input" type="textarea" class="chat-input" resize="none" :autosize="{ minRows: 1, maxRows: 5 }"
+              maxlength="4000" :disabled="sending" placeholder="询问 PRP 助手，输入 @ 引用应用…"
+              @input="handleInput" @keydown.enter.exact.prevent="send()" @keydown.esc="mentionOpen = false" />
+            <div class="chat-compose-tools">
+              <div class="chat-compose-left">
+                <button type="button" aria-label="引用 PRP 应用" title="引用应用" @click="mentionOpen = !mentionOpen; mentionQuery = ''"><el-icon><Plus /></el-icon></button>
+                <button type="button" class="chat-at" @click="mentionOpen = !mentionOpen; mentionQuery = ''">@ 应用</button>
+              </div>
+              <button type="button" class="chat-send" aria-label="发送消息" :disabled="!input.trim() || sending || previewing" @click="send()">
+                <el-icon><Promotion /></el-icon>
+              </button>
+            </div>
+          </div>
+          <div class="chat-disclaimer">PRP 助手可能出错，重要信息请核实。</div>
+        </div>
+      </div>
     </div>
-    <el-dialog v-model="previewVisible" title="确认本次共享数据" width="min(640px, 95vw)" destroy-on-close>
-      <p class="consent-warning">以下摘要由 PRP 后端按当前登录用户读取。确认后只在下一条消息中发送给你选择的 AI 模型服务商。内容可能包含个人数据，请检查后再同意。</p>
-      <pre class="context-preview">{{ JSON.stringify(preview?.data ?? {}, null, 2) }}</pre>
+
+    <el-drawer v-model="historyOpen" direction="ltr" :size="320" :with-header="false" append-to-body>
+      <div class="chat-history">
+        <div class="chat-history-top">
+          <h2>历史会话</h2>
+          <button class="chat-icon-button" aria-label="关闭历史会话" @click="historyOpen = false"><el-icon><Close /></el-icon></button>
+        </div>
+        <button class="chat-new-button" @click="newChat"><el-icon><Plus /></el-icon> 新对话</button>
+        <div class="chat-history-list">
+          <button v-for="item in conversations" :key="item.id" class="chat-history-item"
+            :class="{ selected: item.id === selectedId }" :disabled="sending" @click="select(item.id)">
+            <el-icon><ChatDotRound /></el-icon><span>{{ item.title }}</span>
+          </button>
+          <p v-if="!conversations.length" class="chat-history-empty">还没有历史会话</p>
+        </div>
+        <div v-if="usage" class="chat-history-usage">本月请求 {{ usage.requests }}/{{ usage.maxRequests }}</div>
+      </div>
+    </el-drawer>
+
+    <el-dialog v-model="previewVisible" title="确认本次共享的数据" width="min(580px, 95vw)" append-to-body>
+      <p class="chat-consent-explain">以下数据将仅用于下一条回复，并发送到你当前选择的 {{ currentProviderName }} 模型服务商。请确认是否愿意分享。</p>
+      <pre class="chat-preview-data">{{ JSON.stringify(preview?.data ?? {}, null, 2) }}</pre>
+      <p class="chat-consent-explain">授权将在三分钟内失效，只能使用一次。摘要不保存至聊天记录，但模型生成的回复可能引用它。</p>
       <template #footer>
         <el-button @click="previewVisible = false">取消</el-button>
-        <el-button type="primary" @click="approveSharing">同意仅本次发送</el-button>
+        <el-button type="primary" :loading="confirming" @click="confirmShare">允许仅本次发送</el-button>
       </template>
     </el-dialog>
   </AppLayout>
 </template>
+
 <style scoped>
-.model-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 16px}.model-toolbar label{display:flex;align-items:center;gap:8px;font-size:13px}.model-toolbar a{color:#2563eb;text-decoration:none;font-size:13px}
-.context-consent{border:1px solid #e6edf6;background:#f8fbff;border-radius:12px;padding:12px;display:grid;gap:8px}
-.context-consent strong{font-size:13px}.context-consent small,.consent-warning{font-size:12px;color:#64748b;line-height:1.6}
-.consent-ready{font-size:12px;color:#176a4a;margin:0}.context-preview{background:#f3f7fc;border-radius:10px;padding:14px;max-height:42vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
-.chat-grid { display:grid; grid-template-columns:265px minmax(0,1fr); gap:16px }
-.chat-panel { min-height:68vh }
-.conversation { padding:10px; border-radius:7px; cursor:pointer; overflow-wrap:anywhere }
-.conversation:hover,.conversation.active { background:#eff6ff }
-.message-list { height:52vh; overflow:auto; display:flex; flex-direction:column; gap:14px; padding:6px }
-.bubble { max-width:90%; background:#f1f5f9; padding:12px 14px; border-radius:12px; overflow-wrap:anywhere }
-.from-user { align-self:flex-end; background:#e0efff }
-.from-ai { align-self:flex-start }
-.role { font-weight:600; font-size:12px; color:#64748b }
-.bubble p { white-space:pre-wrap; margin:7px 0 0 }
-.chat-row { display:flex; align-items:center; justify-content:space-between; gap:12px }
-.chat-compose { margin-top:20px; display:grid; gap:12px }
-.usage,.intro,.chat-row small { color:#64748b; font-size:12px }
-@media (max-width:760px) { .chat-grid { grid-template-columns:1fr } .message-list { height:48vh } }
+.prp-chat-screen{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;background:#fff;color:#1e293b}
+.prp-chat-header{height:66px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 27px;border-bottom:1px solid #edf1f6;background:#fff}
+.chat-header-left,.chat-header-actions{display:flex;align-items:center;gap:13px;min-width:0}
+.chat-icon-button{display:inline-grid;place-items:center;width:38px;height:38px;flex:none;border:0;background:transparent;border-radius:11px;color:#62738b;font-size:20px;cursor:pointer}
+.chat-icon-button:hover{background:#f1f5fb}
+.chat-icon-button:disabled{opacity:.4;cursor:not-allowed}
+.chat-brand{min-width:0}.chat-title{display:flex;align-items:center;gap:4px;font-size:16px;font-weight:700;color:#20344d}.chat-brand-icon{font-size:11px;color:#9ba8b7}
+.chat-subtitle{font-size:11px;color:#91a0b2;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prp-chat-messages{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:28px max(24px,calc((100% - 800px)/2)) 24px;scrollbar-gutter:stable}
+.chat-welcome{padding:clamp(45px,13vh,135px) 6px 20px;text-align:center}
+.chat-welcome-icon{display:grid;place-items:center;margin:0 auto 20px;width:58px;height:58px;border-radius:19px;background:#eef4ff;color:#4a83e8;font-size:27px}
+.chat-welcome h1{margin:0;font-size:clamp(22px,3vw,28px);font-weight:700;letter-spacing:-.5px}.chat-welcome p{color:#8592a4;font-size:14px;line-height:1.8}
+.chat-suggestions{display:grid;grid-template-columns:1fr 1fr;gap:11px;max-width:530px;margin:31px auto 0}
+.chat-suggestions button{text-align:left;border:1px solid #e9edf5;border-radius:14px;padding:15px 17px;color:#566b86;background:#fff;cursor:pointer}
+.chat-suggestions button:hover{background:#f6f9ff;border-color:#bfd3f8}
+.chat-message{display:flex;gap:12px;margin-bottom:25px;align-items:flex-start;min-width:0}
+.chat-message-user{justify-content:flex-end}
+.chat-message-content{min-width:0;max-width:100%;line-height:1.85;font-size:15px;overflow-wrap:anywhere}
+.chat-message-user .chat-message-content{max-width:84%;border-radius:18px 18px 4px 18px;background:#edf3fc;padding:10px 16px}
+.chat-user-text{white-space:pre-wrap}
+.chat-ai-mark{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:10px;background:#eaf1ff;color:#3477e6;font-size:15px;margin-top:3px}
+.chat-message-actions{display:flex;align-items:center;gap:8px;margin-top:8px}
+.chat-message-actions button{border:0;background:transparent;color:#9aa8b8;cursor:pointer;font-size:14px;padding:5px;border-radius:7px}
+.chat-message-actions button:hover{color:#3477e6;background:#f0f5ff}
+.chat-typing{color:#8493a5}.chat-typing span{letter-spacing:4px;animation:chatPulse 1.2s infinite}
+@keyframes chatPulse{50%{opacity:.3}}
+.chat-error{color:#b45309;background:#fff7ed;padding:12px 14px;border-radius:12px;font-size:13px}
+.prp-chat-footer{flex:none;background:linear-gradient(to bottom,rgba(255,255,255,.92),#fff 16%);padding:10px 22px 12px}
+.chat-footer-inner{position:relative;max-width:800px;margin:0 auto}
+.chat-composer{border:1px solid #dfe6ef;box-shadow:0 5px 24px #233f6510;border-radius:22px;padding:12px 15px 9px;background:white}
+.chat-composer:focus-within{border-color:#9abcf2}
+.chat-compose-tools{display:flex;align-items:center;justify-content:space-between;margin-top:3px}
+.chat-compose-left{display:flex;align-items:center;gap:3px}
+.chat-compose-left button{border:0;background:transparent;color:#7c8b9e;cursor:pointer;height:32px;border-radius:10px;padding:0 8px}
+.chat-compose-left button:hover{background:#f2f6fe;color:#3777dc}.chat-at{font-size:12px}
+.chat-send{display:grid;place-items:center;width:35px;height:35px;background:#4386f3;color:white;border:0;border-radius:12px;cursor:pointer;font-size:18px}
+.chat-send:disabled{background:#c6d5ed;cursor:not-allowed}
+.chat-context-chips{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-bottom:8px}
+.chat-context-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 8px 5px 11px;border:1px solid #bcd4fc;border-radius:12px;background:#ecf4ff;color:#356fc8;font-size:12px}
+.chat-context-chip button{border:0;background:transparent;color:inherit;cursor:pointer;padding:0;display:grid;place-items:center}
+.chat-private-note{font-size:11px;color:#91a0b3}
+.chat-disclaimer{text-align:center;color:#a1acba;font-size:11px;margin:9px 0 0}
+.chat-mention-menu{position:absolute;bottom:calc(100% + 9px);left:0;width:min(380px,100%);max-height:300px;overflow-y:auto;background:white;border:1px solid #e1e9f4;border-radius:15px;padding:7px;box-shadow:0 12px 35px #1c365426;z-index:8}
+.mention-heading{padding:8px 10px;font-size:12px;color:#8492a6}
+.chat-mention-menu button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;border:0;border-radius:9px;background:white;padding:10px 12px;cursor:pointer;text-align:left}
+.chat-mention-menu button:hover{background:#f2f7ff}
+.chat-mention-menu button strong{font-size:13px;color:#375b94}.chat-mention-menu button span,.mention-hint,.mention-empty{font-size:11px;color:#95a1b0}
+.mention-hint,.mention-empty{padding:8px 10px}
+.model-panel{display:grid;gap:9px;padding:5px}.model-panel label{font-size:12px;color:#6f8095}.model-panel a{font-size:12px;color:#3477e6;margin-top:5px}
+.chat-history{height:100%;display:flex;flex-direction:column;gap:15px}.chat-history-top{display:flex;justify-content:space-between;align-items:center}.chat-history-top h2{font-size:18px;margin:0}
+.chat-new-button{display:flex;align-items:center;gap:9px;width:100%;padding:11px 14px;background:#eef5ff;border:1px solid #d8e7ff;color:#2964bd;border-radius:12px;cursor:pointer}
+.chat-history-list{flex:1;overflow:auto}.chat-history-item{display:flex;align-items:center;gap:10px;width:100%;margin-bottom:5px;padding:12px 10px;border:0;border-radius:10px;background:#fff;color:#5b6b80;text-align:left;cursor:pointer}
+.chat-history-item span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.chat-history-item.selected,.chat-history-item:hover{background:#ecf4ff;color:#276bce}
+.chat-history-usage,.chat-history-empty{font-size:12px;color:#8795a8}.chat-preview-data{max-height:35vh;overflow:auto;background:#f4f7fb;padding:15px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.chat-consent-explain{color:#64748b;font-size:12px;line-height:1.8}
+:deep(.chat-input .el-textarea__inner){border:0;box-shadow:none!important;resize:none;background:transparent;padding:2px 0 5px;line-height:1.8;font-size:14px}
+:deep(.markdown-body p){margin:0 0 10px}:deep(.markdown-body p:last-child){margin-bottom:0}
+:deep(.markdown-body h2),:deep(.markdown-body h3),:deep(.markdown-body h4){margin:12px 0 8px;line-height:1.4}
+:deep(.markdown-body ul),:deep(.markdown-body ol){padding-left:23px;margin:8px 0}
+:deep(.markdown-body li){margin-bottom:4px}:deep(.markdown-body code){padding:2px 5px;background:#f1f5f9;color:#315b8f;border-radius:5px;font-size:13px}
+:deep(.markdown-body .markdown-code){background:#172334;color:#e2e8f0;border-radius:12px;padding:15px;overflow:auto;font-size:13px;line-height:1.65}
+:deep(.markdown-body .markdown-code code){background:transparent;color:inherit;padding:0}
+:deep(.markdown-body .markdown-table-wrap){max-width:100%;overflow-x:auto;margin:12px 0}
+:deep(.markdown-body table){border-collapse:collapse;min-width:330px;font-size:13px}
+:deep(.markdown-body th),:deep(.markdown-body td){padding:8px 10px;border:1px solid #dbe4f0;text-align:left}
+:deep(.markdown-body th){background:#f4f7fc}
+:deep(.markdown-body blockquote){margin:10px 0;padding:6px 14px;border-left:3px solid #b4c7e7;color:#6b7b90}
+@media(max-width:860px){
+  .prp-chat-header{height:54px;padding:0 10px}
+  .prp-chat-messages{padding:19px 14px}
+  .chat-message{gap:8px;margin-bottom:19px}
+  .chat-message-content{font-size:14px}
+  .chat-message-user .chat-message-content{max-width:87%}
+  .chat-ai-mark{width:25px;height:25px}
+  .prp-chat-footer{padding:8px 10px 10px}
+  .chat-composer{border-radius:18px;padding:8px 12px 7px}
+  .chat-welcome{padding-top:clamp(36px,10vh,90px)}
+  .chat-suggestions{gap:8px}
+  .chat-suggestions button{padding:12px 11px;font-size:12px}
+  .chat-disclaimer{margin-top:6px;font-size:10px}
+}
+@media(prefers-reduced-motion:reduce){.chat-typing span{animation:none}}
 </style>

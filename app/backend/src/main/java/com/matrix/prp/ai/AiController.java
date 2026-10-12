@@ -18,7 +18,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/api/ai")
 public class AiController {
     public record ChatRequest(@Size(max=36) String conversationId, @NotBlank @Size(max=4000) String content,
-                              @Size(max=3) List<String> contextScopes, Boolean contextConsent) {}
+                              @Size(max=3) List<String> contextScopes, Boolean contextConsent, @Size(max=80) String contextToken) {}
     private final AiService service;
     public AiController(AiService service) { this.service = service; }
 
@@ -37,8 +37,7 @@ public class AiController {
 
     @PostMapping(value="/chat/stream", produces=MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chat(@Valid @RequestBody ChatRequest request) {
-        return service.chat(request.conversationId(), request.content(), request.contextScopes(),
-            Boolean.TRUE.equals(request.contextConsent()));
+        return service.chat(request.conversationId(), request.content(), request.contextScopes(), request.contextToken());
     }
 
     public record CodexJobRequest(@NotBlank @Size(max=80) String taskType,
