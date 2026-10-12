@@ -56,8 +56,10 @@ requireField(features.length > 0 && features.some(m => m.code === 'dashboard'), 
 // All declared pages must belong to a shipped feature, a landing domain, or login.
 const registeredWebRoutes = new Set([...features.map(m => m.webRoute),
   ...domains.filter(m => m.status === 'landing').map(m => m.webRoute)])
+// Shell pages are infrastructure routes, not backend business features.
+const shellRoutes = new Set(['/apps', '/chat', '/me', '/me/settings', '/me/guide', '/me/about'])
 for (const path of webRoutes) {
-  if (path !== '/login') requireField(registeredWebRoutes.has(path), 'Unregistered Web route: ' + path)
+  if (path !== '/login' && !shellRoutes.has(path)) requireField(registeredWebRoutes.has(path), 'Unregistered Web route: ' + path)
 }
 const registeredMobileRoutes = new Set(features.map(m => m.mobileRoute).filter(Boolean))
 for (const path of mobileRoutes) {

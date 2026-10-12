@@ -742,7 +742,7 @@ body { background:#f5f7fc; }
   .prp-topbar-avatar {display:none;}
   .prp-topbar-actions {gap:6px;}
   .prp-invite-button {display:inline-flex;}
-  .prp-mobile-tabs {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;bottom:0;left:0;right:0;z-index:30;height:calc(66px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);border-top:1px solid #e6ebf4;background:rgba(255,255,255,.97);box-shadow:0 -8px 26px rgba(35,60,95,.05);}
+  .prp-mobile-tabs {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));position:fixed;bottom:0;left:0;right:0;z-index:30;height:calc(66px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);border-top:1px solid #e6ebf4;background:rgba(255,255,255,.97);box-shadow:0 -8px 26px rgba(35,60,95,.05);}
   .prp-mobile-tab {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-decoration:none;color:#92a0b5;font-size:11px;}
   .prp-mobile-tab .el-icon {font-size:21px;}
   .prp-mobile-tab.is-active {color:#3176e8;font-weight:700;}
@@ -775,3 +775,80 @@ body { background:#f5f7fc; }
 @media (prefers-reduced-motion:reduce) {
   .home-metric,.home-domain-card,.domain-tool-card {transition:none;}
 }
+
+
+/* Four-tab app shell and extensible app directory (Web / installable PWA) */
+.prp-user-card { display:flex;align-items:center;gap:10px;color:inherit;text-decoration:none;min-width:0; }
+.prp-section-header {display:flex;justify-content:space-between;align-items:center;margin-bottom:23px;}
+.prp-section-header h1 {font-size:clamp(25px,2.5vw,32px);letter-spacing:-.7px;margin:0 0 9px;color:#152642;}
+.prp-section-header p:last-child {margin:0;color:#71809a;font-size:14px;line-height:1.6;}
+.prp-apps-page,.prp-me-page,.prp-me-detail,.prp-chat-page {max-width:1100px;margin:0 auto 24px;}
+.prp-apps-search {max-width:520px;margin-bottom:26px;}
+.prp-apps-section {margin:0 0 30px;}
+.prp-apps-section h2 {font-size:18px;color:#213554;margin:0 0 15px;}
+.prp-apps-section-heading {display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.prp-apps-section-heading span,.prp-apps-note {color:#8190a6;font-size:12px;}
+.prp-app-filters {display:flex;gap:8px;overflow-x:auto;margin:0 0 18px;padding:2px 0 7px;scrollbar-width:thin;}
+.prp-app-filters button {white-space:nowrap;border:1px solid #e4eaf5;background:#fff;color:#62738d;border-radius:100px;padding:8px 16px;cursor:pointer;}
+.prp-app-filters button.selected {background:#e8f1ff;border-color:#a8c8fa;color:#235cc8;font-weight:700;}
+.prp-apps-grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;}
+.prp-app-entry {position:relative;min-width:0;}
+.prp-app-card {display:flex;align-items:center;gap:13px;min-height:98px;padding:18px;border:1px solid #e5eaf4;border-radius:17px;background:#fff;text-decoration:none;color:inherit;transition:box-shadow .2s,border-color .2s;}
+.prp-app-card:hover {border-color:#b5cdf6;box-shadow:var(--prp-shadow);}
+.prp-app-entry .prp-app-card {padding-right:48px;}
+.prp-app-icon,.prp-me-menu-icon {display:grid;place-items:center;width:49px;height:49px;flex:none;border-radius:15px;background:#eaf1ff;color:#326de2;font-size:25px;}
+.prp-app-card-copy {display:grid;gap:6px;min-width:0;}
+.prp-app-card-copy strong {font-size:15px;color:#243955;}
+.prp-app-card-copy small {font-size:11px;color:#91a0b5;}
+.prp-favorite-button {position:absolute;top:14px;right:12px;width:35px;height:35px;border:none;background:transparent;color:#a7b3c3;border-radius:10px;cursor:pointer;}
+.prp-favorite-button.selected {color:#e59b24;background:#fffaec;}
+.prp-apps-empty {padding:45px 12px;border:1px dashed #dbe4f4;border-radius:17px;text-align:center;color:#77869c;}
+.prp-chat-empty {border:1px solid #e7ecf6;background:linear-gradient(140deg,#fff,#f0f5ff);border-radius:23px;max-width:760px;margin:38px auto;padding:60px 30px;text-align:center;}
+.prp-chat-emblem {display:inline-grid;place-items:center;width:70px;height:70px;border-radius:20px;background:#e3edff;color:#316de0;font-size:34px;}
+.prp-chat-empty h2 {color:#253d60;margin:25px 0 12px;}
+.prp-chat-empty p {max-width:540px;margin:0 auto;color:#71819a;line-height:1.8;font-size:14px;}
+.prp-chat-capabilities {display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin:23px 0;}
+.prp-chat-capabilities span {display:inline-flex;align-items:center;gap:6px;padding:9px 12px;border-radius:10px;background:white;color:#5d7190;font-size:12px;}
+.prp-inline-link {display:inline-flex;align-items:center;gap:7px;text-decoration:none;color:#3375df;font-size:13px;font-weight:700;}
+.prp-profile-card {display:flex;align-items:center;gap:22px;padding:27px 30px;margin-bottom:20px;border:1px solid #e4ebf6;border-radius:22px;background:linear-gradient(120deg,#e6efff,#fff);}
+.prp-profile-avatar {display:grid;place-items:center;width:80px;height:80px;flex:none;border-radius:22px;color:white;background:linear-gradient(135deg,#4484ef,#8aaef6);font-size:35px;}
+.prp-profile-copy h2 {margin:0 0 5px;font-size:24px;color:#243955;}
+.prp-profile-copy p {margin:0 0 12px;color:#7a89a1;}
+.prp-profile-role {display:inline-flex;align-items:center;gap:6px;border-radius:9px;padding:5px 10px;background:#f3f7ff;color:#5e7293;font-size:12px;}
+.prp-me-menu {border:1px solid #e8edf5;border-radius:18px;background:#fff;overflow:hidden;margin-bottom:19px;}
+.prp-me-menu-item {display:flex;align-items:center;gap:17px;padding:17px 23px;text-decoration:none;color:inherit;border-bottom:1px solid #f0f3f9;}
+.prp-me-menu-item:last-child {border-bottom:none;}
+.prp-me-menu-item:hover {background:#f7faff;}
+.prp-me-menu-icon {width:43px;height:43px;font-size:21px;border-radius:12px;}
+.prp-me-menu-text {display:grid;gap:5px;flex:1;}
+.prp-me-menu-text strong {color:#253a59;font-size:14px;}
+.prp-me-menu-text small {color:#92a0b4;font-size:12px;}
+.prp-me-menu-arrow {color:#a2b0c2;}
+.prp-me-admin {display:flex;align-items:center;justify-content:space-between;gap:15px;margin:10px 0 20px;padding:17px 22px;border-radius:16px;background:#fff;border:1px solid #e8edf5;}
+.prp-me-admin span {display:flex;align-items:center;gap:8px;color:#5e7090;font-size:14px;}
+.prp-sign-out {width:100%;max-width:420px;margin-bottom:16px;}
+.prp-me-detail>.prp-inline-link {margin:0 0 24px;}
+.prp-detail-sheet {border:1px solid #e8edf5;border-radius:18px;background:#fff;padding:29px;}
+.prp-detail-sheet h2 {font-size:17px;color:#243955;margin:15px 0 7px;}
+.prp-detail-sheet p {color:#6e7f96;font-size:14px;line-height:1.85;}
+@media (max-width:860px) {
+  .prp-topbar-user {display:none;}
+  .prp-mobile-tabs {grid-template-columns:repeat(4,minmax(0,1fr));}
+  .prp-mobile-tab {min-height:48px;}
+  .prp-apps-grid {grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+  .prp-app-card {min-height:90px;padding:12px;gap:9px;}
+  .prp-app-icon {height:38px;width:38px;font-size:20px;border-radius:11px;}
+  .prp-app-entry .prp-app-card {padding-right:32px;}
+  .prp-favorite-button {right:2px;top:9px;width:29px;height:29px;}
+  .prp-app-card-copy strong {font-size:13px;}
+  .prp-app-card-copy small {font-size:10px;}
+  .prp-profile-card {padding:22px 18px;}
+  .prp-profile-avatar {width:60px;height:60px;font-size:28px;}
+  .prp-me-menu-item {padding:15px;}
+  .prp-chat-empty {padding:37px 16px;margin:12px auto;}
+}
+@media (max-width:390px) {
+  .prp-apps-grid {grid-template-columns:1fr;}
+  .prp-apps-search {margin-bottom:20px;}
+}
+@media (prefers-reduced-motion:reduce) { .prp-app-card {transition:none;} }
