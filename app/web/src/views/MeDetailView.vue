@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, Bell, Collection, InfoFilled, Setting } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Bell, Collection, InfoFilled } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 
 defineProps<{ section: 'settings' | 'guide' | 'about' }>()

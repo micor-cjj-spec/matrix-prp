@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import {
-  Bell, Calendar, Collection, CollectionTag, Document, EditPen, Food,
+  Bell, Collection, CollectionTag, Document, EditPen, Food,
   Grid, House, Money, Notebook, Reading, Search, Star, Tickets, VideoCamera,
 } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
