@@ -20,6 +20,7 @@ public class FinanceTransactionEntity {
     private BigDecimal amount;
     private String category;
     private String account;
+    private Long accountId;
     private String merchant;
     private String note;
     private LocalDate transactionDate;
@@ -80,6 +81,9 @@ public class FinanceTransactionEntity {
     public void setCategory(String category) {
         this.category = category;
     }
+
+    public Long getAccountId() { return accountId; }
+    public void setAccountId(Long v) { accountId = v; }
 
     public String getAccount() {
         return account;
