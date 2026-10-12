@@ -109,6 +109,15 @@ class FlywayMigrationIT {
         insertSentinel(url, "flyway_legacy_ci");
         long before = count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'");
         createLegacyMojibakeFixtures(url);
+        // Legacy expense has no configured account; V13 must create and link it losslessly.
+        try (Connection connection = DriverManager.getConnection(url, user(), password());
+             Statement statement=connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO prp_finance_transactions "
+                    + "(user_id,type,amount,category,account,merchant,note,transaction_date,created_at,updated_at) "
+                    + "SELECT id,'expense',25.00,'food','LEGACY_FINANCE_WALLET','store','legacy preserved',"
+                    + "'2026-10-01',NOW(6),NOW(6) FROM prp_users WHERE username='flyway_legacy_ci'");
+        }
+        long financeBefore=count(url,"SELECT COUNT(*) FROM prp_finance_transactions WHERE note='legacy preserved'");
         long seedRows = count(url, "SELECT COUNT(*) FROM prp_wellness_foods");
         Flyway migration = flyway(url);
         assertThat(migration.baseline().successfullyBaselined).isTrue();
@@ -116,6 +125,12 @@ class FlywayMigrationIT {
         assertThat(migration.migrate().migrationsExecuted).isEqualTo(6);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'")).isEqualTo(before);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isEqualTo(seedRows);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_finance_transactions WHERE note='legacy preserved'"))
+                .isEqualTo(financeBefore);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_finance_transactions t "
+                + "JOIN prp_finance_accounts a ON a.id=t.account_id AND a.user_id=t.user_id "
+                + "WHERE t.note='legacy preserved' AND t.amount=25.00 "
+                + "AND a.name='LEGACY_FINANCE_WALLET' AND a.opening_balance=0.00")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(7);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods "
                 + "WHERE owner_user_id IS NULL AND CAST(name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING utf8mb4) AS BINARY)"))
