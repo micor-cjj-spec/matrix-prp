@@ -3,7 +3,7 @@ import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
-import { fetchUsage, listConversations, listMessages, streamChat, type AiUsage, type ChatMessage, type Conversation } from '@/api/ai'
+import { fetchUsage, listConversations, listMessages, streamChat, type AiUsage, type ChatMessage, type Conversation, previewAiContext, type AiContextPreview } from '@/api/ai'
 
 const conversations = ref<Conversation[]>([])
 const messages = ref<ChatMessage[]>([])
@@ -15,6 +15,38 @@ const aiSettings = ref<AiSettings | null>(null)
 const currentProvider = ref('deepseek')
 const currentModel = ref('deepseek-chat')
 const savingModel = ref(false)
+const contextOptions = [
+  { label: '任务概览', value: 'tasks' },
+  { label: '刷题统计', value: 'practice' },
+  { label: '今日健康汇总', value: 'wellness' },
+]
+const selectedScopes = ref<string[]>([])
+const approvedScopes = ref<string[]>([])
+const preview = ref<AiContextPreview | null>(null)
+const previewing = ref(false)
+const previewVisible = ref(false)
+const approved = computed(() => selectedScopes.value.length > 0 &&
+  selectedScopes.value.length === approvedScopes.value.length &&
+  selectedScopes.value.every(scope => approvedScopes.value.includes(scope)))
+function invalidateApproval() {
+  approvedScopes.value = []
+  preview.value = null
+}
+async function showPreview() {
+  if (!selectedScopes.value.length || sending.value) return
+  previewing.value = true
+  try {
+    preview.value = await previewAiContext(selectedScopes.value)
+    previewVisible.value = true
+  } catch {
+    ElMessage.error('读取本次共享摘要失败，请检查对应业务模块是否可用')
+  } finally { previewing.value = false }
+}
+function approveSharing() {
+  if (!preview.value) return
+  approvedScopes.value = [...preview.value.scopes]
+  previewVisible.value = false
+}
 const models = computed(() => aiSettings.value?.providers.find(p => p.id === currentProvider.value)?.models ?? [])
 async function loadModels() {
   try {
@@ -63,6 +95,14 @@ function newChat() {
 async function send() {
   const content = input.value.trim()
   if (!content || sending.value || content.length > 4000) return
+  if (selectedScopes.value.length && !approved.value) {
+    ElMessage.warning('请先预览并确认本次要共享给 AI 的数据')
+    return
+  }
+  const scopesToShare = [...approvedScopes.value]
+  // An approval is one-shot. Selecting context next time requires a new preview and confirmation.
+  selectedScopes.value = []
+  invalidateApproval()
   input.value = ''
   sending.value = true
   const user: ChatMessage = { id: -Date.now(), role: 'user', content, createdAt: new Date().toISOString() }
@@ -77,7 +117,7 @@ async function send() {
       if (event === 'delta') assistant.content += String(data.text ?? '')
       if (event === 'done') completed = true
       if (event === 'error') { streamError = true; ElMessage.error(String(data.message ?? 'AI 请求失败')) }
-    }, controller.signal)
+    }, controller.signal, scopesToShare)
     if (!completed) throw new Error('Stream interrupted')
   } catch {
     if (!streamError) ElMessage.error('连接中断或额度已用完，请稍后重试')
@@ -136,6 +176,19 @@ onBeforeUnmount(() => controller?.abort())
           </div>
         </div>
         <div class="chat-compose">
+          <div class="context-consent">
+            <strong>本次可选共享资料 <small>默认关闭 · 仅本次生效</small></strong>
+            <el-checkbox-group v-model="selectedScopes" :disabled="sending" @change="invalidateApproval">
+              <el-checkbox v-for="item in contextOptions" :key="item.value"
+                :label="item.label" :value="item.value" />
+            </el-checkbox-group>
+            <div class="chat-row">
+              <small>选择后先预览；确认才会将摘要传给当前 AI 服务商，不包含财务信息、健康详情或任务描述。</small>
+              <el-button size="small" :disabled="!selectedScopes.length || sending" :loading="previewing"
+                @click="showPreview">预览共享内容</el-button>
+            </div>
+            <p v-if="approved" class="consent-ready">已确认本次共享：{{ approvedScopes.join('、') }}。发送后自动取消授权。</p>
+          </div>
           <el-input v-model="input" type="textarea" :rows="3" :maxlength="4000"
             placeholder="输入问题，按 Ctrl+Enter 发送" :disabled="sending" @keydown.ctrl.enter.prevent="send" />
           <div class="chat-row"><small>回答由 AI 生成，请核实重要信息。</small>
@@ -144,10 +197,21 @@ onBeforeUnmount(() => controller?.abort())
         </div>
       </el-card>
     </div>
+    <el-dialog v-model="previewVisible" title="确认本次共享数据" width="min(640px, 95vw)" destroy-on-close>
+      <p class="consent-warning">以下摘要由 PRP 后端按当前登录用户读取。确认后只在下一条消息中发送给你选择的 AI 模型服务商。内容可能包含个人数据，请检查后再同意。</p>
+      <pre class="context-preview">{{ JSON.stringify(preview?.data ?? {}, null, 2) }}</pre>
+      <template #footer>
+        <el-button @click="previewVisible = false">取消</el-button>
+        <el-button type="primary" @click="approveSharing">同意仅本次发送</el-button>
+      </template>
+    </el-dialog>
   </AppLayout>
 </template>
 <style scoped>
 .model-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 16px}.model-toolbar label{display:flex;align-items:center;gap:8px;font-size:13px}.model-toolbar a{color:#2563eb;text-decoration:none;font-size:13px}
+.context-consent{border:1px solid #e6edf6;background:#f8fbff;border-radius:12px;padding:12px;display:grid;gap:8px}
+.context-consent strong{font-size:13px}.context-consent small,.consent-warning{font-size:12px;color:#64748b;line-height:1.6}
+.consent-ready{font-size:12px;color:#176a4a;margin:0}.context-preview{background:#f3f7fc;border-radius:10px;padding:14px;max-height:42vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
 .chat-grid { display:grid; grid-template-columns:265px minmax(0,1fr); gap:16px }
 .chat-panel { min-height:68vh }
 .conversation { padding:10px; border-radius:7px; cursor:pointer; overflow-wrap:anywhere }

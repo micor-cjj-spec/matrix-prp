@@ -19,11 +19,12 @@ export async function fetchUsage() {
   return (await apiClient.get<ApiResponse<AiUsage>>('/ai/usage')).data.data
 }
 export async function streamChat(conversationId: string | null, content: string,
-                                 onEvent: (message: StreamEvent) => void, signal?: AbortSignal) {
+                                 onEvent: (message: StreamEvent) => void, signal?: AbortSignal, contextScopes: string[] = []) {
   const response = await fetch('/api/ai/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getStoredToken() ?? ''}` },
-    body: JSON.stringify({ conversationId, content }),
+    body: JSON.stringify({ conversationId, content, contextScopes,
+      contextConsent: contextScopes.length > 0 }),
     signal,
   })
   if (response.status === 401) {
@@ -52,4 +53,13 @@ export async function streamChat(conversationId: string | null, content: string,
   } finally {
     reader.releaseLock()
   }
+}
+
+export interface AiContextPreview {
+  scopes: string[]
+  date: string
+  data: Record<string, unknown>
+}
+export async function previewAiContext(scopes: string[]): Promise<AiContextPreview> {
+  return (await apiClient.post<ApiResponse<AiContextPreview>>('/ai/context/preview', { scopes })).data.data
 }

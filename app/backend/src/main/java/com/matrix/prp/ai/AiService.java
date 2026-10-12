@@ -24,12 +24,14 @@ public class AiService {
     private final DeepSeekClient deepSeek;
     private final AiSettingsService settings;
     private final AiProviderClient providerClient;
+    private final AiContextService context;
     private final TaskExecutor executor;
     private final int outputLimit, perUserRequests, globalRequests;
     private final long perUserTokens, globalTokens;
 
     public AiService(AiStore store, DeepSeekClient deepSeek, AiSettingsService settings,
-                     AiProviderClient providerClient, @Qualifier("aiExecutor") TaskExecutor executor,
+                     AiProviderClient providerClient, AiContextService context,
+                     @Qualifier("aiExecutor") TaskExecutor executor,
                      @Value("${matrix-prp.ai.max-output-tokens:1024}") int outputLimit,
                      @Value("${matrix-prp.ai.user-monthly-requests:200}") int perUserRequests,
                      @Value("${matrix-prp.ai.global-monthly-requests:1000}") int globalRequests,
@@ -39,6 +41,7 @@ public class AiService {
         this.deepSeek = deepSeek;
         this.settings = settings;
         this.providerClient = providerClient;
+        this.context = context;
         this.executor = executor;
         this.outputLimit = outputLimit;
         this.perUserRequests = perUserRequests;
@@ -62,11 +65,24 @@ public class AiService {
     }
 
     public SseEmitter chat(String id, String prompt) {
+        return chat(id, prompt, List.of(), false);
+    }
+
+    public SseEmitter chat(String id, String prompt, List<String> scopes, boolean explicitConsent) {
         long user = CurrentUser.id();
         String content = prompt == null ? "" : prompt.trim();
         if (content.isEmpty() || content.length() > 4000)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message must be 1-4000 characters");
         if (id != null && !id.isBlank()) ensureOwner(user, id);
+        List<String> selectedScopes = scopes == null ? List.of() : scopes;
+        if (selectedScopes.isEmpty() && explicitConsent)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Select a scope to share");
+        if (!selectedScopes.isEmpty() && !explicitConsent)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "One-time context consent required");
+        // Fetch only the authenticated user's selected data before leaving the request thread.
+        // Never persist the actual context in conversation history.
+        String providerPrompt = selectedScopes.isEmpty() ? content
+            : context.augmentPrompt(content, context.preview(selectedScopes));
         AiSettingsStore.Selection selected = settings.selection(user);
         boolean legacy = selected.provider().equals("deepseek")
             && selected.model().equals(deepSeek.model())
@@ -81,7 +97,7 @@ public class AiService {
                 if (message.role().equals("user") || message.role().equals("assistant"))
                     history.add(new DeepSeekClient.ChatMessage(message.role(), message.content()));
         }
-        history.add(new DeepSeekClient.ChatMessage("user", content));
+        history.add(new DeepSeekClient.ChatMessage("user", providerPrompt));
         while (history.size() > 1 && estimatedInput(history) > 16000) history.removeFirst();
         long reserved = estimatedInput(history) + outputLimit + 256L;
         String month = month();
@@ -94,7 +110,8 @@ public class AiService {
         try {
             executor.execute(() -> {
                 try {
-                    send(emitter, "meta", Map.of("conversationId", conversationId, "model", selected.model(), "provider", selected.provider()));
+                    send(emitter, "meta", Map.of("conversationId", conversationId, "model", selected.model(), "provider", selected.provider(),
+                        "sharedScopes", selectedScopes));
                     DeepSeekClient.Result result = legacy
                         ? deepSeek.stream(history, outputLimit, part -> send(emitter, "delta", Map.of("text", part)))
                         : providerClient.stream(provider, history, outputLimit, part -> send(emitter, "delta", Map.of("text", part)));
