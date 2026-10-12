@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { buildApiUrl } from './apiUrl'
 import { getStoredToken, removeStoredToken } from '@/utils/token'
 
 export interface ApiResponse<T> {
@@ -11,6 +12,10 @@ export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || `${import.meta.env.BASE_URL}api`,
   timeout: 8000,
 })
+
+export function apiUrl(path: string): string {
+  return buildApiUrl(apiClient.defaults.baseURL ?? '', path)
+}
 
 apiClient.interceptors.request.use((config) => {
   const token = getStoredToken()
