@@ -59,7 +59,7 @@ class FlywayMigrationIT {
         String url = System.getenv("MATRIX_PRP_FLYWAY_FRESH_URL");
         Flyway migration = flyway(url);
         assertThat(migration.migrate().migrationsExecuted).isEqualTo(7);
-        assertThat(migration.validate().validationSuccessful).isTrue();
+        assertThat(migration.validateWithResult().validationSuccessful).isTrue();
         assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(7);
 
         insertSentinel(url, "flyway_fresh_ci");
@@ -78,7 +78,7 @@ class FlywayMigrationIT {
         long seedRows = count(url, "SELECT COUNT(*) FROM prp_wellness_foods");
         Flyway migration = flyway(url);
         assertThat(migration.baseline().successfullyBaselined).isTrue();
-        assertThat(migration.validate().validationSuccessful).isTrue();
+        assertThat(migration.validateWithResult().validationSuccessful).isTrue();
         assertThat(migration.migrate().migrationsExecuted).isZero();
         assertThat(count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'")).isEqualTo(before);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isEqualTo(seedRows);
