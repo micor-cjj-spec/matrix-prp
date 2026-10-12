@@ -32,7 +32,7 @@ const currentTitle = computed(() => {
 </script>
 
 <template>
-  <main class="app-shell prp-shell">
+  <main class="app-shell prp-shell" :class="{ 'prp-shell-chat': activeMain === 'chat' }">
     <aside class="sidebar prp-sidebar" aria-label="主导航">
       <RouterLink to="/" class="brand prp-brand">
         <span class="brand-mark">M</span>
@@ -55,8 +55,8 @@ const currentTitle = computed(() => {
       </div>
     </aside>
 
-    <div class="workspace prp-workspace">
-      <div class="prp-topbar">
+    <div class="workspace prp-workspace" :class="{ 'prp-workspace-chat': activeMain === 'chat' }">
+      <div v-if="activeMain !== 'chat'" class="prp-topbar">
         <div class="prp-topbar-title"><span class="prp-mobile-mark">M</span><span>{{ currentTitle }}</span></div>
         <div class="prp-topbar-actions">
           <RouterLink to="/notifications" class="prp-icon-link" aria-label="消息与提醒">
@@ -67,7 +67,7 @@ const currentTitle = computed(() => {
           </RouterLink>
         </div>
       </div>
-      <section class="prp-page-content"><slot /></section>
+      <section class="prp-page-content" :class="{ 'prp-page-chat': activeMain === 'chat' }"><slot /></section>
     </div>
     <nav class="prp-mobile-tabs" aria-label="手机主要导航">
       <RouterLink v-for="item in mainNav" :key="item.code" :to="item.to"

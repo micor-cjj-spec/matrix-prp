@@ -93,7 +93,7 @@ const router = createRouter({
       path: '/chat',
       name: 'chat',
       component: () => import('@/views/ChatView.vue'),
-      meta: { requiresAuth: true, title: 'AI 聊天' },
+      meta: { requiresAuth: true, title: 'PRP 助手' },
     },
     {
       path: '/me',
