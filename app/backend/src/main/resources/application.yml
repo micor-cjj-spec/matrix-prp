@@ -13,6 +13,14 @@ spring:
       connection-timeout: 2000
       validation-timeout: 1000
 
+  # Transition release: do not silently baseline an existing production database.
+  flyway:
+    enabled: ${MATRIX_PRP_FLYWAY_ENABLED:false}
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    clean-disabled: true
+
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
   configuration:

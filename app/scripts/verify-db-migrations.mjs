@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join, resolve } from 'node:path'
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const oldRoot = join(root, 'app/docker/mysql/init')
+const newRoot = join(root, 'app/backend/src/main/resources/db/migration')
+
+// Existing deployed batches. Treat V1-V7 as immutable after this release.
+export const mapping = [
+  ['001-schema.sql', 'V1__core.sql'],
+  ['002-auth.sql', 'V2__auth.sql'],
+  ['003-video-library.sql', 'V3__video_library.sql'],
+  ['004-notification-center.sql', 'V4__notification_center.sql'],
+  ['005-practice-center.sql', 'V5__practice_center.sql'],
+  ['006-practice-ai.sql', 'V6__practice_ai.sql'],
+  ['007-wellness-center.sql', 'V7__wellness_center.sql'],
+]
+
+export function legacyTables() {
+  const names = mapping.flatMap(([legacy]) => {
+    const sql = readFileSync(join(oldRoot, legacy), 'utf8')
+    return [...sql.matchAll(/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z][a-z0-9_]*)/gi)]
+      .map(match => match[1])
+  })
+  assert.equal(new Set(names).size, names.length, 'duplicate table name in historical migration scripts')
+  return names
+}
+
+export function validateMirror() {
+  for (const [legacy, versioned] of mapping) {
+    assert.equal(readFileSync(join(newRoot, versioned), 'utf8'),
+      readFileSync(join(oldRoot, legacy), 'utf8'),
+      versioned + ' differs from deployed legacy SQL')
+  }
+  const actual = readdirSync(newRoot).filter(name => /^V[0-9]+__.*\.sql$/.test(name)).sort()
+  assert.deepEqual(actual, mapping.map(x => x[1]).sort(),
+    'migration manifest changed: review and explicitly update verification for new migrations')
+  assert.equal(legacyTables().length, 31, 'unexpected inventory of original tables')
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  validateMirror()
+  console.log('PASS: legacy SQL is identical to Flyway V1-V7, with 31 unique tables.')
+}
