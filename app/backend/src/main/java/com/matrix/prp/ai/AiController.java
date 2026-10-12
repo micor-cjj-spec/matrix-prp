@@ -42,6 +42,12 @@ public class AiController {
     public record CodexJobRequest(@NotBlank @Size(max=80) String taskType,
                                   @NotBlank @Size(max=300) String target) {}
 
+    @GetMapping("/agent/capabilities")
+    public ApiResponse<Map<String, Object>> agentCapabilities() {
+        return ApiResponse.success(Map.of("openclawEnabled", false, "codexEnabled", false,
+            "status", "PLANNED", "message", "External agents require explicit administrator approval"));
+    }
+
     @PostMapping("/codex/jobs")
     public ApiResponse<Map<String,Object>> createCodexJob(@Valid @RequestBody CodexJobRequest request) {
         requireAdministrator();

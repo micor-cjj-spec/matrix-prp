@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowRight, Bell, Collection, Document, InfoFilled, Lock, Setting, User,
+  ArrowRight, Bell, Collection, Document, InfoFilled, Lock, Setting, User, Cpu,
 } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -15,6 +15,7 @@ const router = useRouter()
 const signingOut = ref(false)
 const inviting = ref(false)
 const menu = [
+  { label: 'AI 模型与接口', hint: '配置六大服务商、API Key 与默认模型', icon: Cpu, to: '/me/ai-settings' },
   { label: '消息中心', hint: '提醒规则、站内消息及设备推送', icon: Bell, to: '/notifications' },
   { label: '设置', hint: '管理应用入口、消息和账号选项', icon: Setting, to: '/me/settings' },
   { label: '使用说明书', hint: '查看页面入口与常见操作', icon: Document, to: '/me/guide' },

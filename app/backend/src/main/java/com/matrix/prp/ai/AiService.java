@@ -22,11 +22,14 @@ import org.springframework.web.server.ResponseStatusException;
 public class AiService {
     private final AiStore store;
     private final DeepSeekClient deepSeek;
+    private final AiSettingsService settings;
+    private final AiProviderClient providerClient;
     private final TaskExecutor executor;
     private final int outputLimit, perUserRequests, globalRequests;
     private final long perUserTokens, globalTokens;
 
-    public AiService(AiStore store, DeepSeekClient deepSeek, @Qualifier("aiExecutor") TaskExecutor executor,
+    public AiService(AiStore store, DeepSeekClient deepSeek, AiSettingsService settings,
+                     AiProviderClient providerClient, @Qualifier("aiExecutor") TaskExecutor executor,
                      @Value("${matrix-prp.ai.max-output-tokens:1024}") int outputLimit,
                      @Value("${matrix-prp.ai.user-monthly-requests:200}") int perUserRequests,
                      @Value("${matrix-prp.ai.global-monthly-requests:1000}") int globalRequests,
@@ -34,6 +37,8 @@ public class AiService {
                      @Value("${matrix-prp.ai.global-monthly-reserved-tokens:1000000}") long globalTokens) {
         this.store = store;
         this.deepSeek = deepSeek;
+        this.settings = settings;
+        this.providerClient = providerClient;
         this.executor = executor;
         this.outputLimit = outputLimit;
         this.perUserRequests = perUserRequests;
@@ -62,7 +67,12 @@ public class AiService {
         if (content.isEmpty() || content.length() > 4000)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message must be 1-4000 characters");
         if (id != null && !id.isBlank()) ensureOwner(user, id);
-        deepSeek.requireConfigured();
+        AiSettingsStore.Selection selected = settings.selection(user);
+        boolean legacy = selected.provider().equals("deepseek")
+            && selected.model().equals(deepSeek.model())
+            && !settings.hasPersonalKey(user, "deepseek");
+        AiSettingsService.Runtime provider = legacy ? null : settings.resolve(user);
+        if (legacy) deepSeek.requireConfigured();
         List<DeepSeekClient.ChatMessage> history = new ArrayList<>();
         if (id != null && !id.isBlank()) {
             List<Message> previous = store.messages(user, id);
@@ -84,9 +94,10 @@ public class AiService {
         try {
             executor.execute(() -> {
                 try {
-                    send(emitter, "meta", Map.of("conversationId", conversationId, "model", deepSeek.model()));
-                    DeepSeekClient.Result result = deepSeek.stream(history, outputLimit,
-                            part -> send(emitter, "delta", Map.of("text", part)));
+                    send(emitter, "meta", Map.of("conversationId", conversationId, "model", selected.model(), "provider", selected.provider()));
+                    DeepSeekClient.Result result = legacy
+                        ? deepSeek.stream(history, outputLimit, part -> send(emitter, "delta", Map.of("text", part)))
+                        : providerClient.stream(provider, history, outputLimit, part -> send(emitter, "delta", Map.of("text", part)));
                     store.append(user, conversationId, "assistant", result.answer());
                     store.completed(user, month, result.inputTokens(), result.outputTokens());
                     send(emitter, "done", Map.of("conversationId", conversationId,

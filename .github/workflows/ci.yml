@@ -94,6 +94,7 @@ jobs:
           done
           # AI is an additive V8 migration; initialize only the isolated CI database.
           MYSQL_PWD=ci-app-password mysql -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V8__ai_orchestrator.sql
+          MYSQL_PWD=ci-app-password mysql -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V9__ai_provider_settings.sql
       - name: Verify video, private notification and wellness rules against MySQL
         working-directory: app/backend
         env:

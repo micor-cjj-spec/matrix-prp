@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, Bell, Collection, InfoFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Bell, Collection, InfoFilled, Cpu } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 
 defineProps<{ section: 'settings' | 'guide' | 'about' }>()
@@ -13,6 +13,9 @@ defineProps<{ section: 'settings' | 'guide' | 'about' }>()
         <header class="prp-section-header"><div><p class="eyebrow">SETTINGS</p><h1>设置</h1>
           <p>管理现有应用的快捷入口、通知和账号。</p></div></header>
         <div class="prp-me-menu">
+          <RouterLink to="/me/ai-settings" class="prp-me-menu-item"><span class="prp-me-menu-icon"><el-icon><Cpu /></el-icon></span>
+            <span class="prp-me-menu-text"><strong>AI 模型与接口</strong><small>管理个人 API Key、服务商与默认模型</small></span>
+            <el-icon><ArrowRight /></el-icon></RouterLink>
           <RouterLink to="/apps" class="prp-me-menu-item"><span class="prp-me-menu-icon"><el-icon><Collection /></el-icon></span>
             <span class="prp-me-menu-text"><strong>常用应用</strong><small>在应用中心收藏或取消收藏</small></span>
             <el-icon><ArrowRight /></el-icon></RouterLink>
@@ -28,7 +31,7 @@ defineProps<{ section: 'settings' | 'guide' | 'about' }>()
         <div class="prp-detail-sheet">
           <h2>首页</h2><p>查看今日任务、健康摄入、学习和财务摘要，快速进入正在做的事。</p>
           <h2>应用</h2><p>搜索已有功能、按领域筛选和收藏常用应用。学习页提供视频、刷题等入口。</p>
-          <h2>聊天</h2><p>支持 DeepSeek 流式对话和会话记录，需要管理员在服务器配置 AI 凭据及 V8 数据库迁移。</p>
+          <h2>聊天</h2><p>支持六大服务商流式对话；在「我的 → AI 模型与接口」配置个人密钥，服务器需先完成 V9 迁移。</p>
           <h2>我的</h2><p>访问消息提醒、偏好入口、账号信息和帮助。管理员可以生成好友邀请码。</p>
           <p>如需查看某个业务模块的详细规则，请参考仓库 app/docs/technical 下的相应模块文档。</p>
         </div>
@@ -39,7 +42,7 @@ defineProps<{ section: 'settings' | 'guide' | 'about' }>()
         <div class="prp-detail-sheet"><span class="prp-chat-emblem"><el-icon><InfoFilled /></el-icon></span>
           <h2>一个不断扩展的个人空间</h2>
           <p>Matrix PRP 基于 Spring Boot、Vue 3 和 MySQL，涵盖学习、健康、任务、财务与个人记录。</p>
-          <p>本次升级将首页、应用、聊天、我的确定为固定导航。AI 聊天能力仍需后续服务集成。</p>
+          <p>本次升级将首页、应用、聊天、我的确定为固定导航。AI 文本聊天已接入；OpenClaw 与 Codex 的工具执行能力仍按阶段规划，默认禁用。</p>
           <p>版本和发布进度以项目 GitHub 的 main 分支及发布记录为准。</p>
         </div>
       </template>
