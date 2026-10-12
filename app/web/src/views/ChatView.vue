@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
-import { fetchUsage, listConversations, listMessages, streamChat, previewAiContext, confirmAiContext,
+import { fetchUsage, listConversations, listMessages, streamChat, previewAiContext, confirmAiContext, AiStreamHttpError,
   type AiUsage, type ChatMessage, type Conversation, type AiContextPreview } from '@/api/ai'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 
@@ -148,6 +148,21 @@ function retry() {
   const last = [...messages.value].reverse().find(m => m.role === 'user')
   if (last && !sending.value) { input.value = last.content; ElMessage.info('已填入上一条问题，请确认后重新发送') }
 }
+function describeStreamError(error: unknown): string {
+  if (error instanceof AiStreamHttpError) {
+    switch (error.status) {
+      case 400: return '消息请求无效（HTTP 400），请重新发送。'
+      case 401: return '聊天身份认证失败（HTTP 401），请检查登录状态。'
+      case 403: return '没有权限使用聊天接口（HTTP 403）。'
+      case 404: return '聊天接口未找到（HTTP 404），请检查反向代理的 API 路径。'
+      case 429: return '聊天请求超过调用限额（HTTP 429），请稍后重试或检查额度。'
+      case 502: case 503: case 504: return `模型服务或后端暂时不可用（HTTP ${error.status}），请稍后重试。`
+      default: return `聊天请求失败（HTTP ${error.status}），请检查服务器日志。`
+    }
+  }
+  if (error instanceof Error && error.name === 'AbortError') return '请求已取消。'
+  return '聊天流式连接中断，请检查网络后重试。'
+}
 async function send(contextToken?: string) {
   const content = input.value.trim()
   if (!content || sending.value || content.length > 4000) return
@@ -180,8 +195,8 @@ async function send(contextToken?: string) {
       }
     }, controller.signal, scopes, contextToken)
     if (!completed) throw new Error('Stream interrupted')
-  } catch {
-    if (!eventError) streamError.value = '连接中断或额度不足，请检查网络后重试。'
+  } catch (error) {
+    if (!eventError) streamError.value = describeStreamError(error)
   } finally {
     sending.value = false
     controller = null
