@@ -54,7 +54,7 @@ class PersistentRepositoryOwnershipTests {
         FinanceTransactionEntity entity = new FinanceTransactionEntity();
         entity.setUserId(1L);
         when(mapper.selectById(31L)).thenReturn(entity);
-        assertThatThrownBy(() -> new MyBatisFinanceRepository(mapper).deleteTransaction(31L))
+        assertThatThrownBy(() -> new MyBatisFinanceRepository(mapper, mock(com.matrix.prp.finance.mapper.FinanceAccountMapper.class)).deleteTransaction(31L))
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(mapper, never()).deleteById(31L);
     }
@@ -84,7 +84,8 @@ class PersistentRepositoryOwnershipTests {
         entity.setUserId(1L);
         when(categories.selectById(88L)).thenReturn(entity);
         assertThatThrownBy(() -> new com.matrix.prp.finance.repository.MyBatisFinanceConfigRepository(
-                accounts, categories).deleteCategory(88L))
+                accounts, categories, mock(com.matrix.prp.finance.mapper.FinanceTransactionMapper.class),
+                mock(com.matrix.prp.finance.mapper.FinanceTransferMapper.class)).deleteCategory(88L))
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(categories, never()).deleteById(88L);
     }

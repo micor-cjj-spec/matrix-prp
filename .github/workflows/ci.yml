@@ -102,6 +102,7 @@ jobs:
           MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V10__openclaw_agent_tasks.sql
           MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V11__codex_review_jobs.sql
           MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V12__repair_legacy_food_seed_encoding.sql
+          MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V13__finance_ledger_foundation.sql
       - name: Verify video, private notification and wellness rules against MySQL
         working-directory: app/backend
         env:
@@ -112,7 +113,7 @@ jobs:
           MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
         run: |
           chmod +x mvnw
-          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT test
+          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT test
 
 
   db-migration-integration:

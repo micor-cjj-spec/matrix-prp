@@ -7,6 +7,12 @@ import com.matrix.prp.finance.entity.FinanceAccountEntity;
 import com.matrix.prp.finance.entity.FinanceCategoryEntity;
 import com.matrix.prp.finance.mapper.FinanceAccountMapper;
 import com.matrix.prp.finance.mapper.FinanceCategoryMapper;
+import com.matrix.prp.finance.mapper.FinanceTransactionMapper;
+import com.matrix.prp.finance.mapper.FinanceTransferMapper;
+import com.matrix.prp.finance.entity.FinanceTransactionEntity;
+import com.matrix.prp.finance.entity.FinanceTransferEntity;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import com.matrix.prp.finance.model.CreateFinanceAccountRequest;
 import com.matrix.prp.finance.model.CreateFinanceCategoryRequest;
 import com.matrix.prp.finance.model.FinanceAccountItem;
@@ -22,10 +28,26 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
 
     private final FinanceAccountMapper accountMapper;
     private final FinanceCategoryMapper categoryMapper;
+    private final FinanceTransactionMapper transactionMapper;
+    private final FinanceTransferMapper transferMapper;
 
-    public MyBatisFinanceConfigRepository(FinanceAccountMapper accountMapper, FinanceCategoryMapper categoryMapper) {
-        this.accountMapper = accountMapper;
-        this.categoryMapper = categoryMapper;
+    public MyBatisFinanceConfigRepository(FinanceAccountMapper accountMapper, FinanceCategoryMapper categoryMapper,
+                                          FinanceTransactionMapper transactionMapper, FinanceTransferMapper transferMapper) {
+        this.accountMapper=accountMapper;
+        this.categoryMapper=categoryMapper;
+        this.transactionMapper=transactionMapper;
+        this.transferMapper=transferMapper;
+    }
+
+    private boolean hasTransactionsOrTransfers(long accountId) {
+        long txCount=transactionMapper.selectCount(new LambdaQueryWrapper<FinanceTransactionEntity>()
+                .eq(FinanceTransactionEntity::getUserId, CurrentUser.id())
+                .eq(FinanceTransactionEntity::getAccountId, accountId));
+        long transferCount=transferMapper.selectCount(new LambdaQueryWrapper<FinanceTransferEntity>()
+                .eq(FinanceTransferEntity::getUserId, CurrentUser.id())
+                .and(q->q.eq(FinanceTransferEntity::getFromAccountId,accountId)
+                        .or().eq(FinanceTransferEntity::getToAccountId,accountId)));
+        return txCount>0 || transferCount>0;
     }
 
     @Override
@@ -54,6 +76,9 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
     @Override
     public FinanceAccountItem updateAccount(long id, CreateFinanceAccountRequest request) {
         FinanceAccountEntity entity = findAccount(id);
+        if(!entity.getCurrency().equals(request.currency()==null || request.currency().isBlank()?"CNY":request.currency())
+                && hasTransactionsOrTransfers(id))
+            throw new ResponseStatusException(HttpStatus.CONFLICT,"Cannot change currency of an account with history");
         applyAccountRequest(entity, request);
         entity.setUpdatedAt(LocalDateTime.now());
         accountMapper.updateById(entity);
@@ -63,6 +88,8 @@ public class MyBatisFinanceConfigRepository implements FinanceConfigRepository {
     @Override
     public void deleteAccount(long id) {
         findAccount(id);
+        if(hasTransactionsOrTransfers(id))
+            throw new ResponseStatusException(HttpStatus.CONFLICT,"Account has linked transactions or transfers");
         int deleted = accountMapper.deleteById(id);
         if (deleted == 0) {
             throw new ResourceNotFoundException("Finance account not found: " + id);
