@@ -17,7 +17,7 @@ class CodexJobDatabaseIT {
         long owner=988715L,other=988716L;
         var job=store.create(owner,CodexWorkflowClient.REPOSITORY,"FIX","Fix a unit test "+UUID.randomUUID());
         assertThat(store.find(other,job.id())).isEmpty();
-        assertThat(store.list(other())).noneMatch(x -> x.id().equals(job.id()));
+        assertThat(store.list(other)).noneMatch(x -> x.id().equals(job.id()));
         assertThat(store.claim(other,job.id(),other)).isFalse();
         assertThat(store.claim(owner,job.id(),owner)).isTrue();
         assertThat(store.claim(owner,job.id(),owner)).isFalse();
