@@ -35,6 +35,12 @@
       "style": {
         "navigationBarTitleText": "视频学习库"
       }
+    },
+    {
+      "path": "pages/ai/index",
+      "style": {
+        "navigationBarTitleText": "Matrix AI"
+      }
     }
   ],
   "globalStyle": {

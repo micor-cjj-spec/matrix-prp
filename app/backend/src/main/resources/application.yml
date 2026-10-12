@@ -50,3 +50,12 @@ matrix-prp:
     jwt-secret: ${MATRIX_PRP_JWT_SECRET}
     jwt-expiration-minutes: 1440
 
+  ai:
+    deepseek:
+      api-key: ${MATRIX_PRP_DEEPSEEK_API_KEY:}
+      model: ${MATRIX_PRP_DEEPSEEK_MODEL:deepseek-chat}
+    max-output-tokens: 1024
+    user-monthly-requests: ${MATRIX_PRP_AI_USER_MONTHLY_REQUESTS:200}
+    global-monthly-requests: ${MATRIX_PRP_AI_GLOBAL_MONTHLY_REQUESTS:1000}
+    user-monthly-reserved-tokens: ${MATRIX_PRP_AI_USER_MONTHLY_TOKENS:250000}
+    global-monthly-reserved-tokens: ${MATRIX_PRP_AI_GLOBAL_MONTHLY_TOKENS:1000000}

@@ -26,6 +26,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.users = users;
     }
 
+    // SSE resumes on a servlet async dispatch. Restore the JWT principal on that dispatch.
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() { return false; }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {

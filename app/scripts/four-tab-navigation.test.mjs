@@ -37,7 +37,7 @@ test('application menu derives entries from registry and hides admin-only tools'
   assert.match(catalog, /f\.visibility !== 'admin' \|\| isAdmin/)
   assert.match(catalog, /groups\[f\.code\] \?\? 'other'/)
   assert.match(file('web/src/views/AppsView.vue'), /toggleFavorite\(item\.code\)/)
-  assert.match(file('web/src/views/ChatView.vue'), /尚未集成完整的 Matrix AI Orchestrator/)
+  assert.match(file('web/src/views/ChatView.vue'), /streamChat/)
 })
 
 test('shell pages are explicitly separated from registered business routes', () => {

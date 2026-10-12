@@ -35,12 +35,12 @@ export function validateMirror() {
       versioned + ' differs from deployed legacy SQL')
   }
   const actual = readdirSync(newRoot).filter(name => /^V[0-9]+__.*\.sql$/.test(name)).sort()
-  assert.deepEqual(actual, mapping.map(x => x[1]).sort(),
+  assert.deepEqual(actual, [...mapping.map(x => x[1]), 'V8__ai_orchestrator.sql'].sort(),
     'migration manifest changed: review and explicitly update verification for new migrations')
   assert.equal(legacyTables().length, 31, 'unexpected inventory of original tables')
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   validateMirror()
-  console.log('PASS: legacy SQL is identical to Flyway V1-V7, with 31 unique tables.')
+  console.log('PASS: immutable V1-V7 mirror; V8 AI migration registered; 31 legacy tables unchanged.')
 }

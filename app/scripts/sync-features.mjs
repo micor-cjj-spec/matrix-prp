@@ -62,8 +62,10 @@ for (const path of webRoutes) {
   if (path !== '/login' && !shellRoutes.has(path)) requireField(registeredWebRoutes.has(path), 'Unregistered Web route: ' + path)
 }
 const registeredMobileRoutes = new Set(features.map(m => m.mobileRoute).filter(Boolean))
+const shellMobileRoutes = new Set(['pages/ai/index'])
 for (const path of mobileRoutes) {
-  if (path !== 'pages/login/index') requireField(registeredMobileRoutes.has(path), 'Unregistered Mobile page: ' + path)
+  if (path !== 'pages/login/index' && !shellMobileRoutes.has(path))
+    requireField(registeredMobileRoutes.has(path), 'Unregistered Mobile page: ' + path)
 }
 
 if (errors.length > 0) {
@@ -82,7 +84,7 @@ const doc = [
   '# Matrix PRP 功能目录（自动生成）',
   '',
   '> 由 ' + fenced('app/config/feature-registry.json') + ' 生成。运行 ' + fenced('node app/scripts/sync-features.mjs') + ' 更新，请勿手工编辑。',
-  '> 已实现仅表示代码进入 main，不等于生产环境或 iPhone 实机验收完成。未合并的 AI PR #9 不算已实现。',
+  '> 已实现仅表示代码进入 main，不等于生产环境或 iPhone 实机验收完成。AI 聊天由独立 Shell 路由管理。',
   '',
   '## 已实现的功能',
   '',
@@ -103,7 +105,7 @@ const doc = [
   '',
   '- 登录和数据隔离为基础服务；PWA、视频存储与通知投递为模块内部能力。',
   '- Web 导航由生成的 ' + fenced('app/web/src/generated/features.ts') + ' 提供功能和领域聚合页清单，路由由校验脚本核实。',
-  '- 学习、生活聚合页不引入虚构的业务模块；仅组织已有功能。未合并的 AI 不显示为已上线。',
+  '- 学习、生活聚合页仅组织已有业务功能；AI 聊天使用独立 Shell 路由，不作为可安装业务模块。',
   '- Mobile 只登记已存在的页面，没有入口不意味着该功能已在移动端实现。',
   '- 详细维护方式参阅 ' + fenced('app/docs/technical/feature-registry.md') + '。',
   '',
