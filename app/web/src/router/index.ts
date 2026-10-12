@@ -108,6 +108,12 @@ const router = createRouter({
       meta: { requiresAuth: true, title: 'AI 模型与接口' },
     },
     {
+      path: '/me/agent-tasks',
+      name: 'my-agent-tasks',
+      component: () => import('@/views/AgentTasksView.vue'),
+      meta: { requiresAuth: true, adminOnly: true, title: 'OpenClaw 任务工作台' },
+    },
+    {
       path: '/me/settings',
       name: 'my-settings',
       component: () => import('@/views/MeDetailView.vue'),
@@ -140,6 +146,9 @@ router.beforeEach((to) => {
   const authStore = useAuthStore()
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.meta.adminOnly && !authStore.user?.administrator) {
+    return { name: 'me' }
   }
   if (to.name === 'login' && authStore.isAuthenticated) {
     return { name: 'dashboard' }

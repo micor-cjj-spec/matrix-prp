@@ -51,6 +51,13 @@ matrix-prp:
     jwt-expiration-minutes: 1440
 
   ai:
+    # P2 OpenClaw requires a dedicated isolated instance; shared Gateway token carries operator privileges.
+    openclaw:
+      enabled: ${MATRIX_PRP_OPENCLAW_ENABLED:false}
+      isolation-confirmed: ${MATRIX_PRP_OPENCLAW_ISOLATION_CONFIRMED:false}
+      gateway-token: ${MATRIX_PRP_OPENCLAW_GATEWAY_TOKEN:}
+      port: ${MATRIX_PRP_OPENCLAW_PORT:18789}
+      agent-id: ${MATRIX_PRP_OPENCLAW_AGENT_ID:prp-planner}
     # Required before storing individual API keys: base64-encoded 32 random bytes.
     key-encryption-secret: ${MATRIX_PRP_AI_KEY_ENCRYPTION_SECRET:}
     deepseek:

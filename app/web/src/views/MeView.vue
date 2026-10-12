@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowRight, Bell, Collection, Document, InfoFilled, Lock, Setting, User, Cpu,
+  ArrowRight, Bell, Collection, Document, InfoFilled, Lock, Setting, User, Cpu, Monitor,
 } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -65,6 +65,7 @@ async function logout() {
       </section>
       <section v-if="auth.user?.administrator" class="prp-me-admin">
         <span><el-icon><Collection /></el-icon> 管理员工具</span>
+        <RouterLink to="/me/agent-tasks" class="prp-inline-link"><el-icon><Monitor /></el-icon> OpenClaw 任务工作台</RouterLink>
         <el-button :loading="inviting" @click="inviteFriend">生成好友邀请码</el-button>
       </section>
       <el-button class="prp-sign-out" plain :loading="signingOut" @click="logout">退出登录</el-button>
