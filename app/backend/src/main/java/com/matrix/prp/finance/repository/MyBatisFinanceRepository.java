@@ -68,10 +68,19 @@ public class MyBatisFinanceRepository implements FinanceRepository {
 
     @Override
     public List<FinanceTransactionItem> listTransactions(FinanceTransactionFilter filter) {
+        var names=accountMapper.selectList(new LambdaQueryWrapper<FinanceAccountEntity>()
+                        .eq(FinanceAccountEntity::getUserId,CurrentUser.id()))
+                .stream().collect(Collectors.toMap(FinanceAccountEntity::getId,FinanceAccountEntity::getName));
         return financeTransactionMapper.selectList(buildFilterQuery(filter)
                         .orderByDesc(FinanceTransactionEntity::getCreatedAt))
                 .stream()
-                .map(FinanceTransactionEntity::toItem)
+                .map(entity -> {
+                    FinanceTransactionItem item=entity.toItem();
+                    String currentName=names.get(entity.getAccountId());
+                    return currentName==null ? item : new FinanceTransactionItem(item.id(),item.type(),
+                            item.amount(),item.category(),currentName,item.merchant(),item.note(),
+                            item.transactionDate(),item.createdAt());
+                })
                 .toList();
     }
 
