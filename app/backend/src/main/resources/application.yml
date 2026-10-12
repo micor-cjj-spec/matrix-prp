@@ -51,6 +51,8 @@ matrix-prp:
     jwt-expiration-minutes: 1440
 
   ai:
+    # Required before storing individual API keys: base64-encoded 32 random bytes.
+    key-encryption-secret: ${MATRIX_PRP_AI_KEY_ENCRYPTION_SECRET:}
     deepseek:
       api-key: ${MATRIX_PRP_DEEPSEEK_API_KEY:}
       model: ${MATRIX_PRP_DEEPSEEK_MODEL:deepseek-chat}

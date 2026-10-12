@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
 import { fetchUsage, listConversations, listMessages, streamChat, type AiUsage, type ChatMessage, type Conversation } from '@/api/ai'
 
 const conversations = ref<Conversation[]>([])
@@ -10,6 +11,35 @@ const selectedId = ref<string | null>(null)
 const input = ref('')
 const sending = ref(false)
 const usage = ref<AiUsage | null>(null)
+const aiSettings = ref<AiSettings | null>(null)
+const currentProvider = ref('deepseek')
+const currentModel = ref('deepseek-chat')
+const savingModel = ref(false)
+const models = computed(() => aiSettings.value?.providers.find(p => p.id === currentProvider.value)?.models ?? [])
+async function loadModels() {
+  try {
+    aiSettings.value = await getAiSettings()
+    currentProvider.value = aiSettings.value.selectedProvider
+    currentModel.value = aiSettings.value.selectedModel
+  } catch { ElMessage.warning('AI 模型配置暂时无法读取') }
+}
+async function saveModel() {
+  savingModel.value = true
+  try { aiSettings.value = await setAiSelection(currentProvider.value, currentModel.value) }
+  catch { ElMessage.error('切换模型失败，请检查设置'); await loadModels() }
+  finally { savingModel.value = false }
+}
+async function changeProvider(id: string) {
+  if (sending.value) return
+  currentProvider.value = id
+  currentModel.value = aiSettings.value?.providers.find(p => p.id === id)?.defaultModel ?? ''
+  await saveModel()
+}
+async function changeModel(id: string) {
+  if (sending.value) return
+  currentModel.value = id
+  await saveModel()
+}
 let controller: AbortController | null = null
 
 async function refresh() {
@@ -61,7 +91,7 @@ async function send() {
     }
   }
 }
-onMounted(refresh)
+onMounted(() => { void refresh(); void loadModels() })
 onBeforeUnmount(() => controller?.abort())
 </script>
 
@@ -69,8 +99,23 @@ onBeforeUnmount(() => controller?.abort())
   <AppLayout>
     <header class="page-header">
       <div><p class="eyebrow">Matrix AI</p><h1>AI 聊天</h1>
-        <p>DeepSeek 对话与学习辅助。AI 不会自动运行服务器命令。</p></div>
+        <p>个人多模型 AI 对话与学习辅助。OpenClaw / Codex 执行能力尚未启用。</p></div>
     </header>
+    <div class="model-toolbar" v-if="aiSettings">
+      <label>服务商
+        <el-select :model-value="currentProvider" :disabled="sending || savingModel" @change="changeProvider" style="width:170px">
+          <el-option v-for="item in aiSettings.providers" :key="item.id" :value="item.id" :label="item.name" />
+        </el-select>
+      </label>
+      <label>模型
+        <el-select :model-value="currentModel" :disabled="sending || savingModel" filterable allow-create
+          default-first-option @change="changeModel" style="width:210px">
+          <el-option v-for="id in models" :key="id" :label="id" :value="id" />
+          <el-option v-if="currentModel && !models.includes(currentModel)" :key="currentModel" :label="currentModel" :value="currentModel" />
+        </el-select>
+      </label>
+      <RouterLink to="/me/ai-settings">管理 API Key</RouterLink>
+    </div>
     <div class="chat-grid">
       <el-card shadow="never">
         <template #header>
@@ -86,7 +131,7 @@ onBeforeUnmount(() => controller?.abort())
           <div v-if="messages.length === 0" class="intro">向 Matrix AI 提问，开始新的对话。</div>
           <div v-for="(message, index) in messages" :key="message.id || index" class="bubble"
             :class="message.role === 'user' ? 'from-user' : 'from-ai'">
-            <span class="role">{{ message.role === 'user' ? '我' : 'DeepSeek' }}</span>
+            <span class="role">{{ message.role === 'user' ? '我' : 'AI' }}</span>
             <p>{{ message.content || '正在思考...' }}</p>
           </div>
         </div>
@@ -102,6 +147,7 @@ onBeforeUnmount(() => controller?.abort())
   </AppLayout>
 </template>
 <style scoped>
+.model-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 16px}.model-toolbar label{display:flex;align-items:center;gap:8px;font-size:13px}.model-toolbar a{color:#2563eb;text-decoration:none;font-size:13px}
 .chat-grid { display:grid; grid-template-columns:265px minmax(0,1fr); gap:16px }
 .chat-panel { min-height:68vh }
 .conversation { padding:10px; border-radius:7px; cursor:pointer; overflow-wrap:anywhere }

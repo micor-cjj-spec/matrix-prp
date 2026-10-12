@@ -102,6 +102,12 @@ const router = createRouter({
       meta: { requiresAuth: true, title: '我的' },
     },
     {
+      path: '/me/ai-settings',
+      name: 'my-ai-settings',
+      component: () => import('@/views/AiSettingsView.vue'),
+      meta: { requiresAuth: true, title: 'AI 模型与接口' },
+    },
+    {
       path: '/me/settings',
       name: 'my-settings',
       component: () => import('@/views/MeDetailView.vue'),
