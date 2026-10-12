@@ -14,7 +14,7 @@
 1. **此 GitHub 合并并未触及生产数据库。** 先备份当前 `matrix_prp`、视频目录和 systemd 环境配置；在隔离数据库做恢复演练。
 2. 所有已上线的旧库先核对 001～007，运行 `node app/scripts/verify-legacy-baseline.mjs`；确保 31 张既有表齐全、关键列和数据正常。
 3. 尚未启用 Flyway 的旧数据库须在停写维护窗口 **显式执行 `baselineVersion=7`**，而且必须确认旧表全部与 V7 对应；绝不能使用 `baselineOnMigrate=true` 或 `clean`。详见 `safe-db-migrations-p0.md`。
-4. 在 baseline 后执行 Flyway `validate` + `migrate`，只运行新增的 `V8__ai_orchestrator.sql`，不得重放 V1～V7。迁移新增三张 `prp_ai_*` 表，不修改历史 31 张表。已配置 Flyway 的库只需正常执行增量 V8。
+4. 在 baseline 后执行 Flyway `migrate` + `validate`，只运行新增的 `V8__ai_orchestrator.sql`，不得重放 V1～V7。迁移新增三张 `prp_ai_*` 表，不修改历史 31 张表。已配置 Flyway 的库只需正常执行增量 V8。
 5. 无 Flyway 迁移记录时 **不要**直接打开 `MATRIX_PRP_FLYWAY_ENABLED=true` 并重启现有 Java 服务。
 6. 全新空库（不使用旧 Docker 初始化 SQL 路径）可由 Flyway 按 V1～V8 依次迁移。旧的 Docker 初始化目录只有 001～007，不能代替 V8。
 

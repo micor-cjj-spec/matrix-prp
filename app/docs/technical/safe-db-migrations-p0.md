@@ -29,11 +29,11 @@
 
        flyway info
        flyway baseline
-       flyway validate
        flyway migrate
+       flyway validate
 
    只执行一次 baseline；不得启用 baselineOnMigrate=true，不得使用 clean/repair 来消除未理解的差异。
-6. 基线成功并验证后，为 Java systemd 环境设置 MATRIX_PRP_FLYWAY_ENABLED=true，重启后端。确认健康检查、账号、用户隔离、视频、通知、刷题和健康接口的数据仍正确。
+6. 基线成功、V8 迁移完成并验证后，为 Java systemd 环境设置 MATRIX_PRP_FLYWAY_ENABLED=true，重启后端。确认健康检查、账号、用户隔离、视频、通知、刷题和健康接口的数据仍正确。
 7. 比较升级前后的关键表行数和业务数据；若发现问题，停止应用写入，按既定流程恢复已经验证过的备份及对应媒体文件，勿进行不受控的修复。
 
 注意：Flyway 基线只登记当前版本，不会回放 V1..V7，亦不能替代真实备份。数据库凭据不要写入 GitHub、终端命令参数或 CI 日志。
