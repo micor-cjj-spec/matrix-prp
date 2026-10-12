@@ -116,23 +116,12 @@ class FlywayMigrationIT {
         assertThat(count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'")).isEqualTo(before);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isEqualTo(seedRows);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(7);
-        // Diagnostic only for this disposable CI schema; print hex to distinguish
-        // a label mismatch from an incomplete source-note conversion.
-        try (Connection connection = DriverManager.getConnection(url, user(), password());
-                Statement statement = connection.createStatement();
-                ResultSet result = statement.executeQuery(
-                        "SELECT HEX(name), HEX(source_note) FROM prp_wellness_foods "
-                        + "WHERE owner_user_id IS NULL AND calories_100g=87")) {
-            while (result.next()) {
-                System.out.println("CI potato encoding: " + result.getString(1)
-                        + " / " + result.getString(2));
-            }
-        }
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods "
                 + "WHERE owner_user_id IS NULL AND CAST(name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING utf8mb4) AS BINARY)"))
                 .as("legacy global seed name restored").isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods "
-                + "WHERE owner_user_id IS NULL AND CAST(source_note AS BINARY)=CAST(CONVERT(0xE7A4BAE4BE8BE58F82E88083E580BCEFBC8CE697A0E9A29DE5A496E6B2B9E88482 USING utf8mb4) AS BINARY)"))
+                + "WHERE owner_user_id IS NULL AND calories_100g=87"
+                + " AND CAST(source_note AS BINARY)=CAST(CONVERT(0xE7A4BAE4BE8BE58F82E88083E580BCEFBC8CE697A0E9A29DE5A496E6B2B9E88482 USING utf8mb4) AS BINARY)"))
                 .as("legacy global seed source note restored").isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meal_items "
                 + "WHERE CAST(food_name AS BINARY)=CAST(CONVERT(0xE59C9FE8B186 USING utf8mb4) AS BINARY) "
