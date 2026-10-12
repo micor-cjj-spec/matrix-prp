@@ -54,7 +54,7 @@ class PersistentRepositoryOwnershipTests {
         FinanceTransactionEntity entity = new FinanceTransactionEntity();
         entity.setUserId(1L);
         when(mapper.selectById(31L)).thenReturn(entity);
-        assertThatThrownBy(() -> new MyBatisFinanceRepository(mapper).deleteTransaction(31L))
+        assertThatThrownBy(() -> new MyBatisFinanceRepository(mapper, mock(com.matrix.prp.finance.mapper.FinanceAccountMapper.class)).deleteTransaction(31L))
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(mapper, never()).deleteById(31L);
     }
