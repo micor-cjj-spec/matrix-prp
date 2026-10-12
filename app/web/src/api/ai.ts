@@ -1,5 +1,5 @@
 import { apiClient, type ApiResponse } from './client'
-import { getStoredToken, removeStoredToken } from '@/utils/token'
+import { getStoredToken } from '@/utils/token'
 
 export interface Conversation { id: string; title: string; updatedAt: string }
 export interface ChatMessage { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }
@@ -27,10 +27,8 @@ export async function streamChat(conversationId: string | null, content: string,
       contextToken }),
     signal,
   })
-  if (response.status === 401) {
-    removeStoredToken()
-    window.dispatchEvent(new CustomEvent('matrix-prp:unauthorized'))
-  }
+  // AI 接口鉴权失败不应该清除登录态。
+  // 例如 API Key 配置错误、AI 服务额度不足、AI 模块独立权限异常时，不能导致整个 PRP 退出登录。
   if (!response.ok || !response.body) throw new Error(`AI HTTP ${response.status}`)
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
