@@ -117,9 +117,8 @@ onMounted(refresh)
           </p>
         </div>
       </el-card>
-      <el-dialog :model-value="selected !== null" @close="selected=null" title="Codex 执行详情" width="min(650px, 95vw)">
-        <template v-if="selected">
-          <p><strong>任务：</strong>{{ selected.job.id }}</p>
+      <el-dialog v-if="selected" :model-value="true" @close="selected=null" title="Codex 执行详情" width="min(650px, 95vw)">
+        <p><strong>任务：</strong>{{ selected.job.id }}</p>
           <p><strong>审批状态：</strong>{{ labels[selected.job.status] ?? selected.job.status }}</p>
           <p v-if="selected.execution"><strong>GitHub 运行状态：</strong>
             {{ selected.execution.status }} · {{ selected.execution.conclusion || '尚未结束' }}</p>
@@ -130,7 +129,6 @@ onMounted(refresh)
           <p class="codex-note">如果测试失败或生成的补丁不符合安全路径规则，工作流不会创建 PR。</p>
           <template #footer><el-button @click="selected=null">关闭</el-button>
             <el-button type="primary" @click="refresh">刷新状态</el-button></template>
-        </template>
       </el-dialog>
     </div>
   </AppLayout>
