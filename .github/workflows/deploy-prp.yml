@@ -1,8 +1,8 @@
 name: Deploy PRP
-run-name: PRP ${{ github.event_name == 'workflow_run' && 'release-candidate' || inputs.action }} · ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+run-name: PRP ${{ github.event_name == 'workflow_run' && 'auto-deploy' || inputs.action }} · ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 on:
-  # Only a successful main-branch CI push may prepare a candidate. No server
-  # credentials are used by this event, and it NEVER publishes to production.
+  # Only a successful CI run from a push to this repository's main may deploy.
+  # Production SSH remains confined to the environment-scoped publish job.
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -128,32 +128,35 @@ jobs:
           path: release.tar.gz
           if-no-files-found: error
           retention-days: 14
-      - name: Print production promotion instructions (NO automatic publish)
+      - name: Summarize automatic deployment candidate
         if: github.event_name == 'workflow_run'
         env:
           RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
           {
-            echo '## Verified release candidate — human approval required'
+            echo '## Verified release candidate — automatic deployment'
             echo ''
             echo "Commit: \`$RELEASE_COMMIT\`"
             echo "Candidate Actions run ID: \`$GITHUB_RUN_ID\`"
             echo ''
-            echo 'To approve: Actions → Deploy PRP → Run workflow → action=promote'
-            echo "Enter candidate_run_id=\`$GITHUB_RUN_ID\` (must still be the latest main)."
-            echo ''
-            echo 'No production deployment was performed by this CI-triggered run.'
+            echo 'The production publish job will run automatically after successful CI and build.'
+            echo 'If production requires reviewers, GitHub will still hold the job for approval.'
           } >> "$GITHUB_STEP_SUMMARY"
   publish:
     needs: build
-    # Explicit workflow_dispatch is the required human approval on private
-    # repos without Enterprise required-reviewer protection. Never auto-SSH.
+    # No PR / fork / failed CI can publish. Environment controls still apply.
     if: >-
-      always() && github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
+      always() && github.ref == 'refs/heads/main' &&
       (
-        (inputs.action == 'deploy' && needs.build.result == 'success') ||
-        ((inputs.action == 'promote' || inputs.action == 'check' || inputs.action == 'rollback') && needs.build.result == 'skipped')
+        (github.event_name == 'workflow_run' &&
+         needs.build.result == 'success' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'main' &&
+         github.event.workflow_run.head_repository.full_name == github.repository) ||
+        (github.event_name == 'workflow_dispatch' &&
+         ((inputs.action == 'deploy' && needs.build.result == 'success') ||
+          ((inputs.action == 'promote' || inputs.action == 'check' || inputs.action == 'rollback') && needs.build.result == 'skipped')))
       )
     environment:
       name: production
@@ -162,14 +165,15 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Reject stale main revision
-        if: inputs.action == 'deploy' || inputs.action == 'promote'
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           latest="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
-          test "$latest" = "$GITHUB_SHA" || {
+          test "$latest" = "$RELEASE_SHA" || {
             echo "::error::Production approval is for a superseded commit; use the latest main."
             exit 1
           }
@@ -196,7 +200,7 @@ jobs:
             exit 2
           }
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: inputs.action == 'deploy'
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy'
         with:
           name: prp-release
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -205,14 +209,16 @@ jobs:
           name: prp-release
           run-id: ${{ inputs.candidate_run_id }}
           github-token: ${{ github.token }}
-      - name: Validate artifact matches the approved main commit
-        if: inputs.action == 'deploy' || inputs.action == 'promote'
+      - name: Validate artifact matches the tested main commit
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
+        env:
+          RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           test -s release.tar.gz
           artifact_commit="$(tar -xzOf release.tar.gz release.json | jq -er '.commit')"
-          [[ "$artifact_commit" == "$GITHUB_SHA" ]] || {
+          [[ "$artifact_commit" == "$RELEASE_SHA" ]] || {
             echo "::error::Release artifact SHA differs from the approved main commit."
             exit 1
           }
@@ -230,7 +236,7 @@ jobs:
       - name: Deploy or operate production
         env:
           DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
-          ACTION: ${{ inputs.action }}
+          ACTION: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}
           RELEASE_ID: ${{ inputs.release_id }}
         run: |
           set -euo pipefail
@@ -248,8 +254,8 @@ jobs:
       - name: Write deployment summary
         if: success()
         env:
-          ACTION: ${{ inputs.action }}
+          ACTION: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}
           RELEASE_ID: ${{ inputs.release_id }}
-          COMMIT: ${{ github.sha }}
+          COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         run: |
           printf 'PRP operation: %s\n\nCommit: `%s`\n\nRelease: `%s`\n\n[Open PRP](https://micor.top/prp/)\n' "$ACTION" "$COMMIT" "${RELEASE_ID:-r${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}" >> "$GITHUB_STEP_SUMMARY"
