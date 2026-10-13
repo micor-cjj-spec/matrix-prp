@@ -100,15 +100,17 @@ public class AiService {
         while (history.size() > 2 && estimatedInput(history) > 16000) history.remove(1);
         long reserved = estimatedInput(history) + outputLimit + 256L;
         String month = month();
-        store.reserve(user, month, reserved, perUserRequests, perUserTokens, globalRequests, globalTokens);
-        Conversation conversation = id == null || id.isBlank() ?
-                store.create(user, content.substring(0, Math.min(70, content.length()))) : null;
-        String conversationId = conversation == null ? id : conversation.id();
-        store.append(user, conversationId, "user", content);
+        // Admission to the bounded executor must succeed before charging quota or writing
+        // any conversation data. A saturated worker pool must be a side-effect-free 503.
         SseEmitter emitter = new SseEmitter(155_000L);
         try {
             executor.execute(() -> {
                 try {
+                    store.reserve(user, month, reserved, perUserRequests, perUserTokens, globalRequests, globalTokens);
+                    Conversation conversation = id == null || id.isBlank() ?
+                        store.create(user, content.substring(0, Math.min(70, content.length()))) : null;
+                    String conversationId = conversation == null ? id : conversation.id();
+                    store.append(user, conversationId, "user", content);
                     send(emitter, "meta", Map.of("conversationId", conversationId, "model", selected.model(), "provider", selected.provider(),
                         "sharedScopes", selectedScopes));
                     DeepSeekClient.Result result = legacy
@@ -120,7 +122,11 @@ public class AiService {
                             "inputTokens", result.inputTokens(), "outputTokens", result.outputTokens()));
                     emitter.complete();
                 } catch (Exception ex) {
-                    try { send(emitter, "error", Map.of("message", "AI request failed. Please retry.")); }
+                    // The stream is already accepted; communicate quota errors as SSE
+                    // instead of converting them into an opaque HTTP 200 success.
+                    int status = ex instanceof ResponseStatusException http ? http.getStatusCode().value() : 502;
+                    String message = status == 429 ? "Monthly AI allowance reached" : "AI request failed. Please retry.";
+                    try { send(emitter, "error", Map.of("message", message, "status", status)); }
                     catch (Exception ignored) { /* client disconnected */ }
                     emitter.complete();
                 }
