@@ -16,3 +16,17 @@ export function latestChatToRestore(
       state.explicitlyStartedNew || state.hasDraft) return null
   return conversations[0]?.id ?? null
 }
+
+/** Ignore a late history response after new-chat, another selection or a send.
+ * Automatic restoration is additionally disallowed once the user starts a draft. */
+export function shouldApplyLoadedConversation(
+  conversations: readonly RestorableConversation[],
+  id: string,
+  automatic: boolean,
+  requestId: number,
+  activeRequestId: number,
+  state: Parameters<typeof latestChatToRestore>[1],
+): boolean {
+  if (requestId !== activeRequestId || state.isSending) return false
+  return !automatic || latestChatToRestore(conversations, state) === id
+}
