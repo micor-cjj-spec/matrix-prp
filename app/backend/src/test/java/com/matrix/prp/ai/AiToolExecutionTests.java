@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -52,8 +53,10 @@ class AiToolExecutionTests {
 
         InMemoryAiStore store=new InMemoryAiStore();
         DeepSeekClient model=mock(DeepSeekClient.class);
+        AtomicReference<List<DeepSeekClient.ChatMessage>> sentToModel=new AtomicReference<>();
         when(model.model()).thenReturn("deepseek-chat");
         when(model.stream(anyList(),anyInt(),any())).thenAnswer(inv->{
+            sentToModel.set(List.copyOf(inv.getArgument(0)));
             Consumer<String> stream=inv.getArgument(2);
             stream.accept("One task found.");
             return new DeepSeekClient.Result("One task found.",15,5);
@@ -84,5 +87,10 @@ class AiToolExecutionTests {
             eq("SUCCESS"),anyLong());
         // Even a known ID from another user's conversation is not readable.
         assertThat(store.blocks(owner+1,conversation.id())).isEmpty();
+        assertThat(sentToModel.get().stream().filter(m->m.role().equals("system"))
+            .map(DeepSeekClient.ChatMessage::content)).noneMatch(s->s.contains("My private task"));
+        assertThat(sentToModel.get().stream().filter(m->m.role().equals("user"))
+            .map(DeepSeekClient.ChatMessage::content)).anyMatch(s ->
+                s.contains("[PRP_REFERENCE_DATA]") && s.contains("My private task"));
     }
 }
