@@ -7,6 +7,7 @@ import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings
 import { fetchUsage, listConversations, listMessages, streamChat, previewAiContext, confirmAiContext, AiStreamHttpError,
   type AiUsage, type ChatMessage, type Conversation, type AiContextPreview } from '@/api/ai'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
+import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 
 type ContextOption = { value: string; label: string; hint: string }
 const options: ContextOption[] = [
@@ -25,6 +26,11 @@ const selectedId = ref<string | null>(null)
 const input = ref('')
 const sending = ref(false)
 const historyOpen = ref(false)
+const historyLoading = ref(false)
+const historyLoadError = ref(false)
+const showJumpToBottom = ref(false)
+let explicitlyStartedNew = false
+let activeSelectionRequest = 0
 const usage = ref<AiUsage | null>(null)
 const settings = ref<AiSettings | null>(null)
 const provider = ref('deepseek')
@@ -77,30 +83,70 @@ async function persistModel(previous: { provider: string; model: string }) {
   } finally { savingModel.value = false }
 }
 
-async function refresh() {
-  try {
-    const [items, current] = await Promise.all([listConversations(), fetchUsage()])
-    conversations.value = items
-    usage.value = current
-  } catch { ElMessage.error('无法加载历史会话') }
+async function refresh(restoreLatest = false) {
+  historyLoading.value = true
+  // Usage failure must not hide conversations that were loaded successfully.
+  const [chats, current] = await Promise.allSettled([listConversations(), fetchUsage()])
+  if (chats.status === 'fulfilled') {
+    conversations.value = chats.value
+    historyLoadError.value = false
+    if (restoreLatest) {
+      const id = latestChatToRestore(chats.value, {
+        selectedId: selectedId.value,
+        hasMessages: messages.value.length > 0,
+        isSending: sending.value,
+        explicitlyStartedNew,
+        hasDraft: Boolean(input.value.trim()),
+      })
+      if (id) await select(id, true)
+    }
+  } else {
+    historyLoadError.value = true
+    ElMessage.error('历史会话加载失败，请重试；已有记录不会因此删除')
+  }
+  if (current.status === 'fulfilled') usage.value = current.value
+  historyLoading.value = false
+}
+function onMessagesScroll() {
+  const el = scroller.value
+  if (!el) return
+  showJumpToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight > 90
 }
 function bottom() {
   void nextTick(() => {
-    if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight
+    if (scroller.value) {
+      scroller.value.scrollTop = scroller.value.scrollHeight
+      showJumpToBottom.value = false
+    }
   })
 }
-watch(messages, () => { if (!prependingHistory) bottom() }, { deep: true })
-async function select(id: string) {
+// While streaming, let users scroll up to read previous messages.
+watch(messages, () => { if (!prependingHistory && !showJumpToBottom.value) bottom() }, { deep: true })
+async function select(id: string, automaticRestore = false) {
   if (sending.value || loadingOlder.value) return
+  const requestId = ++activeSelectionRequest
   try {
     const data = await listMessages(id, undefined, HISTORY_PAGE_SIZE + 1)
+    const canApply = shouldApplyLoadedConversation(
+      conversations.value, id, automaticRestore, requestId, activeSelectionRequest, {
+        selectedId: selectedId.value,
+        hasMessages: messages.value.length > 0,
+        isSending: sending.value,
+        explicitlyStartedNew,
+        hasDraft: Boolean(input.value.trim()),
+      },
+    )
+    if (!canApply) return
+    if (!automaticRestore) explicitlyStartedNew = false
     selectedId.value = id
     hasOlder.value = data.length > HISTORY_PAGE_SIZE
     messages.value = data.slice(-HISTORY_PAGE_SIZE)
     historyOpen.value = false
     streamError.value = ''
     bottom()
-  } catch { ElMessage.error('无法加载聊天记录') }
+  } catch {
+    if (requestId === activeSelectionRequest) ElMessage.error('无法加载聊天记录')
+  }
 }
 async function loadOlder() {
   const id = selectedId.value
@@ -126,6 +172,8 @@ async function loadOlder() {
 }
 function newChat() {
   if (sending.value || loadingOlder.value) return
+  explicitlyStartedNew = true
+  ++activeSelectionRequest
   selectedId.value = null
   hasOlder.value = false
   messages.value = []
@@ -201,6 +249,7 @@ async function send(contextToken?: string) {
   selectedScopes.value = []
   invalidatePreview()
   mentionOpen.value = false
+  ++activeSelectionRequest // A pending automatic history load must not rebind this send.
   sending.value = true
   streamError.value = ''
   const id = -Date.now()
@@ -208,6 +257,7 @@ async function send(contextToken?: string) {
     { id, role: 'user', content, createdAt: new Date().toISOString() },
     { id: id - 1, role: 'assistant', content: '', createdAt: new Date().toISOString() },
   )
+  bottom()
   const reply = messages.value[messages.value.length - 1]!
   controller = new AbortController()
   let completed = false
@@ -244,7 +294,7 @@ async function send(contextToken?: string) {
     bottom()
   }
 }
-onMounted(() => { void refresh(); void loadSettings() })
+onMounted(() => { void refresh(true); void loadSettings() })
 onBeforeUnmount(() => controller?.abort())
 </script>
 
@@ -281,7 +331,7 @@ onBeforeUnmount(() => controller?.abort())
         </div>
       </header>
 
-      <div ref="scroller" class="prp-chat-messages" role="log" aria-label="聊天消息">
+      <div ref="scroller" class="prp-chat-messages" role="log" aria-label="聊天消息" @scroll.passive="onMessagesScroll">
         <div v-if="hasOlder && selectedId" class="chat-history-pagination">
           <button type="button" :disabled="loadingOlder || sending" @click="loadOlder">
             {{ loadingOlder ? '正在加载…' : '加载更早的消息' }}
@@ -316,6 +366,9 @@ onBeforeUnmount(() => controller?.abort())
 
       <div class="prp-chat-footer">
         <div class="chat-footer-inner">
+          <button v-if="showJumpToBottom" type="button" class="chat-jump-bottom" @click="bottom">
+            <el-icon><ArrowDown /></el-icon> 跳到最新消息
+          </button>
           <div v-if="selectedScopes.length" class="chat-context-chips">
             <span v-for="scope in selectedScopes" :key="scope" class="chat-context-chip">
               @{{ optionByValue(scope)?.label }}
@@ -362,7 +415,12 @@ onBeforeUnmount(() => controller?.abort())
             :class="{ selected: item.id === selectedId }" :disabled="sending" @click="select(item.id)">
             <el-icon><ChatDotRound /></el-icon><span>{{ item.title }}</span>
           </button>
-          <p v-if="!conversations.length" class="chat-history-empty">还没有历史会话</p>
+          <p v-if="historyLoading && !conversations.length" class="chat-history-empty">正在加载历史会话…</p>
+          <div v-else-if="historyLoadError" class="chat-history-load-error" role="alert">
+            <span>暂时无法读取历史记录，记录并未因此删除。</span>
+            <button type="button" @click="refresh()">重试加载</button>
+          </div>
+          <p v-else-if="!conversations.length" class="chat-history-empty">还没有历史会话</p>
         </div>
         <div v-if="usage" class="chat-history-usage">本月请求 {{ usage.requests }}/{{ usage.maxRequests }}</div>
       </div>
@@ -381,7 +439,7 @@ onBeforeUnmount(() => controller?.abort())
 </template>
 
 <style scoped>
-.prp-chat-screen{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;background:#fff;color:#1e293b}
+.prp-chat-screen{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;position:relative;background:#fff;color:#1e293b}
 .prp-chat-header{height:66px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 27px;border-bottom:1px solid #edf1f6;background:#fff}
 .chat-header-left,.chat-header-actions{display:flex;align-items:center;gap:13px;min-width:0}
 .chat-icon-button{display:inline-grid;place-items:center;width:38px;height:38px;flex:none;border:0;background:transparent;border-radius:11px;color:#62738b;font-size:20px;cursor:pointer}
@@ -389,7 +447,7 @@ onBeforeUnmount(() => controller?.abort())
 .chat-icon-button:disabled{opacity:.4;cursor:not-allowed}
 .chat-brand{min-width:0}.chat-title{display:flex;align-items:center;gap:4px;font-size:16px;font-weight:700;color:#20344d}.chat-brand-icon{font-size:11px;color:#9ba8b7}
 .chat-subtitle{font-size:11px;color:#91a0b2;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.prp-chat-messages{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:28px max(24px,calc((100% - 800px)/2)) 24px;scrollbar-gutter:stable}
+.prp-chat-messages{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain;padding:28px max(24px,calc((100% - 800px)/2)) 24px;scrollbar-gutter:stable}
 .chat-welcome{padding:clamp(45px,13vh,135px) 6px 20px;text-align:center}
 .chat-welcome-icon{display:grid;place-items:center;margin:0 auto 20px;width:58px;height:58px;border-radius:19px;background:#eef4ff;color:#4a83e8;font-size:27px}
 .chat-welcome h1{margin:0;font-size:clamp(22px,3vw,28px);font-weight:700;letter-spacing:-.5px}.chat-welcome p{color:#8592a4;font-size:14px;line-height:1.8}
@@ -410,6 +468,7 @@ onBeforeUnmount(() => controller?.abort())
 .chat-error{color:#b45309;background:#fff7ed;padding:12px 14px;border-radius:12px;font-size:13px}
 .prp-chat-footer{flex:none;background:linear-gradient(to bottom,rgba(255,255,255,.92),#fff 16%);padding:10px 22px 12px}
 .chat-footer-inner{position:relative;max-width:800px;margin:0 auto}
+.chat-jump-bottom{position:absolute;top:-49px;right:0;display:flex;align-items:center;gap:5px;padding:8px 12px;border:1px solid #d5e1f1;border-radius:20px;background:#fff;color:#3975c9;font-size:12px;box-shadow:0 3px 12px #223f681a;cursor:pointer;z-index:4}
 .chat-composer{border:1px solid #dfe6ef;box-shadow:0 5px 24px #233f6510;border-radius:22px;padding:12px 15px 9px;background:white}
 .chat-composer:focus-within{border-color:#9abcf2}
 .chat-compose-tools{display:flex;align-items:center;justify-content:space-between;margin-top:3px}
@@ -434,7 +493,9 @@ onBeforeUnmount(() => controller?.abort())
 .chat-new-button{display:flex;align-items:center;gap:9px;width:100%;padding:11px 14px;background:#eef5ff;border:1px solid #d8e7ff;color:#2964bd;border-radius:12px;cursor:pointer}
 .chat-history-list{flex:1;overflow:auto}.chat-history-item{display:flex;align-items:center;gap:10px;width:100%;margin-bottom:5px;padding:12px 10px;border:0;border-radius:10px;background:#fff;color:#5b6b80;text-align:left;cursor:pointer}
 .chat-history-item span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.chat-history-item.selected,.chat-history-item:hover{background:#ecf4ff;color:#276bce}
-.chat-history-usage,.chat-history-empty{font-size:12px;color:#8795a8}.chat-preview-data{max-height:35vh;overflow:auto;background:#f4f7fb;padding:15px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.chat-history-usage,.chat-history-empty{font-size:12px;color:#8795a8}
+.chat-history-load-error{display:grid;gap:8px;font-size:12px;color:#a0552f}
+.chat-history-load-error button{justify-self:start;border:1px solid #d5e1f1;border-radius:8px;background:#fff;padding:6px 11px;color:#3477e6;cursor:pointer}.chat-preview-data{max-height:35vh;overflow:auto;background:#f4f7fb;padding:15px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
 .chat-history-pagination{display:flex;justify-content:center;padding:10px 0 20px}
 .chat-history-pagination button{border:1px solid #d7e4f3;border-radius:12px;padding:8px 15px;background:#fff;color:#4578b7;font-size:12px;cursor:pointer}
 .chat-history-pagination button:disabled{opacity:.5;cursor:wait}
