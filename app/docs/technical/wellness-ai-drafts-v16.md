@@ -1,17 +1,27 @@
-# Health AI write drafts — V16 (initial create-only release)
+# PRP Health AI draft capture (V16)
 
-Design:
-- AI is an untrusted parser. The only permitted actions are `meal.create`, `exercise.create`, `metric.create`.
-- A caller submits plain text and optionally a JPEG/PNG/WebP image (<=3MB). The backend validates file signature, uses the configured AI provider from the authenticated user's settings, and records ONLY a normalized write proposal; images are not stored.
-- DeepSeek photo calls use **deepseek-flash** (a vision-capable model); ordinary text uses the currently selected model. OpenAI GPT-4.1 and Kimi K2.5 are allowed for images. Unsupported selected vision models fail closed.
-- The model cannot choose userId, credentials, SQL, endpoints or nutritional values. Every meal item resolves to a locally accessible foodId; calories are computed server-side using existing NutritionMath. Unknown foods/weights fail closed and require manual correction or importing the food.
-- The proposal is private to the current user, valid 15 minutes, and one-time confirm. A row lock, transaction and existing meal idempotency key guard prevent repeat confirmed writes.
-- Existing wellness CRUD APIs remain untouched and AI is not granted silent update/delete. Users keep using the authenticated manual forms for update/delete.
-- This opt-in flow forwards text and optional images to the selected AI provider. Do not send health records beyond the scope of the user's submitted text/image.
-- V16 is additive; backup, restore-test and verify Flyway migration state before production application.
-- Next phase: editable pending-draft card, AI correction/update/delete proposals with before/after previews, photo history with private media retention controls, automated external-food synonym matching and full integration tests.
+## Implemented in PR #39
 
-API:
-- `POST /api/wellness/ai/prepare` multipart text, image?: file
-- `POST /api/wellness/ai/drafts/{draftId}/confirm` one-time user confirmation
-- The server returns only normalized draft fields and private PRP deep link after successful saving.
+- AI parses text or <=3MB JPEG/PNG/WebP into an **untrusted create-only proposal**: meal, exercise, or body weight. Supported photo recognition depends on the chosen provider/model and must be verified against live API before release.
+- Before any business write, the user sees a mutable preview. For meals, choose a local or USDA-imported food item and edit grams; for exercise/weight, edit the relevant fields and date. This is a human-in-the-loop workflow.
+- Unknown food names and unknown weights are allowed as **incomplete pending drafts**; nutrition is never fabricated. Confirmation fails if any meal item is unmatched or has non-positive grams. Server ignores model/front-end calories, resolves food ownership and recalculates from the selected food reference.
+- The authenticated user has a private draft valid for 15 minutes. PATCH validates a corrected draft using the stored action type and locks the row; POST confirm locks and consumes it in one transaction. The model cannot choose user IDs or SQL, cannot silently update/delete existing health records.
+- AI images are sent only on explicit request to the configured provider and are **not stored as historical photos**. This does not make the upstream service private; disclose third-party processing and follow the vendor's data policy.
+- Photo estimates, cooked dish oil and branded-food sizes are inherently uncertain. Different foods can have the same or similar name; users must verify the selected preparation state.
+- The initial AI writing path is independent from the chat's **read-only, one-message consent** flow. Chat now opens the composer on explicit health-recording requests even without an @ mention. This does **not** grant direct AI mutation authority.
+- Opt-in read tools `wellness_trends` and `wellness_body_trends` cover 7/14/30-day windows. Body weight requires a separate `wellness_body` scope, distinct from basic `wellness`, and null means unrecorded.
+- No existing API or historic table is overwritten. V16 is additive.
+
+## APIs
+
+- `POST /api/wellness/ai/prepare` multipart: `text` and optional `image`
+- `PATCH /api/wellness/ai/drafts/{draftId}` normalized human edits, same stored create action
+- `POST /api/wellness/ai/drafts/{draftId}/confirm` one-time confirmation
+
+## Deployment checks
+
+Back up and restore-test `matrix_prp`, verify migrations V1–V14 already applied (or correct reviewed baseline), validate Flyway, apply V15 and V16 in order, verify old user rows unchanged. Run browser/PWA tests on iPhone, real-model photo smoke tests, food cross-user isolation checks, missing-weight draft and expired/replayed confirmation tests. Do not automatically baseline or clean.
+
+## Deferred
+
+AI updating/deleting existing records with before/after review; direct recording with a user-supplied total kcal but no known gram/food; long-term private image archive and device imports; provider-specific live smoke tests.
