@@ -233,6 +233,24 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           test -s ~/.ssh/prp_deploy
           test -s ~/.ssh/known_hosts
+      - name: Checkout controller manifest for the exact release commit
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Verify approved production controller before deploying
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+          RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          ssh_args=(-i ~/.ssh/prp_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" controller-sha256 > "$RUNNER_TEMP/prp-controller-sha256.txt"
+          python3 app/deploy/verify_controller.py --manifest app/deploy/controller-manifest.json --response "$RUNNER_TEMP/prp-controller-sha256.txt"
       - name: Deploy or operate production
         env:
           DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
