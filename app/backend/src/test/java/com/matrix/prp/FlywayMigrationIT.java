@@ -89,10 +89,11 @@ class FlywayMigrationIT {
     void newSchemaMigratesTwiceWithoutChangingExistingRows() throws SQLException {
         String url = System.getenv("MATRIX_PRP_FLYWAY_FRESH_URL");
         Flyway migration = flyway(url);
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(14);
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(16);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(14);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(16);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(9);
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='prp_wellness_ai_drafts'")).isEqualTo(1);
 
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='prp_finance_transfers'")).isEqualTo(1);
         insertSentinel(url, "flyway_fresh_ci");
@@ -100,7 +101,7 @@ class FlywayMigrationIT {
         assertThat(migration.migrate().migrationsExecuted).isZero();
         assertThat(count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'")).isEqualTo(before);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods WHERE owner_user_id IS NULL"))
-                .isGreaterThanOrEqualTo(9);
+                .isGreaterThanOrEqualTo(140);
     }
 
     @Test
@@ -121,10 +122,10 @@ class FlywayMigrationIT {
         long seedRows = count(url, "SELECT COUNT(*) FROM prp_wellness_foods");
         Flyway migration = flyway(url);
         assertThat(migration.baseline().successfullyBaselined).isTrue();
-        // V8-V14 are pending after V7 baseline, including safe starter-food repair.
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(7);
+        // V8-V16 are pending after V7 baseline, including safe starter-food repair and additive common-food rows.
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(9);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'")).isEqualTo(before);
-        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isEqualTo(seedRows);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isGreaterThanOrEqualTo(seedRows + 140);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_finance_transactions WHERE note='legacy preserved'"))
                 .isEqualTo(financeBefore);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_finance_transactions t "
@@ -150,6 +151,6 @@ class FlywayMigrationIT {
                 + "WHERE note='MIGRATION_TEXT_SENTINEL'")).isEqualTo(1);
         assertThat(migration.migrate().migrationsExecuted).isZero();
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(8);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(10);
     }
 }
