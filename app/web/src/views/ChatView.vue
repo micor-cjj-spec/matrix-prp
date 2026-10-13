@@ -435,6 +435,9 @@ onBeforeUnmount(() => controller?.abort())
 .chat-history-list{flex:1;overflow:auto}.chat-history-item{display:flex;align-items:center;gap:10px;width:100%;margin-bottom:5px;padding:12px 10px;border:0;border-radius:10px;background:#fff;color:#5b6b80;text-align:left;cursor:pointer}
 .chat-history-item span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.chat-history-item.selected,.chat-history-item:hover{background:#ecf4ff;color:#276bce}
 .chat-history-usage,.chat-history-empty{font-size:12px;color:#8795a8}.chat-preview-data{max-height:35vh;overflow:auto;background:#f4f7fb;padding:15px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.chat-history-pagination{display:flex;justify-content:center;padding:10px 0 20px}
+.chat-history-pagination button{border:1px solid #d7e4f3;border-radius:12px;padding:8px 15px;background:#fff;color:#4578b7;font-size:12px;cursor:pointer}
+.chat-history-pagination button:disabled{opacity:.5;cursor:wait}
 .chat-consent-explain{color:#64748b;font-size:12px;line-height:1.8}
 :deep(.chat-input .el-textarea__inner){border:0;box-shadow:none!important;resize:none;background:transparent;padding:2px 0 5px;line-height:1.8;font-size:14px}
 :deep(.markdown-body p){margin:0 0 10px}:deep(.markdown-body p:last-child){margin-bottom:0}
