@@ -156,6 +156,10 @@ public class WellnessService {
         return db.query("SELECT "+ITEM_COLUMNS+" FROM prp_wellness_meal_items WHERE meal_id=? ORDER BY id",
                 this::mapItem,mealId);
     }
+    /** Authenticated, owner-filtered record snapshots for change previews. */
+    public Meal ownedMeal(long id) { return meal(id); }
+    public Exercise ownedExercise(long id) { return exercise(id); }
+    public BodyMetric ownedMetric(long id) { return metric(id); }
     private Meal meal(long id) {
         List<Meal> rows=db.query("SELECT id,meal_date,meal_type,note FROM prp_wellness_meals " +
                 "WHERE id=? AND user_id=?", (r,n)->mealFromRow(r),id,CurrentUser.id());
