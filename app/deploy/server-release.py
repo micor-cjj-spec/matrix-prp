@@ -41,7 +41,7 @@ def snapshot(db='matrix_prp'):
  food_hashes={}
  if 'prp_wellness_foods' in tables:
   for row in sql('SELECT * FROM `prp_wellness_foods` ORDER BY id;',db).splitlines():
-   row_id=row.split('\\t',1)[0]
+   row_id=row.split('\t',1)[0]
    if not row_id.isdigit() or row_id in food_hashes:raise ValueError('Cannot fingerprint legacy food row')
    food_hashes[row_id]=hashlib.sha256(row.encode('utf-8')).hexdigest()
   if len(food_hashes)!=counts['prp_wellness_foods']:
