@@ -94,8 +94,8 @@ class WellnessAiChangeTests {
         row.put("payload_json",payload);
         row.put("status","PENDING");
         row.put("expires_at",java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().plusMinutes(3)));
-        when(db.queryForList(contains("prp_wellness_ai_drafts"),any(),any())).thenReturn(List.of(row));
-        when(db.queryForList(contains("prp_wellness_exercises"),any(),any()))
+        when(db.queryForList(contains("prp_wellness_ai_drafts"),(Object)anyString(),(Object)anyLong())).thenReturn(List.of(row));
+        when(db.queryForList(contains("prp_wellness_exercises"),(Object)anyLong(),(Object)anyLong()))
             .thenReturn(List.of(Map.of("id",51L)));
         assertThatThrownBy(()->svc.confirm("123e4567-e89b-12d3-a456-426614174000"))
             .isInstanceOf(ResponseStatusException.class).hasMessageContaining("changed");

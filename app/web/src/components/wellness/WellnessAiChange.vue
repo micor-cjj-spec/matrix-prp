@@ -17,7 +17,12 @@ type Outcome = { action: string; route: string; saved: unknown }
 const props=defineProps<{ initialKind?: Kind; initialId?: number; initialDate?: string }>()
 const emit=defineEmits<{ changed: [result: Outcome] }>()
 const kind=ref<Kind>(props.initialKind ?? 'meal')
-const date=ref(props.initialDate ?? new Date().toLocaleDateString('en-CA'))
+function localDay() {
+  const d=new Date()
+  return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),
+    String(d.getDate()).padStart(2,'0')].join('-')
+}
+const date=ref(props.initialDate ?? localDay())
 const targetId=ref(props.initialId ?? 0)
 const action=ref<Action>('update')
 const instruction=ref('')
