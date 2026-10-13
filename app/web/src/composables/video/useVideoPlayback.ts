@@ -35,7 +35,10 @@ export function useVideoPlayback(captureCurrent: () => VideoProgressSnapshot | n
   function persist(videoId: number, snapshot: VideoProgressSnapshot) {
     if (!Number.isFinite(snapshot.positionSeconds) || !Number.isFinite(snapshot.durationSeconds)
       || snapshot.positionSeconds < 0 || snapshot.durationSeconds <= 0) return
-    if (playing.value?.id === videoId) playing.value.positionSeconds = snapshot.positionSeconds
+    if (playing.value?.id === videoId) {
+      playing.value.positionSeconds = snapshot.positionSeconds
+      playing.value.durationSeconds = snapshot.durationSeconds
+    }
     progressQueue(videoId, snapshot.positionSeconds, snapshot.durationSeconds)
   }
 
@@ -51,6 +54,11 @@ export function useVideoPlayback(captureCurrent: () => VideoProgressSnapshot | n
     if (playing.value?.id !== videoId) return
     currentTime.value = snapshot.positionSeconds
     duration.value = snapshot.durationSeconds
+    // Update the UI immediately; network persistence remains throttled to 15 seconds.
+    if (playing.value && snapshot.durationSeconds > 0) {
+      playing.value.positionSeconds = snapshot.positionSeconds
+      playing.value.durationSeconds = snapshot.durationSeconds
+    }
     if (Date.now() - lastSavedAt >= 15_000) {
       lastSavedAt = Date.now()
       persist(videoId, snapshot)
@@ -75,6 +83,9 @@ export function useVideoPlayback(captureCurrent: () => VideoProgressSnapshot | n
       currentTime.value = video.positionSeconds || 0
       duration.value = video.durationSeconds || 0
       lastSavedAt = Date.now()
+    } catch (error) {
+      // An obsolete ticket failure must not show an error for the user's newer selection.
+      if (serial === requestSerial) throw error
     } finally {
       if (serial === requestSerial) loadingPlaybackId.value = null
     }
