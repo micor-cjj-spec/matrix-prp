@@ -40,4 +40,23 @@ class AiDatabaseIT {
         store.completed(first, uniqueMonth, 99, 12);
         assertThat(store.usage(first, uniqueMonth).inputTokens()).isEqualTo(99);
     }
+
+    @Test
+    void paginatesMoreThanTwoHundredMessagesWithoutLosingNewestOrTenantIsolation() {
+        long owner = 908883L, other = 908884L;
+        String id = store.create(owner, "Pagination " + UUID.randomUUID()).id();
+        for (int i = 0; i < 205; i++) store.append(owner, id, "user", "message-" + i);
+
+        var latest = store.messages(owner, id);
+        assertThat(latest).hasSize(200);
+        assertThat(latest.getFirst().content()).isEqualTo("message-5");
+        assertThat(latest.getLast().content()).isEqualTo("message-204");
+
+        var older = store.messages(owner, id, latest.getFirst().id(), 201);
+        assertThat(older).hasSize(5);
+        assertThat(older.getFirst().content()).isEqualTo("message-0");
+        assertThat(older.getLast().content()).isEqualTo("message-4");
+        assertThat(store.messages(owner, id, older.getFirst().id(), 201)).isEmpty();
+        assertThat(store.messages(other, id, null, 201)).isEmpty();
+    }
 }
