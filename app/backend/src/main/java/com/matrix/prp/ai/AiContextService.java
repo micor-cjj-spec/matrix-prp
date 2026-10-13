@@ -31,7 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @Service
 public class AiContextService {
-    public static final Set<String> SCOPES = Set.of("tasks", "practice", "wellness", "finance");
+    public static final Set<String> SCOPES = Set.of("tasks", "practice", "wellness", "wellness_body", "finance");
     public record Snapshot(List<String> scopes, LocalDate date, Map<String, Object> data) {}
 
     private final TaskService tasks;
@@ -93,6 +93,17 @@ public class AiContextService {
                     summary.put("exerciseMinutes", day.exerciseMinutes());
                     // Do NOT export free-text meal/exercise notes, weight, body metrics or profile.
                     data.put(scope, summary);
+                }
+                case "wellness_body" -> {
+                    WellnessService service=wellness.getIfAvailable();
+                    if(service==null)
+                        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Body measurements unavailable");
+                    var summary=new LinkedHashMap<String,Object>();
+                    summary.put("date",today);
+                    summary.put("latestWeightKg",service.daily(today).latestWeightKg());
+                    summary.put("bodyMeasurementsLast30Days",service.metrics(30).size());
+                    summary.put("permission","体重数据可在本次授权中提供给外部 AI 模型");
+                    data.put(scope,summary);
                 }
                 case "finance" -> {
                     var summary=finance.monthlySummary(new FinanceTransactionFilter(YearMonth.now(),null,null));

@@ -105,6 +105,26 @@ public class WellnessService {
                 input.carbs100g(),input.fat100g(),input.sourceNote());
         return food(id);
     }
+    /** Imported food remains owned by the requesting user; never mutates shared reference foods. */
+    @Transactional
+    public Food importUsda(UsdaFoodCatalog.Candidate candidate, String alias) {
+        long user=CurrentUser.id();
+        List<Food> existing=db.query("SELECT "+FOOD_COLUMNS+
+            " FROM prp_wellness_foods WHERE owner_user_id=? AND source_note=? LIMIT 1",
+            this::mapFood,user,candidate.source());
+        if(!existing.isEmpty()) return existing.get(0);
+        String name=candidate.name();
+        if(alias!=null && !alias.isBlank()){
+            String cleaned=alias.trim();
+            if(cleaned.length()>80 || !cleaned.matches("[\\p{L}\\p{N} ()（）·-]+"))
+                throw new IllegalArgumentException("Invalid food alias");
+            name=cleaned;
+        }
+        return addFood(new FoodInput(name,"unspecified",candidate.calories100g(),
+            candidate.protein100g(),candidate.carbs100g(),candidate.fat100g(),candidate.source()));
+    }
+    /** Returns a food only when it is a shared reference or owned by the authenticated user. */
+    public Food accessibleFood(long id) { return food(id); }
     private Food food(long id) {
         List<Food> rows=db.query("SELECT "+FOOD_COLUMNS+" FROM prp_wellness_foods " +
                 "WHERE id=? AND (owner_user_id IS NULL OR owner_user_id=?)",
@@ -136,6 +156,10 @@ public class WellnessService {
         return db.query("SELECT "+ITEM_COLUMNS+" FROM prp_wellness_meal_items WHERE meal_id=? ORDER BY id",
                 this::mapItem,mealId);
     }
+    /** Authenticated, owner-filtered record snapshots for change previews. */
+    public Meal ownedMeal(long id) { return meal(id); }
+    public Exercise ownedExercise(long id) { return exercise(id); }
+    public BodyMetric ownedMetric(long id) { return metric(id); }
     private Meal meal(long id) {
         List<Meal> rows=db.query("SELECT id,meal_date,meal_type,note FROM prp_wellness_meals " +
                 "WHERE id=? AND user_id=?", (r,n)->mealFromRow(r),id,CurrentUser.id());

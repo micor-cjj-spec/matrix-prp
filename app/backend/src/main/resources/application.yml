@@ -73,3 +73,7 @@ matrix-prp:
     global-monthly-requests: ${MATRIX_PRP_AI_GLOBAL_MONTHLY_REQUESTS:1000}
     user-monthly-reserved-tokens: ${MATRIX_PRP_AI_USER_MONTHLY_TOKENS:250000}
     global-monthly-reserved-tokens: ${MATRIX_PRP_AI_GLOBAL_MONTHLY_TOKENS:1000000}
+
+  wellness:
+    # Optional USDA FoodData Central (CC0) server-only key; never exposed to browsers.
+    usda-api-key: ${MATRIX_PRP_USDA_API_KEY:}

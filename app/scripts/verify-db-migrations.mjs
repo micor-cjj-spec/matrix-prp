@@ -35,12 +35,12 @@ export function validateMirror() {
       versioned + ' differs from deployed legacy SQL')
   }
   const actual = readdirSync(newRoot).filter(name => /^V[0-9]+__.*\.sql$/.test(name)).sort()
-  assert.deepEqual(actual, [...mapping.map(x => x[1]), 'V8__ai_orchestrator.sql', 'V9__ai_provider_settings.sql', 'V10__openclaw_agent_tasks.sql', 'V11__codex_review_jobs.sql', 'V12__repair_legacy_food_seed_encoding.sql', 'V13__finance_ledger_foundation.sql', 'V14__ai_read_tools_and_navigation_cards.sql'].sort(),
+  assert.deepEqual(actual, [...mapping.map(x => x[1]), 'V8__ai_orchestrator.sql', 'V9__ai_provider_settings.sql', 'V10__openclaw_agent_tasks.sql', 'V11__codex_review_jobs.sql', 'V12__repair_legacy_food_seed_encoding.sql', 'V13__finance_ledger_foundation.sql', 'V14__ai_read_tools_and_navigation_cards.sql', 'V15__wellness_common_food_reference.sql', 'V16__wellness_ai_write_drafts.sql'].sort(),
     'migration manifest changed: review and explicitly update verification for new migrations')
   assert.equal(legacyTables().length, 31, 'unexpected inventory of original tables')
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   validateMirror()
-  console.log('PASS: immutable V1-V7 mirror; V8-V14 migrations registered; 31 legacy tables unchanged.')
+  console.log('PASS: immutable V1-V7 mirror; V8-V16 migrations registered; 31 legacy tables unchanged.')
 }

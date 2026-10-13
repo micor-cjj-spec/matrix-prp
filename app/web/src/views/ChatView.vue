@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
+import WellnessAiRecorder from '@/components/wellness/WellnessAiRecorder.vue'
 import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
 import { fetchUsage, listConversations, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, AiStreamHttpError,
@@ -14,7 +15,8 @@ type ContextOption = { value: string; label: string; hint: string }
 const options: ContextOption[] = [
   { value: 'tasks', label: '任务', hint: '今日待办与任务概览' },
   { value: 'practice', label: '刷题', hint: '答题正确率与练习统计' },
-  { value: 'wellness', label: '健康', hint: '今日饮食与运动汇总' },
+  { value: 'wellness', label: '健康', hint: '饮食与运动近7至30天趋势（不含体重）' },
+  { value: 'wellness_body', label: '身体指标', hint: '体重敏感信息：单独授权近7至30天趋势' },
   { value: 'finance', label: '财务', hint: '当月收支与分类统计（敏感）' },
 ]
 const optionByValue = (value: string) => options.find(option => option.value === value)
@@ -52,6 +54,12 @@ const previewVisible = ref(false)
 const previewing = ref(false)
 const confirming = ref(false)
 const streamError = ref('')
+const wellnessRecorderVisible = ref(false)
+const wellnessRecorderText = ref('')
+function openWellnessRecorder() {
+  wellnessRecorderVisible.value = !wellnessRecorderVisible.value
+  if (wellnessRecorderVisible.value && input.value.trim()) wellnessRecorderText.value = input.value.trim()
+}
 const scroller = ref<HTMLElement | null>(null)
 const models = computed(() => settings.value?.providers.find(item => item.id === provider.value)?.models ?? [])
 const currentProviderName = computed(() => settings.value?.providers.find(item => item.id === provider.value)?.name ?? provider.value)
@@ -255,6 +263,20 @@ function describeStreamError(error: unknown): string {
 async function send(contextToken?: string) {
   const content = input.value.trim()
   if (!content || sending.value || content.length > 4000) return
+  const healthWrite = /(记下|记录|录入|新增|添加|记一笔|记一下|帮我记|修改|更正|改成|删除|撤销|删掉)/u.test(content) &&
+    /(早餐|午餐|晚餐|加餐|吃了|喝了|食物|热量|体重|体脂|腰围|跑步|步行|运动|骑行|健身)/u.test(content) &&
+    !/(如何|怎么|为什么|分析|建议|计划|查询|如何设计)/u.test(content)
+  if (content.length <= 1500 && healthWrite &&
+      (selectedScopes.value.length === 0 ||
+       selectedScopes.value.every(s => s === 'wellness' || s === 'wellness_body'))) {
+    wellnessRecorderText.value = content.replace(/^@(健康|身体指标)\\s*/u, '')
+    wellnessRecorderVisible.value = true
+    input.value = ''
+    selectedScopes.value = []
+    invalidatePreview()
+    mentionOpen.value = false
+    return
+  }
   if (selectedScopes.value.length > 0 && !contextToken) { await showPreview(); return }
   if (selectedScopes.value.length === 0 && contextToken) return
   const scopes = [...selectedScopes.value]
@@ -402,7 +424,11 @@ onBeforeUnmount(() => controller?.abort())
               <strong>@{{ item.label }}</strong><span>{{ item.hint }}</span>
             </button>
             <div v-if="filteredOptions.length === 0" class="mention-empty">暂无匹配的可授权应用</div>
-            <div class="mention-hint">当前仅提供经授权的只读查询；不会增删改数据。</div>
+            <div class="mention-hint">引用其他应用仍需一次性只读授权；健康录入通过单独的待确认草稿操作。</div>
+          </div>
+          <div v-if="wellnessRecorderVisible" class="chat-wellness-recorder">
+            <WellnessAiRecorder :initial-text="wellnessRecorderText"
+              @recorded="() => { wellnessRecorderVisible = false; wellnessRecorderText = '' }" />
           </div>
           <div class="chat-composer">
             <el-input v-model="input" type="textarea" class="chat-input" resize="none" :autosize="{ minRows: 1, maxRows: 5 }"
@@ -412,6 +438,7 @@ onBeforeUnmount(() => controller?.abort())
               <div class="chat-compose-left">
                 <button type="button" aria-label="引用 PRP 应用" title="引用应用" @click="mentionOpen = !mentionOpen; mentionQuery = ''"><el-icon><Plus /></el-icon></button>
                 <button type="button" class="chat-at" @click="mentionOpen = !mentionOpen; mentionQuery = ''">@ 应用</button>
+                <button type="button" class="chat-at" @click="openWellnessRecorder()">📷 健康录入</button>
               </div>
               <button type="button" class="chat-send" aria-label="发送消息" :disabled="!input.trim() || sending || previewing" @click="send()">
                 <el-icon><Promotion /></el-icon>
@@ -447,7 +474,7 @@ onBeforeUnmount(() => controller?.abort())
     </el-drawer>
 
     <el-dialog v-model="previewVisible" title="确认本次共享的数据" width="min(580px, 95vw)" append-to-body>
-      <p class="chat-consent-explain">以下是已选数据域的最小化摘要预览。确认后，PRP 助手可在当前这一条消息中按需查询所选模块的其他记录（包括任务标题、账目日期与金额等），并将查询结果发送给 {{ currentProviderName }}。不会修改数据；如不愿共享该模块其他记录，请取消授权。</p>
+      <p class="chat-consent-explain">以下是已选数据域的最小化摘要预览。确认后，PRP 助手可在当前这一条消息中按需查询所选模块的其他记录（包括任务标题、账目日期与金额；仅在选择「身体指标」时包含体重记录等），并将查询结果发送给 {{ currentProviderName }}。不会修改数据；如不愿共享该模块其他记录，请取消授权。</p>
       <pre class="chat-preview-data">{{ JSON.stringify(preview?.data ?? {}, null, 2) }}</pre>
       <p class="chat-consent-explain">授权令牌三分钟内有效、只能使用一次。工具调用只限已选模块和当前账户；完整查询内容不另存到聊天历史，但模型回复可能引用它。</p>
       <template #footer>
