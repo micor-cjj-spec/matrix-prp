@@ -124,7 +124,7 @@ public class WellnessAiDraftService {
                 "items:[{name:食物中文名称,grams:克数}],note:备注}；"+
                 "exercise.create: {action,date,name,durationMinutes,estimatedKcal,note}；"+
                 "metric.create: {action,date,weightKg,bodyFatPct,waistCm}。"+
-                "若日期未指定用"+today()+"。餐次类型按时间与语义判断；分量未提供时不要伪造，缺克数输出0以便服务端拒绝，"+
+                "若日期未指定用"+today()+"。餐次类型按时间与语义判断；纯文字缺克数时不要伪造，缺克数输出0以便服务端拒绝；照片可粗略估量分量（克）但务必提示用户核对，"+
                 "图片无法精确估计油量或分量，请提醒用户核对；每个图片不超过8种食物。"+
                 "仅根据用户提供的信息填写，不能读取历史数据，也不得执行修改或删除。";
             if(config.provider().anthropic()){

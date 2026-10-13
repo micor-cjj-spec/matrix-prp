@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
+import WellnessAiRecorder from '@/components/wellness/WellnessAiRecorder.vue'
 import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
 import { fetchUsage, listConversations, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, AiStreamHttpError,
@@ -52,6 +53,12 @@ const previewVisible = ref(false)
 const previewing = ref(false)
 const confirming = ref(false)
 const streamError = ref('')
+const wellnessRecorderVisible = ref(false)
+const wellnessRecorderText = ref('')
+function openWellnessRecorder() {
+  wellnessRecorderVisible.value = !wellnessRecorderVisible.value
+  if (wellnessRecorderVisible.value && input.value.trim()) wellnessRecorderText.value = input.value.trim()
+}
 const scroller = ref<HTMLElement | null>(null)
 const models = computed(() => settings.value?.providers.find(item => item.id === provider.value)?.models ?? [])
 const currentProviderName = computed(() => settings.value?.providers.find(item => item.id === provider.value)?.name ?? provider.value)
@@ -255,6 +262,16 @@ function describeStreamError(error: unknown): string {
 async function send(contextToken?: string) {
   const content = input.value.trim()
   if (!content || sending.value || content.length > 4000) return
+  if (selectedScopes.value.length === 1 && selectedScopes.value[0] === 'wellness' &&
+      /(记录|记下|录入|新增|添加|我吃|我喝|体重.*\\d|运动.*\\d|跑步.*\\d)/u.test(content)) {
+    wellnessRecorderText.value = content.replace(/^@健康\\s*/u, '')
+    wellnessRecorderVisible.value = true
+    input.value = ''
+    selectedScopes.value = []
+    invalidatePreview()
+    mentionOpen.value = false
+    return
+  }
   if (selectedScopes.value.length > 0 && !contextToken) { await showPreview(); return }
   if (selectedScopes.value.length === 0 && contextToken) return
   const scopes = [...selectedScopes.value]
@@ -402,7 +419,11 @@ onBeforeUnmount(() => controller?.abort())
               <strong>@{{ item.label }}</strong><span>{{ item.hint }}</span>
             </button>
             <div v-if="filteredOptions.length === 0" class="mention-empty">暂无匹配的可授权应用</div>
-            <div class="mention-hint">当前仅提供经授权的只读查询；不会增删改数据。</div>
+            <div class="mention-hint">引用其他应用仍需一次性只读授权；健康录入通过单独的待确认草稿操作。</div>
+          </div>
+          <div v-if="wellnessRecorderVisible" class="chat-wellness-recorder">
+            <WellnessAiRecorder :initial-text="wellnessRecorderText"
+              @recorded="() => { wellnessRecorderVisible = false; wellnessRecorderText = '' }" />
           </div>
           <div class="chat-composer">
             <el-input v-model="input" type="textarea" class="chat-input" resize="none" :autosize="{ minRows: 1, maxRows: 5 }"
@@ -412,6 +433,7 @@ onBeforeUnmount(() => controller?.abort())
               <div class="chat-compose-left">
                 <button type="button" aria-label="引用 PRP 应用" title="引用应用" @click="mentionOpen = !mentionOpen; mentionQuery = ''"><el-icon><Plus /></el-icon></button>
                 <button type="button" class="chat-at" @click="mentionOpen = !mentionOpen; mentionQuery = ''">@ 应用</button>
+                <button type="button" class="chat-at" @click="openWellnessRecorder()">📷 健康录入</button>
               </div>
               <button type="button" class="chat-send" aria-label="发送消息" :disabled="!input.trim() || sending || previewing" @click="send()">
                 <el-icon><Promotion /></el-icon>

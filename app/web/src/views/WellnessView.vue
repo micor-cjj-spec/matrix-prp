@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
+import WellnessAiRecorder from '@/components/wellness/WellnessAiRecorder.vue'
 import {
   wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type Exercise, type ExerciseInput,
   type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint,
@@ -263,6 +264,9 @@ async function saveProfile() {
         <el-date-picker v-model="date" type="date" value-format="YYYY-MM-DD" :clearable="false" @change="loadDay" />
       </div>
       <el-tabs v-model="activeTab" class="wellness-tabs" @tab-change="onTabChange">
+        <el-tab-pane label="AI 快速记录" name="ai">
+          <WellnessAiRecorder @recorded="loadAll" />
+        </el-tab-pane>
         <el-tab-pane label="今日概览" name="today">
           <section class="metric-grid">
             <article class="tile hero">
@@ -277,7 +281,8 @@ async function saveProfile() {
             <article class="tile"><span>最近体重</span><strong>{{ n(summary?.latestWeightKg, 1) }} <small>kg</small></strong><p>仅显示所选日期及之前的记录</p></article>
           </section>
           <div class="actions">
-            <el-button type="primary" @click="openMeal()">记录饮食</el-button>
+            <el-button type="primary" @click="activeTab='ai'">📷 拍照 / AI 记录</el-button>
+            <el-button @click="openMeal()">记录饮食</el-button>
             <el-button @click="openExercise()">记录运动</el-button>
             <el-button @click="openMetric()">记录体重</el-button>
           </div>
