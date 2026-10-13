@@ -191,7 +191,12 @@ async function send(contextToken?: string) {
       if (event === 'done') completed = true
       if (event === 'error') {
         eventError = true
-        streamError.value = '生成失败，请稍后重试。'
+        const status = Number(data.status)
+        streamError.value = status === 429
+          ? '本月 AI 调用额度已用完（HTTP 429），请查看用量或稍后重试。'
+          : status === 503
+            ? 'AI 服务暂时不可用（HTTP 503），请稍后重试。'
+            : '生成失败，请稍后重试。'
       }
     }, controller.signal, scopes, contextToken)
     if (!completed) throw new Error('Stream interrupted')
