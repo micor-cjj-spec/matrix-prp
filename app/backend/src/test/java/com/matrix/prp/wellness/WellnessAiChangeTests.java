@@ -84,9 +84,8 @@ class WellnessAiChangeTests {
     @Test void staleConfirmationIsRejectedBeforeBusinessMutation() throws Exception {
         owner();
         var svc=service();
-        var old=exercise(30);
-        when(wellness.ownedExercise(51)).thenReturn(exercise(45));
-        var snapshot=Map.of("date","2026-10-13","name","步行","durationMinutes",30);
+        when(wellness.ownedExercise(51)).thenReturn(exercise(30),exercise(45));
+        var snapshot=svc.current("exercise",51); // Full valid snapshot before another writer changes it.
         String payload=json.writeValueAsString(Map.of("kind","exercise","operation","delete",
             "recordId",51,"before",snapshot,"after",snapshot));
         var row=new java.util.HashMap<String,Object>();
@@ -101,4 +100,24 @@ class WellnessAiChangeTests {
             .isInstanceOf(ResponseStatusException.class).hasMessageContaining("changed");
         verify(wellness,never()).deleteExercise(anyLong());
     }
+    @Test void consumedDraftIsRejectedWithoutReadingOrDeletingRecord() {
+        owner();
+        var row=new java.util.HashMap<String,Object>();
+        row.put("status","CONSUMED");
+        row.put("expires_at",java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().plusMinutes(2)));
+        when(db.queryForList(contains("prp_wellness_ai_drafts"),(Object)anyString(),(Object)anyLong()))
+            .thenReturn(List.of(row));
+        assertThatThrownBy(()->service().confirm("123e4567-e89b-12d3-a456-426614174000"))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("used");
+        verifyNoInteractions(wellness);
+    }
+    @Test void nonOwnedDraftCannotBeFetchedOrMutated() {
+        owner();
+        when(db.queryForList(contains("prp_wellness_ai_drafts"),(Object)anyString(),(Object)anyLong()))
+            .thenReturn(List.of());
+        assertThatThrownBy(()->service().confirm("123e4567-e89b-12d3-a456-426614174000"))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Draft not found");
+        verifyNoInteractions(wellness);
+    }
+
 }
