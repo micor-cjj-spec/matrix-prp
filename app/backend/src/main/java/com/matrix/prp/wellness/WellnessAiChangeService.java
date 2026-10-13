@@ -216,7 +216,10 @@ public class WellnessAiChangeService {
             var selected=settings.selection(CurrentUser.id());
             source=selected.provider()+"/"+selected.model();
         }
-        Map<String,Object> after=validate(input.kind(),proposed);
+        // Deletes only require ownership and an exact snapshot, not a valid current food
+        // reference. Legacy meal data can be removed without repairing its ingredients.
+        Map<String,Object> after=input.operation().equals("delete")
+            ? before : validate(input.kind(),proposed);
         Map<String,Object> payload=map("kind",input.kind(),"recordId",input.recordId(),
             "operation",input.operation(),"before",before,"after",after);
         String draftId=UUID.randomUUID().toString();
