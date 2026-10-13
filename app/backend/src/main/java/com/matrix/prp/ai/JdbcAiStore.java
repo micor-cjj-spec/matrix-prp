@@ -39,15 +39,22 @@ public class JdbcAiStore implements AiStore {
     }
 
     @Override
-    public List<Message> messages(long userId, String conversationId) {
-        return db.query("""
+    public List<Message> messages(long userId, String conversationId, Long beforeId, int limit) {
+        String cursorCondition = beforeId == null ? "" : " AND m.id<?";
+        String sql = """
                 SELECT m.id,m.role,m.content,m.created_at
                 FROM prp_ai_messages m
                 JOIN prp_ai_conversations c ON c.id=m.conversation_id
                 WHERE c.user_id=? AND c.id=?
-                ORDER BY m.id ASC LIMIT 200
-                """, (rs, n) -> new Message(rs.getLong(1), rs.getString(2), rs.getString(3),
-                rs.getTimestamp(4).toLocalDateTime()), userId, conversationId);
+                """ + cursorCondition + " ORDER BY m.id DESC LIMIT ?";
+        Object[] parameters = beforeId == null
+                ? new Object[]{userId, conversationId, limit}
+                : new Object[]{userId, conversationId, beforeId, limit};
+        List<Message> recent = db.query(sql,
+                (rs, n) -> new Message(rs.getLong(1), rs.getString(2), rs.getString(3),
+                        rs.getTimestamp(4).toLocalDateTime()), parameters);
+        java.util.Collections.reverse(recent);
+        return recent;
     }
 
     @Override

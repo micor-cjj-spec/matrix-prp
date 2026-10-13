@@ -1,5 +1,6 @@
 import { apiClient, apiUrl, type ApiResponse } from './client'
 import { getStoredToken } from '@/utils/token'
+import { createSseParser } from './sseParser'
 
 export interface Conversation { id: string; title: string; updatedAt: string }
 export interface ChatMessage { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }
@@ -18,8 +19,11 @@ export class AiStreamHttpError extends Error {
 export async function listConversations() {
   return (await apiClient.get<ApiResponse<Conversation[]>>('/ai/conversations')).data.data
 }
-export async function listMessages(id: string) {
-  return (await apiClient.get<ApiResponse<ChatMessage[]>>(`/ai/conversations/${encodeURIComponent(id)}/messages`)).data.data
+export async function listMessages(id: string, beforeId?: number, limit = 200) {
+  return (await apiClient.get<ApiResponse<ChatMessage[]>>(
+    `/ai/conversations/${encodeURIComponent(id)}/messages`,
+    { params: { ...(beforeId === undefined ? {} : { beforeId }), limit } },
+  )).data.data
 }
 export async function fetchUsage() {
   return (await apiClient.get<ApiResponse<AiUsage>>('/ai/usage')).data.data
@@ -39,22 +43,18 @@ export async function streamChat(conversationId: string | null, content: string,
   if (!response.body) throw new Error('AI streaming response has no body')
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
-  let buffer = ''
+  const parser = createSseParser(({ event, data }) => {
+    if (event === 'meta' || event === 'delta' || event === 'done' || event === 'error') {
+      onEvent({ event, data: JSON.parse(data) as Record<string, unknown> })
+    }
+  })
   try {
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
-      let boundary: number
-      while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-        const frame = buffer.slice(0, boundary)
-        buffer = buffer.slice(boundary + 2)
-        const event = frame.split('\n').find(line => line.startsWith('event:'))?.slice(6).trim()
-        const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n')
-        if (event && data && ['meta', 'delta', 'done', 'error'].includes(event))
-          onEvent({ event: event as StreamEvent['event'], data: JSON.parse(data) as Record<string, unknown> })
-      }
+      parser.feed(decoder.decode(value, { stream: true }))
     }
+    parser.feed(decoder.decode())
   } finally {
     reader.releaseLock()
   }

@@ -7,6 +7,7 @@ import { isUserSessionExpired } from '@/utils/authSession'
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(getStoredToken())
   const user = ref<UserProfile | null>(null)
+  let profileRequest: Promise<void> | null = null
 
   const isAuthenticated = computed(() => Boolean(token.value))
 
@@ -25,14 +26,22 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function loadCurrentUser() {
-    if (!token.value) return
-    try {
-      user.value = await fetchCurrentUser()
-    } catch (error) {
-      // Preserve a valid stored JWT when the server is temporarily unreachable.
-      if (isUserSessionExpired(error)) logout()
-      throw error
-    }
+    if (!token.value || user.value) return
+    // The startup bootstrap and navigation guard share one in-flight lookup.
+    if (profileRequest) return profileRequest
+    const expectedToken = token.value
+    profileRequest = (async () => {
+      try {
+        const profile = await fetchCurrentUser()
+        if (token.value === expectedToken) user.value = profile
+      } catch (error) {
+        // Preserve a valid stored JWT when the server is temporarily unreachable.
+        if (token.value === expectedToken && isUserSessionExpired(error)) logout()
+        throw error
+      }
+    })()
+    try { await profileRequest }
+    finally { profileRequest = null }
   }
 
   function logout() {

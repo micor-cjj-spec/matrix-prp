@@ -28,8 +28,11 @@ public class AiController {
     }
 
     @GetMapping("/conversations/{id}/messages")
-    public ApiResponse<List<AiStore.Message>> messages(@PathVariable String id) {
-        return ApiResponse.success(service.messages(id));
+    public ApiResponse<List<AiStore.Message>> messages(
+            @PathVariable String id,
+            @RequestParam(required=false) Long beforeId,
+            @RequestParam(defaultValue="200") int limit) {
+        return ApiResponse.success(service.messages(id, beforeId, limit));
     }
 
     @GetMapping("/usage")

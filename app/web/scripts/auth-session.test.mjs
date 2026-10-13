@@ -20,6 +20,6 @@ test('only HTTP 401 from profile validation invalidates a stored session', () =>
 test('auth initialization keeps token after transient profile error', () => {
   const store = readFileSync(new URL('../src/stores/auth.ts', import.meta.url), 'utf8')
   const bootstrap = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
-  assert.match(store, /if \(isUserSessionExpired\(error\)\) logout\(\)/)
+  assert.match(store, /if \(token\.value === expectedToken && isUserSessionExpired\(error\)\) logout\(\)/)
   assert.doesNotMatch(bootstrap, /loadCurrentUser\(\)\.catch\(\(\) => \{\s*authStore\.logout\(\)/)
 })

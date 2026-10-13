@@ -52,9 +52,14 @@ public class AiService {
 
     public List<Conversation> conversations() { return store.list(CurrentUser.id()); }
     public List<Message> messages(String id) {
+        return messages(id, null, 200);
+    }
+    public List<Message> messages(String id, Long beforeId, int limit) {
+        if (limit < 1 || limit > 201 || (beforeId != null && beforeId <= 0))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid message page");
         long user = CurrentUser.id();
         ensureOwner(user, id);
-        return store.messages(user, id);
+        return store.messages(user, id, beforeId, limit);
     }
     public Map<String, Object> usage() {
         Usage current = store.usage(CurrentUser.id(), month());

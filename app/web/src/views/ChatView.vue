@@ -17,6 +17,10 @@ const options: ContextOption[] = [
 const optionByValue = (value: string) => options.find(option => option.value === value)
 const conversations = ref<Conversation[]>([])
 const messages = ref<ChatMessage[]>([])
+const hasOlder = ref(false)
+const loadingOlder = ref(false)
+const HISTORY_PAGE_SIZE = 200
+let prependingHistory = false
 const selectedId = ref<string | null>(null)
 const input = ref('')
 const sending = ref(false)
@@ -85,21 +89,45 @@ function bottom() {
     if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight
   })
 }
-watch(messages, bottom, { deep: true })
+watch(messages, () => { if (!prependingHistory) bottom() }, { deep: true })
 async function select(id: string) {
-  if (sending.value) return
+  if (sending.value || loadingOlder.value) return
   try {
-    const data = await listMessages(id)
+    const data = await listMessages(id, undefined, HISTORY_PAGE_SIZE + 1)
     selectedId.value = id
-    messages.value = data
+    hasOlder.value = data.length > HISTORY_PAGE_SIZE
+    messages.value = data.slice(-HISTORY_PAGE_SIZE)
     historyOpen.value = false
     streamError.value = ''
     bottom()
   } catch { ElMessage.error('无法加载聊天记录') }
 }
+async function loadOlder() {
+  const id = selectedId.value
+  const oldestId = messages.value.find(message => message.id > 0)?.id
+  if (!id || oldestId === undefined || !hasOlder.value || loadingOlder.value || sending.value) return
+  loadingOlder.value = true
+  try {
+    const olderPage = await listMessages(id, oldestId, HISTORY_PAGE_SIZE + 1)
+    if (selectedId.value !== id) return
+    hasOlder.value = olderPage.length > HISTORY_PAGE_SIZE
+    const previousHeight = scroller.value?.scrollHeight ?? 0
+    const previousTop = scroller.value?.scrollTop ?? 0
+    prependingHistory = true
+    messages.value = [...olderPage.slice(-HISTORY_PAGE_SIZE), ...messages.value]
+    await nextTick()
+    if (scroller.value) scroller.value.scrollTop =
+      previousTop + scroller.value.scrollHeight - previousHeight
+  } catch { ElMessage.error('加载更早消息失败，请重试') }
+  finally {
+    prependingHistory = false
+    loadingOlder.value = false
+  }
+}
 function newChat() {
-  if (sending.value) return
+  if (sending.value || loadingOlder.value) return
   selectedId.value = null
+  hasOlder.value = false
   messages.value = []
   streamError.value = ''
   historyOpen.value = false
@@ -207,8 +235,11 @@ async function send(contextToken?: string) {
     controller = null
     await refresh()
     if (selectedId.value) {
-      try { messages.value = await listMessages(selectedId.value) }
-      catch { /* preserve partial streamed content if refresh fails */ }
+      try {
+        const latest = await listMessages(selectedId.value, undefined, HISTORY_PAGE_SIZE + 1)
+        hasOlder.value = latest.length > HISTORY_PAGE_SIZE
+        messages.value = latest.slice(-HISTORY_PAGE_SIZE)
+      } catch { /* preserve partial streamed content if refresh fails */ }
     }
     bottom()
   }
@@ -251,6 +282,11 @@ onBeforeUnmount(() => controller?.abort())
       </header>
 
       <div ref="scroller" class="prp-chat-messages" role="log" aria-label="聊天消息">
+        <div v-if="hasOlder && selectedId" class="chat-history-pagination">
+          <button type="button" :disabled="loadingOlder || sending" @click="loadOlder">
+            {{ loadingOlder ? '正在加载…' : '加载更早的消息' }}
+          </button>
+        </div>
         <section v-if="isEmpty" class="chat-welcome">
           <div class="chat-welcome-icon"><el-icon><ChatDotRound /></el-icon></div>
           <h1>今天有什么可以帮你？</h1>
@@ -399,6 +435,9 @@ onBeforeUnmount(() => controller?.abort())
 .chat-history-list{flex:1;overflow:auto}.chat-history-item{display:flex;align-items:center;gap:10px;width:100%;margin-bottom:5px;padding:12px 10px;border:0;border-radius:10px;background:#fff;color:#5b6b80;text-align:left;cursor:pointer}
 .chat-history-item span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.chat-history-item.selected,.chat-history-item:hover{background:#ecf4ff;color:#276bce}
 .chat-history-usage,.chat-history-empty{font-size:12px;color:#8795a8}.chat-preview-data{max-height:35vh;overflow:auto;background:#f4f7fb;padding:15px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.chat-history-pagination{display:flex;justify-content:center;padding:10px 0 20px}
+.chat-history-pagination button{border:1px solid #d7e4f3;border-radius:12px;padding:8px 15px;background:#fff;color:#4578b7;font-size:12px;cursor:pointer}
+.chat-history-pagination button:disabled{opacity:.5;cursor:wait}
 .chat-consent-explain{color:#64748b;font-size:12px;line-height:1.8}
 :deep(.chat-input .el-textarea__inner){border:0;box-shadow:none!important;resize:none;background:transparent;padding:2px 0 5px;line-height:1.8;font-size:14px}
 :deep(.markdown-body p){margin:0 0 10px}:deep(.markdown-body p:last-child){margin-bottom:0}
