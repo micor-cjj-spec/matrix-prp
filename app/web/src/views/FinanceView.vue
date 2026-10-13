@@ -349,6 +349,12 @@ onMounted(async () => {
   await loadFinance()
   resetTransactionForm()
 })
+watch(() => route.query.month, month => {
+  if (typeof month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    filters.month = month
+    void loadFinance()
+  }
+})
 </script>
 
 <template>
