@@ -6,6 +6,7 @@ import {
   createFolder, deleteFolder, deleteVideo, getFolders, getPlayback, getVideos, getStorageUsage, renameFolder,
   saveVideoProgress, updateVideo, uploadVideo, type VideoFolder, type VideoItem, type StorageUsage,
 } from '@/api/video'
+import { createVideoProgressQueue, nextVideoInFolder } from '@/utils/videoPlayback'
 
 const folders = ref<VideoFolder[]>([])
 const videos = ref<VideoItem[]>([])
@@ -22,6 +23,11 @@ const busy = ref(false)
 const storageUsage = ref<StorageUsage | null>(null)
 const usagePercent = computed(() => storageUsage.value ? Math.min(100,Math.round(storageUsage.value.bytesUsed / storageUsage.value.quotaBytes * 100)) : 0)
 const lastSavedAt = ref(0)
+const videosLoading = ref(false)
+const loadingPlaybackId = ref<number | null>(null)
+const queueProgressSave = createVideoProgressQueue(saveVideoProgress)
+let videosRequestSerial = 0
+let playbackRequestSerial = 0
 
 const folderTitle = computed(() =>
   folderId.value == null ? '全部视频' : folders.value.find(f => f.id === folderId.value)?.name ?? '视频')
@@ -48,7 +54,19 @@ async function loadUsage() {
   storageUsage.value = await getStorageUsage()
 }
 async function loadFolders() { folders.value = await getFolders() }
-async function loadVideos() { videos.value = await getVideos(folderId.value) }
+async function loadVideos() {
+  const requestId = ++videosRequestSerial
+  const requestedFolder = folderId.value
+  videosLoading.value = true
+  try {
+    const items = await getVideos(requestedFolder)
+    if (requestId === videosRequestSerial && folderId.value === requestedFolder) {
+      videos.value = items
+    }
+  } finally {
+    if (requestId === videosRequestSerial) videosLoading.value = false
+  }
+}
 async function refresh() {
   busy.value = true
   try { await Promise.all([loadFolders(), loadVideos(), loadUsage()]) }
@@ -56,8 +74,15 @@ async function refresh() {
   finally { busy.value = false }
 }
 async function selectFolder(id: number | null) {
-  await savePosition()
+  if (id === folderId.value) return
+  // Snapshot the previous video's progress, but never block navigation on the network.
+  savePosition()
+  ++playbackRequestSerial // Invalidate an in-flight playback ticket request.
+  playing.value = null
+  playbackUrl.value = ''
+  loadingPlaybackId.value = null
   folderId.value = id
+  videos.value = [] // Never show or autoplay items from the previous folder.
   try { await loadVideos() } catch { ElMessage.error('加载目录失败') }
 }
 
@@ -104,19 +129,32 @@ async function onFileChange(event: Event) {
 }
 
 async function play(video: VideoItem) {
-  await savePosition()
+  // Preserve progress immediately while opening the new video without waiting for the PUT.
+  savePosition()
+  const requestId = ++playbackRequestSerial
+  const requestedFolder = folderId.value
+  playing.value = null
+  playbackUrl.value = ''
+  loadingPlaybackId.value = video.id
   try {
     const playback = await getPlayback(video.id)
+    // Older ticket responses must not reopen a video after another selection or folder change.
+    if (requestId !== playbackRequestSerial || requestedFolder !== folderId.value) return
     playing.value = video
     playbackUrl.value = playback.url
     lastSavedAt.value = 0
     await nextTick()
+    if (requestId !== playbackRequestSerial) return
     if (player.value) {
       player.value.playbackRate = speed.value
       player.value.volume = volume.value
       void player.value.play().catch(() => {})
     }
-  } catch { ElMessage.error('无法播放：请检查视频权限或文件状态') }
+  } catch {
+    if (requestId === playbackRequestSerial) ElMessage.error('无法播放：请检查视频权限或文件状态')
+  } finally {
+    if (requestId === playbackRequestSerial) loadingPlaybackId.value = null
+  }
 }
 function restorePosition() {
   if (!player.value || !playing.value) return
@@ -133,25 +171,25 @@ function setVolume(value: number) {
   volume.value = value
   if (player.value) player.value.volume = value
 }
-async function savePosition() {
-  if (!playing.value || !player.value) return
-  const position = player.value.currentTime
-  const duration = player.value.duration
+function savePosition() {
+  const video = playing.value
+  const element = player.value
+  if (!video || !element) return
+  const position = element.currentTime
+  const duration = element.duration
   if (!Number.isFinite(position) || !Number.isFinite(duration)) return
-  try {
-    await saveVideoProgress(playing.value.id, position, duration)
-    playing.value.positionSeconds = position
-  } catch { /* Retry on next pause/timeupdate */ }
+  video.positionSeconds = position
+  queueProgressSave(video.id, position, duration)
 }
 function periodicallySave() {
   if (Date.now() - lastSavedAt.value < 15_000) return
   lastSavedAt.value = Date.now()
   void savePosition()
 }
-async function nextVideo() {
-  await savePosition()
-  const next = orderedVideos.value[orderedVideos.value.findIndex(v => v.id === playing.value?.id) + 1]
-  if (next) await play(next)
+function nextVideo() {
+  const next = nextVideoInFolder(playing.value, orderedVideos.value)
+  if (next) void play(next)
+  else savePosition()
 }
 async function editVideo(video: VideoItem) {
   try {
@@ -171,7 +209,11 @@ async function removeVideo(video: VideoItem) {
   } catch { /* dismissed */ }
 }
 onMounted(refresh)
-onBeforeUnmount(() => { void savePosition() })
+onBeforeUnmount(() => {
+  savePosition()
+  ++playbackRequestSerial
+  ++videosRequestSerial
+})
 </script>
 
 <template>
@@ -211,7 +253,7 @@ onBeforeUnmount(() => { void savePosition() })
       </el-card>
 
       <div class="videos-content">
-        <el-card shadow="never">
+        <el-card shadow="never" v-loading="videosLoading">
           <template #header>
             <div class="videos-actions">
               <strong>{{ folderTitle }}</strong>
@@ -224,11 +266,12 @@ onBeforeUnmount(() => { void savePosition() })
           <div v-if="uploading" class="upload-status">
             {{ selectedFilename }} <el-progress :percentage="uploadPercent" />
           </div>
-          <el-empty v-if="!busy && orderedVideos.length === 0" description="当前没有视频，可以选择目录后上传 MP4" />
+          <el-empty v-if="!busy && !videosLoading && orderedVideos.length === 0" description="当前没有视频，可以选择目录后上传 MP4" />
           <div v-for="video in orderedVideos" :key="video.id" class="video-list-item"
             :class="{ selected: playing?.id === video.id }">
             <button class="video-title-button" @click="play(video)">
               ▶ {{ video.title }}
+              <small v-if="loadingPlaybackId === video.id">正在加载视频…</small>
               <small>{{ (video.sizeBytes / 1024 / 1024).toFixed(1) }} MB
                 <template v-if="video.positionSeconds > 0">· 续播 {{ Math.floor(video.positionSeconds / 60) }} 分钟</template>
               </small>
