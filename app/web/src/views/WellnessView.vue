@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import WellnessAiRecorder from '@/components/wellness/WellnessAiRecorder.vue'
+import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 import {
   wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type Exercise, type ExerciseInput,
   type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint,
@@ -163,6 +164,20 @@ async function importUsdaFood(row: UsdaCandidate) {
   } catch { ElMessage.error('导入失败，可能缺少可靠的每100g营养字段') }
   finally { importingUsda.value = null }
 }
+const aiChangeVisible = ref(false)
+const aiChangeKind = ref<'meal'|'exercise'|'metric'>('meal')
+const aiChangeRecord = ref(0)
+const aiChangeKey = ref(0)
+function openAiChange(kind: 'meal'|'exercise'|'metric', id: number) {
+  aiChangeKind.value = kind
+  aiChangeRecord.value = id
+  aiChangeKey.value++
+  aiChangeVisible.value = true
+}
+async function savedAiChange() {
+  aiChangeVisible.value = false
+  await loadAll()
+}
 const foodDialog = ref(false)
 const foodForm = reactive({ name: '', preparation: 'unspecified',
   calories100g: 0, protein100g: 0, carbs100g: 0, fat100g: 0, sourceNote: '' })
@@ -320,7 +335,8 @@ async function saveProfile() {
                 <p v-for="item in meal.items" :key="item.id">{{ item.foodName }} · {{ n(item.grams) }}g · {{ n(item.calories) }} kcal</p>
                 <p v-if="meal.note">{{ meal.note }}</p>
               </div>
-              <div class="entry-actions"><el-button link type="primary" @click="openMeal(meal.mealType,meal)">编辑</el-button>
+              <div class="entry-actions"><el-button link type="primary" @click="openAiChange('meal',meal.id)">AI 变更</el-button>
+                 <el-button link type="primary" @click="openMeal(meal.mealType,meal)">编辑</el-button>
                 <el-button link @click="copyMeal(meal)">复制到今天</el-button>
                 <el-button link type="danger" @click="deleteMeal(meal)">删除</el-button></div>
             </div>
@@ -341,7 +357,8 @@ async function saveProfile() {
             <div v-for="exercise in exercises" :key="exercise.id" class="entry">
               <div class="grow"><strong>{{ exercise.name }} · {{ exercise.durationMinutes }} 分钟</strong>
                 <p>消耗估算：{{ n(exercise.estimatedKcal) }} kcal · {{ exercise.note || '无备注' }}</p></div>
-              <div class="entry-actions"><el-button link @click="openExercise(exercise)">编辑</el-button>
+              <div class="entry-actions"><el-button link type="primary" @click="openAiChange('exercise',exercise.id)">AI 变更</el-button>
+                 <el-button link @click="openExercise(exercise)">编辑</el-button>
                 <el-button link type="danger" @click="deleteExercise(exercise.id)">删除</el-button></div>
             </div>
             <p class="muted">运动消耗为可选估算值，不会自动增加每日摄入额度或当作热量缺口。</p>
@@ -369,7 +386,8 @@ async function saveProfile() {
             <div v-for="metric in metrics" :key="metric.id" class="entry">
               <div class="grow"><strong>{{ metric.measuredOn }} · {{ n(metric.weightKg, 1) }} kg</strong>
                 <p>体脂率 {{ n(metric.bodyFatPct, 1) }}% · 腰围 {{ n(metric.waistCm, 1) }}cm</p></div>
-              <div class="entry-actions"><el-button link @click="openMetric(metric)">编辑</el-button>
+              <div class="entry-actions"><el-button link type="primary" @click="openAiChange('metric',metric.id)">AI 变更</el-button>
+                 <el-button link @click="openMetric(metric)">编辑</el-button>
                 <el-button link type="danger" @click="deleteMetric(metric.id)">删除</el-button></div>
             </div>
           </section>
@@ -398,6 +416,10 @@ async function saveProfile() {
         </el-tab-pane>
       </el-tabs>
 
+      <el-dialog v-model="aiChangeVisible" title="AI 修改 / 删除健康记录" width="min(96vw,680px)" destroy-on-close append-to-body>
+        <WellnessAiChange :key="aiChangeKey" :initial-kind="aiChangeKind" :initial-id="aiChangeRecord"
+          :initial-date="date" @changed="savedAiChange" />
+      </el-dialog>
       <el-dialog v-model="mealDialog" :title="editingMeal===null?'新增餐次':'编辑餐次'" width="min(96vw,640px)" destroy-on-close>
         <el-form label-position="top">
           <div class="form-row">

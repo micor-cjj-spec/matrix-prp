@@ -263,7 +263,7 @@ function describeStreamError(error: unknown): string {
 async function send(contextToken?: string) {
   const content = input.value.trim()
   if (!content || sending.value || content.length > 4000) return
-  const healthWrite = /(记下|记录|录入|新增|添加|记一笔|记一下|帮我记)/u.test(content) &&
+  const healthWrite = /(记下|记录|录入|新增|添加|记一笔|记一下|帮我记|修改|更正|改成|删除|撤销|删掉)/u.test(content) &&
     /(早餐|午餐|晚餐|加餐|吃了|喝了|食物|热量|体重|体脂|腰围|跑步|步行|运动|骑行|健身)/u.test(content) &&
     !/(如何|怎么|为什么|分析|建议|计划|查询|如何设计)/u.test(content)
   if (content.length <= 1500 && healthWrite &&

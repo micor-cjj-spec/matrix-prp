@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { apiClient, type ApiResponse } from '@/api/client'
 import { wellnessApi, type Food } from '@/api/wellness'
+import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 type Action = 'meal.create' | 'exercise.create' | 'metric.create'
 type Item = { foodId: number; name: string; grams: number; calories: number | null }
 type Values = {
@@ -14,6 +15,7 @@ type Draft = { draftId: string; action: Action; description: string; modelUsed: 
 type Outcome = { action: string; route: string; saved: unknown }
 const props = defineProps<{ initialText?: string }>()
 const emit = defineEmits<{ recorded: [result: Outcome] }>()
+const managing = ref(false)
 const text = ref('')
 const file = ref<File | null>(null)
 const draft = ref<Draft | null>(null)
@@ -25,7 +27,10 @@ const confirming = ref(false)
 const error = ref('')
 const done = ref('')
 watch(() => props.initialText, value => {
-  if (value?.trim()) { text.value = value; draft.value = null }
+  if (value?.trim()) {
+    text.value = value; draft.value = null
+    if (/(修改|更正|改成|删除|撤销|删掉)/u.test(value)) managing.value = true
+  }
 }, { immediate: true })
 function fileChanged(e: Event) {
   const image = (e.target as HTMLInputElement).files?.[0]
@@ -109,6 +114,12 @@ async function save() {
 <template>
   <section class="prp-health-capture">
     <header><strong>✨ AI 健康记录</strong><small>拍照或文字 → 修改草稿 → 确认保存</small></header>
+    <div class="capture-actions">
+      <button type="button" class="outline" @click="managing=false">新增记录</button>
+      <button type="button" class="outline" @click="managing=true">修改 / 删除已有记录</button>
+    </div>
+    <WellnessAiChange v-if="managing" @changed="result => { done=result.route; managing=false; emit('recorded',result) }" />
+    <template v-else>
     <textarea v-model="text" rows="3" maxlength="1500" :disabled="busy || confirming" aria-label="描述健康记录"
       placeholder="例：今天午餐200g米饭、150g鸡胸肉；跑步30分钟；体重86.5kg" />
     <div class="capture-actions">
@@ -165,7 +176,8 @@ async function save() {
         <button type="button" class="outline" @click="draft=null">取消</button>
       </div>
     </div>
-    <router-link v-if="done" :to="done">✅ 保存成功，打开当天健康中心 →</router-link>
+    </template>
+    <router-link v-if="done" :to="done">✅ 已完成，打开当天健康中心 →</router-link>
   </section>
 </template>
 
