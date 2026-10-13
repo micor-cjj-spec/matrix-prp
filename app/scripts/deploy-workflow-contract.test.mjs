@@ -17,11 +17,25 @@ test('release candidates originate only from successful main push CI', () => {
   assert.match(build, /persist-credentials: false/)
 })
 
-test('CI-triggered release candidate cannot invoke production SSH', () => {
-  assert.match(publish, /github\.event_name == 'workflow_dispatch'/)
-  assert.doesNotMatch(publish, /github\.event_name == 'workflow_run'/)
-  assert.match(header, /options: \[promote, deploy, check, rollback, build\]/)
+test('successful main CI can publish automatically, but other events cannot', () => {
+  assert.match(publish, /github\.event_name == 'workflow_run'/)
+  assert.match(publish, /needs\.build\.result == 'success'/)
+  assert.match(publish, /github\.event\.workflow_run\.conclusion == 'success'/)
+  assert.match(publish, /github\.event\.workflow_run\.event == 'push'/)
+  assert.match(publish, /github\.event\.workflow_run\.head_branch == 'main'/)
+  assert.match(publish, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/)
   assert.match(publish, /environment:\s*\n\s*name: production/)
+  assert.match(header, /options: \[promote, deploy, check, rollback, build\]/)
+})
+
+test('automatic deployment rejects stale or mismatched release artifacts', () => {
+  assert.match(publish, /Reject stale main revision/)
+  assert.match(publish, /RELEASE_SHA:/)
+  assert.match(publish, /test "\$latest" = "\$RELEASE_SHA"/)
+  assert.match(publish, /github\.event_name == 'workflow_run' \|\| inputs\.action == 'deploy'/)
+  assert.match(publish, /artifact_commit=.*release\.json/)
+  assert.match(publish, /artifact_commit.*RELEASE_SHA/)
+  assert.match(publish, /ACTION:.*github\.event_name == 'workflow_run'.*'deploy'/)
 })
 
 test('promote checks candidate provenance, commit and status before production operation', () => {
