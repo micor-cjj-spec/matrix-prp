@@ -107,13 +107,20 @@ public class WellnessService {
     }
     /** Imported food remains owned by the requesting user; never mutates shared reference foods. */
     @Transactional
-    public Food importUsda(UsdaFoodCatalog.Candidate candidate) {
+    public Food importUsda(UsdaFoodCatalog.Candidate candidate, String alias) {
         long user=CurrentUser.id();
         List<Food> existing=db.query("SELECT "+FOOD_COLUMNS+
             " FROM prp_wellness_foods WHERE owner_user_id=? AND source_note=? LIMIT 1",
             this::mapFood,user,candidate.source());
         if(!existing.isEmpty()) return existing.get(0);
-        return addFood(new FoodInput(candidate.name(),"unspecified",candidate.calories100g(),
+        String name=candidate.name();
+        if(alias!=null && !alias.isBlank()){
+            String cleaned=alias.trim();
+            if(cleaned.length()>80 || !cleaned.matches("[\\p{L}\\p{N} ()（）·-]+"))
+                throw new IllegalArgumentException("Invalid food alias");
+            name=cleaned;
+        }
+        return addFood(new FoodInput(name,"unspecified",candidate.calories100g(),
             candidate.protein100g(),candidate.carbs100g(),candidate.fat100g(),candidate.source()));
     }
     /** Returns a food only when it is a shared reference or owned by the authenticated user. */

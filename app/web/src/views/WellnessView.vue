@@ -156,7 +156,8 @@ async function searchUsda() {
 async function importUsdaFood(row: UsdaCandidate) {
   importingUsda.value = row.fdcId
   try {
-    const food = await wellnessApi.importUsda(row.fdcId)
+    const alias = /[\\u3400-\\u9fff]/u.test(usdaQuery.value) ? usdaQuery.value.trim() : undefined
+    const food = await wellnessApi.importUsda(row.fdcId, alias)
     foods.value = [...new Map([food, ...foods.value].map(x => [x.id, x])).values()]
     ElMessage.success('已导入个人食物库，可在餐次中使用')
   } catch { ElMessage.error('导入失败，可能缺少可靠的每100g营养字段') }
@@ -421,7 +422,7 @@ async function saveProfile() {
       </el-dialog>
 
       <el-dialog v-model="usdaDialog" title="USDA 食品搜索（公开 CC0 数据）" width="min(96vw,650px)" append-to-body>
-        <p class="muted">本地食物可离线使用；外部查询仅在服务器配置 USDA API Key 后启用。请使用英文名称搜索，营养值按每100g参考。</p>
+        <p class="muted">本地食物可离线使用；外部查询仅在服务器配置 USDA API Key 后启用。常见单一食材可以直接输入中文搜索（自动映射为英文）；复杂中式菜肴建议先自建条目或使用准确的包装营养标签。营养值按每100g参考。</p>
         <p v-if="!usdaConfigured" class="muted">尚未配置 MATRIX_PRP_USDA_API_KEY，联系管理员配置后即可搜索。</p>
         <div class="form-row">
           <el-input v-model="usdaQuery" placeholder="例：chicken breast, yogurt, rice" maxlength="80"

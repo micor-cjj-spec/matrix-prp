@@ -42,6 +42,10 @@ class UsdaFoodCatalogTests {
             """));
         assertThat(food).isNull();
     }
+    @Test void mapsCommonChineseIngredientsButNeverGuessesPreparedDishes() {
+        assertThat(UsdaFoodCatalog.normalizeQuery("鸡胸肉")).isEqualTo("chicken breast");
+        assertThat(UsdaFoodCatalog.normalizeQuery("红油馄饨")).isEqualTo("红油馄饨");
+    }
     @Test void checksImageSignaturesNotOnlyBrowserContentTypes() {
         assertThat(WellnessAiDraftService.detect(new byte[]{(byte)255,(byte)216,(byte)255,0,0,0,0,0,0,0,0,0}))
             .isEqualTo("image/jpeg");

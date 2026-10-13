@@ -27,9 +27,9 @@ public class WellnessController {
         return ApiResponse.success(usda.search(q));
     }
     @PostMapping("/foods/usda/{id}/import")
-    public ApiResponse<Food> importUsda(@PathVariable long id) {
+    public ApiResponse<Food> importUsda(@PathVariable long id, @RequestParam(required=false) String alias) {
         var candidate = usda.detail(id);
-        return ApiResponse.success(service.importUsda(candidate));
+        return ApiResponse.success(service.importUsda(candidate,alias));
     }
     @GetMapping("/foods/frequent")
     public ApiResponse<List<Food>> frequentFoods() { return ApiResponse.success(service.frequentFoods()); }
