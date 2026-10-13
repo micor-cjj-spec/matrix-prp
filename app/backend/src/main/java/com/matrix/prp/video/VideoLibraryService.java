@@ -38,7 +38,8 @@ public class VideoLibraryService {
             rs.getObject("parent_id", Long.class), rs.getString("name"), rs.getInt("sort_order"));
     private final RowMapper<Video> videoRow = (rs, i) -> new Video(rs.getLong("id"),
             rs.getObject("folder_id", Long.class), rs.getString("title"), rs.getLong("size_bytes"),
-            rs.getTimestamp("created_at").toLocalDateTime(), rs.getDouble("position_seconds"));
+            rs.getTimestamp("created_at").toLocalDateTime(), rs.getDouble("position_seconds"),
+            rs.getDouble("duration_seconds"));
 
     public VideoLibraryService(JdbcTemplate jdbc, MediaTicketService tickets, VideoStorage storage) {
         this.jdbc = jdbc;
@@ -94,7 +95,8 @@ public class VideoLibraryService {
         long user = CurrentUser.id();
         if (folderId != null) requireFolder(user, folderId);
         String query = "SELECT a.id,a.folder_id,a.title,a.size_bytes,a.created_at, " +
-                "COALESCE(p.position_seconds,0) AS position_seconds FROM prp_video_assets a " +
+                "COALESCE(p.position_seconds,0) AS position_seconds, " +
+                "COALESCE(p.duration_seconds,0) AS duration_seconds FROM prp_video_assets a " +
                 "LEFT JOIN prp_video_progress p ON p.video_id=a.id AND p.user_id=a.user_id " +
                 "WHERE a.user_id=?" + (folderId == null ? "" : " AND a.folder_id=?") +
                 " ORDER BY a.created_at DESC,a.id DESC";
@@ -268,7 +270,8 @@ public class VideoLibraryService {
 
     private Video findVideo(long user, long id) {
         return jdbc.query("SELECT a.id,a.folder_id,a.title,a.size_bytes,a.created_at, " +
-                "COALESCE(p.position_seconds,0) AS position_seconds FROM prp_video_assets a " +
+                "COALESCE(p.position_seconds,0) AS position_seconds, " +
+                "COALESCE(p.duration_seconds,0) AS duration_seconds FROM prp_video_assets a " +
                 "LEFT JOIN prp_video_progress p ON p.video_id=a.id AND p.user_id=a.user_id " +
                 "WHERE a.user_id=? AND a.id=?", videoRow, user, id)
                 .stream().findFirst().orElseThrow(() -> new ResourceNotFoundException("Video not found"));

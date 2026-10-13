@@ -12,7 +12,7 @@ public final class VideoDtos {
     public record Folder(long id, Long parentId, String name, int sortOrder) { }
     public record FolderRequest(Long parentId, @NotBlank @Size(max = 160) String name) { }
     public record Video(long id, Long folderId, String title, long sizeBytes,
-                        LocalDateTime createdAt, double positionSeconds) { }
+                        LocalDateTime createdAt, double positionSeconds, double durationSeconds) { }
     public record VideoUpdate(@NotBlank @Size(max = 255) String title, Long folderId) { }
     public record UploadRequest(Long folderId, @NotBlank @Size(max = 255) String title,
                                 @NotNull @Positive Long sizeBytes) { }

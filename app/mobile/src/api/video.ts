@@ -13,6 +13,7 @@ export interface VideoItem {
   sizeBytes: number
   createdAt: string
   positionSeconds: number
+  durationSeconds?: number
 }
 export interface VideoPlayback { url: string; expiresAtEpochSeconds: number }
 

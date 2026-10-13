@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createVideoProgressQueue, nextVideoInFolder } from '../src/utils/videoPlayback.ts'
+import { PLAYBACK_SPEEDS, validPlaybackSpeed, videoProgressPercent } from '../src/utils/videoStudy.ts'
 
 test('autoplay is limited to the same course folder in All videos', () => {
   const list = [
@@ -46,4 +47,18 @@ test('failed progress updates cannot prevent later saves', async () => {
   queue(1, 8, 80)
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(positions, [5, 8])
+})
+
+test('3x playback is supported and invalid speeds fall back to 1x', () => {
+  assert.ok(PLAYBACK_SPEEDS.includes(3))
+  assert.equal(validPlaybackSpeed('3'), 3)
+  assert.equal(validPlaybackSpeed(7), 1)
+  assert.equal(validPlaybackSpeed(null), 1)
+})
+
+test('course progress percentages honor existing server-side duration and position', () => {
+  assert.equal(videoProgressPercent({ positionSeconds: 30, durationSeconds: 120 }), 25)
+  assert.equal(videoProgressPercent({ positionSeconds: 180, durationSeconds: 120 }), 100)
+  assert.equal(videoProgressPercent({ positionSeconds: 10 }), null)
+  assert.equal(videoProgressPercent({ positionSeconds: 0, durationSeconds: 0 }), null)
 })

@@ -9,6 +9,7 @@ export interface VideoItem {
   sizeBytes: number
   createdAt: string
   positionSeconds: number
+  durationSeconds?: number
 }
 export interface StorageUsage { fileCount: number; bytesUsed: number; quotaBytes: number }
 export interface UploadSession { uploadId: string; chunkSize: number; partCount: number }
