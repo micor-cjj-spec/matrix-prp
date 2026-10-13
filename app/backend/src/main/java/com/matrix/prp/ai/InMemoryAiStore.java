@@ -29,9 +29,11 @@ public class InMemoryAiStore implements AiStore {
         Owned c = conversations.get(id);
         return c != null && c.userId == user;
     }
-    @Override public synchronized List<Message> messages(long user, String id) {
+    @Override public synchronized List<Message> messages(long user, String id, Long beforeId, int limit) {
         if (!owns(user, id)) return List.of();
-        return List.copyOf(messages.get(id));
+        List<Message> all = messages.get(id).stream()
+            .filter(m -> beforeId == null || m.id() < beforeId).toList();
+        return List.copyOf(all.subList(Math.max(0, all.size() - limit), all.size()));
     }
     @Override public synchronized void append(long user, String id, String role, String content) {
         if (!owns(user, id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found");
