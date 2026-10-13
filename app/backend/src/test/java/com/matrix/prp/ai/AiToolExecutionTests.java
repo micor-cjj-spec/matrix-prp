@@ -35,7 +35,7 @@ class AiToolExecutionTests {
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(new UserProfile(owner,"reader","Reader"),null,List.of()));
         TaskService taskService=mock(TaskService.class);
-        when(taskService.list(any(TaskFilter.class))).thenReturn(List.of(new TaskItem(
+        when(taskService.listLimited(any(TaskFilter.class), eq(20))).thenReturn(List.of(new TaskItem(
             17L,"learning","My private task","secret details","medium","todo",
             LocalDate.of(2026,10,14),null,null)));
         ObjectProvider<PracticeService> practice=mock(ObjectProvider.class);

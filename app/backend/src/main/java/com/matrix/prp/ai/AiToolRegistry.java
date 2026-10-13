@@ -86,7 +86,7 @@ public class AiToolRegistry {
                 String status = optional(args,"status");
                 String when = optional(args,"date");
                 LocalDate due = when == null ? null : LocalDate.parse(when);
-                var items = tasks.list(new TaskFilter(status, null, due, null)).stream().limit(20)
+                var items = tasks.listLimited(new TaskFilter(status, null, due, null), 20).stream()
                     .map(t -> Map.of("id",t.id(),"title",t.title(),"status",t.status(),
                         "priority",t.priority(),"dueDate",t.dueDate()==null?"":t.dueDate().toString())).toList();
                 yield new Result(Map.of("items",items,"returned",items.size(),"limit",20),
@@ -119,7 +119,7 @@ public class AiToolRegistry {
                 var summary=finance.monthlySummary(filter);
                 var categories=finance.monthlyCategorySummary(new FinanceTransactionFilter(month,"expense",null))
                     .stream().limit(10).map(c->Map.of("category",c.category(),"amount",c.amount().toString())).toList();
-                var transactions=finance.listTransactions(filter).stream().limit(10)
+                var transactions=finance.listTransactionsLimited(filter, 10).stream()
                     .map(t->Map.of("date",t.transactionDate().toString(),"type",t.type(),
                         "amount",t.amount().toString(),"category",t.category())).toList();
                 yield new Result(Map.of("month",month.toString(),"income",summary.income().toString(),

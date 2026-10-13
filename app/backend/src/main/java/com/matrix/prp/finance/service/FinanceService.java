@@ -34,6 +34,10 @@ public class FinanceService {
         return financeRepository.listTransactions(filter);
     }
 
+    public List<FinanceTransactionItem> listTransactionsLimited(FinanceTransactionFilter filter, int limit) {
+        return financeRepository.listTransactionsLimited(filter, limit);
+    }
+
     public FinanceTransactionItem createTransaction(CreateFinanceTransactionRequest request) {
         return financeRepository.createTransaction(request);
     }

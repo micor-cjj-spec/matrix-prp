@@ -38,6 +38,15 @@ public class MyBatisTaskRepository implements TaskRepository {
     }
 
     @Override
+    public List<TaskItem> listLimited(TaskFilter filter, int limit) {
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("Limit out of range");
+        return taskMapper.selectList(buildFilterQuery(filter)
+                    .orderByDesc(TaskEntity::getCreatedAt)
+                    .last("LIMIT " + limit))
+                .stream().map(TaskEntity::toItem).toList();
+    }
+
+    @Override
     public TaskItem create(CreateTaskRequest request) {
         LocalDateTime now = LocalDateTime.now();
         TaskEntity entity = new TaskEntity();

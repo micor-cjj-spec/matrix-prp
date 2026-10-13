@@ -68,11 +68,22 @@ public class MyBatisFinanceRepository implements FinanceRepository {
 
     @Override
     public List<FinanceTransactionItem> listTransactions(FinanceTransactionFilter filter) {
+        return listTransactionsInternal(filter, null);
+    }
+
+    @Override
+    public List<FinanceTransactionItem> listTransactionsLimited(FinanceTransactionFilter filter, int limit) {
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("Limit out of range");
+        return listTransactionsInternal(filter, limit);
+    }
+
+    private List<FinanceTransactionItem> listTransactionsInternal(FinanceTransactionFilter filter, Integer limit) {
         var names=accountMapper.selectList(new LambdaQueryWrapper<FinanceAccountEntity>()
                         .eq(FinanceAccountEntity::getUserId,CurrentUser.id()))
                 .stream().collect(Collectors.toMap(FinanceAccountEntity::getId,FinanceAccountEntity::getName));
-        return financeTransactionMapper.selectList(buildFilterQuery(filter)
-                        .orderByDesc(FinanceTransactionEntity::getCreatedAt))
+        var query = buildFilterQuery(filter).orderByDesc(FinanceTransactionEntity::getCreatedAt);
+        if (limit != null) query.last("LIMIT " + limit);
+        return financeTransactionMapper.selectList(query)
                 .stream()
                 .map(entity -> {
                     FinanceTransactionItem item=entity.toItem();
