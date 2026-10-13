@@ -46,7 +46,7 @@ test('promote checks candidate provenance, commit and status before production o
   assert.match(publish, /\.event == "workflow_run"/)
   assert.match(publish, /run-id: \$\{\{ inputs\.candidate_run_id \}\}/)
   assert.match(publish, /artifact_commit=.*release\.json/)
-  assert.match(publish, /artifact_commit.*GITHUB_SHA/)
+  assert.match(publish, /artifact_commit.*RELEASE_SHA/)
 })
 
 test('production uses existing restricted SSH and refuses unsafe rollback IDs', () => {
