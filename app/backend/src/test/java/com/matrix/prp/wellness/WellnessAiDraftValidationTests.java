@@ -39,12 +39,9 @@ class WellnessAiDraftValidationTests {
             new BigDecimal("0.3"),"test",false));
         var service=service(foods);
         var draft=service.verify(json.readTree("""
-            {"date":"2026-10-13","mealType":"LUNCH",
-            "items":[{"name":"fake","foodId":12,"grams":200,"calories":9999}]}
-            """).deepCopy().isObject()?json.readTree("""
             {"action":"meal.create","date":"2026-10-13","mealType":"LUNCH",
             "items":[{"name":"fake","foodId":12,"grams":200,"calories":9999}]}
-            """):null,true);
+            """),true);
         assertThat(json.writeValueAsString(draft)).contains("\"name\":\"米饭\"")
             .contains("\"calories\":232");
         verify(foods).accessibleFood(12L);
