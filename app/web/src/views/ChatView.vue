@@ -15,7 +15,8 @@ type ContextOption = { value: string; label: string; hint: string }
 const options: ContextOption[] = [
   { value: 'tasks', label: '任务', hint: '今日待办与任务概览' },
   { value: 'practice', label: '刷题', hint: '答题正确率与练习统计' },
-  { value: 'wellness', label: '健康', hint: '今日饮食与运动汇总' },
+  { value: 'wellness', label: '健康', hint: '饮食与运动近7至30天趋势（不含体重）' },
+  { value: 'wellness_body', label: '身体指标', hint: '体重敏感信息：单独授权近7至30天趋势' },
   { value: 'finance', label: '财务', hint: '当月收支与分类统计（敏感）' },
 ]
 const optionByValue = (value: string) => options.find(option => option.value === value)
@@ -469,7 +470,7 @@ onBeforeUnmount(() => controller?.abort())
     </el-drawer>
 
     <el-dialog v-model="previewVisible" title="确认本次共享的数据" width="min(580px, 95vw)" append-to-body>
-      <p class="chat-consent-explain">以下是已选数据域的最小化摘要预览。确认后，PRP 助手可在当前这一条消息中按需查询所选模块的其他记录（包括任务标题、账目日期与金额等），并将查询结果发送给 {{ currentProviderName }}。不会修改数据；如不愿共享该模块其他记录，请取消授权。</p>
+      <p class="chat-consent-explain">以下是已选数据域的最小化摘要预览。确认后，PRP 助手可在当前这一条消息中按需查询所选模块的其他记录（包括任务标题、账目日期与金额；仅在选择「身体指标」时包含体重记录等），并将查询结果发送给 {{ currentProviderName }}。不会修改数据；如不愿共享该模块其他记录，请取消授权。</p>
       <pre class="chat-preview-data">{{ JSON.stringify(preview?.data ?? {}, null, 2) }}</pre>
       <p class="chat-consent-explain">授权令牌三分钟内有效、只能使用一次。工具调用只限已选模块和当前账户；完整查询内容不另存到聊天历史，但模型回复可能引用它。</p>
       <template #footer>

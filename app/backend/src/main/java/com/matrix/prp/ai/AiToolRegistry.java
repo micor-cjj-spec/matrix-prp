@@ -54,6 +54,12 @@ public class AiToolRegistry {
         if (scopes.contains("wellness")) result.add(new Definition("wellness_daily","wellness",
             "获取当前用户指定日期饮食与运动汇总，不包含体重和病历",
             schema(Map.of("date",field("string","yyyy-MM-dd；缺省为今天")))));
+        if (scopes.contains("wellness")) result.add(new Definition("wellness_trends","wellness",
+            "查询用户近7/14/30天每天的饮食热量及运动分钟；未记录的热量返回null，绝不是零，不包含体重",
+            schema(Map.of("days",field("integer","只能是7、14或30，默认7")))));
+        if (scopes.contains("wellness_body")) result.add(new Definition("wellness_body_trends","wellness_body",
+            "仅在单独授权身体指标后查询近7/14/30天体重测量趋势，不包含病历及其他个人健康信息",
+            schema(Map.of("days",field("integer","只能是7、14或30，默认7")))));
         if (scopes.contains("finance")) result.add(new Definition("finance_monthly","finance",
             "获取当前用户某个月的收支汇总、分类及最多10条账目，不包含备注",
             schema(Map.of("month",field("string","yyyy-MM；缺省为当前月")))));
@@ -68,7 +74,8 @@ public class AiToolRegistry {
         return switch (name) {
             case "tasks_list" -> "tasks";
             case "practice_statistics" -> "practice";
-            case "wellness_daily" -> "wellness";
+            case "wellness_daily", "wellness_trends" -> "wellness";
+            case "wellness_body_trends" -> "wellness_body";
             case "finance_monthly" -> "finance";
             case "navigation_open" -> "";
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown AI tool");
@@ -112,6 +119,25 @@ public class AiToolRegistry {
                 data.put("exerciseMinutes",day.exerciseMinutes());
                 yield new Result(data,navigation.resolve("wellness",null));
             }
+            case "wellness_trends", "wellness_body_trends" -> {
+                var service=wellness.getIfAvailable();
+                if(service==null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Wellness unavailable");
+                int days=daysArg(args);
+                boolean body=name.equals("wellness_body_trends");
+                var result=service.trends(days).stream().map(point->{
+                    Map<String,Object> day=new LinkedHashMap<>();
+                    day.put("date",point.date().toString());
+                    if(body) day.put("weightKg",point.weightKg());
+                    else {
+                        day.put("caloriesKcal",point.calories());
+                        day.put("exerciseMinutes",point.exerciseMinutes());
+                    }
+                    return day;
+                }).toList();
+                yield new Result(Map.of("days",days,"series",result,
+                    "nullMeansUnrecorded",true,"weightDataIncluded",body),
+                    navigation.resolve("wellness",null));
+            }
             case "finance_monthly" -> {
                 String when=optional(args,"month");
                 YearMonth month=when==null?YearMonth.now():YearMonth.parse(when);
@@ -135,6 +161,13 @@ public class AiToolRegistry {
             }
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unknown AI tool");
         };
+    }
+    private static int daysArg(JsonNode args) {
+        if(!args.has("days") || args.get("days").isNull()) return 7;
+        JsonNode value=args.get("days");
+        if(!value.isIntegralNumber() || !Set.of(7,14,30).contains(value.asInt()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"days must be 7, 14 or 30");
+        return value.asInt();
     }
     private static String optional(JsonNode args,String key) {
         JsonNode value=args.get(key);
