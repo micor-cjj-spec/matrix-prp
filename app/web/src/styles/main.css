@@ -853,14 +853,18 @@ body { background:#f5f7fc; }
 }
 @media (prefers-reduced-motion:reduce) { .prp-app-card {transition:none;} }
 
-/* Dedicated immersive chat shell: no card stack, desktop sidebar retained. */
+/* Dedicated immersive chat shell: keep a definite flex height all the way
+   to .prp-chat-messages, including Safari/PWA's dynamic viewport. */
 .prp-shell-chat { height:100dvh; min-height:0; overflow:hidden; }
 .prp-workspace-chat { padding:0; min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
-.prp-page-chat { display:flex; min-height:0; flex:1; overflow:hidden; }
+.prp-page-chat { display:flex; width:100%; min-height:0; flex:1; overflow:hidden; }
 @media (max-width:860px) {
-  .prp-shell-chat { height:100dvh; padding-bottom:calc(66px + env(safe-area-inset-bottom,0px)); }
-  .prp-workspace-chat { padding:0; }
-  .prp-page-chat { height:100%; }
+  /* The normal app uses display:block; chat instead needs a constrained flex
+     column so its message list scrolls, not an overflowing hidden page. */
+  .prp-shell-chat { display:flex; flex-direction:column; height:100dvh; min-height:0;
+    padding-bottom:calc(66px + env(safe-area-inset-bottom,0px)); }
+  .prp-workspace-chat { display:flex; flex:1 1 auto; height:auto; min-height:0; padding:0; overflow:hidden; }
+  .prp-page-chat { flex:1 1 auto; height:auto; min-height:0; overflow:hidden; }
   .prp-shell-chat:has(.chat-input textarea:focus) { padding-bottom:0; }
   .prp-shell-chat:has(.chat-input textarea:focus) .prp-mobile-tabs { display:none; }
 }
