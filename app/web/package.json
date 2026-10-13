@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node ../scripts/sync-features.mjs --check && node --test ../scripts/four-tab-navigation.test.mjs && node --test ../scripts/feature-impact.test.mjs && node --experimental-strip-types --test scripts/api-url.test.mjs && vue-tsc -b && vite build",
+    "build": "node ../scripts/sync-features.mjs --check && node --test ../scripts/four-tab-navigation.test.mjs && node --test ../scripts/feature-impact.test.mjs && node --experimental-strip-types --test scripts/api-url.test.mjs scripts/auth-session.test.mjs && vue-tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc -b",
     "features:check": "node ../scripts/sync-features.mjs --check",
