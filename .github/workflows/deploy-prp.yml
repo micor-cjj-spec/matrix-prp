@@ -64,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          remote_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          remote_main="$GITHUB_SHA"
           test "$remote_main" = "$EXPECTED_SHA" || {
             echo "::error::main moved while this release was being prepared; skipping stale candidate"
             exit 1
