@@ -44,5 +44,27 @@ class DeploymentBoundaryTests(unittest.TestCase):
     command.assert_not_called()
  def test_video_ownership_changes_block_migration(self):
   with self.assertRaises(AssertionError):release.assert_preserved({'counts':{'prp_video_assets':427},'videos':'owner2'},{'counts':{'prp_video_assets':427},'videos':'owner1'})
+ def test_additive_food_rows_are_allowed_only_if_original_rows_are_identical(self):
+  before={'counts':{'prp_wellness_foods':2,'prp_video_assets':3},
+    'food_row_sha256':{'1':'abc','2':'def'},'videos':'unchanged'}
+  after={'counts':{'prp_wellness_foods':145,'prp_video_assets':3},
+    'food_row_sha256':{'1':'abc','2':'def','3':'new'},'videos':'unchanged'}
+  release.assert_preserved(before,after)
+  with self.assertRaises(AssertionError):
+   release.assert_preserved(before,{**after,'food_row_sha256':{'1':'abc','2':'modified'}})
+  with self.assertRaises(AssertionError):
+   release.assert_preserved(before,{**after,'food_row_sha256':{'1':'abc'}})
+  with self.assertRaises(AssertionError):
+   release.assert_preserved(before,{**after,'counts':{'prp_wellness_foods':1,'prp_video_assets':3}})
+ def test_food_snapshot_never_silently_skips_missing_fingerprints(self):
+  before={'counts':{'prp_wellness_foods':1},'videos':'same','food_row_sha256':{'7':'xyz'}}
+  after={'counts':{'prp_wellness_foods':3},'videos':'same'}
+  with self.assertRaises(AssertionError):
+   release.assert_preserved(before,after)
+ def test_other_business_table_counts_must_still_match(self):
+  before={'counts':{'prp_wellness_meals':3},'videos':'same'}
+  after={'counts':{'prp_wellness_meals':4},'videos':'same'}
+  with self.assertRaises(AssertionError):
+   release.assert_preserved(before,after)
 
 if __name__=='__main__':unittest.main()

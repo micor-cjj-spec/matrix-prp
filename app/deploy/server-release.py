@@ -36,7 +36,17 @@ def snapshot(db='matrix_prp'):
  tables=sql('SHOW TABLES;',db).splitlines()
  counts={t:int(sql('SELECT COUNT(*) FROM `'+t+'`;',db)) for t in tables if t!='flyway_schema_history'}
  videos=sql('SELECT id,user_id,folder_id,storage_key,size_bytes,HEX(title) FROM prp_video_assets ORDER BY id;',db)
- return {'counts':counts,'videos':hashlib.sha256(videos.encode()).hexdigest()}
+ # Captures original food rows, including private user foods, without writing their values to JSON backups.
+ # Extra shared seed rows from new migrations are allowed; changed/deleted old rows are not.
+ food_hashes={}
+ if 'prp_wellness_foods' in tables:
+  for row in sql('SELECT * FROM `prp_wellness_foods` ORDER BY id;',db).splitlines():
+   row_id=row.split('\t',1)[0]
+   if not row_id.isdigit() or row_id in food_hashes:raise ValueError('Cannot fingerprint legacy food row')
+   food_hashes[row_id]=hashlib.sha256(row.encode('utf-8')).hexdigest()
+  if len(food_hashes)!=counts['prp_wellness_foods']:
+   raise ValueError('Food-row snapshot incomplete')
+ return {'counts':counts,'videos':hashlib.sha256(videos.encode()).hexdigest(),'food_row_sha256':food_hashes}
 def schema_fingerprint():
  definitions=[]
  for table in sql('SHOW TABLES;').splitlines():
@@ -45,8 +55,16 @@ def schema_fingerprint():
 def assert_preserved(before,after):
  for table,count in before['counts'].items():
   actual=after['counts'].get(table,-1)
-  if table=='prp_finance_accounts':assert actual>=count,(table,count,actual)
+  # V15 legitimately adds shared reference foods. Do not relax protections for any other table.
+  if table in {'prp_finance_accounts','prp_wellness_foods'}:assert actual>=count,(table,count,actual)
   else:assert actual==count,(table,count,actual)
+ if 'prp_wellness_foods' in before['counts']:
+  original=before.get('food_row_sha256')
+  current=after.get('food_row_sha256')
+  assert isinstance(original,dict) and isinstance(current,dict),'Missing food snapshots'
+  assert len(original)==before['counts']['prp_wellness_foods'],'Incomplete original food snapshot'
+  for row_id,digest in original.items():
+   assert current.get(row_id)==digest,('Existing food row changed or deleted',row_id)
  assert before['videos']==after['videos'],'Video ownership or records changed'
 def valid_release_id(value):return bool(re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}',value))
 def unpack(archive,dest):
