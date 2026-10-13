@@ -71,9 +71,8 @@ public class DeepSeekClient {
         StringBuilder answer = new StringBuilder();
         long input = 0, output = 0;
         boolean finished = false;
-        {
-            String line;
-            while ((line = reader.readLine()) != null) {
+        String line;
+        while ((line = reader.readLine()) != null) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException("AI request interrupted");
                 if (!line.startsWith("data:")) continue;
                 String data = line.substring(5).trim();
@@ -93,7 +92,6 @@ public class DeepSeekClient {
                     answer.append(part);
                     delta.accept(part);
                 }
-            }
         }
         if (!finished) throw new IllegalStateException("AI provider stream ended without completion sentinel");
         if (answer.isEmpty()) throw new IllegalStateException("AI provider returned an empty response");
