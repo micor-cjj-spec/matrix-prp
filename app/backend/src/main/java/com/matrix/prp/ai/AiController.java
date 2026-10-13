@@ -18,7 +18,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/api/ai")
 public class AiController {
     public record ChatRequest(@Size(max=36) String conversationId, @NotBlank @Size(max=4000) String content,
-                              @Size(max=3) List<String> contextScopes, Boolean contextConsent, @Size(max=80) String contextToken) {}
+                              @Size(max=4) List<String> contextScopes, Boolean contextConsent, @Size(max=80) String contextToken) {}
     private final AiService service;
     public AiController(AiService service) { this.service = service; }
 
@@ -33,6 +33,11 @@ public class AiController {
             @RequestParam(required=false) Long beforeId,
             @RequestParam(defaultValue="200") int limit) {
         return ApiResponse.success(service.messages(id, beforeId, limit));
+    }
+
+    @GetMapping("/conversations/{id}/blocks")
+    public ApiResponse<List<AiStore.MessageBlock>> blocks(@PathVariable String id) {
+        return ApiResponse.success(service.blocks(id));
     }
 
     @GetMapping("/usage")

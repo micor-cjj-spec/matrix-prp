@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/ai/context")
 public class AiContextController {
-    public record PreviewRequest(@NotEmpty @Size(max = 3) List<String> scopes) {}
+    public record PreviewRequest(@NotEmpty @Size(max = 4) List<String> scopes) {}
     public record ConfirmRequest(@NotEmpty String previewId) {}
     private final AiContextConsentService consents;
     public AiContextController(AiContextConsentService consents) { this.consents = consents; }
