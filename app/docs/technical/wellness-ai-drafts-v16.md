@@ -25,3 +25,22 @@ Back up and restore-test `matrix_prp`, verify migrations V1–V14 already applie
 ## Deferred
 
 AI updating/deleting existing records with before/after review; direct recording with a user-supplied total kcal but no known gram/food; long-term private image archive and device imports; provider-specific live smoke tests.
+
+## AI-assisted update and delete of existing records (PR #39 extension)
+
+The application now supports an **explicitly selected** existing meal, exercise or body-metric record.
+
+1. Select date and record type, then pick the exact owned record ID from a server-filtered list (or use the "AI 变更" action on that row).
+2. For an update, optionally describe the correction in natural language. Only this selected record plus the instruction is sent to the configured AI provider; the model returns a constrained JSON patch. Without an instruction, the fields can be edited manually. For a deletion, no provider call is made.
+3. View the immutable **before** snapshot alongside editable **after** fields. For meals, AI can change grams of existing food items but cannot independently change food IDs or delete items. The usual manually authenticated record editor remains available for more complex meal changes.
+4. The server validates fields and ownership, locks the selected record, and re-reads the snapshot at confirmation. If the record has changed since the preview, it fails closed with a conflict and the operator must review again.
+5. Confirmation is one-time and transactional with the existing V16 private draft row. Deleting requires an additional explicit checkbox. A model response never executes a mutation by itself.
+
+APIs:
+- `POST /api/wellness/ai/changes/prepare`: `{kind:"meal|exercise|metric", recordId:positive, operation:"update|delete", instruction?:string}`
+- `PATCH /api/wellness/ai/changes/{id}`: whole corrected **after** fields (update-only)
+- `POST /api/wellness/ai/changes/{id}/confirm`: owner-scoped, one-time confirm
+
+No schema additions beyond V16 are needed. The draft table retains action, original/changed payload, owner, model label, created/consumed timestamps for audit. Real multiuser and concurrency integration smoke tests are still required before production release. **Do not silently auto-confirm deletions**.
+
+AI analysis/recording and AI modifications are separate flows. This change does not give the read-only `AiToolRegistry` write privileges or add an unrestricted CRUD tool.
