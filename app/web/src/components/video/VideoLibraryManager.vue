@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { VideoFolder, VideoItem, StorageUsage } from '@/api/video'
 const visible = defineModel<boolean>({ default: false })
-const props = defineProps<{
+defineProps<{
   folders: { folder: VideoFolder; depth: number }[]
   videos: VideoItem[]
   currentFolderId: number | null

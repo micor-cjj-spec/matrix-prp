@@ -93,6 +93,7 @@ class VideoDatabaseIT {
         JsonNode afterProgress = mapper.readTree(mvc.perform(auth(get("/api/video/items"), admin))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
         assertThat(afterProgress.get(0).path("positionSeconds").asDouble()).isEqualTo(8.5);
+        assertThat(afterProgress.get(0).path("durationSeconds").asDouble()).isEqualTo(20);
 
         String url = mapper.readTree(mvc.perform(auth(
                 get("/api/video/items/{id}/playback", videoId), admin))
