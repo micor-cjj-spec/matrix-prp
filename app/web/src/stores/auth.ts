@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { fetchCurrentUser, login, register, type RegisterRequest, type UserProfile } from '@/api/auth'
 import { getStoredToken, removeStoredToken, setStoredToken } from '@/utils/token'
+import { isUserSessionExpired } from '@/utils/authSession'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(getStoredToken())
@@ -28,7 +29,8 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       user.value = await fetchCurrentUser()
     } catch (error) {
-      logout()
+      // Preserve a valid stored JWT when the server is temporarily unreachable.
+      if (isUserSessionExpired(error)) logout()
       throw error
     }
   }

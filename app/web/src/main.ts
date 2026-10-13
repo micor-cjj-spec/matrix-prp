@@ -15,8 +15,9 @@ const pinia = createPinia()
 app.use(pinia).use(router).use(ElementPlus, { locale: zhCn })
 
 const authStore = useAuthStore()
-authStore.loadCurrentUser().catch(() => {
-  authStore.logout()
+void authStore.loadCurrentUser().catch(() => {
+  // A network timeout at startup is not proof that the user signed out.
+  // The store clears credentials only when /users/me explicitly returns 401.
 })
 
 window.addEventListener('matrix-prp:unauthorized', () => {

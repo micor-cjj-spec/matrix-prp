@@ -61,15 +61,22 @@ public class DeepSeekClient {
             throw new ResponseStatusException(response.statusCode() == 429 ?
                     HttpStatus.TOO_MANY_REQUESTS : HttpStatus.BAD_GATEWAY, "AI provider request failed");
         }
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+            return parseStream(reader, mapper, delta);
+        }
+    }
+
+    /** Require the upstream completion sentinel before accepting a response as successful. */
+    static Result parseStream(BufferedReader reader, ObjectMapper mapper, Consumer<String> delta) throws Exception {
         StringBuilder answer = new StringBuilder();
         long input = 0, output = 0;
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
+        boolean finished = false;
+        String line;
+        while ((line = reader.readLine()) != null) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException("AI request interrupted");
                 if (!line.startsWith("data:")) continue;
                 String data = line.substring(5).trim();
-                if (data.equals("[DONE]")) break;
+                if (data.equals("[DONE]")) { finished = true; break; }
                 if (data.isEmpty()) continue;
                 JsonNode event = mapper.readTree(data);
                 JsonNode usage = event.path("usage");
@@ -85,8 +92,8 @@ public class DeepSeekClient {
                     answer.append(part);
                     delta.accept(part);
                 }
-            }
         }
+        if (!finished) throw new IllegalStateException("AI provider stream ended without completion sentinel");
         if (answer.isEmpty()) throw new IllegalStateException("AI provider returned an empty response");
         return new Result(answer.toString(), input, output);
     }
