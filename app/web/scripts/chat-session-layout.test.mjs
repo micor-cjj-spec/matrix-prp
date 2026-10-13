@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { latestChatToRestore } from '../src/utils/chatRestore.ts'
+import { latestChatToRestore, shouldApplyLoadedConversation } from '../src/utils/chatRestore.ts'
 
 const mostRecent = [{id:'most-recent'}, {id:'older'}]
 const blank = {
@@ -22,6 +22,22 @@ test('never override explicit new-chat, an existing selection, a draft or stream
     { hasDraft:true },
     { isSending:true },
   ]) assert.equal(latestChatToRestore(mostRecent, {...blank,...change}), null)
+})
+
+test('late automatic history response cannot override a new chat, a draft, a send or another selection', () => {
+  assert.equal(shouldApplyLoadedConversation(mostRecent, 'most-recent', true, 7, 7, blank), true)
+  assert.equal(shouldApplyLoadedConversation(mostRecent, 'most-recent', true, 7, 8, blank), false)
+  assert.equal(shouldApplyLoadedConversation(mostRecent, 'most-recent', true, 7, 7, {...blank, explicitlyStartedNew:true}), false)
+  assert.equal(shouldApplyLoadedConversation(mostRecent, 'most-recent', true, 7, 7, {...blank, hasDraft:true}), false)
+  assert.equal(shouldApplyLoadedConversation(mostRecent, 'most-recent', true, 7, 7, {...blank, isSending:true}), false)
+  assert.equal(shouldApplyLoadedConversation(mostRecent, 'most-recent', true, 7, 7, {...blank, selectedId:'older'}), false)
+  assert.equal(shouldApplyLoadedConversation(mostRecent, 'older', false, 7, 7, blank), true)
+  assert.equal(shouldApplyLoadedConversation(mostRecent, 'older', false, 7, 8, blank), false)
+  const view = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
+  assert.match(view, /const requestId = \+\+activeSelectionRequest/)
+  assert.match(view, /shouldApplyLoadedConversation\(/)
+  assert.match(view, /if \(!canApply\) return/)
+  assert.match(view, /\+\+activeSelectionRequest \/\/ A pending automatic history load/)
 })
 
 test('conversation API and usage API failures are handled independently', () => {
