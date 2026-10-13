@@ -3,10 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
-import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
-import { fetchUsage, listConversations, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, AiStreamHttpError,
-  type AiUsage, type ChatMessage, type AiMessageBlock, type Conversation, type AiContextPreview } from '@/api/ai'
+import { fetchUsage, listConversations, listMessages, streamChat, previewAiContext, confirmAiContext, AiStreamHttpError,
+  type AiUsage, type ChatMessage, type Conversation, type AiContextPreview } from '@/api/ai'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 
@@ -15,12 +14,10 @@ const options: ContextOption[] = [
   { value: 'tasks', label: '任务', hint: '今日待办与任务概览' },
   { value: 'practice', label: '刷题', hint: '答题正确率与练习统计' },
   { value: 'wellness', label: '健康', hint: '今日饮食与运动汇总' },
-  { value: 'finance', label: '财务', hint: '当月收支与分类统计（敏感）' },
 ]
 const optionByValue = (value: string) => options.find(option => option.value === value)
 const conversations = ref<Conversation[]>([])
 const messages = ref<ChatMessage[]>([])
-const blocksByMessage = ref<Record<number, AiMessageBlock[]>>({})
 const hasOlder = ref(false)
 const loadingOlder = ref(false)
 const HISTORY_PAGE_SIZE = 200
@@ -129,10 +126,7 @@ async function select(id: string, automaticRestore = false) {
   if (sending.value || loadingOlder.value) return
   const requestId = ++activeSelectionRequest
   try {
-    const [data, blocks] = await Promise.all([
-      listMessages(id, undefined, HISTORY_PAGE_SIZE + 1),
-      listMessageBlocks(id).catch(() => [] as AiMessageBlock[]),
-    ])
+    const data = await listMessages(id, undefined, HISTORY_PAGE_SIZE + 1)
     const canApply = shouldApplyLoadedConversation(
       conversations.value, id, automaticRestore, requestId, activeSelectionRequest, {
         selectedId: selectedId.value,
@@ -147,7 +141,6 @@ async function select(id: string, automaticRestore = false) {
     selectedId.value = id
     hasOlder.value = data.length > HISTORY_PAGE_SIZE
     messages.value = data.slice(-HISTORY_PAGE_SIZE)
-    blocksByMessage.value = Object.groupBy(blocks, block => block.messageId) as Record<number, AiMessageBlock[]>
     historyOpen.value = false
     streamError.value = ''
     bottom()
@@ -184,7 +177,6 @@ function newChat() {
   selectedId.value = null
   hasOlder.value = false
   messages.value = []
-  blocksByMessage.value = {}
   streamError.value = ''
   historyOpen.value = false
 }
@@ -294,13 +286,9 @@ async function send(contextToken?: string) {
     await refresh()
     if (selectedId.value) {
       try {
-        const [latest, blocks] = await Promise.all([
-          listMessages(selectedId.value, undefined, HISTORY_PAGE_SIZE + 1),
-          listMessageBlocks(selectedId.value).catch(() => [] as AiMessageBlock[]),
-        ])
+        const latest = await listMessages(selectedId.value, undefined, HISTORY_PAGE_SIZE + 1)
         hasOlder.value = latest.length > HISTORY_PAGE_SIZE
         messages.value = latest.slice(-HISTORY_PAGE_SIZE)
-        blocksByMessage.value = Object.groupBy(blocks, block => block.messageId) as Record<number, AiMessageBlock[]>
       } catch { /* preserve partial streamed content if refresh fails */ }
     }
     bottom()
@@ -358,7 +346,6 @@ onBeforeUnmount(() => controller?.abort())
             <button @click="input = '@健康 分析一下今天的饮食'; selectedScopes = ['wellness']">分析今天的饮食</button>
             <button @click="input = '@任务 今天有什么待办？'; selectedScopes = ['tasks']">看看今天的待办</button>
             <button @click="input = '@刷题 我最近练习得怎么样？'; selectedScopes = ['practice']">查看刷题统计</button>
-            <button @click="input = '@财务 本月支出情况如何？'; selectedScopes = ['finance']">分析本月收支</button>
           </div>
         </section>
         <div v-for="(message, index) in messages" :key="message.id || index" class="chat-message"
@@ -368,8 +355,6 @@ onBeforeUnmount(() => controller?.abort())
             <div v-if="message.role === 'assistant' && !message.content" class="chat-typing">正在思考 <span>···</span></div>
             <div v-else-if="message.role === 'assistant'" class="markdown-body" v-html="renderSafeMarkdown(message.content)" />
             <div v-else class="chat-user-text">{{ message.content }}</div>
-            <AiNavigationCard v-for="(block, i) in blocksByMessage[message.id] ?? []"
-              :key="message.id + '-' + i" :block="block" />
             <div v-if="message.role === 'assistant' && message.content" class="chat-message-actions">
               <button title="复制回复" aria-label="复制回复" @click="copy(message.content)"><el-icon><CopyDocument /></el-icon></button>
               <button v-if="index === messages.length - 1 && !sending" title="重新提问" aria-label="重新提问" @click="retry"><el-icon><RefreshRight /></el-icon></button>
@@ -397,7 +382,7 @@ onBeforeUnmount(() => controller?.abort())
               <strong>@{{ item.label }}</strong><span>{{ item.hint }}</span>
             </button>
             <div v-if="filteredOptions.length === 0" class="mention-empty">暂无匹配的可授权应用</div>
-            <div class="mention-hint">当前仅提供经授权的只读查询；不会增删改数据。</div>
+            <div class="mention-hint">目前仅开放只读摘要；财务等敏感模块尚未接入。</div>
           </div>
           <div class="chat-composer">
             <el-input v-model="input" type="textarea" class="chat-input" resize="none" :autosize="{ minRows: 1, maxRows: 5 }"
