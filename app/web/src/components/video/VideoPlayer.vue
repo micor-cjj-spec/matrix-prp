@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import type { VideoItem } from '@/api/video'
 import type { VideoProgressSnapshot } from '@/composables/video/useVideoPlayback'
+import { PLAYBACK_SPEEDS } from '@/utils/videoStudy'
 
 const props = defineProps<{
   video: VideoItem | null
@@ -18,7 +19,6 @@ const emit = defineEmits<{
   'volume-change': [value: number]
 }>()
 const media = ref<HTMLVideoElement | null>(null)
-const speedOptions = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 const videoKey = computed(() => props.video?.id ?? 'empty')
 
 function captureProgress(): VideoProgressSnapshot | null {
@@ -70,7 +70,7 @@ watch(() => props.volume, value => { if (media.value) media.value.volume = value
         <label for="study-speed">播放倍速</label>
         <el-select id="study-speed" :model-value="speed" aria-label="播放倍速" size="small" style="width:100px"
           @update:model-value="value => emit('speed-change', Number(value))">
-          <el-option v-for="rate in speedOptions" :key="rate" :value="rate" :label="rate + '×'" />
+          <el-option v-for="rate in PLAYBACK_SPEEDS" :key="rate" :value="rate" :label="rate + '×'" />
         </el-select>
       </div>
       <div class="player-setting volume-control">

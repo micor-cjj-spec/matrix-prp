@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { getPlayback, saveVideoProgress, type VideoItem } from '@/api/video'
 import { createVideoProgressQueue, nextVideoInFolder } from '@/utils/videoPlayback'
+import { PLAYBACK_SPEEDS, validPlaybackSpeed } from '@/utils/videoStudy'
 
 export interface VideoProgressSnapshot {
   positionSeconds: number
@@ -9,12 +10,10 @@ export interface VideoProgressSnapshot {
 export interface VideoPlayerHandle {
   captureProgress: () => VideoProgressSnapshot | null
 }
-const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 const RATE_KEY = 'matrix-prp:video-playback-speed'
 function storedSpeed(): number {
   try {
-    const n = Number(localStorage.getItem(RATE_KEY))
-    return SPEEDS.some(rate => rate === n) ? n : 1
+    return validPlaybackSpeed(localStorage.getItem(RATE_KEY))
   } catch { return 1 }
 }
 
@@ -107,7 +106,7 @@ export function useVideoPlayback(captureCurrent: () => VideoProgressSnapshot | n
   }
 
   function changeSpeed(rate: number) {
-    if (!SPEEDS.some(value => value === rate)) return
+    if (!PLAYBACK_SPEEDS.some(value => value === rate)) return
     speed.value = rate
     try { localStorage.setItem(RATE_KEY, String(rate)) } catch { /* Storage may be disabled */ }
   }

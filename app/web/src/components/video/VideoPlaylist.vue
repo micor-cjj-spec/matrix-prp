@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { Collection, Search } from '@element-plus/icons-vue'
 import type { VideoFolder, VideoItem } from '@/api/video'
+import { videoProgressPercent } from '@/utils/videoStudy'
 const props = defineProps<{
   folders: { folder: VideoFolder; depth: number }[]
   videos: VideoItem[]
@@ -14,10 +15,6 @@ const search = ref('')
 const showAllFolders = ref(true)
 const filteredVideos = computed(() => props.videos.filter(item =>
   item.title.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())))
-function progress(video: VideoItem): number | null {
-  return video.durationSeconds && video.durationSeconds > 0
-    ? Math.min(100, Math.round(video.positionSeconds / video.durationSeconds * 100)) : null
-}
 </script>
 
 <template>
@@ -52,11 +49,11 @@ function progress(video: VideoItem): number | null {
           <span class="episode-title">{{ video.title }}</span>
           <span class="episode-detail">
             {{ (video.sizeBytes / 1048576).toFixed(1) }} MB
-            <template v-if="progress(video) !== null"> · 已看 {{ progress(video) }}%</template>
+            <template v-if="videoProgressPercent(video) !== null"> · 已看 {{ videoProgressPercent(video) }}%</template>
             <template v-else-if="video.positionSeconds > 0"> · 已续播 {{ Math.floor(video.positionSeconds / 60) }} 分钟</template>
           </span>
-          <span v-if="progress(video) !== null" class="episode-progress-track">
-            <span :style="{ width: progress(video) + '%' }" />
+          <span v-if="videoProgressPercent(video) !== null" class="episode-progress-track">
+            <span :style="{ width: videoProgressPercent(video) + '%' }" />
           </span>
         </span>
         <span v-if="playingVideoId === video.id" class="playing-indicator">▶</span>
