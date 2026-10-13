@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import {
@@ -12,8 +13,16 @@ const localDate = () => {
   const d = new Date()
   return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
 }
+const route = useRoute()
 const today = localDate()
-const date = ref(today)
+const initialDate = route.query.date
+const date = ref(typeof initialDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : today)
+watch(() => route.query.date, (next) => {
+  if (typeof next === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(next)) {
+    date.value = next
+    void loadDay()
+  }
+})
 const activeTab = ref('today')
 const loading = ref(false)
 const saving = ref(false)

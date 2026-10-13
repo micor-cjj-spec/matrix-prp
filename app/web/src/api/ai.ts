@@ -3,12 +3,13 @@ import { getStoredToken } from '@/utils/token'
 import { createSseParser } from './sseParser'
 
 export interface Conversation { id: string; title: string; updatedAt: string }
+export interface AiMessageBlock { messageId: number; type: 'navigation'; module: string; label: string; route: string }
 export interface ChatMessage { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }
 export interface AiUsage {
   month: string; requests: number; reservedTokens: number; inputTokens: number
   outputTokens: number; maxRequests: number; maxReservedTokens: number
 }
-export interface StreamEvent { event: 'meta' | 'delta' | 'done' | 'error'; data: Record<string, unknown> }
+export interface StreamEvent { event: 'meta' | 'delta' | 'tool' | 'done' | 'error'; data: Record<string, unknown> }
 export class AiStreamHttpError extends Error {
   constructor(public readonly status: number) {
     super(`AI HTTP ${status}`)
@@ -23,6 +24,11 @@ export async function listMessages(id: string, beforeId?: number, limit = 200) {
   return (await apiClient.get<ApiResponse<ChatMessage[]>>(
     `/ai/conversations/${encodeURIComponent(id)}/messages`,
     { params: { ...(beforeId === undefined ? {} : { beforeId }), limit } },
+  )).data.data
+}
+export async function listMessageBlocks(id: string) {
+  return (await apiClient.get<ApiResponse<AiMessageBlock[]>>(
+    '/ai/conversations/' + encodeURIComponent(id) + '/blocks',
   )).data.data
 }
 export async function fetchUsage() {
@@ -44,7 +50,7 @@ export async function streamChat(conversationId: string | null, content: string,
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   const parser = createSseParser(({ event, data }) => {
-    if (event === 'meta' || event === 'delta' || event === 'done' || event === 'error') {
+    if (event === 'meta' || event === 'delta' || event === 'tool' || event === 'done' || event === 'error') {
       onEvent({ event, data: JSON.parse(data) as Record<string, unknown> })
     }
   })
