@@ -447,9 +447,9 @@ onBeforeUnmount(() => controller?.abort())
     </el-drawer>
 
     <el-dialog v-model="previewVisible" title="确认本次共享的数据" width="min(580px, 95vw)" append-to-body>
-      <p class="chat-consent-explain">以下数据将仅用于下一条回复，并发送到你当前选择的 {{ currentProviderName }} 模型服务商。请确认是否愿意分享。</p>
+      <p class="chat-consent-explain">以下是已选数据域的最小化摘要预览。确认后，PRP 助手可在当前这一条消息中按需查询所选模块的其他记录（包括任务标题、账目日期与金额等），并将查询结果发送给 {{ currentProviderName }}。不会修改数据；如不愿共享该模块其他记录，请取消授权。</p>
       <pre class="chat-preview-data">{{ JSON.stringify(preview?.data ?? {}, null, 2) }}</pre>
-      <p class="chat-consent-explain">授权将在三分钟内失效，只能使用一次。摘要不保存至聊天记录，但模型生成的回复可能引用它。</p>
+      <p class="chat-consent-explain">授权令牌三分钟内有效、只能使用一次。工具调用只限已选模块和当前账户；完整查询内容不另存到聊天历史，但模型回复可能引用它。</p>
       <template #footer>
         <el-button @click="previewVisible = false">取消</el-button>
         <el-button type="primary" :loading="confirming" @click="confirmShare">允许仅本次发送</el-button>
