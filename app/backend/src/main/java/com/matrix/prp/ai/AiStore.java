@@ -11,7 +11,11 @@ public interface AiStore {
     Conversation create(long userId, String title);
     List<Conversation> list(long userId);
     boolean owns(long userId, String conversationId);
-    List<Message> messages(long userId, String conversationId);
+    default List<Message> messages(long userId, String conversationId) {
+        return messages(userId, conversationId, null, 200);
+    }
+    /** Newest page in chronological order; beforeId is an exclusive message cursor. */
+    List<Message> messages(long userId, String conversationId, Long beforeId, int limit);
     void append(long userId, String conversationId, String role, String content);
     void reserve(long userId, String month, long tokens, int perUserRequests, long perUserTokens,
                  int globalRequests, long globalTokens);
