@@ -3,11 +3,13 @@ package com.matrix.prp;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.matrix.prp.ai.AiStore;
+import com.matrix.prp.ai.JdbcAiStore;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -15,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 @ActiveProfiles("video-integration")
 class AiDatabaseIT {
     @Autowired AiStore store;
+    @Autowired JdbcTemplate jdbc;
 
     @Test
     void conversationsArePrivateAndQuotaReservationsAreTransactional() {
@@ -58,5 +61,21 @@ class AiDatabaseIT {
         assertThat(older.getLast().content()).isEqualTo("message-4");
         assertThat(store.messages(owner, id, older.getFirst().id(), 201)).isEmpty();
         assertThat(store.messages(other, id, null, 201)).isEmpty();
+    }
+
+    @Test
+    void savedConversationIsReopenedFromDatabaseAfterNewStoreInstance() {
+        long owner = 908886L, other = 908887L;
+        String id = store.create(owner, "Restore " + UUID.randomUUID()).id();
+        store.append(owner, id, "user", "Question persisted");
+        store.append(owner, id, "assistant", "Answer persisted");
+
+        // Simulates a new page request / new JDBC store, not an in-memory chat.
+        AiStore reloaded = new JdbcAiStore(jdbc);
+        assertThat(reloaded.list(owner)).anyMatch(c -> c.id().equals(id));
+        assertThat(reloaded.messages(owner, id)).extracting(AiStore.Message::content)
+                .containsExactly("Question persisted", "Answer persisted");
+        assertThat(reloaded.list(other)).noneMatch(c -> c.id().equals(id));
+        assertThat(reloaded.messages(other, id)).isEmpty();
     }
 }
