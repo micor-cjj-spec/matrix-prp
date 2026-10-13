@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
+@org.springframework.context.annotation.Profile("!test")
 @RequestMapping("/api/wellness/ai")
 public class WellnessAiDraftController {
     private final WellnessAiDraftService service;

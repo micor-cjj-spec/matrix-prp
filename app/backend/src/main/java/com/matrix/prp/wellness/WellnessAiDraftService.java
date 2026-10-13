@@ -32,6 +32,7 @@ import org.springframework.web.server.ResponseStatusException;
  * choose the user, execute SQL, or construct outbound URLs.
  */
 @Service
+@org.springframework.context.annotation.Profile("!test")
 public class WellnessAiDraftService {
     public record Preview(String draftId, String action, String description,
                           String modelUsed, Map<String,Object> values, String expiresAt) {}

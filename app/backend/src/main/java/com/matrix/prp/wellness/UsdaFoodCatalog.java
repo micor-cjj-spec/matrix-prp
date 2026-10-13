@@ -88,7 +88,7 @@ public class UsdaFoodCatalog {
     static BigDecimal nutrient(JsonNode node,String... ids){
         for(JsonNode v:node.path("foodNutrients")){
             JsonNode n=v.path("nutrient");
-            String number=v.path("nutrientNumber").asText(n.path("number").asText(""));
+            String number=v.path("nutrientNumber").asText(v.path("number").asText(n.path("number").asText("")));
             String id=v.path("nutrientId").asText(n.path("id").asText(""));
             for(String requested:ids) if(requested.equals(number)||requested.equals(id)){
                 String unit=v.path("unitName").asText(n.path("unitName").asText(""));
