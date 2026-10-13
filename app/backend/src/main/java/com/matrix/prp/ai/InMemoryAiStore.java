@@ -14,12 +14,14 @@ public class InMemoryAiStore implements AiStore {
     private final Map<String, Owned> conversations = new HashMap<>();
     private final Map<String, List<Message>> messages = new HashMap<>();
     private final Map<String, Usage> usage = new HashMap<>();
+    private final Map<String, List<MessageBlock>> blocks = new HashMap<>();
     private long nextId = 1;
 
     @Override public synchronized Conversation create(long user, String title) {
         Conversation item = new Conversation(UUID.randomUUID().toString(), title, LocalDateTime.now());
         conversations.put(item.id(), new Owned(user, item));
         messages.put(item.id(), new ArrayList<>());
+        blocks.put(item.id(), new ArrayList<>());
         return item;
     }
     @Override public synchronized List<Conversation> list(long user) {
@@ -35,9 +37,21 @@ public class InMemoryAiStore implements AiStore {
             .filter(m -> beforeId == null || m.id() < beforeId).toList();
         return List.copyOf(all.subList(Math.max(0, all.size() - limit), all.size()));
     }
-    @Override public synchronized void append(long user, String id, String role, String content) {
+    @Override public synchronized long append(long user, String id, String role, String content) {
         if (!owns(user, id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found");
-        messages.get(id).add(new Message(nextId++, role, content, LocalDateTime.now()));
+        long messageId=nextId++;
+        messages.get(id).add(new Message(messageId, role, content, LocalDateTime.now()));
+        return messageId;
+    }
+    @Override public synchronized void saveBlocks(long user,String id,long messageId,List<MessageBlock> items) {
+        if (!owns(user,id) || messages.get(id).stream().noneMatch(m->m.id()==messageId && m.role().equals("assistant")))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Assistant message not found");
+        for (MessageBlock block:items)
+            blocks.get(id).add(new MessageBlock(messageId,block.type(),block.module(),block.label(),block.route()));
+    }
+    @Override public synchronized List<MessageBlock> blocks(long user,String id) {
+        if (!owns(user,id)) return List.of();
+        return List.copyOf(blocks.get(id));
     }
     @Override public synchronized void reserve(long user, String month, long tokens, int userReq, long userTokens,
                                                int globalReq, long globalTokens) {

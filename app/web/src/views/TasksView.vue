@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fallbackDomainModules, fetchDomainModules, type ModuleItem } from '@/api/modules'
 import {
@@ -15,6 +16,7 @@ import {
 import AppLayout from '@/layouts/AppLayout.vue'
 import { moduleLabel, priorityLabel } from '@/utils/labels'
 
+const route = useRoute()
 const tasks = ref<TaskItem[]>([])
 const summary = ref<TaskSummary>({
   openCount: 0,
@@ -192,7 +194,15 @@ function priorityTagType(priority: string) {
   return 'warning'
 }
 
-onMounted(loadTasks)
+function focusFromRoute() {
+  const raw = route.query.focus
+  if (typeof raw !== 'string' || !/^[1-9]\d*$/.test(raw)) return
+  const found = tasks.value.find(task => task.id === Number(raw))
+  if (found) openEditDialog(found)
+  else ElMessage.warning('任务不存在或无权查看')
+}
+onMounted(async () => { await loadTasks(); focusFromRoute() })
+watch(() => route.query.focus, async () => { await loadTasks(); focusFromRoute() })
 </script>
 
 <template>

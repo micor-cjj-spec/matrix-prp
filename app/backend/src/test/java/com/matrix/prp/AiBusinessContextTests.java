@@ -79,7 +79,7 @@ class AiBusinessContextTests {
         mvc.perform(post("/api/ai/context/preview").contentType(MediaType.APPLICATION_JSON)
             .content("{\"scopes\":[\"tasks\"]}")).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/ai/context/preview").header(HttpHeaders.AUTHORIZATION,bearer(admin))
-            .contentType(MediaType.APPLICATION_JSON).content("{\"scopes\":[\"finance\"]}"))
+            .contentType(MediaType.APPLICATION_JSON).content("{\"scopes\":[\"not-registered\"]}"))
             .andExpect(status().isBadRequest());
         mvc.perform(post("/api/ai/context/preview").header(HttpHeaders.AUTHORIZATION,bearer(admin))
             .contentType(MediaType.APPLICATION_JSON).content("{\"scopes\":[\"tasks\",\"tasks\"]}"))

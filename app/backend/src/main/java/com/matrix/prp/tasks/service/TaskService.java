@@ -36,6 +36,10 @@ public class TaskService {
      * Today means due today; tasks without a due date are "unscheduled".
      * Upcoming seven days means tomorrow through the seventh day.
      */
+    public List<TaskItem> listLimited(TaskFilter filter, int limit) {
+        return taskRepository.listLimited(filter, limit);
+    }
+
     public TaskOverview overview() {
         LocalDate today = LocalDate.now();
         List<TaskItem> allTasks = taskRepository.list();

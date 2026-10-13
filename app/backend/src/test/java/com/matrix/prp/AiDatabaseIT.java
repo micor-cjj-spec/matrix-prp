@@ -4,6 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.matrix.prp.ai.AiStore;
 import com.matrix.prp.ai.JdbcAiStore;
+import com.matrix.prp.ai.AiToolRegistry;
+import com.matrix.prp.ai.AiNavigationResolver;
+import com.matrix.prp.auth.model.UserProfile;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +27,9 @@ import org.springframework.web.server.ResponseStatusException;
 class AiDatabaseIT {
     @Autowired AiStore store;
     @Autowired JdbcTemplate jdbc;
+    @Autowired ObjectMapper mapper;
+    @Autowired AiToolRegistry tools;
+    @Autowired AiNavigationResolver navigation;
 
     @Test
     void conversationsArePrivateAndQuotaReservationsAreTransactional() {
@@ -78,4 +90,57 @@ class AiDatabaseIT {
         assertThat(reloaded.list(other)).noneMatch(c -> c.id().equals(id));
         assertThat(reloaded.messages(other, id)).isEmpty();
     }
+
+    @Test
+    void readonlyToolSqlLimitsAndCrossTenantIsolationAreEnforcedOnMySql() throws Exception {
+        final long owner = 91818181L, stranger = 91818182L;
+        final String month = "2026-10";
+        try {
+            for (int i=0; i<26; i++) {
+                jdbc.update("""
+                    INSERT INTO prp_tasks(user_id,module_code,title,description,priority,status,due_date,created_at,updated_at)
+                    VALUES (?,'learning',?,'private body','medium','todo','2026-10-14',NOW(6),NOW(6))
+                    """, owner, "tool-owner-task-"+i);
+            }
+            jdbc.update("""
+                INSERT INTO prp_tasks(user_id,module_code,title,description,priority,status,due_date,created_at,updated_at)
+                VALUES (?,'learning','tool-STRANGER-task','private','high','todo','2026-10-14',NOW(6),NOW(6))
+                """, stranger);
+            for(int i=0;i<15;i++) {
+                jdbc.update("""
+                    INSERT INTO prp_finance_transactions(user_id,type,amount,category,account,merchant,note,transaction_date,created_at,updated_at)
+                    VALUES (?,'expense',1.00,'meal','cash','test','owner-private-note','2026-10-12',NOW(6),NOW(6))
+                    """, owner);
+            }
+            jdbc.update("""
+                INSERT INTO prp_finance_transactions(user_id,type,amount,category,account,merchant,note,transaction_date,created_at,updated_at)
+                VALUES (?,'expense',999.00,'private','cash','test','STRANGER-finance-note','2026-10-12',NOW(6),NOW(6))
+                """, stranger);
+            var auth = new UsernamePasswordAuthenticationToken(
+                new UserProfile(owner,"tools-owner","Tools Owner"),null,List.of());
+            SecurityContextHolder.getContext().setAuthentication(auth);
+            var taskResult=tools.execute("tasks_list",mapper.readTree("{}"),Set.of("tasks"));
+            var taskItems=(List<?>)((Map<?,?>)taskResult.data()).get("items");
+            assertThat(taskItems).hasSize(20);
+            assertThat(mapper.writeValueAsString(taskItems)).doesNotContain("STRANGER","private body");
+            assertThatThrownBy(()->tools.execute("finance_monthly",mapper.readTree("{}"),Set.of("tasks")))
+                .isInstanceOf(ResponseStatusException.class);
+            var financeResult=tools.execute("finance_monthly",
+                mapper.readTree("{\"month\":\""+month+"\"}"),Set.of("finance"));
+            var financeData=(Map<?,?>)financeResult.data();
+            assertThat(financeData.get("expense")).isEqualTo("15.00");
+            assertThat((List<?>)financeData.get("transactions")).hasSize(10);
+            assertThat(mapper.writeValueAsString(financeData)).doesNotContain("STRANGER","999.00","owner-private-note");
+            long strangerTask = jdbc.queryForObject(
+                "SELECT id FROM prp_tasks WHERE user_id=? AND title='tool-STRANGER-task'",Long.class,stranger);
+            assertThatThrownBy(()->navigation.resolve("tasks",
+                mapper.createObjectNode().put("recordId",strangerTask)))
+                .isInstanceOf(ResponseStatusException.class);
+        } finally {
+            SecurityContextHolder.clearContext();
+            jdbc.update("DELETE FROM prp_finance_transactions WHERE user_id IN (?,?)",owner,stranger);
+            jdbc.update("DELETE FROM prp_tasks WHERE user_id IN (?,?)",owner,stranger);
+        }
+    }
+
 }

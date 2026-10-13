@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createFinanceAccount,
@@ -33,6 +34,7 @@ import {
 import AppLayout from '@/layouts/AppLayout.vue'
 import { accountTypeLabel, financeTypeLabel } from '@/utils/labels'
 
+const route = useRoute()
 const transactions = ref<FinanceTransactionItem[]>([])
 const accounts = ref<FinanceAccountItem[]>([])
 const categories = ref<FinanceCategoryItem[]>([])
@@ -61,7 +63,8 @@ const currentMonth = new Date().toISOString().slice(0, 7)
 const today = new Date().toISOString().slice(0, 10)
 
 const filters = reactive({
-  month: currentMonth,
+  month: typeof route.query.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(route.query.month)
+    ? route.query.month : currentMonth,
   type: '',
   category: '',
 })
@@ -345,6 +348,12 @@ async function removeTransfer(id: number) {
 onMounted(async () => {
   await loadFinance()
   resetTransactionForm()
+})
+watch(() => route.query.month, month => {
+  if (typeof month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    filters.month = month
+    void loadFinance()
+  }
 })
 </script>
 

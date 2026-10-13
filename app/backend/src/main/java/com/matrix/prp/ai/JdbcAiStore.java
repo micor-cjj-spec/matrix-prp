@@ -6,6 +6,8 @@ import java.util.UUID;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import java.sql.Statement;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -58,14 +60,60 @@ public class JdbcAiStore implements AiStore {
     }
 
     @Override
-    public void append(long userId, String conversationId, String role, String content) {
-        int affected = db.update("""
+    public long append(long userId, String conversationId, String role, String content) {
+        GeneratedKeyHolder keys = new GeneratedKeyHolder();
+        int affected = db.update(connection -> {
+            var stmt=connection.prepareStatement("""
                 INSERT INTO prp_ai_messages(conversation_id,role,content,created_at)
                 SELECT id,?,?,? FROM prp_ai_conversations WHERE id=? AND user_id=?
-                """, role, content, LocalDateTime.now(java.time.Clock.systemUTC()), conversationId, userId);
-        if (affected != 1) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found");
+                """, Statement.RETURN_GENERATED_KEYS);
+            stmt.setString(1,role);
+            stmt.setString(2,content);
+            stmt.setObject(3,LocalDateTime.now(java.time.Clock.systemUTC()));
+            stmt.setString(4,conversationId);
+            stmt.setLong(5,userId);
+            return stmt;
+        },keys);
+        if (affected!=1 || keys.getKey()==null)
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
         db.update("UPDATE prp_ai_conversations SET updated_at=? WHERE id=? AND user_id=?",
-                LocalDateTime.now(java.time.Clock.systemUTC()), conversationId, userId);
+            LocalDateTime.now(java.time.Clock.systemUTC()),conversationId,userId);
+        return keys.getKey().longValue();
+    }
+
+    @Override
+    @Transactional
+    public void saveBlocks(long userId,String conversationId,long messageId,List<MessageBlock> blocks) {
+        if (!owns(userId,conversationId))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
+        Integer valid=db.queryForObject("""
+            SELECT COUNT(*) FROM prp_ai_messages m
+            JOIN prp_ai_conversations c ON m.conversation_id=c.id
+            WHERE m.id=? AND m.role='assistant' AND c.id=? AND c.user_id=?
+            """,Integer.class,messageId,conversationId,userId);
+        if (valid==null || valid!=1)
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Assistant message not found");
+        for (MessageBlock block:blocks) {
+            if (!"navigation".equals(block.type()) || block.route().length()>300)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unsupported message block");
+            db.update("""
+                INSERT INTO prp_ai_message_blocks(message_id,user_id,block_type,module,label,route,created_at)
+                VALUES (?,?,?,?,?,?,?)
+                """,messageId,userId,block.type(),block.module(),block.label(),block.route(),
+                LocalDateTime.now(java.time.Clock.systemUTC()));
+        }
+    }
+    @Override
+    public List<MessageBlock> blocks(long userId,String conversationId) {
+        return db.query("""
+            SELECT b.message_id,b.block_type,b.module,b.label,b.route
+            FROM prp_ai_message_blocks b
+            JOIN prp_ai_messages m ON m.id=b.message_id
+            JOIN prp_ai_conversations c ON c.id=m.conversation_id
+            WHERE c.id=? AND c.user_id=? AND b.user_id=?
+            ORDER BY b.id DESC LIMIT 500
+            """,(rs,n)->new MessageBlock(rs.getLong(1),rs.getString(2),rs.getString(3),
+                rs.getString(4),rs.getString(5)),conversationId,userId,userId);
     }
 
     @Override
