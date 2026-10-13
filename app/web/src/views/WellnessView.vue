@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import {
-  wellnessApi, type Food, type Meal, type MealInput, type Exercise, type ExerciseInput,
+  wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type Exercise, type ExerciseInput,
   type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint,
   type Goal, type Profile,
 } from '@/api/wellness'
@@ -134,6 +134,33 @@ async function copyMeal(meal: Meal) {
 }
 async function loadTrend() { trend.value = await wellnessApi.trends(trendDays.value) }
 
+const usdaDialog = ref(false)
+const usdaQuery = ref('')
+const usdaConfigured = ref(false)
+const usdaResults = ref<UsdaCandidate[]>([])
+const usdaSearching = ref(false)
+const importingUsda = ref<number | null>(null)
+async function openUsda() {
+  usdaDialog.value = true
+  try { usdaConfigured.value = (await wellnessApi.usdaStatus()).configured }
+  catch { usdaConfigured.value = false }
+}
+async function searchUsda() {
+  if (!usdaQuery.value.trim() || usdaSearching.value) return
+  usdaSearching.value = true
+  try { usdaResults.value = await wellnessApi.searchUsda(usdaQuery.value.trim()) }
+  catch { ElMessage.error('USDA 查询失败，请检查服务器 API Key、网络或限流') }
+  finally { usdaSearching.value = false }
+}
+async function importUsdaFood(row: UsdaCandidate) {
+  importingUsda.value = row.fdcId
+  try {
+    const food = await wellnessApi.importUsda(row.fdcId)
+    foods.value = [...new Map([food, ...foods.value].map(x => [x.id, x])).values()]
+    ElMessage.success('已导入个人食物库，可在餐次中使用')
+  } catch { ElMessage.error('导入失败，可能缺少可靠的每100g营养字段') }
+  finally { importingUsda.value = null }
+}
 const foodDialog = ref(false)
 const foodForm = reactive({ name: '', preparation: 'unspecified',
   calories100g: 0, protein100g: 0, carbs100g: 0, fat100g: 0, sourceNote: '' })
@@ -293,7 +320,7 @@ async function saveProfile() {
             </div>
           </section>
           <section class="panel">
-            <div class="panel-head"><h2>常吃食物</h2><el-button @click="foodDialog=true">新增自定义食物</el-button></div>
+            <div class="panel-head"><h2>常吃食物</h2><span><el-button @click="openUsda()">USDA 食品库</el-button> <el-button @click="foodDialog=true">新增自定义食物</el-button></span></div>
             <div v-if="!frequentFoods.length" class="empty">添加餐次后，常吃食物会自动出现在这里。</div>
             <div class="chips"><el-tag v-for="food in frequentFoods" :key="food.id" class="food-chip" @click="openMeal('SNACK'); draftItems=[{foodId:food.id,grams:100}]">
               {{ food.name }} · {{ n(food.calories100g) }} kcal/100g
@@ -388,6 +415,24 @@ async function saveProfile() {
           <el-button type="primary" :loading="saving" @click="saveMeal()">保存餐次</el-button></template>
       </el-dialog>
 
+      <el-dialog v-model="usdaDialog" title="USDA 食品搜索（公开 CC0 数据）" width="min(96vw,650px)" append-to-body>
+        <p class="muted">本地食物可离线使用；外部查询仅在服务器配置 USDA API Key 后启用。请使用英文名称搜索，营养值按每100g参考。</p>
+        <p v-if="!usdaConfigured" class="muted">尚未配置 MATRIX_PRP_USDA_API_KEY，联系管理员配置后即可搜索。</p>
+        <div class="form-row">
+          <el-input v-model="usdaQuery" placeholder="例：chicken breast, yogurt, rice" maxlength="80"
+            :disabled="!usdaConfigured" @keyup.enter="searchUsda" />
+          <el-button type="primary" :loading="usdaSearching" :disabled="!usdaConfigured" @click="searchUsda">搜索</el-button>
+        </div>
+        <div v-for="candidate in usdaResults" :key="candidate.fdcId" class="entry">
+          <div class="grow">
+            <strong>{{ candidate.name }}</strong>
+            <p>{{ n(candidate.calories100g) }} kcal · 蛋白质 {{ n(candidate.protein100g,1) }}g · 碳水 {{ n(candidate.carbs100g,1) }}g · 脂肪 {{ n(candidate.fat100g,1) }}g / 100g</p>
+            <small class="muted">{{ candidate.source }}</small>
+          </div>
+          <el-button :loading="importingUsda === candidate.fdcId" @click="importUsdaFood(candidate)">导入</el-button>
+        </div>
+        <p class="muted">来源：USDA FoodData Central (CC0)。不同状态、品牌和烹饪方式有较大差异，记录前请核实。</p>
+      </el-dialog>
       <el-dialog v-model="foodDialog" title="新增自定义食物" width="min(96vw,520px)" append-to-body>
         <el-form label-position="top">
           <el-form-item label="食物名称"><el-input v-model="foodForm.name" maxlength="120" /></el-form-item>

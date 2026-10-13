@@ -5,6 +5,10 @@ export interface Food {
   protein100g: string; carbs100g: string; fat100g: string
   sourceNote: string | null; custom: boolean
 }
+export interface UsdaCandidate {
+  fdcId: number; name: string; calories100g: number; protein100g: number
+  carbs100g: number; fat100g: number; source: string
+}
 export interface FoodInput {
   name: string; preparation: string; calories100g: number; protein100g: number
   carbs100g: number; fat100g: number; sourceNote: string
@@ -70,6 +74,9 @@ async function del(url: string): Promise<void> { await apiClient.delete(url) }
 export const wellnessApi = {
   foods: (q = '') => get<Food[]>('/wellness/foods', { q }),
   frequent: () => get<Food[]>('/wellness/foods/frequent'),
+  usdaStatus: () => get<{ configured: boolean }>('/wellness/foods/usda/status'),
+  searchUsda: (q: string) => get<UsdaCandidate[]>('/wellness/foods/usda/search', { q }),
+  importUsda: (fdcId: number) => post<Food>('/wellness/foods/usda/' + fdcId + '/import', {}),
   addFood: (form: FoodInput) => post<Food>('/wellness/foods', form),
   meals: (date: string) => get<Meal[]>('/wellness/meals', { date }),
   addMeal: (form: MealInput) => post<Meal>('/wellness/meals', form),

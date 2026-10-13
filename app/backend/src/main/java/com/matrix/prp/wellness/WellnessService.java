@@ -105,6 +105,17 @@ public class WellnessService {
                 input.carbs100g(),input.fat100g(),input.sourceNote());
         return food(id);
     }
+    /** Imported food remains owned by the requesting user; never mutates shared reference foods. */
+    @Transactional
+    public Food importUsda(UsdaFoodCatalog.Candidate candidate) {
+        long user=CurrentUser.id();
+        List<Food> existing=db.query("SELECT "+FOOD_COLUMNS+
+            " FROM prp_wellness_foods WHERE owner_user_id=? AND source_note=? LIMIT 1",
+            this::mapFood,user,candidate.source());
+        if(!existing.isEmpty()) return existing.get(0);
+        return addFood(new FoodInput(candidate.name(),"unspecified",candidate.calories100g(),
+            candidate.protein100g(),candidate.carbs100g(),candidate.fat100g(),candidate.source()));
+    }
     private Food food(long id) {
         List<Food> rows=db.query("SELECT "+FOOD_COLUMNS+" FROM prp_wellness_foods " +
                 "WHERE id=? AND (owner_user_id IS NULL OR owner_user_id=?)",

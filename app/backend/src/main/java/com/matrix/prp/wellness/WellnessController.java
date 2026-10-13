@@ -13,10 +13,24 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/wellness")
 public class WellnessController {
     private final WellnessService service;
-    public WellnessController(WellnessService service) { this.service = service; }
+    private final UsdaFoodCatalog usda;
+    public WellnessController(WellnessService service, UsdaFoodCatalog usda) { this.service = service; this.usda = usda; }
 
     @GetMapping("/foods")
     public ApiResponse<List<Food>> foods(@RequestParam(defaultValue="") String q) { return ApiResponse.success(service.foods(q)); }
+    @GetMapping("/foods/usda/status")
+    public ApiResponse<java.util.Map<String,Boolean>> usdaStatus() {
+        return ApiResponse.success(java.util.Map.of("configured", usda.configured()));
+    }
+    @GetMapping("/foods/usda/search")
+    public ApiResponse<List<UsdaFoodCatalog.Candidate>> searchUsda(@RequestParam String q) {
+        return ApiResponse.success(usda.search(q));
+    }
+    @PostMapping("/foods/usda/{id}/import")
+    public ApiResponse<Food> importUsda(@PathVariable long id) {
+        var candidate = usda.detail(id);
+        return ApiResponse.success(service.importUsda(candidate));
+    }
     @GetMapping("/foods/frequent")
     public ApiResponse<List<Food>> frequentFoods() { return ApiResponse.success(service.frequentFoods()); }
     @PostMapping("/foods")
