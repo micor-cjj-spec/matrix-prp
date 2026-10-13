@@ -545,6 +545,7 @@ onBeforeUnmount(() => controller?.abort())
   .chat-suggestions{gap:8px}
   .chat-suggestions button{padding:12px 11px;font-size:12px}
   .chat-disclaimer{margin-top:6px;font-size:10px}
+  :deep(.chat-input .el-textarea__inner){font-size:16px}
 }
 @media(prefers-reduced-motion:reduce){.chat-typing span{animation:none}}
 </style>

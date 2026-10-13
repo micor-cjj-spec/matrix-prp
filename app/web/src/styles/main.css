@@ -11,6 +11,11 @@
   box-sizing: border-box;
 }
 
+html {
+  /* Preserve scrolling, but disable page pinch/double-tap zoom in supported browsers. */
+  touch-action: pan-x pan-y;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -21,6 +26,18 @@ button,
 input,
 textarea {
   font: inherit;
+}
+
+/* iOS Safari zooms the page when a focused form field has a font below 16px. */
+@media (max-width: 860px) {
+  input,
+  textarea,
+  select,
+  .el-input__inner,
+  .el-textarea__inner,
+  .el-select__input {
+    font-size: 16px !important;
+  }
 }
 
 .app-shell {
@@ -865,6 +882,8 @@ body { background:#f5f7fc; }
     padding-bottom:calc(66px + env(safe-area-inset-bottom,0px)); }
   .prp-workspace-chat { display:flex; flex:1 1 auto; height:auto; min-height:0; padding:0; overflow:hidden; }
   .prp-page-chat { flex:1 1 auto; height:auto; min-height:0; overflow:hidden; }
-  .prp-shell-chat:has(.chat-input textarea:focus) { padding-bottom:0; }
-  .prp-shell-chat:has(.chat-input textarea:focus) .prp-mobile-tabs { display:none; }
+  /* Hide tabs only while the virtual keyboard is actually open, not for the
+     entire lifetime of a focused textarea after the keyboard is dismissed. */
+  .prp-shell-chat.prp-keyboard-open { padding-bottom:0; }
+  .prp-shell-chat.prp-keyboard-open .prp-mobile-tabs { display:none; }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Bell, ChatDotRound, DataAnalysis, Grid, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -7,6 +7,31 @@ import { domains, features } from '@/generated/features'
 
 const route = useRoute()
 const auth = useAuthStore()
+
+// On iOS, a textarea can retain focus after the software keyboard has closed.
+// Measure the actual visual viewport rather than using :focus to hide tabs.
+const keyboardVisible = ref(false)
+function updateKeyboardVisibility() {
+  const viewport = window.visualViewport
+  keyboardVisible.value = Boolean(viewport && window.innerHeight - viewport.height - viewport.offsetTop > 150)
+}
+function prepareMobileNavigation() {
+  const active = document.activeElement
+  if (active instanceof HTMLElement && active.matches('input, textarea, select, [contenteditable="true"]')) {
+    active.blur()
+  }
+}
+onMounted(() => {
+  updateKeyboardVisibility()
+  window.visualViewport?.addEventListener('resize', updateKeyboardVisibility)
+  window.visualViewport?.addEventListener('scroll', updateKeyboardVisibility)
+  window.addEventListener('resize', updateKeyboardVisibility)
+})
+onBeforeUnmount(() => {
+  window.visualViewport?.removeEventListener('resize', updateKeyboardVisibility)
+  window.visualViewport?.removeEventListener('scroll', updateKeyboardVisibility)
+  window.removeEventListener('resize', updateKeyboardVisibility)
+})
 const mainNav = [
   { code: 'home', label: '首页', to: '/', icon: DataAnalysis },
   { code: 'apps', label: '应用', to: '/apps', icon: Grid },
@@ -32,7 +57,7 @@ const currentTitle = computed(() => {
 </script>
 
 <template>
-  <main class="app-shell prp-shell" :class="{ 'prp-shell-chat': activeMain === 'chat' }">
+  <main class="app-shell prp-shell" :class="{ 'prp-shell-chat': activeMain === 'chat', 'prp-keyboard-open': activeMain === 'chat' && keyboardVisible }">
     <aside class="sidebar prp-sidebar" aria-label="主导航">
       <RouterLink to="/" class="brand prp-brand">
         <span class="brand-mark">M</span>
@@ -71,7 +96,7 @@ const currentTitle = computed(() => {
     </div>
     <nav class="prp-mobile-tabs" aria-label="手机主要导航">
       <RouterLink v-for="item in mainNav" :key="item.code" :to="item.to"
-        class="prp-mobile-tab" :class="{ 'is-active': activeMain === item.code }"
+        class="prp-mobile-tab" :class="{ 'is-active': activeMain === item.code }" @pointerdown="prepareMobileNavigation"
         :aria-current="route.path === item.to ? 'page' : undefined">
         <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
       </RouterLink>
