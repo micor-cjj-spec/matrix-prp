@@ -116,6 +116,8 @@ public class WellnessService {
         return addFood(new FoodInput(candidate.name(),"unspecified",candidate.calories100g(),
             candidate.protein100g(),candidate.carbs100g(),candidate.fat100g(),candidate.source()));
     }
+    /** Returns a food only when it is a shared reference or owned by the authenticated user. */
+    public Food accessibleFood(long id) { return food(id); }
     private Food food(long id) {
         List<Food> rows=db.query("SELECT "+FOOD_COLUMNS+" FROM prp_wellness_foods " +
                 "WHERE id=? AND (owner_user_id IS NULL OR owner_user_id=?)",

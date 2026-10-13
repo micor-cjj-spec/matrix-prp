@@ -20,6 +20,11 @@ public class WellnessAiDraftController {
         @RequestParam(required=false) MultipartFile image){
         return ApiResponse.success(service.prepare(text,image));
     }
+    @PatchMapping("/drafts/{draftId}")
+    public ApiResponse<WellnessAiDraftService.Preview> edit(@PathVariable String draftId,
+        @RequestBody com.fasterxml.jackson.databind.JsonNode changes) {
+        return ApiResponse.success(service.edit(draftId,changes));
+    }
     @PostMapping("/drafts/{draftId}/confirm")
     public ApiResponse<WellnessAiDraftService.Outcome> confirm(@PathVariable String draftId){
         return ApiResponse.success(service.confirm(draftId));

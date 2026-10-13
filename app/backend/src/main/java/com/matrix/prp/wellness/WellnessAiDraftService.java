@@ -191,7 +191,8 @@ public class WellnessAiDraftService {
         return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,message+
             " — please correct the description or enter it manually");
     }
-    private Map<String,Object> verify(JsonNode node){
+    Map<String,Object> verify(JsonNode node){ return verify(node,false); }
+    Map<String,Object> verify(JsonNode node,boolean edited){
         if(!node.isObject())throw invalid("Invalid AI action");
         String action=node.path("action").asText("");
         String day=date(node);
@@ -209,15 +210,26 @@ public class WellnessAiDraftService {
                 for(JsonNode item:items){
                     String name=item.path("name").asText("").trim();
                     if(name.isBlank()||name.length()>120)throw invalid("Food name missing");
-                    BigDecimal grams=decimal(item,"grams",true);
-                    if(grams.compareTo(BigDecimal.valueOf(0.1))<0||grams.compareTo(BigDecimal.valueOf(3000))>0)
-                        throw invalid("Food grams missing or out of range");
-                    // The LLM may suggest names but it may not invent nutrient values.
-                    List<Food> found=wellness.foods(name);
-                    Food match=found.stream().filter(f->f.name().equals(name)).findFirst().orElse(null);
-                    if(match==null)throw invalid("Food not in local catalog: "+name);
-                    parsed.add(Map.of("foodId",match.id(),"name",match.name(),"grams",grams,
-                        "calories",com.matrix.prp.wellness.NutritionMath.portion(match.calories100g(),grams)));
+                    BigDecimal grams=decimal(item,"grams",false);
+                    if(grams==null)grams=BigDecimal.ZERO;
+                    if(grams.compareTo(BigDecimal.valueOf(3000))>0)
+                        throw invalid("Food grams out of range");
+                    Food match=null;
+                    if(edited && item.path("foodId").canConvertToLong() && item.path("foodId").asLong()>0)
+                        match=wellness.accessibleFood(item.path("foodId").asLong());
+                    if(!edited) {
+                        // Conservative name matching; do not silently equate similarly named recipes.
+                        String normalized=normalize(name);
+                        match=wellness.foods(name).stream()
+                            .filter(f->normalize(f.name()).equals(normalized)).findFirst().orElse(null);
+                    }
+                    Map<String,Object> record=new LinkedHashMap<>();
+                    record.put("foodId",match==null?0:match.id());
+                    record.put("name",match==null?name:match.name());
+                    record.put("grams",grams);
+                    record.put("calories",match==null||grams.signum()==0?null:
+                        NutritionMath.portion(match.calories100g(),grams));
+                    parsed.add(record);
                 }
                 String note=node.path("note").asText("");
                 if(note.length()>300)note=note.substring(0,300);
@@ -251,6 +263,9 @@ public class WellnessAiDraftService {
         }
         return m;
     }
+    static String normalize(String name){
+        return name.replaceAll("[\\s（）()]", "").toLowerCase(Locale.ROOT);
+    }
     private String description(String action, Map<String,Object> values){
         String day=String.valueOf(values.get("date"));
         return switch(action){
@@ -262,6 +277,40 @@ public class WellnessAiDraftService {
         };
     }
 
+    /**
+     * Human changes are normalized again by server services, not trusted as model-authored
+     * nutritional values. The action type is taken exclusively from the stored draft.
+     */
+    @Transactional
+    public Preview edit(String draftId,JsonNode changes){
+        long user=CurrentUser.id();
+        if(draftId==null||!draftId.matches("[0-9a-fA-F-]{36}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid draft");
+        if(changes==null||!changes.isObject()||changes.toString().length()>5000)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid draft corrections");
+        List<Map<String,Object>> rows=db.queryForList(
+            "SELECT action_type,status,expires_at,model_used FROM prp_wellness_ai_drafts " +
+            "WHERE id=? AND user_id=? FOR UPDATE",draftId,user);
+        if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Draft not found");
+        var row=rows.get(0);
+        java.sql.Timestamp expires=(java.sql.Timestamp)row.get("expires_at");
+        if(!"PENDING".equals(row.get("status"))||!expires.toLocalDateTime().isAfter(LocalDateTime.now()))
+            throw new ResponseStatusException(HttpStatus.CONFLICT,"Draft expired or already used");
+        String action=String.valueOf(row.get("action_type"));
+        var safe=((com.fasterxml.jackson.databind.node.ObjectNode)changes.deepCopy()).put("action",action);
+        Map<String,Object> checked=verify(safe,true);
+        String description=description(action,checked);
+        try {
+            int updated=db.update("UPDATE prp_wellness_ai_drafts SET payload_json=?,description=? " +
+                "WHERE id=? AND user_id=? AND status='PENDING'",
+                json.writeValueAsString(checked),description,draftId,user);
+            if(updated!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Draft already used");
+        }catch(com.fasterxml.jackson.core.JsonProcessingException e){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Cannot encode draft corrections");
+        }
+        return new Preview(draftId,action,description,String.valueOf(row.get("model_used")),
+            checked,expires.toLocalDateTime().toString());
+    }
     @Transactional
     public Outcome confirm(String draftId){
         long user=CurrentUser.id();
@@ -283,8 +332,13 @@ public class WellnessAiDraftService {
             switch(action){
                 case "meal.create" -> {
                     List<ItemInput> items=new ArrayList<>();
-                    for(JsonNode item:data.path("items"))
-                        items.add(new ItemInput(item.path("foodId").asLong(),item.path("grams").decimalValue()));
+                    for(JsonNode item:data.path("items")) {
+                        long foodId=item.path("foodId").asLong(0);
+                        BigDecimal grams=item.path("grams").decimalValue();
+                        if(foodId<=0||grams.signum()<=0)
+                            throw invalid("Please select a food and valid weight for each item");
+                        items.add(new ItemInput(foodId,grams));
+                    }
                     saved=wellness.addMeal(new MealInput(LocalDate.parse(date),
                         data.path("mealType").asText(),data.path("note").asText(""),items,draftId));
                 }
