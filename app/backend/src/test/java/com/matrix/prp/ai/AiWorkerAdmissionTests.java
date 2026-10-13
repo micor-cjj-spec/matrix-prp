@@ -35,7 +35,11 @@ class AiWorkerAdmissionTests {
             new AiSettingsStore.Selection("deepseek", "deepseek-chat"));
         TaskExecutor rejecting = task -> { throw new TaskRejectedException("worker queue full"); };
         AiService service = new AiService(store, deepSeek, settings, mock(AiProviderClient.class),
-            mock(AiContextConsentService.class), rejecting, 1024, 200, 1000, 250000L, 1000000L);
+            mock(AiContextConsentService.class), mock(AiToolPlanner.class),
+            mock(AiToolRegistry.class), mock(AiToolAudit.class),
+            new com.fasterxml.jackson.databind.ObjectMapper(),
+            new org.springframework.mock.env.MockEnvironment(),
+            rejecting, 1024, 200, 1000, 250000L, 1000000L);
 
         assertThatThrownBy(() -> service.chat(null, "hello"))
             .isInstanceOf(ResponseStatusException.class)
