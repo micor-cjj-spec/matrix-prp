@@ -27,6 +27,10 @@ window.addEventListener('matrix-prp:unauthorized', () => {
   }
 })
 
+// iOS Safari may ignore maximum-scale/user-scalable on web pages. Prevent
+// Safari's non-standard pinch gesture as a fallback; ordinary scrolling stays enabled.
+document.addEventListener('gesturestart', event => event.preventDefault(), { passive: false })
+
 app.mount('#app')
 
 if ('serviceWorker' in navigator && (window.isSecureContext || location.hostname === 'localhost')) {
