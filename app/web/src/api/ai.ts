@@ -1,4 +1,4 @@
-import { apiClient, type ApiResponse } from './client'
+import { apiClient, apiUrl, type ApiResponse } from './client'
 import { getStoredToken } from '@/utils/token'
 
 export interface Conversation { id: string; title: string; updatedAt: string }
@@ -8,6 +8,12 @@ export interface AiUsage {
   outputTokens: number; maxRequests: number; maxReservedTokens: number
 }
 export interface StreamEvent { event: 'meta' | 'delta' | 'done' | 'error'; data: Record<string, unknown> }
+export class AiStreamHttpError extends Error {
+  constructor(public readonly status: number) {
+    super(`AI HTTP ${status}`)
+    this.name = 'AiStreamHttpError'
+  }
+}
 
 export async function listConversations() {
   return (await apiClient.get<ApiResponse<Conversation[]>>('/ai/conversations')).data.data
@@ -20,7 +26,7 @@ export async function fetchUsage() {
 }
 export async function streamChat(conversationId: string | null, content: string,
                                  onEvent: (message: StreamEvent) => void, signal?: AbortSignal, contextScopes: string[] = [], contextToken?: string) {
-  const response = await fetch('/api/ai/chat/stream', {
+  const response = await fetch(apiUrl('/ai/chat/stream'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getStoredToken() ?? ''}` },
     body: JSON.stringify({ conversationId, content, contextScopes,
@@ -29,7 +35,8 @@ export async function streamChat(conversationId: string | null, content: string,
   })
   // AI 接口鉴权失败不应该清除登录态。
   // 例如 API Key 配置错误、AI 服务额度不足、AI 模块独立权限异常时，不能导致整个 PRP 退出登录。
-  if (!response.ok || !response.body) throw new Error(`AI HTTP ${response.status}`)
+  if (!response.ok) throw new AiStreamHttpError(response.status)
+  if (!response.body) throw new Error('AI streaming response has no body')
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
