@@ -69,14 +69,14 @@ watch(() => props.volume, value => { if (media.value) media.value.volume = value
       <div class="player-setting">
         <label for="study-speed">播放倍速</label>
         <el-select id="study-speed" :model-value="speed" aria-label="播放倍速" size="small" style="width:100px"
-          @update:model-value="value => emit('speed-change', Number(value))">
+          @update:model-value="(value: number) => emit('speed-change', Number(value))">
           <el-option v-for="rate in PLAYBACK_SPEEDS" :key="rate" :value="rate" :label="rate + '×'" />
         </el-select>
       </div>
       <div class="player-setting volume-control">
         <label>音量</label>
         <el-slider :model-value="volume" :min="0" :max="1" :step="0.05"
-          aria-label="音量" style="width:106px" @update:model-value="value => emit('volume-change', Number(value))" />
+          aria-label="音量" style="width:106px" @update:model-value="(value: number) => emit('volume-change', Number(value))" />
       </div>
       <span class="player-tip">进度自动同步 · 最高 3×</span>
     </div>
