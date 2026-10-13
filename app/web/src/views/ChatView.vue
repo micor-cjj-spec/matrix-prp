@@ -7,7 +7,7 @@ import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings
 import { fetchUsage, listConversations, listMessages, streamChat, previewAiContext, confirmAiContext, AiStreamHttpError,
   type AiUsage, type ChatMessage, type Conversation, type AiContextPreview } from '@/api/ai'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
-import { latestChatToRestore } from '@/utils/chatRestore'
+import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 
 type ContextOption = { value: string; label: string; hint: string }
 const options: ContextOption[] = [
@@ -30,6 +30,7 @@ const historyLoading = ref(false)
 const historyLoadError = ref(false)
 const showJumpToBottom = ref(false)
 let explicitlyStartedNew = false
+let activeSelectionRequest = 0
 const usage = ref<AiUsage | null>(null)
 const settings = ref<AiSettings | null>(null)
 const provider = ref('deepseek')
@@ -97,7 +98,7 @@ async function refresh(restoreLatest = false) {
         explicitlyStartedNew,
         hasDraft: Boolean(input.value.trim()),
       })
-      if (id) await select(id)
+      if (id) await select(id, true)
     }
   } else {
     historyLoadError.value = true
@@ -121,17 +122,31 @@ function bottom() {
 }
 // While streaming, let users scroll up to read previous messages.
 watch(messages, () => { if (!prependingHistory && !showJumpToBottom.value) bottom() }, { deep: true })
-async function select(id: string) {
+async function select(id: string, automaticRestore = false) {
   if (sending.value || loadingOlder.value) return
+  const requestId = ++activeSelectionRequest
   try {
     const data = await listMessages(id, undefined, HISTORY_PAGE_SIZE + 1)
+    const canApply = shouldApplyLoadedConversation(
+      conversations.value, id, automaticRestore, requestId, activeSelectionRequest, {
+        selectedId: selectedId.value,
+        hasMessages: messages.value.length > 0,
+        isSending: sending.value,
+        explicitlyStartedNew,
+        hasDraft: Boolean(input.value.trim()),
+      },
+    )
+    if (!canApply) return
+    if (!automaticRestore) explicitlyStartedNew = false
     selectedId.value = id
     hasOlder.value = data.length > HISTORY_PAGE_SIZE
     messages.value = data.slice(-HISTORY_PAGE_SIZE)
     historyOpen.value = false
     streamError.value = ''
     bottom()
-  } catch { ElMessage.error('无法加载聊天记录') }
+  } catch {
+    if (requestId === activeSelectionRequest) ElMessage.error('无法加载聊天记录')
+  }
 }
 async function loadOlder() {
   const id = selectedId.value
@@ -158,6 +173,7 @@ async function loadOlder() {
 function newChat() {
   if (sending.value || loadingOlder.value) return
   explicitlyStartedNew = true
+  ++activeSelectionRequest
   selectedId.value = null
   hasOlder.value = false
   messages.value = []
@@ -233,6 +249,7 @@ async function send(contextToken?: string) {
   selectedScopes.value = []
   invalidatePreview()
   mentionOpen.value = false
+  ++activeSelectionRequest // A pending automatic history load must not rebind this send.
   sending.value = true
   streamError.value = ''
   const id = -Date.now()
