@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "approved_controller": {
+    "path": "/usr/local/sbin/prp-release",
+    "sha256": "d3fbc61f76a3bd06d8192a44226cbef5698a8ef87b555493e9995e672811e687",
+    "approval_date": "2026-10-13",
+    "provenance": "SHA256 from 2026-10-13 Codex production report; every publish must independently attest the installed version.",
+    "production_release": "r38390443099-1",
+    "application_commit": "067c6dfccdceb29991a7d67c733ca205b398909f"
+  }
+}
