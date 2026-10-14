@@ -158,3 +158,32 @@ test('frequent dish estimates are separate from nutrition reference, with one-st
   assert.match(migration, /calories_per_serving/)
   assert.match(migration, /MODIFY protein_g DECIMAL\(10,2\) NULL/)
 })
+
+
+test('diet drafts use long per-write timeouts and verify uncertain saves before allowing retry', () => {
+  const card = readFileSync(new URL('../src/components/ai/WellnessChatCard.vue', import.meta.url), 'utf8')
+  const api = readFileSync(new URL('../src/api/client.ts', import.meta.url), 'utf8')
+  assert.match(api, /timeout: 8000/)
+  assert.match(card, /const WRITE_TIMEOUT_MS = 45000/)
+  assert.match(card, /apiClient\.patch\([^\n]*corrected, \{ timeout: WRITE_TIMEOUT_MS \}\)/)
+  assert.match(card, /'\/confirm',[\s\S]*?\{\}, \{ timeout: WRITE_TIMEOUT_MS \}\)/)
+  assert.match(card, /async function refreshSaveOutcome\(/)
+  assert.match(card, /status === 'CONSUMED'\) markSaved\(\)/)
+  assert.match(card, /async function handleWriteError\(/)
+  assert.match(card, /if \(!err\.response \|\| err\.response\.status === 409\)/)
+  assert.match(card, /saveOutcomeUnknown\.value = true/)
+  assert.match(card, /const canConfirm = computed\(\(\) => !loading\.value && !saving\.value && !saveOutcomeUnknown\.value/)
+  assert.match(card, /检查保存状态（防止重复记录）/)
+})
+
+test('diet draft fields fit narrow iPhone widths and display grams inline with the input', () => {
+  const card = readFileSync(new URL('../src/components/ai/WellnessChatCard.vue', import.meta.url), 'utf8')
+  assert.match(card, /@media\(max-width:600px\)/)
+  assert.match(card, /\.health-chat-row\{grid-template-columns:minmax\(0,1fr\)/)
+  assert.match(card, /\.health-chat-card input:not\(\[type="checkbox"\]\)/)
+  assert.match(card, /\.health-chat-card select\{[\s\S]*?height:44px/)
+  assert.match(card, /class="health-chat-number-unit"/)
+  assert.match(card, /class="health-chat-unit">g<\/span>/)
+  assert.match(card, /\.health-chat-card\{max-width:100%;gap:12px/)
+  assert.doesNotMatch(card, /<\/input> g<\/label>/)
+})
