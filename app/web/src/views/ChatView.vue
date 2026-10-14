@@ -335,7 +335,7 @@ async function send(contextToken?: string) {
   }
   const writeVerb = /(?:记录|录入|添加|新增|保存|记下|记一下|帮我记|记一笔|存入)/u.test(content)
   const foodContext = /(?:早饭|午饭|晚饭|早餐|午餐|晚餐|加餐|饮食|食物|热量|卡路里|吃了|喝了|这顿|我吃|今天吃)/u.test(content)
-  const directFoodQuantity = /(?:记|记录|录入|添加|新增|保存|记下)(?:一下|一笔|入)?\\s*(?:一个|一份|一碗|一杯|两个|[0-9]+(?:g|克|ml|毫升))/u.test(content)
+  const directFoodQuantity = /(?:记|记录|录入|添加|新增|保存|记下)(?:一下|一笔|入)?\s*(?:一个|一份|一碗|一杯|两个|[0-9]+(?:g|克|ml|毫升))/u.test(content)
   const notTechnicalOrOther = !/(?:如何实现|怎么开发|如何设计|为什么不能|记录日志|错误日志|会议记录|记录会议|记录任务|添加任务|添加待办|保存笔记|添加笔记)/u.test(content)
   const healthWrite = writeVerb && notTechnicalOrOther &&
     (foodContext || directFoodQuantity || selectedScopes.value.includes('wellness'))
