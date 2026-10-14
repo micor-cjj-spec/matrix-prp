@@ -453,9 +453,9 @@ onBeforeUnmount(() => controller?.abort())
       :style="{ display: 'flex', flexDirection: 'column',
         height: 'min(740px, calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))',
         overflow: 'hidden' }" @closed="wellnessRecorderText = ''">
-      <template #header>
+      <template #header="{ titleId, titleClass }">
         <div class="chat-wellness-dialog-header">
-          <strong>健康录入</strong>
+          <strong :id="titleId" :class="titleClass">健康录入</strong>
           <button type="button" class="chat-wellness-close" aria-label="关闭健康录入"
             @click="wellnessRecorderVisible = false"><el-icon><Close /></el-icon>关闭</button>
         </div>
