@@ -70,6 +70,19 @@ public class AiService {
         this.globalTokens = globalTokens;
     }
 
+    /** Provider HTTP 429 and PRP budget 429 require different corrective actions. */
+    static String quotaSource(Exception error) {
+        if(error instanceof ResponseStatusException http &&
+            http.getStatusCode().value()==429 &&
+            http.getReason()!=null &&
+            http.getReason().startsWith("AI provider request failed"))
+            return "provider";
+        if(error instanceof ResponseStatusException http &&
+            http.getStatusCode().value()==429)
+            return "prp";
+        return "none";
+    }
+
     public List<Conversation> conversations() { return store.list(CurrentUser.id()); }
     public List<Message> messages(String id) {
         return messages(id, null, 200);
@@ -204,8 +217,14 @@ public class AiService {
                     // The stream is already accepted; communicate quota errors as SSE
                     // instead of converting them into an opaque HTTP 200 success.
                     int status = ex instanceof ResponseStatusException http ? http.getStatusCode().value() : 502;
-                    String message = status == 429 ? "Monthly AI allowance reached" : "AI request failed. Please retry.";
-                    try { send(emitter, "error", Map.of("message", message, "status", status)); }
+                    String quotaSource = quotaSource(ex);
+                    String message = status == 429
+                        ? ("provider".equals(quotaSource)
+                            ? "AI provider rate limit reached. Check provider balance or retry later."
+                            : "PRP monthly AI allowance reached.")
+                        : "AI request failed. Please retry.";
+                    try { send(emitter, "error", Map.of(
+                        "message", message, "status", status, "quotaSource", quotaSource)); }
                     catch (Exception ignored) { /* client disconnected */ }
                     emitter.complete();
                 } finally {
