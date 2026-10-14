@@ -78,11 +78,15 @@ public class WellnessAiDraftService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                 "来源日期有多条同类餐次，请明确选择要复制的那一条");
         if(source.items().isEmpty() || source.items().size()>8 ||
-            source.items().stream().anyMatch(item->item.foodId()<=0 || item.grams()==null ||
-                item.grams().signum()<=0 || item.grams().compareTo(BigDecimal.valueOf(3000))>0))
+            source.items().stream().anyMatch(item->item.grams()==null ||
+                item.grams().signum()<0 || item.grams().compareTo(BigDecimal.valueOf(3000))>0 ||
+                (item.foodId()>0 && item.grams().signum()==0) ||
+                (item.foodId()<=0 && (item.foodName()==null || item.foodName().isBlank() ||
+                    item.calories()==null || item.calories().signum()<=0 ||
+                    item.calories().compareTo(new BigDecimal("20000"))>0))))
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                 "来源餐次包含无法安全复制的食物，请先核对健康中心的来源记录");
-        for(var item:source.items()) wellness.accessibleFood(item.foodId());
+        for(var item:source.items()) if(item.foodId()>0) wellness.accessibleFood(item.foodId());
         for(var target:request.targets())
             if(wellness.meals(target).stream().anyMatch(m->m.mealType().equals(request.mealType())))
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -94,6 +98,8 @@ public class WellnessAiDraftService {
             copy.put("name",item.foodName());
             copy.put("grams",item.grams());
             copy.put("calories",item.calories());
+            copy.put("mode",item.foodId()>0?"catalog":"manual");
+            if(item.foodId()<=0) copy.put("manualCalories",item.calories());
             foods.add(copy);
         }
         Map<String,Object> values=new LinkedHashMap<>();
@@ -473,17 +479,33 @@ public class WellnessAiDraftService {
                         throw new ResponseStatusException(HttpStatus.CONFLICT,
                             "来源食物与草稿不一致，请重新创建");
                     List<ItemInput> copied=new ArrayList<>();
+                    List<WellnessService.AiMealItem> mixed=new ArrayList<>();
+                    boolean hasCustom=false;
                     for(int i=0;i<source.items().size();i++) {
                         var original=source.items().get(i);
                         var expected=snapshot.get(i);
-                        if(original.foodId()<=0 || original.grams()==null ||
+                        if(original.grams()==null ||
                             original.foodId()!=expected.path("foodId").asLong(-1) ||
                             !expected.path("grams").isNumber() ||
                             original.grams().compareTo(expected.path("grams").decimalValue())!=0)
                             throw new ResponseStatusException(HttpStatus.CONFLICT,
                                 "来源餐次食物或份量已改变，请重新预览后确认");
-                        wellness.accessibleFood(original.foodId());
-                        copied.add(new ItemInput(original.foodId(),original.grams()));
+                        if(original.foodId()>0) {
+                            wellness.accessibleFood(original.foodId());
+                            copied.add(new ItemInput(original.foodId(),original.grams()));
+                            mixed.add(new WellnessService.AiMealItem(original.foodId(),null,original.grams(),null));
+                        } else {
+                            if(!"manual".equals(expected.path("mode").asText("")) ||
+                                !original.foodName().equals(expected.path("name").asText()) ||
+                                !expected.path("manualCalories").isNumber() ||
+                                original.calories()==null ||
+                                original.calories().compareTo(expected.path("manualCalories").decimalValue())!=0)
+                                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                    "来源自定义热量已改变，请重新预览后确认");
+                            hasCustom=true;
+                            mixed.add(new WellnessService.AiMealItem(null,original.foodName(),
+                                original.grams(),original.calories()));
+                        }
                     }
                     LinkedHashSet<LocalDate> targets=new LinkedHashSet<>();
                     LocalDate now=today();
@@ -506,8 +528,10 @@ public class WellnessAiDraftService {
                     for(var day:targets) {
                         // Unique per-draft + per-day key, in the same transaction as draft consumption.
                         String key=draftId+"-"+index++;
-                        savedMeals.add(wellness.addMeal(new MealInput(day,type,
-                            source.note(),copied,key)));
+                        if(hasCustom)
+                            savedMeals.add(wellness.addAiMeal(day,type,source.note(),mixed,key));
+                        else
+                            savedMeals.add(wellness.addMeal(new MealInput(day,type,source.note(),copied,key)));
                     }
                     saved=savedMeals;
                 }
