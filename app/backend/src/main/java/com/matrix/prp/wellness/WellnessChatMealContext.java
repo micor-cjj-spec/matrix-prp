@@ -15,7 +15,7 @@ final class WellnessChatMealContext {
     record Candidate(LocalDate date, String mealType, String foodName,
                      BigDecimal calories, String sourceType, String note) {}
     private static final Pattern ENERGY=Pattern.compile(
-        "(?iu)(?:建议记|建议记录|建议录入|推荐记录|估算热量|热量[:：])\\s*(?:约|大约)?\\s*(\\d{1,4}(?:\\.\\d{1,2})?)\\s*(?:kcal|千卡|大卡)");
+        "(?iu)(?:建议记|建议记录|建议录入|推荐记录|估算热量|热量)\\s*[:：]?\\s*(?:约|大约)?\\s*(\\d{1,4}(?:\\.\\d{1,2})?)\\s*(?:kcal|千卡|大卡)");
     private static final Pattern ISO=Pattern.compile("(?<!\\d)(20\\d{2}-\\d{2}-\\d{2})(?!\\d)");
     private static final Pattern CHINESE=Pattern.compile("(?<!\\d)(20\\d{2})年(\\d{1,2})月(\\d{1,2})日");
     private static final Pattern FOOD=Pattern.compile(
