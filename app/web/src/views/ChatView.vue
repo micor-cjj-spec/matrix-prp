@@ -10,6 +10,7 @@ import { fetchUsage, listConversations, listMessages, listMessageBlocks, streamC
   type AiUsage, type ChatMessage, type AiMessageBlock, type Conversation, type AiContextPreview } from '@/api/ai'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
+import { isMealCardRequest } from '@/utils/mealCardIntent'
 
 type ContextOption = { value: string; label: string; hint: string }
 const options: ContextOption[] = [
@@ -396,9 +397,7 @@ async function send(contextToken?: string) {
   const hasRecentMeal = messages.value.slice(-40).some(m => m.role === 'user' &&
     /(?:早餐|早饭|早上|午餐|午饭|中午|晚餐|晚饭|晚上|今晚|加餐|夜宵)/u.test(m.content) &&
     /(?:米饭|炒菜|炒肉|馄饨|混沌|米线|鸡腿|面条|鸡蛋|牛奶|酸奶|土豆|面包|豆腐|青菜|排骨|饺子|饭|肉|菜|吃)/u.test(m.content))
-  const contextualMealCard = !!selectedId.value && notTechnicalOrOther &&
-    content.length <= 80 && hasRecentMeal &&
-    /(?:帮我|给我|为我|请)?.{0,8}(?:录入|录人|记录|保存|记一下)|(?:生成|创建|做).{0,12}卡片/u.test(content)
+  const contextualMealCard = isMealCardRequest(content, hasRecentMeal)
   if (content.length <= 1500 && (healthWrite || contextualMealCard || chatPhoto.value) &&
       (selectedScopes.value.length === 0 ||
        selectedScopes.value.every(s => s === 'wellness'))) {
