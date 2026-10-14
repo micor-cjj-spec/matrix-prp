@@ -303,10 +303,10 @@ onMounted(() => { void load() })
     <strong>🍽️ {{ draft?.action === 'meal.create_batch' ? (multiMeals.length === 1 ? '饮食记录' : '多餐次饮食记录') : draft?.action === 'meal.copy_batch' ? '批量饮食记录' : 'AI 饮食记录' }}</strong>
     <p v-if="loading">正在读取记录并查询食品营养库…</p>
     <template v-else-if="draft">
-      <p v-if="status === 'CONSUMED'" class="health-chat-success">✓ 已确认保存到健康中心</p>
       <p v-if="status === 'PENDING' && draft.modelUsed === 'conversation/estimate-preview'" class="health-chat-note">
         根据本会话中的餐食描述生成。热量如来自此前 AI 估算，只作为参考，请确认或修改后再保存；不会自动写入。
       </p>
+      <p v-if="status === 'CONSUMED'" class="health-chat-success">✓ 已确认保存到健康中心</p>
       <p v-else-if="status !== 'PENDING'">草稿已过期，请重新告诉 PRP 助手需要记录什么。</p>
       <template v-else-if="draft.action === 'meal.create_batch'">
         <p class="health-chat-note">日期：{{ values.date }} · 仅使用你明确填写的本次热量，未使用 AI 猜测。</p>
