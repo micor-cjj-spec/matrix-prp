@@ -270,6 +270,14 @@ public class WellnessService {
     @Transactional
     public Meal copyMeal(long id,LocalDate date) {
         Meal existing=meal(id);
+        if(existing.items().stream().anyMatch(i->i.foodId()<=0)) {
+            List<AiMealItem> snapshots=existing.items().stream()
+                .map(i->i.foodId()>0
+                    ?new AiMealItem(i.foodId(),null,i.grams(),null)
+                    :new AiMealItem(null,i.foodName(),i.grams(),i.calories())).toList();
+            return addAiMeal(date,existing.mealType(),existing.note(),snapshots,
+                UUID.randomUUID().toString());
+        }
         List<ItemInput> copies=existing.items().stream().map(i->new ItemInput(i.foodId(),i.grams())).toList();
         return addMeal(new MealInput(date,existing.mealType(),existing.note(),copies,null));
     }
