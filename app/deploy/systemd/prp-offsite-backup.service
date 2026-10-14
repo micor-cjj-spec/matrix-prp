@@ -3,7 +3,7 @@ Description=Matrix PRP encrypted off-host disaster recovery backup
 Documentation=https://github.com/micor-cjj-spec/matrix-prp/blob/main/app/docs/technical/offsite-backup-operations.md
 Wants=network-online.target
 After=network-online.target docker.service
-OnFailure=prp-offsite-backup-alert@%n.service
+OnFailure=prp-offsite-backup-alert.service
 
 [Service]
 Type=oneshot
