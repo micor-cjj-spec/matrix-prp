@@ -3,6 +3,7 @@ import { ref, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { apiClient, type ApiResponse } from '@/api/client'
 import { wellnessApi, type Meal, type Exercise, type BodyMetric } from '@/api/wellness'
+import { cloneJson } from '@/utils/cloneJson'
 
 type Kind = 'meal' | 'exercise' | 'metric'
 type Action = 'update' | 'delete'
@@ -68,7 +69,7 @@ async function prepare(){
         instruction:action.value==='update'?instruction.value.trim():''},
       {timeout:60000})
     draft.value=result.data.data
-    after.value=structuredClone(draft.value.after)
+    after.value=cloneJson(draft.value.after)
   }catch(e){
     const err=e as {response?:{data?:{message?:string}}}
     error.value=err.response?.data?.message||'草稿生成失败，请检查模型配置和目标记录'
