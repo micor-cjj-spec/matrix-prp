@@ -51,6 +51,13 @@ class WellnessMealBatchIntentTests {
             .hasMessageContaining("每项热量");
     }
 
+    @Test void neverDropsAnUnparsedFoodLineSilently() {
+        String source="2026-10-13\n午餐\n米饭：300 kcal\n鸡蛋\n晚餐（约105 kcal）\n简爱无糖酸奶135g";
+        assertThatThrownBy(()->WellnessMealBatchIntent.parse(source,today))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("鸡蛋");
+    }
+
     @Test void noMultiMealIfOnlyOneMealAndRespectsRelativeDates() {
         assertThat(WellnessMealBatchIntent.parse("昨天午餐：米饭 260千卡",today)).isEmpty();
         var two=WellnessMealBatchIntent.parse(
