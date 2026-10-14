@@ -50,10 +50,10 @@ public class WellnessAiDraftService {
 
     public WellnessAiDraftService(JdbcTemplate db, WellnessService wellness, AiSettingsService settings,
         AiStore usage, ObjectMapper json,
-        @Value("${matrix-prp.ai.user-monthly-requests:200}") int userRequests,
-        @Value("${matrix-prp.ai.global-monthly-requests:1000}") int globalRequests,
-        @Value("${matrix-prp.ai.user-monthly-reserved-tokens:250000}") long userTokens,
-        @Value("${matrix-prp.ai.global-monthly-reserved-tokens:1000000}") long globalTokens) {
+        @Value("${matrix-prp.ai.user-monthly-requests:2000}") int userRequests,
+        @Value("${matrix-prp.ai.global-monthly-requests:10000}") int globalRequests,
+        @Value("${matrix-prp.ai.user-monthly-reserved-tokens:12000000}") long userTokens,
+        @Value("${matrix-prp.ai.global-monthly-reserved-tokens:60000000}") long globalTokens) {
         this.db=db; this.wellness=wellness; this.settings=settings; this.usage=usage; this.json=json;
         this.userRequests=userRequests;this.globalRequests=globalRequests;
         this.userTokens=userTokens;this.globalTokens=globalTokens;
