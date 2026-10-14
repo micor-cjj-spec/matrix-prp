@@ -300,7 +300,7 @@ onMounted(() => { void load() })
 
 <template>
   <section class="health-chat-card" aria-label="AI 饮食确认卡">
-    <strong>🍽️ {{ draft?.action === 'meal.create_batch' ? '多餐次饮食记录' : draft?.action === 'meal.copy_batch' ? '批量饮食记录' : 'AI 饮食记录' }}</strong>
+    <strong>🍽️ {{ draft?.action === 'meal.create_batch' ? (multiMeals.length === 1 ? '饮食记录' : '多餐次饮食记录') : draft?.action === 'meal.copy_batch' ? '批量饮食记录' : 'AI 饮食记录' }}</strong>
     <p v-if="loading">正在读取记录并查询食品营养库…</p>
     <template v-else-if="draft">
       <p v-if="status === 'CONSUMED'" class="health-chat-success">✓ 已确认保存到健康中心</p>
@@ -320,7 +320,7 @@ onMounted(() => { void load() })
             <span>{{ Number(item.manualCalories).toFixed(0) }} kcal</span>
           </div>
         </div>
-        <div class="health-chat-total"><span>本次计划新增总热量</span><b>{{ multiCalories.toFixed(0) }} kcal</b></div>
+        <div class="health-chat-total"><span>{{ multiMeals.length === 1 ? '本次估算热量' : '本次计划新增总热量' }}</span><b>{{ multiCalories.toFixed(0) }} kcal</b></div>
         <p class="health-chat-note">多餐次将在同一数据库事务中写入，任一餐次已存在则整个操作停止，不覆盖历史数据。需要修改明细请重新发送准确的食物和热量。</p>
         <button type="button" class="health-chat-confirm" :disabled="!canConfirmMulti" @click="confirmMulti">
           {{ saving ? '正在核实并保存…' : '确认保存 ' + multiMeals.length + ' 个餐次' }}
