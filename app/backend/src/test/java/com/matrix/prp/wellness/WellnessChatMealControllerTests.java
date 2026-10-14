@@ -53,6 +53,37 @@ class WellnessChatMealControllerTests {
             blocks.size()==1 && "wellness_draft".equals(blocks.getFirst().type())));
     }
 
+    @Test void oneTwentyAmImportCommandRendersPersistedHealthCardWithoutModelCall(){
+        authenticate();
+        var service=mock(WellnessAiDraftService.class);
+        var chat=mock(AiStore.class);
+        var controller=new WellnessAiDraftController(service,chat);
+        String command="你帮我导入";
+        var history=List.of(
+            new AiStore.Message(41,"user",
+                "2026-10-14\n晚餐（约650 kcal）\n楼下炒菜（5人两荤两素）＋米饭（饭多菜少）：约650 kcal",
+                LocalDateTime.of(2026,10,15,1,15)),
+            new AiStore.Message(42,"assistant","你这条格式没有问题，直接录入健康中心即可",
+                LocalDateTime.of(2026,10,15,1,17)));
+        when(chat.owns(USER,"current-conversation")).thenReturn(true);
+        when(chat.messages(USER,"current-conversation",null,80)).thenReturn(history);
+        var preview=new WellnessAiDraftService.Preview(
+            "00000000-0000-0000-0000-000000000041","meal.create",
+            "待确认晚餐","conversation/estimate-preview",
+            Map.of("date","2026-10-14","mealType","DINNER"),
+            "2026-10-15T01:35:00");
+        when(service.prepareConversationMeal(history,command)).thenReturn(preview);
+        when(chat.append(eq(USER),eq("current-conversation"),eq("assistant"),anyString()))
+            .thenReturn(44L);
+        var result=controller.chatPrepare(command,null,"current-conversation");
+        assertThat(result.data().draft().draftId()).isEqualTo(preview.draftId());
+        assertThat(result.data().messageId()).isEqualTo(44L);
+        verify(service).prepareConversationMeal(history,command);
+        verify(service,never()).prepare(anyString(),any());
+        verify(chat).saveBlocks(eq(USER),eq("current-conversation"),eq(44L),argThat(blocks->
+            blocks.size()==1 && "wellness_draft".equals(blocks.getFirst().type())));
+    }
+
     @Test void anotherUsersConversationCannotBeUsedForContextualCard() {
         authenticate();
         var service=mock(WellnessAiDraftService.class);
