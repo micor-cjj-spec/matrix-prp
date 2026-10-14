@@ -30,7 +30,7 @@ function open(dish?: DishTemplate) {
 async function save() {
   const kcal = Number(form.caloriesPerServing)
   if (!form.dishName.trim() || form.dishName.length > 120 || !Number.isFinite(kcal) ||
-      kcal <= 0 || kcal > 20000 || Math.round(kcal * 100) !== kcal * 100) {
+      kcal <= 0 || kcal > 20000 || Math.abs(kcal * 100 - Math.round(kcal * 100)) > 1e-6) {
     ElMessage.warning('请填写餐品名称和有效的每份热量')
     return
   }
