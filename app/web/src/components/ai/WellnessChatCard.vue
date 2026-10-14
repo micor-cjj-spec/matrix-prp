@@ -5,7 +5,10 @@ import { wellnessApi, type Food, type UsdaCandidate } from '@/api/wellness'
 import { cloneJson } from '@/utils/cloneJson'
 
 type Item = { foodId: number; name: string; grams: number; calories: number | null }
-type DraftValues = { date: string; mealType?: string; items?: Item[]; note?: string }
+type DraftValues = {
+  date: string; mealType?: string; items?: Item[]; note?: string
+  sourceMealId?: number; sourceDate?: string; targets?: string[]
+}
 type Draft = { draftId: string; action: string; description: string; modelUsed: string; expiresAt: string; values: DraftValues }
 type DraftView = { draft: Draft; status: 'PENDING' | 'CONSUMED' | 'EXPIRED' }
 type Outcome = { route: string }
@@ -33,6 +36,13 @@ const canConfirm = computed(() => !loading.value && !saving.value && !resolving.
       ? Number.isFinite(calorieDensity[i])
       : Boolean(selectedCandidate(i)))))
 const total = computed(() => items.value.reduce((sum, item, i) => sum + portion(item, i), 0))
+const batchCalories = computed(() => items.value.reduce((sum, item) => sum + (Number(item.calories) || 0), 0))
+const canConfirmBatch = computed(() => !loading.value && !saving.value &&
+  status.value === 'PENDING' && draft.value?.action === 'meal.copy_batch' &&
+  (values.value.targets?.length ?? 0) >= 1 &&
+  (values.value.targets?.length ?? 0) <= 7 &&
+  !!values.value.sourceMealId && !!values.value.sourceDate &&
+  items.value.length > 0 && items.value.every(item => item.foodId > 0 && item.grams > 0))
 function selectedCandidate(index: number) {
   return matches[index]?.find(candidate => candidate.fdcId === chosen[index])
 }
@@ -125,16 +135,56 @@ async function confirm() {
     error.value = err.response?.data?.message || err.message || '保存失败，请检查食品来源和克重'
   } finally { saving.value = false }
 }
+async function confirmBatch() {
+  if (!canConfirmBatch.value || !draft.value) return
+  saving.value = true
+  error.value = ''
+  try {
+    // Batch data is intentionally read-only; the server rechecks source and each destination.
+    await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/drafts/' + draft.value.draftId + '/confirm', {})
+    status.value = 'CONSUMED'
+    emit('saved')
+  } catch (e) {
+    const err = e as { response?: { data?: { message?: string } }; message?: string }
+    error.value = err.response?.data?.message || err.message || '批量保存失败，请重新检查来源和目标日期'
+  } finally { saving.value = false }
+}
 onMounted(() => { void load() })
 </script>
 
 <template>
   <section class="health-chat-card" aria-label="AI 饮食确认卡">
-    <strong>🍽️ AI 饮食记录</strong>
+    <strong>🍽️ {{ draft?.action === 'meal.copy_batch' ? '批量饮食记录' : 'AI 饮食记录' }}</strong>
     <p v-if="loading">正在读取记录并查询食品营养库…</p>
     <template v-else-if="draft">
       <p v-if="status === 'CONSUMED'" class="health-chat-success">✓ 已确认保存到健康中心</p>
       <p v-else-if="status !== 'PENDING'">草稿已过期，请重新告诉 PRP 助手需要记录什么。</p>
+      <template v-else-if="draft.action === 'meal.copy_batch'">
+        <div class="health-chat-food">
+          <b>来源：{{ values.sourceDate }} 已保存的{{ types[values.mealType ?? ''] || '餐次' }}</b>
+          <p class="health-chat-note">以下食物和份量来自你在健康中心已保存的真实记录，不是 AI 猜测。确认时会再次验证原始记录。</p>
+        </div>
+        <div class="health-chat-food">
+          <b>计划新增 {{ values.targets?.length ?? 0 }} 天记录</b>
+          <ul class="health-batch-days">
+            <li v-for="date in values.targets ?? []" :key="date">
+              {{ date }} · {{ types[values.mealType ?? ''] || '餐次' }}
+            </li>
+          </ul>
+        </div>
+        <div class="health-chat-food">
+          <b>每一天复制的食品</b>
+          <div v-for="(item, i) in items" :key="i" class="health-chat-food-title">
+            <span>{{ item.name }} · {{ item.grams }} g</span>
+            <span>{{ Number(item.calories ?? 0).toFixed(0) }} kcal</span>
+          </div>
+        </div>
+        <div class="health-chat-total"><span>每日预计热量</span><b>{{ batchCalories.toFixed(0) }} kcal</b></div>
+        <p class="health-chat-note">只新增上面列出的日期，不修改来源餐次；目标日期若已存在同类记录，会整体停止保存以防重复。</p>
+        <button type="button" class="health-chat-confirm" :disabled="!canConfirmBatch" @click="confirmBatch">
+          {{ saving ? '正在批量保存…' : '确认保存 ' + (values.targets?.length ?? 0) + ' 天记录' }}
+        </button>
+      </template>
       <template v-else-if="draft.action === 'meal.create'">
         <div class="health-chat-row">
           <label>日期 <input v-model="values.date" type="date" :disabled="saving" /></label>
@@ -186,6 +236,7 @@ onMounted(() => { void load() })
 .health-chat-note{font-size:12px;color:#64748b}
 .health-chat-alert{font-size:12px;color:#a63b36}
 .health-chat-success{color:#06784b;font-weight:600}
+.health-batch-days{margin:4px 0 0;padding-left:22px;line-height:1.8;color:#334155}
 .health-chat-total b{font-size:21px;color:#1d4ed8}
 .health-chat-confirm{width:100%;padding:11px;border:0;border-radius:10px;background:#287fba;color:#fff;font:inherit;font-weight:600;cursor:pointer}
 .health-chat-confirm:disabled{opacity:.55;cursor:not-allowed}
