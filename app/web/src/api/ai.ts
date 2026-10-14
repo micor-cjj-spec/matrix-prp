@@ -3,7 +3,7 @@ import { getStoredToken } from '@/utils/token'
 import { createSseParser } from './sseParser'
 
 export interface Conversation { id: string; title: string; updatedAt: string }
-export interface AiMessageBlock { messageId: number; type: 'navigation'; module: string; label: string; route: string }
+export interface AiMessageBlock { messageId: number; type: 'navigation' | 'wellness_draft'; module: string; label: string; route: string }
 export interface ChatMessage { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }
 export interface AiUsage {
   month: string; requests: number; reservedTokens: number; inputTokens: number
@@ -79,4 +79,14 @@ export async function previewAiContext(scopes: string[]): Promise<AiContextPrevi
 export interface AiContextConfirmation { contextToken: string; scopes: string[] }
 export async function confirmAiContext(previewId: string): Promise<AiContextConfirmation> {
   return (await apiClient.post<ApiResponse<AiContextConfirmation>>('/ai/context/confirm', { previewId })).data.data
+}
+
+export interface InlineHealthDraftResponse { conversationId: string; messageId: number; draft: { draftId: string } }
+export async function prepareInlineHealthDraft(text: string, conversationId: string | null, image?: File | null) {
+  const data = new FormData()
+  data.append('text', text)
+  if (conversationId) data.append('conversationId', conversationId)
+  if (image) data.append('image', image)
+  const result = await apiClient.post<ApiResponse<InlineHealthDraftResponse>>('/wellness/ai/chat/prepare', data, { timeout: 60000 })
+  return result.data.data
 }
