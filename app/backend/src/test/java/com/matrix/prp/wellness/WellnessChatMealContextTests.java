@@ -110,6 +110,33 @@ class WellnessChatMealContextTests {
         ),TODAY,"帮我生成今天晚餐的卡片")).isEmpty();
     }
 
+    @Test void selectsYesterdayDinnerEvenWhenTodayDinnerIsMoreRecent(){
+        var history=List.of(
+            user(1,"昨天晚上吃了米饭"),assistant(2,"建议记600 kcal"),
+            user(3,"今晚吃了炒菜"),assistant(4,"建议记700 kcal")
+        );
+        var yesterday=WellnessChatMealContext.parse(
+            history,TODAY,"生成昨天晚餐卡片").orElseThrow();
+        assertThat(yesterday.date()).isEqualTo(TODAY.minusDays(1));
+        assertThat(yesterday.foodName()).contains("米饭");
+        assertThat(yesterday.calories()).isEqualByComparingTo("600");
+        var lastNight=WellnessChatMealContext.parse(
+            history,TODAY,"生成昨晚晚餐卡片").orElseThrow();
+        assertThat(lastNight.date()).isEqualTo(TODAY.minusDays(1));
+        assertThat(lastNight.calories()).isEqualByComparingTo("600");
+    }
+
+    @Test void tomorrowSynonymsConstrainCalendarDate(){
+        var history=List.of(user(1,"明天早餐吃了面包"),
+            assistant(2,"建议记200 kcal"),
+            user(3,"今天早餐吃了鸡蛋"),
+            assistant(4,"建议记150 kcal"));
+        var tomorrow=WellnessChatMealContext.parse(
+            history,TODAY,"明早早餐生成卡片").orElseThrow();
+        assertThat(tomorrow.date()).isEqualTo(TODAY.plusDays(1));
+        assertThat(tomorrow.foodName()).contains("面包");
+    }
+
     @Test void requestedDateCannotRewriteAnOlderMeal(){
         assertThat(WellnessChatMealContext.parse(List.of(
             user(1,"昨天晚餐吃了米饭"),assistant(2,"建议记650 kcal")
