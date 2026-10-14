@@ -126,3 +126,18 @@ test('review regressions: explicit food intent, no stale photos, no POST repeat 
   assert.match(card, /Number\.isFinite\(calorieDensity\[i\]\)/)
   assert.match(api, /food: \(id: number\) => get<Food>/)
 })
+
+test('inline meal capture permits per-event calories without adding a food to USDA/catalog', () => {
+  const card = readFileSync(new URL('../src/components/ai/WellnessChatCard.vue', import.meta.url), 'utf8')
+  const service = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessService.java', import.meta.url), 'utf8')
+  const drafts = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiDraftService.java', import.meta.url), 'utf8')
+  assert.match(card, /本次自定义热量（不入食品库）/)
+  assert.match(card, /v-model\.number="item\.manualCalories"/)
+  assert.match(card, /Snapshot-only: do not call USDA import/)
+  assert.match(card, /manualCalories: Number\(item\.manualCalories\)/)
+  assert.match(drafts, /applyUserCalorieEstimate\(verified,input\)/)
+  assert.match(drafts, /case "meal\.create"[\s\S]*?wellness\.addAiMeal/)
+  assert.match(service, /public Meal addAiMeal\(/)
+  assert.match(service, /VALUES \(\?,NULL,\?,\?,\?,\?,\?,\?,\?\)/)
+  assert.match(service, /item\.calories\(\),BigDecimal\.ZERO,BigDecimal\.ZERO,BigDecimal\.ZERO/)
+})
