@@ -37,6 +37,7 @@ public class WellnessAiDraftService {
     public record Preview(String draftId, String action, String description,
                           String modelUsed, Map<String,Object> values, String expiresAt) {}
     public record Outcome(String action, Object saved, String route) {}
+    public record DraftView(Preview draft,String status) {}
     private final JdbcTemplate db;
     private final WellnessService wellness;
     private final AiSettingsService settings;
@@ -107,6 +108,30 @@ public class WellnessAiDraftService {
         return new Preview(id,action,description,config.provider().id()+"/"+model,verified,expiry.toString());
     }
 
+    /** Owner-scoped reload for persisted chat confirmation cards; never exposes other users' drafts. */
+    public DraftView getDraft(String draftId) {
+        long user=CurrentUser.id();
+        if(draftId==null || !draftId.matches("[0-9a-fA-F-]{36}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid draft");
+        List<Map<String,Object>> rows=db.queryForList(
+            "SELECT action_type,payload_json,description,model_used,status,expires_at FROM prp_wellness_ai_drafts " +
+            "WHERE id=? AND user_id=?",draftId,user);
+        if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Draft not found");
+        var row=rows.get(0);
+        var expires=((java.sql.Timestamp)row.get("expires_at")).toLocalDateTime();
+        String status=String.valueOf(row.get("status"));
+        if("PENDING".equals(status) && !expires.isAfter(LocalDateTime.now())) status="EXPIRED";
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String,Object> values=json.readValue(String.valueOf(row.get("payload_json")),Map.class);
+            return new DraftView(new Preview(draftId,String.valueOf(row.get("action_type")),
+                String.valueOf(row.get("description")),String.valueOf(row.get("model_used")),
+                values,expires.toString()),status);
+        } catch(com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,"Invalid stored health draft");
+        }
+    }
+
     static String detect(byte[] b){
         if(b==null || b.length<12)return null;
         if((b[0]&255)==255 && (b[1]&255)==216 && (b[2]&255)==255)return "image/jpeg";
@@ -125,7 +150,7 @@ public class WellnessAiDraftService {
                 "items:[{name:食物中文名称,grams:克数}],note:备注}；"+
                 "exercise.create: {action,date,name,durationMinutes,estimatedKcal,note}；"+
                 "metric.create: {action,date,weightKg,bodyFatPct,waistCm}。"+
-                "若日期未指定用"+today()+"。餐次类型按时间与语义判断；纯文字缺克数时不要伪造，缺克数输出0以便服务端拒绝；照片可粗略估量分量（克）但务必提示用户核对，"+
+                "若日期未指定用"+today()+"。餐次类型按时间与语义判断；文字只有数量时，只有常见明确份量可保守换算：鸡蛋可食部约50g/个、全麦面包约30g/片、牛奶约1g/ml；请在note明确写估算及份量，其他未知克重输出0不可伪造；照片可粗略估量分量（克）但务必提示用户核对，"+
                 "图片无法精确估计油量或分量，请提醒用户核对；每个图片不超过8种食物。"+
                 "仅根据用户提供的信息填写，不能读取历史数据，也不得执行修改或删除。";
             if(config.provider().anthropic()){
