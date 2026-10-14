@@ -1,0 +1,121 @@
+package com.matrix.prp.wellness;
+
+import com.matrix.prp.ai.AiStore;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import java.util.regex.Pattern;
+
+/**
+ * Builds an editable draft suggestion from the owner's CURRENT conversation.
+ * Model-authored calories are only suggestions; they cannot write health data.
+ */
+final class WellnessChatMealContext {
+    record Candidate(LocalDate date, String mealType, String foodName,
+                     BigDecimal calories, String sourceType, String note) {}
+    private static final Pattern ENERGY=Pattern.compile(
+        "(?iu)(?:建议记|建议记录|建议录入|推荐记录|估算热量|热量[:：])\\s*(?:约|大约)?\\s*(\\d{1,4}(?:\\.\\d{1,2})?)\\s*(?:kcal|千卡|大卡)");
+    private static final Pattern ISO=Pattern.compile("(?<!\\d)(20\\d{2}-\\d{2}-\\d{2})(?!\\d)");
+    private static final Pattern CHINESE=Pattern.compile("(?<!\\d)(20\\d{2})年(\\d{1,2})月(\\d{1,2})日");
+    private static final Pattern FOOD=Pattern.compile(
+        "米饭|炒菜|炒肉|馄饨|混沌|米线|鸡腿|面条|鸡蛋|牛奶|酸奶|土豆|面包|豆腐|蔬菜|青菜|排骨|饺子|水饺|盖饭|沙拉|火锅|羊肉|猪肉|牛肉|荤菜|素菜|便当|肉丸|豆花|红薯|粥");
+    private WellnessChatMealContext() {}
+
+    static Optional<Candidate> parse(List<AiStore.Message> history, LocalDate today) {
+        if(history==null || history.isEmpty())return Optional.empty();
+        // The store returns messages oldest first; select the LATEST user meal,
+        // never a copied assistant recipe or another conversation's meal.
+        for(int i=history.size()-1;i>=0;i--) {
+            AiStore.Message source=history.get(i);
+            if(!"user".equals(source.role()) || source.content()==null)continue;
+            String text=source.content().strip();
+            String type=type(text);
+            if(type==null || !FOOD.matcher(text).find())continue;
+            LocalDate date=mealDate(text,today);
+            if(date==null || date.isAfter(today.plusDays(1)) || date.isBefore(today.minusYears(2)))
+                return Optional.empty();
+            StringBuilder detail=new StringBuilder(text);
+            // Short user clarifications (e.g. five people sharing two meat/two vegetable
+            // dishes) belong to this meal; unrelated new meals do not.
+            for(int j=i+1;j<history.size();j++){
+                var follow=history.get(j);
+                if(!"user".equals(follow.role()) || follow.content()==null)continue;
+                String detailText=follow.content().strip();
+                if(detailText.length()<=150 && (detailText.contains("两荤两素") ||
+                    detailText.contains("饭多菜少") || detailText.contains("饭比较多") ||
+                    detailText.contains("炒菜比较少")))detail.append("；").append(detailText);
+            }
+            BigDecimal kcal=WellnessAiDraftService.userProvidedCalories(text);
+            String sourceType="USER_ESTIMATE";
+            if(kcal==null) {
+                for(int j=history.size()-1;j>i;j--){
+                    var reply=history.get(j);
+                    if(!"assistant".equals(reply.role()) || reply.content()==null)continue;
+                    var m=ENERGY.matcher(reply.content());
+                    if(m.find()){
+                        try {
+                            var energy=new BigDecimal(m.group(1));
+                            if(energy.signum()>0 && energy.compareTo(new BigDecimal("20000"))<=0){
+                                kcal=energy;
+                                sourceType="AI_ESTIMATE";
+                                break;
+                            }
+                        } catch(NumberFormatException ignored) { /* No guessed fallback */ }
+                    }
+                }
+            }
+            String name=foodName(detail.toString());
+            if(name.isBlank())return Optional.empty();
+            String note="根据本会话用户提供的餐食描述生成，实际分量请核对。"+
+                ("AI_ESTIMATE".equals(sourceType)?"热量来自此前 AI 粗估，确认前不会入库。":"");
+            if(detail.indexOf("两荤两素")>=0) note+="5人合点两荤两素。";
+            if(detail.indexOf("饭比较多")>=0 || detail.indexOf("饭多菜少")>=0)
+                note+="米饭偏多、炒菜偏少。";
+            return Optional.of(new Candidate(date,type,name,kcal,sourceType,note));
+        }
+        return Optional.empty();
+    }
+
+    private static String type(String text) {
+        if(text.matches("(?s).*(?:晚餐|晚饭|晚上|今晚).*"))return "DINNER";
+        if(text.matches("(?s).*(?:午餐|午饭|中午).*"))return "LUNCH";
+        if(text.matches("(?s).*(?:早餐|早饭|早上).*"))return "BREAKFAST";
+        if(text.contains("加餐") || text.contains("夜宵"))return "SNACK";
+        return null;
+    }
+    private static LocalDate mealDate(String text,LocalDate today) {
+        try {
+            var iso=ISO.matcher(text);
+            if(iso.find())return LocalDate.parse(iso.group(1));
+            var cn=CHINESE.matcher(text);
+            if(cn.find())return LocalDate.of(Integer.parseInt(cn.group(1)),
+                Integer.parseInt(cn.group(2)),Integer.parseInt(cn.group(3)));
+            if(text.contains("前天"))return today.minusDays(2);
+            if(text.contains("昨天"))return today.minusDays(1);
+            return today;
+        }catch(Exception ex){return null;}
+    }
+    private static String foodName(String original) {
+        String food;
+        if(original.contains("炒菜") && original.contains("米饭"))
+            food="炒菜＋米饭";
+        else if(original.contains("海味馄饨"))
+            food="海味馄饨";
+        else if(original.contains("馄饨") || original.contains("混沌"))
+            food="馄饨";
+        else if(original.contains("米饭") && original.contains("鸡腿"))
+            food="鸡腿饭";
+        else {
+            var m=FOOD.matcher(original);
+            if(!m.find())return "";
+            food=m.group();
+        }
+        if(original.contains("两荤两素"))food+="（两荤两素）";
+        if(original.contains("饭比较多") || original.contains("饭多菜少"))
+            food+="（饭多菜少）";
+        if(original.contains("大碗") && original.matches("(?s).*\\d+个.*"))
+            food+="（大碗）";
+        return food.length()>120?food.substring(0,120):food;
+    }
+}
