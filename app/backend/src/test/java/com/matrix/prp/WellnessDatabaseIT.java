@@ -7,6 +7,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import org.springframework.jdbc.core.JdbcTemplate;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +31,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 class WellnessDatabaseIT {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper mapper;
+    @Autowired JdbcTemplate jdbc;
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder req, String token) {
         return req.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
@@ -92,4 +100,49 @@ class WellnessDatabaseIT {
         JsonNode noRecords=getData("/api/wellness/summary/daily?date=2026-01-01",b);
         assertThat(noRecords.path("calories").isNull()).isTrue();
     }
+    @Test void twoIndependentAiDraftsCannotWriteSameMealConcurrently() throws Exception {
+        String token=login("video_admin","video-test-admin-password-2026");
+        Long userId=jdbc.queryForObject("SELECT id FROM prp_users WHERE username=?",Long.class,"video_admin");
+        String date="2026-09-27";
+        String payload=mapper.writeValueAsString(Map.of(
+                "date",date,"meals",List.of(Map.of(
+                    "mealType","DINNER","totalCalories",105,
+                    "items",List.of(Map.of("foodId",0,"mode","manual",
+                            "name","P0 concurrency yogurt","grams",135,"manualCalories",105))))));
+        String first=UUID.randomUUID().toString(),second=UUID.randomUUID().toString();
+        for(String id:List.of(first,second)) {
+            jdbc.update("INSERT INTO prp_wellness_ai_drafts " +
+                            "(id,user_id,action_type,payload_json,description,model_used,expires_at) " +
+                            "VALUES (?,?,?,?,?,?,?)",id,userId,"meal.create_batch",payload,
+                    "Concurrent meal protection","test",Timestamp.valueOf(LocalDateTime.now().plusMinutes(10)));
+        }
+        CountDownLatch start=new CountDownLatch(1);
+        var pool=Executors.newFixedThreadPool(2);
+        try {
+            var a=pool.submit(()->{
+                start.await();
+                return mvc.perform(auth(post("/api/wellness/ai/drafts/{id}/confirm",first),token))
+                        .andReturn().getResponse().getStatus();
+            });
+            var b=pool.submit(()->{
+                start.await();
+                return mvc.perform(auth(post("/api/wellness/ai/drafts/{id}/confirm",second),token))
+                        .andReturn().getResponse().getStatus();
+            });
+            start.countDown();
+            int s1=a.get(20,TimeUnit.SECONDS),s2=b.get(20,TimeUnit.SECONDS);
+            assertThat(List.of(s1,s2)).containsExactlyInAnyOrder(200,409);
+            Long meals=jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM prp_wellness_meals WHERE user_id=? AND meal_date=? AND meal_type='DINNER'",
+                    Long.class,userId,date);
+            assertThat(meals).isEqualTo(1L);
+            Long consumed=jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM prp_wellness_ai_drafts WHERE id IN (?,?) AND status='CONSUMED'",
+                    Long.class,first,second);
+            assertThat(consumed).isEqualTo(1L);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
 }

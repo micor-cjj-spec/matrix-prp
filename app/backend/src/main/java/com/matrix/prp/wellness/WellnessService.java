@@ -265,7 +265,7 @@ public class WellnessService {
     private void assertMealSlotFree(long user,LocalDate date,String type,long excludedId) {
         List<Long> duplicates=db.query(
             "SELECT id FROM prp_wellness_meals WHERE user_id=? AND meal_date=? AND meal_type=? " +
-            "AND id<>? LIMIT 1",
+            "AND id<>? LIMIT 1 FOR UPDATE",
             (r,n)->r.getLong("id"),user,date,type,excludedId);
         if(!duplicates.isEmpty())
             throw new org.springframework.web.server.ResponseStatusException(
