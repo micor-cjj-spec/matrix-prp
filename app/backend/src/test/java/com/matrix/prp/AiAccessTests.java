@@ -91,6 +91,11 @@ class AiAccessTests {
         mvc.perform(post("/api/ai/codex/jobs").contentType(MediaType.APPLICATION_JSON).content(job)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)).andExpect(status().isServiceUnavailable());
         mvc.perform(get("/api/ai/usage")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/ai/usage")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.maxRequests").value(2000))
+                .andExpect(jsonPath("$.data.maxReservedTokens").value(12000000));
     }
 
     @Test
