@@ -24,6 +24,11 @@ class OffsiteBackupTests(unittest.TestCase):
             with self.subTest(alert=value), self.assertRaises(RuntimeError):
                 backup.validate_alert_url(value)
         backup.validate_alert_url("https://alerts.example.com/private/hook")
+        for path in ("/etc/matrix-prp/key[prod]", "/etc/matrix-prp/key*",
+                     "/etc/matrix-prp/key?", "/etc/matrix-prp/key" + chr(92) + "prod"):
+            with self.subTest(path=path), self.assertRaises(RuntimeError):
+                backup.validate_secret_exclusion_path(Path(path))
+        backup.validate_secret_exclusion_path(Path("/etc/matrix-prp/unlock-prod.key"))
 
     def restored_fixture(self, target, *, db=b"CREATE TABLE sample(id INT);", video=b"video bytes"):
         stage = target / "var/lib/matrix-prp-backup/backup-test"
