@@ -275,12 +275,10 @@ public class WellnessService {
      * Custom entries are intentionally never inserted into prp_wellness_foods. */
     public record AiMealItem(Long foodId, String name, BigDecimal grams, BigDecimal calories) {}
 
-    @Transactional
-    public Meal addAiMeal(LocalDate date,String type,String note,List<AiMealItem> items,String idempotencyKey) {
+    private void validateAiMealInput(LocalDate date,String type,String note,List<AiMealItem> items) {
         if(date==null || !Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) ||
             items==null || items.isEmpty() || items.size()>8 ||
-            note!=null && note.length()>500 || idempotencyKey==null ||
-            idempotencyKey.isBlank() || idempotencyKey.length()>80)
+            note!=null && note.length()>500)
             throw new IllegalArgumentException("Invalid AI meal");
         for(AiMealItem item:items) {
             if(item==null) throw new IllegalArgumentException("Missing item");
@@ -288,7 +286,7 @@ public class WellnessService {
                 if(item.grams()==null || item.grams().compareTo(new BigDecimal("0.1"))<0 ||
                     item.grams().compareTo(new BigDecimal("3000"))>0)
                     throw new IllegalArgumentException("Invalid catalog food grams");
-                food(item.foodId()); // owner/public catalog check
+                accessibleFood(item.foodId()); // owner/public catalog check
             } else {
                 if(item.name()==null || item.name().isBlank() || item.name().length()>120 ||
                    item.calories()==null || item.calories().compareTo(BigDecimal.ZERO)<=0 ||
@@ -299,12 +297,8 @@ public class WellnessService {
                     throw new IllegalArgumentException("Invalid custom calories or food");
             }
         }
-        long user=CurrentUser.id();
-        List<Long> found=db.query("SELECT id FROM prp_wellness_meals WHERE user_id=? AND idempotency_key=?",
-            (r,n)->r.getLong("id"),user,idempotencyKey);
-        if(!found.isEmpty()) return meal(found.getFirst());
-        long id=insert("INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) "+
-            "VALUES (?,?,?,?,?)",user,date,type,note,idempotencyKey);
+    }
+    private void insertAiItems(long id,List<AiMealItem> items) {
         for(AiMealItem item:items) {
             if(item.foodId()!=null && item.foodId()>0) {
                 insertItems(id,List.of(new ItemInput(item.foodId(),item.grams())));
@@ -317,6 +311,31 @@ public class WellnessService {
                     item.calories(),null,null,null,1);
             }
         }
+    }
+
+    @Transactional
+    public Meal addAiMeal(LocalDate date,String type,String note,List<AiMealItem> items,String idempotencyKey) {
+        validateAiMealInput(date,type,note,items);
+        if(idempotencyKey==null || idempotencyKey.isBlank() || idempotencyKey.length()>80)
+            throw new IllegalArgumentException("Missing idempotency key");
+        long user=CurrentUser.id();
+        List<Long> found=db.query("SELECT id FROM prp_wellness_meals WHERE user_id=? AND idempotency_key=?",
+            (r,n)->r.getLong("id"),user,idempotencyKey);
+        if(!found.isEmpty()) return meal(found.getFirst());
+        long id=insert("INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) " +
+            "VALUES (?,?,?,?,?)",user,date,type,note,idempotencyKey);
+        insertAiItems(id,items);
+        return meal(id);
+    }
+
+    @Transactional
+    public Meal updateAiMeal(long id,LocalDate date,String type,String note,List<AiMealItem> items) {
+        meal(id); // owner check before any mutation
+        validateAiMealInput(date,type,note,items);
+        db.update("UPDATE prp_wellness_meals SET meal_date=?,meal_type=?,note=? WHERE id=? AND user_id=?",
+                date,type,note,id,CurrentUser.id());
+        db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
+        insertAiItems(id,items);
         return meal(id);
     }
 
