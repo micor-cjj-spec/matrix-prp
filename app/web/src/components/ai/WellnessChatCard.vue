@@ -21,6 +21,7 @@ const chosen = reactive<Record<number, number>>({})
 const resolving = ref(false)
 const sourceAvailable = ref(false)
 const foodLoadingErrors = reactive<Record<number, string>>({})
+const originalCalories = reactive<Record<number, { grams: number; kcal: number }>>({})
 const types: Record<string, string> = { BREAKFAST: '早餐', LUNCH: '午餐', DINNER: '晚餐', SNACK: '加餐' }
 const items = computed(() => values.value.items ?? [])
 const canConfirm = computed(() => !loading.value && !saving.value && !resolving.value &&
@@ -34,7 +35,10 @@ function selectedCandidate(index: number) {
 function portion(item: Item, index: number) {
   const grams = Number(item.grams)
   if (!Number.isFinite(grams) || grams <= 0) return 0
-  if (Number(item.foodId) > 0) return Number(item.calories) * grams / (Number(item.grams) || 1) || 0
+  if (Number(item.foodId) > 0) {
+    const original = originalCalories[index]
+    return original && original.grams > 0 ? original.kcal * grams / original.grams : 0
+  }
   const candidate = selectedCandidate(index)
   return candidate ? Number(candidate.calories100g) * grams / 100 : 0
 }
@@ -65,6 +69,10 @@ async function load() {
     draft.value = response.data.data.draft
     status.value = response.data.data.status
     values.value = structuredClone(response.data.data.draft.values)
+    values.value.items?.forEach((item, i) => {
+      if (item.foodId && Number(item.grams) > 0 && item.calories != null)
+        originalCalories[i] = { grams: Number(item.grams), kcal: Number(item.calories) }
+    })
     if (status.value === 'PENDING' && draft.value.action === 'meal.create')
       await searchMissingFoods()
   } catch { error.value = '读取记录草稿失败或无权访问'; }
