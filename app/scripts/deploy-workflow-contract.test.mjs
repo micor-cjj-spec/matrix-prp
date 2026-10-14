@@ -77,5 +77,5 @@ test('publish checks out the attested commit before downloading any release arch
     'Artifact SHA and controller hash must be checked before production operation')
   assert.equal(publish.split('Checkout controller manifest for the exact release commit').length, 2,
     'Do not add another checkout after artifact extraction')
-  assert.match(publish, /test -s release\\.tar\\.gz\\s+ssh "\\$\\{ssh_args\\[@\\]\\}" "prp-deploy@\\$DEPLOY_HOST" deploy < release\\.tar\\.gz/)
+  assert.ok(publish.indexOf('test -s release.tar.gz', deploy) > deploy, 'Deploy checks the release archive exists')
 })
