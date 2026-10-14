@@ -878,8 +878,13 @@ body { background:#f5f7fc; }
 @media (max-width:860px) {
   /* The normal app uses display:block; chat instead needs a constrained flex
      column so its message list scrolls, not an overflowing hidden page. */
-  .prp-shell-chat { display:flex; flex-direction:column; height:100dvh; min-height:0;
+  .prp-shell-chat { position:fixed; inset:0; z-index:10; width:100%;
+    display:flex; flex-direction:column; height:var(--prp-chat-viewport-height,100dvh);
+    min-height:0; max-height:100dvh; overflow:hidden; overscroll-behavior:none;
     padding-bottom:calc(66px + env(safe-area-inset-bottom,0px)); }
+  /* Keep bottom navigation and the composer in the SAME fixed viewport. An
+     iOS scroll after dismissing the keyboard must not separate them. */
+  .prp-shell-chat .prp-mobile-tabs { position:absolute; bottom:0; }
   .prp-workspace-chat { display:flex; flex:1 1 auto; height:auto; min-height:0; padding:0; overflow:hidden; }
   .prp-page-chat { flex:1 1 auto; height:auto; min-height:0; overflow:hidden; }
   /* Hide tabs only while the virtual keyboard is actually open, not for the

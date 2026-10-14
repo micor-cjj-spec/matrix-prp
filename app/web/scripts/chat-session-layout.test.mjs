@@ -54,7 +54,9 @@ test('conversation API and usage API failures are handled independently', () => 
 test('mobile chat has definite constrained flex height for touch scrolling', () => {
   const css = readFileSync(new URL('../src/styles/main.css', import.meta.url), 'utf8')
   const section = css.slice(css.lastIndexOf('/* Dedicated immersive chat shell'))
-  assert.match(section, /\.prp-shell-chat \{ display:flex; flex-direction:column; height:100dvh/)
+  assert.match(section, /\.prp-shell-chat \{ position:fixed; inset:0; z-index:10/)
+  assert.match(section, /height:var\(--prp-chat-viewport-height,100dvh\)/)
+  assert.match(section, /\.prp-shell-chat \.prp-mobile-tabs \{ position:absolute; bottom:0/)
   assert.match(section, /\.prp-workspace-chat \{ display:flex; flex:1 1 auto; height:auto; min-height:0/)
   assert.match(section, /\.prp-page-chat \{ flex:1 1 auto; height:auto; min-height:0/)
   const view = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
@@ -218,4 +220,37 @@ test('one nutrition preview supports multi-meal all-or-nothing atomic confirmati
   assert.match(service, /SELECT id FROM prp_users WHERE id=\? FOR UPDATE/)
   assert.match(service, /目标日期已有相同餐次/)
   assert.match(service, /status='CONSUMED'/)
+})
+
+
+test('chat meal follow-ups create an owner-scoped editable card rather than a plain assistant claim', () => {
+  const view = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
+  const controller = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiDraftController.java', import.meta.url), 'utf8')
+  const service = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiDraftService.java', import.meta.url), 'utf8')
+  const card = readFileSync(new URL('../src/components/ai/WellnessChatCard.vue', import.meta.url), 'utf8')
+  assert.match(view, /const contextualMealCard =/)
+  assert.match(view, /hasRecentMeal &&/)
+  assert.match(view, /healthWrite \|\| contextualMealCard \|\| chatPhoto/)
+  assert.match(controller, /service\.prepareConversationMeal\(chat\.messages\(user,conversationId,null,40\)\)/)
+  assert.match(service, /public Preview prepareConversationMeal\(/)
+  assert.match(service, /"meal\.create",serialize\(payload\)/)
+  assert.match(card, /draft\.modelUsed === 'conversation\/estimate-preview'/)
+  // The contextual banner must precede the status/action v-if chain;
+  // putting it after the CONSUMED v-if turns the editor into an unreachable v-else.
+  const notice = card.indexOf('draft.modelUsed ===')
+  const consumed = card.indexOf('status === \'CONSUMED\'', card.indexOf('<template>'))
+  assert.ok(notice > 0 && consumed > notice)
+  assert.match(card, /请确认或修改后再保存/)
+})
+
+test('fixed iOS chat viewport never allows body scroll to detach the composer from tab bar', () => {
+  const css = readFileSync(new URL('../src/styles/main.css', import.meta.url), 'utf8')
+  const layout = readFileSync(new URL('../src/layouts/AppLayout.vue', import.meta.url), 'utf8')
+  const chat = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
+  assert.match(css, /\.prp-shell-chat \{ position:fixed; inset:0/)
+  assert.match(css, /\.prp-shell-chat \.prp-mobile-tabs \{ position:absolute; bottom:0/)
+  assert.match(layout, /chatViewportHeight\.value = keyboardVisible\.value && viewport/)
+  assert.match(layout, /'--prp-chat-viewport-height': chatViewportHeight/)
+  assert.match(chat, /\.chat-message-content\{flex:1 1 0;min-width:0/)
+  assert.match(chat, /markdown-table-wrap\)\{max-width:100%;width:100%;overflow-x:auto/)
 })
