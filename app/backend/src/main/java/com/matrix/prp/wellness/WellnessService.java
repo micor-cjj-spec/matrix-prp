@@ -21,6 +21,86 @@ public class WellnessService {
     private final JdbcTemplate db;
     public WellnessService(JdbcTemplate db) { this.db = db; }
 
+    private static final String DISH_COLUMNS =
+        "id,merchant_name,dish_name,portion_label,portion_count,calories_per_serving,source_type,source_note";
+    private DishTemplate mapDish(java.sql.ResultSet r,int row) throws java.sql.SQLException {
+        return new DishTemplate(r.getLong("id"),r.getString("merchant_name"),
+            r.getString("dish_name"),r.getString("portion_label"),
+            r.getObject("portion_count")==null?null:r.getInt("portion_count"),
+            r.getBigDecimal("calories_per_serving"),r.getString("source_type"),r.getString("source_note"));
+    }
+    private void validateDish(DishTemplateInput input) {
+        if(input==null || input.merchantName()==null || input.merchantName().length()>100 ||
+           input.dishName()==null || input.dishName().isBlank() || input.dishName().length()>120 ||
+           input.portionLabel()==null || input.portionLabel().length()>100 ||
+           input.portionCount()!=null && (input.portionCount()<1 || input.portionCount()>9999) ||
+           input.caloriesPerServing()==null || input.caloriesPerServing().signum()<=0 ||
+           input.caloriesPerServing().compareTo(new BigDecimal("20000"))>0 ||
+           input.caloriesPerServing().scale()>2 ||
+           !Set.of("USER_ESTIMATE","AI_ESTIMATE","LABEL","OTHER").contains(input.sourceType()) ||
+           input.sourceNote()!=null && input.sourceNote().length()>255)
+            throw new IllegalArgumentException("Invalid personal dish template");
+    }
+
+    /** Search only current owner's serving templates; never return another account's dishes. */
+    public List<DishTemplate> dishTemplates(String q) {
+        String query=q==null?"":q.strip();
+        if(query.length()>100) throw new IllegalArgumentException("Dish search too long");
+        if(query.isEmpty())
+            return db.query("SELECT "+DISH_COLUMNS+" FROM prp_wellness_dish_templates " +
+                "WHERE user_id=? ORDER BY updated_at DESC,id DESC LIMIT 100",
+                this::mapDish,CurrentUser.id());
+        // Escaped LIKE query; "%" and "_" in user text are literal, not broad wildcards.
+        String pattern="%"+query.replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%";
+        return db.query("SELECT "+DISH_COLUMNS+" FROM prp_wellness_dish_templates " +
+            "WHERE user_id=? AND (dish_name LIKE ? OR merchant_name LIKE ?) " +
+            "ORDER BY updated_at DESC,id DESC LIMIT 30",
+            this::mapDish,CurrentUser.id(),pattern,pattern);
+    }
+
+    public DishTemplate ownedDishTemplate(long id) {
+        List<DishTemplate> rows=db.query("SELECT "+DISH_COLUMNS+" FROM prp_wellness_dish_templates " +
+            "WHERE id=? AND user_id=?",this::mapDish,id,CurrentUser.id());
+        if(rows.isEmpty())throw new ResourceNotFoundException("Personal dish not found");
+        return rows.getFirst();
+    }
+
+    /** Existing template identity is stable; repeated confirmations never overwrite its calories. */
+    @Transactional
+    public DishTemplate saveDishTemplate(DishTemplateInput input) {
+        validateDish(input);
+        long user=CurrentUser.id();
+        String merchant=input.merchantName().strip(),dish=input.dishName().strip(),
+            portion=input.portionLabel().strip();
+        List<Long> existing=db.query("SELECT id FROM prp_wellness_dish_templates " +
+                "WHERE user_id=? AND merchant_name=? AND dish_name=? AND portion_label=?",
+                (r,n)->r.getLong("id"),user,merchant,dish,portion);
+        if(!existing.isEmpty()) return ownedDishTemplate(existing.getFirst());
+        long id=insert("INSERT INTO prp_wellness_dish_templates " +
+            "(user_id,merchant_name,dish_name,portion_label,portion_count,calories_per_serving,source_type,source_note) " +
+            "VALUES (?,?,?,?,?,?,?,?)",user,merchant,dish,portion,
+            input.portionCount(),input.caloriesPerServing(),input.sourceType(),input.sourceNote());
+        return ownedDishTemplate(id);
+    }
+
+    @Transactional
+    public DishTemplate updateDishTemplate(long id,DishTemplateInput input) {
+        validateDish(input);
+        ownedDishTemplate(id);
+        db.update("UPDATE prp_wellness_dish_templates SET merchant_name=?,dish_name=?,portion_label=?, " +
+            "portion_count=?,calories_per_serving=?,source_type=?,source_note=? WHERE id=? AND user_id=?",
+            input.merchantName().strip(),input.dishName().strip(),input.portionLabel().strip(),
+            input.portionCount(),input.caloriesPerServing(),input.sourceType(),input.sourceNote(),
+            id,CurrentUser.id());
+        return ownedDishTemplate(id);
+    }
+
+    @Transactional
+    public void deleteDishTemplate(long id) {
+        if(db.update("DELETE FROM prp_wellness_dish_templates WHERE id=? AND user_id=?",
+            id,CurrentUser.id())!=1) throw new ResourceNotFoundException("Personal dish not found");
+    }
+
     private static final String FOOD_COLUMNS =
         "id,name,preparation,calories_100g,protein_100g,carbs_100g,fat_100g,source_note,owner_user_id";
     private static final String ITEM_COLUMNS =
@@ -234,7 +314,7 @@ public class WellnessService {
                     "(meal_id,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate) " +
                     "VALUES (?,NULL,?,?,?,?,?,?,?)",
                     id,item.name().trim(),item.grams()==null?BigDecimal.ZERO:item.grams(),
-                    item.calories(),BigDecimal.ZERO,BigDecimal.ZERO,BigDecimal.ZERO,1);
+                    item.calories(),null,null,null,1);
             }
         }
         return meal(id);
