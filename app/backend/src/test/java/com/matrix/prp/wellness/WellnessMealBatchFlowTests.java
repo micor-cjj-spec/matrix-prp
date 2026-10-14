@@ -56,6 +56,34 @@ class WellnessMealBatchFlowTests {
         verify(wellness,never()).addAiMeal(any(),anyString(),anyString(),anyList(),anyString());
         verify(wellness,never()).addFood(any());
     }
+    @Test void screenshotMessageCreatesExactlyOneDinnerDraftWithoutCallingModelOrSavingMeal() {
+        asOwner();
+        var db=mock(JdbcTemplate.class);
+        var wellness=mock(WellnessService.class);
+        var draft=service(db,wellness).prepareBatch(
+            "晚餐（约105 kcal）\n简爱无糖酸奶135g帮我录人到昨天的晚餐");
+        assertThat(draft.action()).isEqualTo("meal.create_batch");
+        assertThat(draft.values().get("date")).isEqualTo(day.toString());
+        var meals=(List<?>)draft.values().get("meals");
+        assertThat(meals).hasSize(1);
+        assertThat(meals.toString()).contains("DINNER","简爱无糖酸奶","135","105")
+            .doesNotContain("帮我录人");
+        verify(db).update(contains("INSERT INTO prp_wellness_ai_drafts"),any(Object[].class));
+        verify(wellness,never()).addAiMeal(any(),anyString(),anyString(),anyList(),anyString());
+    }
+
+    @Test void screenshotMessageConflictsWithAnExistingDinnerInsteadOfCreatingDuplicateDraft() {
+        asOwner();
+        var db=mock(JdbcTemplate.class);
+        var wellness=mock(WellnessService.class);
+        when(wellness.meals(day)).thenReturn(List.of(new Meal(42L,day,"DINNER","",List.of())));
+        assertThatThrownBy(()->service(db,wellness).prepareBatch(
+            "晚餐（约105 kcal）\n简爱无糖酸奶135g帮我录入到昨天的晚餐"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("已有记录");
+        verify(db,never()).update(contains("INSERT INTO prp_wellness_ai_drafts"),any(Object[].class));
+    }
+
     @Test void aDinnerOnlyFollowupNeverCreatesLunchEvenWhenHistoryContainsBoth() {
         asOwner();
         var db=mock(JdbcTemplate.class);
