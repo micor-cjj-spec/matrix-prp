@@ -4,7 +4,10 @@ import { apiClient, type ApiResponse } from '@/api/client'
 import { wellnessApi, type Food, type UsdaCandidate } from '@/api/wellness'
 import { cloneJson } from '@/utils/cloneJson'
 
-type Item = { foodId: number; name: string; grams: number; calories: number | null }
+type Item = {
+  foodId: number; name: string; grams: number; calories: number | null
+  mode?: 'catalog' | 'manual'; manualCalories?: number | null
+}
 type DraftValues = {
   date: string; mealType?: string; items?: Item[]; note?: string
   sourceMealId?: number; sourceDate?: string; targets?: string[]
@@ -29,12 +32,21 @@ const originalCalories = reactive<Record<number, { grams: number; kcal: number }
 const calorieDensity = reactive<Record<number, number>>({})
 const types: Record<string, string> = { BREAKFAST: '早餐', LUNCH: '午餐', DINNER: '晚餐', SNACK: '加餐' }
 const items = computed(() => values.value.items ?? [])
-const canConfirm = computed(() => !loading.value && !saving.value && !resolving.value &&
+function isManual(item: Item) { return item.mode === 'manual' }
+function validManualCalories(item: Item) {
+  const n = Number(item.manualCalories)
+  return item.manualCalories !== null && item.manualCalories !== undefined &&
+    Number.isFinite(n) && n > 0 && n <= 20000 && Math.round(n * 100) === n * 100 &&
+    !!item.name?.trim() && item.name.trim().length <= 120 &&
+    Number.isFinite(Number(item.grams)) && Number(item.grams) >= 0 && Number(item.grams) <= 3000
+}
+const canConfirm = computed(() => !loading.value && !saving.value &&
   status.value === 'PENDING' && draft.value?.action === 'meal.create' &&
   items.value.length > 0 && items.value.every((item, i) =>
-    Number(item.grams) > 0 && (Number(item.foodId) > 0
-      ? Number.isFinite(calorieDensity[i])
-      : Boolean(selectedCandidate(i)))))
+    isManual(item) ? validManualCalories(item) :
+      !resolving.value && Number(item.grams) > 0 && (Number(item.foodId) > 0
+        ? Number.isFinite(calorieDensity[i])
+        : Boolean(selectedCandidate(i)))))
 const total = computed(() => items.value.reduce((sum, item, i) => sum + portion(item, i), 0))
 const batchCalories = computed(() => items.value.reduce((sum, item) => sum + (Number(item.calories) || 0), 0))
 const canConfirmBatch = computed(() => !loading.value && !saving.value &&
@@ -47,6 +59,7 @@ function selectedCandidate(index: number) {
   return matches[index]?.find(candidate => candidate.fdcId === chosen[index])
 }
 function portion(item: Item, index: number) {
+  if (isManual(item)) return validManualCalories(item) ? Number(item.manualCalories) : 0
   const grams = Number(item.grams)
   if (!Number.isFinite(grams) || grams <= 0) return 0
   if (Number(item.foodId) > 0) {
@@ -57,7 +70,8 @@ function portion(item: Item, index: number) {
   return candidate ? Number(candidate.calories100g) * grams / 100 : 0
 }
 async function searchMissingFoods() {
-  const unresolved = items.value.map((item, i) => ({ item, i })).filter(({ item }) => !item.foodId)
+  const unresolved = items.value.map((item, i) => ({ item, i }))
+    .filter(({ item }) => !item.foodId && !isManual(item))
   if (!unresolved.length) return
   resolving.value = true
   try {
@@ -84,6 +98,7 @@ async function load() {
     status.value = response.data.data.status
     values.value = cloneJson(response.data.data.draft.values)
     values.value.items?.forEach((item, i) => {
+      item.mode = item.mode === 'manual' ? 'manual' : 'catalog'
       if (item.foodId && Number(item.grams) > 0 && item.calories != null)
         originalCalories[i] = { grams: Number(item.grams), kcal: Number(item.calories) }
     })
@@ -114,6 +129,13 @@ async function confirm() {
     const newItems: Item[] = []
     for (let i = 0; i < items.value.length; i++) {
       const item = items.value[i]!
+      if (isManual(item)) {
+        if (!validManualCalories(item)) throw new Error('请输入本次实际估算的食物名称和总热量')
+        // Snapshot-only: do not call USDA import or create a catalog record.
+        newItems.push({ ...item, foodId: 0, grams: Number(item.grams) || 0,
+          mode: 'manual', manualCalories: Number(item.manualCalories) })
+        continue
+      }
       let foodId = Number(item.foodId)
       if (!foodId) {
         const selected = selectedCandidate(i)
@@ -193,7 +215,28 @@ onMounted(() => { void load() })
           </select></label>
         </div>
         <div v-for="(item, i) in items" :key="i" class="health-chat-food">
-          <div class="health-chat-food-title"><b>{{ item.name }}</b><span>{{ item.foodId && !Number.isFinite(calorieDensity[i]) ? '热量待读取' : portion(item, i).toFixed(0) + ' kcal' }}</span></div>
+          <div class="health-chat-food-title"><b>{{ item.name }}</b><span>{{ !isManual(item) && item.foodId && !Number.isFinite(calorieDensity[i]) ? '热量待读取' : portion(item, i).toFixed(0) + ' kcal' }}</span></div>
+          <label>热量来源
+            <select v-model="item.mode" :disabled="saving">
+              <option value="catalog">使用食品库 / USDA 营养数据</option>
+              <option value="manual">本次自定义热量（不入食品库）</option>
+            </select>
+          </label>
+          <template v-if="isManual(item)">
+            <label>食物名称
+              <input v-model.trim="item.name" type="text" maxlength="120" :disabled="saving" placeholder="如：红油馄饨" />
+            </label>
+            <label>本次摄入总热量（kcal）
+              <input v-model.number="item.manualCalories" type="number" min="0.01" max="20000" step="0.01"
+                inputmode="decimal" :disabled="saving" placeholder="如：650" />
+            </label>
+            <label>可食用克重（可选）
+              <input v-model.number="item.grams" type="number" min="0" max="3000" step="0.1"
+                inputmode="decimal" :disabled="saving" placeholder="不清楚可留 0" /> g
+            </label>
+            <p class="health-chat-note">仅保存本次餐次的食物名称与总热量，不新增食品库数据；蛋白质、碳水、脂肪未知，不代表为 0。</p>
+          </template>
+          <template v-else>
           <label>可食用克重 <input v-model.number="item.grams" type="number" min="0.1" max="3000" step="0.1" inputmode="decimal" :disabled="saving" /> g</label>
           <p v-if="Number(item.foodId)>0" class="health-chat-note">已匹配个人/公共食品库，热量由服务器复核</p>
           <template v-else>
@@ -208,15 +251,17 @@ onMounted(() => { void load() })
             <p v-if="selectedCandidate(i)" class="health-chat-note">来源：{{ selectedCandidate(i)?.source }}；请核对英文食品名、品牌和烹饪状态，确认时才导入个人食品库</p>
             <p v-else class="health-chat-alert">{{ foodLoadingErrors[i] || '查询中…' }}</p>
           </template>
-          <p v-if="Number(item.grams)<=0" class="health-chat-alert">请补充实际或估算重量，不能凭空生成营养数据</p>
+          <p v-if="Number(item.grams)<=0" class="health-chat-alert">请补充实际或估算重量，或者切换到「本次自定义热量」</p>
           <p v-if="foodLoadingErrors[i] && item.foodId" class="health-chat-alert">{{ foodLoadingErrors[i] }}</p>
+          </template>
+          <p v-if="isManual(item) && !validManualCalories(item)" class="health-chat-alert">请输入有效的食物名称和本次总热量（0～20000 kcal）</p>
         </div>
         <div class="health-chat-total"><span>预计总摄入</span><b>{{ total.toFixed(0) }} kcal</b></div>
-        <p class="health-chat-note">营养为参考估算；调味油、品牌和份量可能造成差异。确认后将按食品库数据重新计算并保存。</p>
+        <p class="health-chat-note">食品库模式由服务器复算；自定义模式使用你填的本次总热量，不写入食品库，未知营养素不做推断。</p>
         <button class="health-chat-confirm" type="button" :disabled="!canConfirm" @click="confirm">
           {{ saving ? '正在确认保存…' : resolving ? '正在检索食品…' : '确认并保存记录' }}
         </button>
-        <p v-if="!canConfirm && !resolving && !saving" class="health-chat-note">缺少食品匹配或有效克重时不能保存。可补充信息重新描述，或先在健康中心建立食品。</p>
+        <p v-if="!canConfirm && !saving" class="health-chat-note">没有匹配到食品？可以切换为「本次自定义热量」，输入估算千卡后直接保存，不必等待 USDA。</p>
       </template>
       <p v-else>AI 解析为其他健康记录类型，请在健康中心核实后录入。<RouterLink to="/wellness">打开健康中心</RouterLink></p>
       <p v-if="status === 'CONSUMED'"><RouterLink :to="'/wellness?date=' + values.date">查看当天健康记录 →</RouterLink></p>
