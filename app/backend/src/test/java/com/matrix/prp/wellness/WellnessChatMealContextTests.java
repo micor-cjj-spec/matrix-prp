@@ -151,6 +151,40 @@ class WellnessChatMealContextTests {
         assertThat(dinner.calories()).isEqualByComparingTo("600");
     }
 
+    @Test void screenshotImportAfterMidnightRetainsUserEnteredDateAnd650Kcal(){
+        LocalDate nextDay=TODAY.plusDays(1);
+        var history=List.of(
+            user(1,"今天晚上吃的楼下炒菜+米饭，饭比较多，菜比较少"),
+            assistant(2,"建议记 约650 kcal"),
+            user(3,"2026-10-14\n晚餐（约650 kcal）\n楼下炒菜（5人两荤两素）＋米饭（饭多菜少）：约650 kcal"),
+            assistant(4,"你这条格式没问题，直接照着录入健康中心即可：日期2026-10-14，晚餐约650 kcal")
+        );
+        var draft=WellnessChatMealContext.parse(history,nextDay,"你帮我导入").orElseThrow();
+        assertThat(draft.date()).isEqualTo(TODAY);
+        assertThat(draft.mealType()).isEqualTo("DINNER");
+        assertThat(draft.foodName()).contains("炒菜","米饭","两荤两素");
+        assertThat(draft.calories()).isEqualByComparingTo("650");
+        assertThat(draft.sourceType()).isEqualTo("USER_ESTIMATE");
+    }
+
+    @Test void importAfterMidnightResolvesTodayOfOriginalMealMessage(){
+        var history=List.of(
+            user(1,"今天晚上吃了米饭炒菜"),
+            assistant(2,"建议记约650 kcal"));
+        var draft=WellnessChatMealContext.parse(history,TODAY.plusDays(1),"你帮我导入")
+            .orElseThrow();
+        assertThat(draft.date()).isEqualTo(TODAY);
+        assertThat(draft.mealType()).isEqualTo("DINNER");
+        assertThat(draft.calories()).isEqualByComparingTo("650");
+    }
+
+    @Test void differentKcalAmountsInOneNoteAreNotConflatedIntoSingleUserEstimate(){
+        var draft=WellnessChatMealContext.parse(List.of(
+            user(1,"2026-10-14 晚餐吃了米饭200 kcal，炒菜450 kcal")
+        ),TODAY,"帮我导入").orElseThrow();
+        assertThat(draft.calories()).isNull();
+    }
+
     @Test void userExplicitCaloriesTakePrecedenceOverAssistantSuggestion(){
         var draft=WellnessChatMealContext.parse(List.of(
             user(1,"2026-10-14 晚餐吃了米饭炒菜 700 kcal"),

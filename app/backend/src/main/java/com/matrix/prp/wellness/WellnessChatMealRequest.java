@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
  */
 final class WellnessChatMealRequest {
     private static final Pattern ACTION=Pattern.compile(
-        "创建|生成|制作|做|出|整理|准备|弄|填写|录入|录人|记录|保存|记一下");
+        "创建|生成|制作|做|出|整理|准备|弄|填写|录入|录人|导入|写入|归档|记录|保存|记一下");
     private static final Pattern CARD=Pattern.compile("卡片|草稿|健康记录|饮食记录|餐食记录");
     private static final Pattern MEAL=Pattern.compile(
         "早餐|早饭|午餐|午饭|晚餐|晚饭|今晚|早上|中午|晚上|加餐|夜宵|这顿|这餐|饮食|健康|食物");
@@ -28,13 +28,13 @@ final class WellnessChatMealRequest {
         boolean hasCard=CARD.matcher(message).find();
         boolean mealReference=MEAL.matcher(message).find();
         if(!hasCard && !mealReference &&
-            !message.matches("(?s).*?(?:帮我|给我|请|麻烦).{0,18}(?:录入|录人|记录|保存|记一下).*"))
+            !message.matches("(?s).*?(?:帮我|给我|请|麻烦).{0,18}(?:录入|录人|导入|写入|归档|记录|保存|记一下).*"))
             return false;
         // A sentence describing an actual food is not a reference to a previous
         // meal, even if the food is unknown. Never attach the previous meal to it.
         if(message.matches("(?s).*(?:吃了|吃的|喝了|点了|吃过|买了).{1,80}.*"))
             return false;
         if(FOOD.matcher(message).find())return false;
-        return hasCard || mealReference || message.matches("(?s).*(?:录入|录人|记录|保存|记一下).*");
+        return hasCard || mealReference || message.matches("(?s).*(?:录入|录人|导入|写入|归档|记录|保存|记一下).*");
     }
 }
