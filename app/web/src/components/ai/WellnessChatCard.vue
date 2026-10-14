@@ -338,8 +338,11 @@ onMounted(() => { void load() })
                 inputmode="decimal" :disabled="saving || item.mode === 'template'" placeholder="如：650" />
             </label>
             <label>可食用克重（可选）
-              <input v-model.number="item.grams" type="number" min="0" max="3000" step="0.1"
-                inputmode="decimal" :disabled="saving" placeholder="不清楚可留 0" /> g
+              <span class="health-chat-number-unit">
+                <input v-model.number="item.grams" type="number" min="0" max="3000" step="0.1"
+                  inputmode="decimal" :disabled="saving" placeholder="不清楚可留 0" />
+                <span class="health-chat-unit">g</span>
+              </span>
             </label>
             <p class="health-chat-note">仅保存本次餐次的食物名称与总热量，不新增食品库数据；蛋白质、碳水、脂肪未知，不代表为 0。</p>
             <template v-if="item.mode === 'manual'">
@@ -374,7 +377,13 @@ onMounted(() => { void load() })
             <p v-if="item.mode === 'template'" class="health-chat-note">引用你保存的餐品每份参考热量，实际确认后只保存本次快照；更新模板不会修改历史记录。</p>
           </template>
           <template v-else>
-          <label>可食用克重 <input v-model.number="item.grams" type="number" min="0.1" max="3000" step="0.1" inputmode="decimal" :disabled="saving" /> g</label>
+          <label>可食用克重
+            <span class="health-chat-number-unit">
+              <input v-model.number="item.grams" type="number" min="0.1" max="3000" step="0.1"
+                inputmode="decimal" :disabled="saving" />
+              <span class="health-chat-unit">g</span>
+            </span>
+          </label>
           <p v-if="Number(item.foodId)>0" class="health-chat-note">已匹配个人/公共食品库，热量由服务器复核</p>
           <template v-else>
             <p class="health-chat-note">食品库暂无，自动查询 USDA FoodData Central（营养值按每 100g）</p>
@@ -412,21 +421,64 @@ onMounted(() => { void load() })
 </template>
 
 <style scoped>
-.health-chat-card{display:grid;gap:11px;margin:10px 0;padding:14px;max-width:520px;min-width:0;border:1px solid #d9e4f4;border-radius:16px;background:#f8fbff;font-size:14px;overflow-wrap:anywhere}
-.health-chat-card p{margin:0;line-height:1.65}
-.health-chat-card label{display:grid;gap:5px;min-width:0;color:#475569;font-size:12px}
-.health-chat-card input,.health-chat-card select{font:inherit;font-size:16px;width:100%;min-width:0;max-width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:8px;padding:7px;background:#fff;color:#1e293b}
-.health-chat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0}
-.health-chat-food{display:grid;gap:6px;padding:11px 0;border-bottom:1px solid #dce5f1;min-width:0}
-.health-chat-food-title,.health-chat-total{display:flex;justify-content:space-between;align-items:center;gap:10px}
-.health-chat-check{display:flex!important;align-items:center;gap:8px;font-size:13px!important}
-.health-chat-check input{width:auto;min-width:16px;height:18px}
+.health-chat-card{
+  display:grid;gap:14px;width:100%;max-width:520px;min-width:0;
+  box-sizing:border-box;margin:10px 0;padding:16px;
+  border:1px solid #d9e4f4;border-radius:16px;background:#f8fbff;
+  font-size:14px;line-height:1.6;overflow-wrap:anywhere;
+}
+.health-chat-card p{margin:0;line-height:1.6}
+.health-chat-card label{
+  display:grid;grid-template-columns:minmax(0,1fr);gap:7px;
+  min-width:0;margin:0;color:#51637c;font-size:13px;font-weight:500;
+}
+.health-chat-card input:not([type="checkbox"]),
+.health-chat-card select{
+  display:block;box-sizing:border-box;width:100%;min-width:0;max-width:100%;
+  height:44px;min-height:44px;margin:0;padding:9px 12px;
+  border:1px solid #cbd5e1;border-radius:10px;
+  background:#fff;color:#1e293b;font:inherit;font-size:16px;line-height:1.35;
+  box-shadow:none;
+}
+.health-chat-card input[type="date"]{-webkit-min-logical-width:0}
+.health-chat-card input:focus-visible,
+.health-chat-card select:focus-visible{
+  outline:2px solid #93c5fd;outline-offset:1px;border-color:#4386f3;
+}
+.health-chat-card input:disabled,.health-chat-card select:disabled{background:#eff3f8;color:#64748b}
+.health-chat-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;min-width:0}
+.health-chat-food{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;padding:16px 0;border-bottom:1px solid #dce5f1;min-width:0}
+.health-chat-food-title,.health-chat-total{
+  display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;min-width:0;
+}
+.health-chat-food-title b{min-width:0;flex:1 1 135px}
+.health-chat-food-title span{flex:none;white-space:nowrap;font-variant-numeric:tabular-nums}
+.health-chat-number-unit{display:flex;align-items:center;min-width:0;gap:9px}
+.health-chat-number-unit input{flex:1 1 auto;width:0!important;min-width:0!important}
+.health-chat-unit{flex:0 0 18px;color:#64748b;font-size:13px;text-align:left}
+.health-chat-check{
+  display:flex!important;flex-direction:row;align-items:center;gap:9px;
+  font-size:13px!important;min-height:36px;cursor:pointer;
+}
+.health-chat-check input[type="checkbox"]{flex:0 0 auto;width:18px;height:18px;accent-color:#287fba}
 .health-chat-note{font-size:12px;color:#64748b}
-.health-chat-alert{font-size:12px;color:#a63b36}
+.health-chat-alert{font-size:12px;color:#a63b36;line-height:1.65!important}
 .health-chat-success{color:#06784b;font-weight:600}
 .health-batch-days{margin:4px 0 0;padding-left:22px;line-height:1.8;color:#334155}
-.health-chat-total b{font-size:21px;color:#1d4ed8}
-.health-chat-confirm{width:100%;padding:11px;border:0;border-radius:10px;background:#287fba;color:#fff;font:inherit;font-weight:600;cursor:pointer}
-.health-chat-confirm:disabled{opacity:.55;cursor:not-allowed}
-@media(max-width:420px){.health-chat-row{grid-template-columns:1fr 1fr}.health-chat-card{padding:11px}}
+.health-chat-total{padding:6px 0 0}
+.health-chat-total b{font-size:22px;color:#1d4ed8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.health-chat-confirm{
+  width:100%;min-height:48px;padding:11px;border:0;border-radius:11px;
+  background:#287fba;color:#fff;font:inherit;font-size:15px;font-weight:600;cursor:pointer;
+}
+.health-chat-recheck{
+  width:100%;min-height:44px;padding:10px;border:1px solid #93c5fd;
+  border-radius:10px;background:#eef6ff;color:#1d4ed8;font:inherit;font-weight:600;cursor:pointer;
+}
+.health-chat-confirm:disabled,.health-chat-recheck:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:600px){
+  .health-chat-card{max-width:100%;gap:12px;padding:13px;border-radius:14px}
+  .health-chat-row{grid-template-columns:minmax(0,1fr);gap:12px}
+  .health-chat-food{gap:11px;padding:13px 0}
+}
 </style>
