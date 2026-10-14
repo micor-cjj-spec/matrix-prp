@@ -76,7 +76,7 @@ function validManualCalories(item: Item) {
   const n = Number(item.manualCalories)
   return (item.mode !== 'template' || !!item.templateId) &&
     item.manualCalories !== null && item.manualCalories !== undefined &&
-    Number.isFinite(n) && n > 0 && n <= 20000 && Math.round(n * 100) === n * 100 &&
+    Number.isFinite(n) && n > 0 && n <= 20000 && Math.abs(n * 100 - Math.round(n * 100)) < 1e-6 &&
     !!item.name?.trim() && item.name.trim().length <= 120 &&
     Number.isFinite(Number(item.grams)) && Number(item.grams) >= 0 && Number(item.grams) <= 3000
 }
