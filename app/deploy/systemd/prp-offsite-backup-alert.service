@@ -1,0 +1,14 @@
+[Unit]
+Description=Send critical alert after a PRP off-host backup failure
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=-/etc/matrix-prp/backup.env
+ExecStart=/usr/bin/python3 /usr/local/sbin/prp-offsite-backup alert-failure
+TimeoutStartSec=30s
+NoNewPrivileges=true
