@@ -69,12 +69,19 @@ def alert_failure():
             fail("Backup failure notification was not accepted")
     print("PRP failure alert delivered")
 
+def validate_secret_exclusion_path(path):
+    # Restic --exclude arguments are glob patterns, not literal filenames.
+    # Reject metacharacters instead of risking a pattern that misses the unlock key.
+    if any(mark in str(path) for mark in ("*", "?", "[", "]", "\\\\")):
+        fail("Restic unlock path contains unsupported pattern characters")
+
 def preflight():
     if os.geteuid() != 0:
         fail("Run the backup as root via the dedicated systemd service")
     validate_repository(os.environ.get("RESTIC_REPOSITORY", ""))
     validate_alert_url(os.environ.get("PRP_BACKUP_ALERT_WEBHOOK_URL", ""))
     password = Path(os.environ.get("RESTIC_PASSWORD_FILE", ""))
+    validate_secret_exclusion_path(password)
     if not password.is_absolute() or not password.is_file() or password.is_symlink():
         fail("RESTIC_PASSWORD_FILE must name a real root-owned local file")
     mode = password.stat()
