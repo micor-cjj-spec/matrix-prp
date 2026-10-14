@@ -275,3 +275,14 @@ test('real multi-turn user card request is routed to the health draft editor', (
   const service = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiDraftService.java', import.meta.url), 'utf8')
   assert.match(service, /未识别到有效食物明细/)
 })
+
+
+test('chat distinguishes PRP monthly quota from external provider HTTP 429', () => {
+  const chat = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
+  const backend = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/ai/AiService.java', import.meta.url), 'utf8')
+  assert.match(chat, /data\.quotaSource === 'provider'/)
+  assert.match(chat, /服务商返回 HTTP 429/)
+  assert.match(chat, /PRP 本月 AI 调用配额已用完/)
+  assert.match(backend, /"quotaSource", quotaSource/)
+  assert.match(backend, /static String quotaSource\(Exception error\)/)
+})
