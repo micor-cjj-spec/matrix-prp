@@ -7,7 +7,7 @@ import WellnessAiRecorder from '@/components/wellness/WellnessAiRecorder.vue'
 import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 import PersonalDishManager from '@/components/wellness/PersonalDishManager.vue'
 import {
-  wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type Exercise, type ExerciseInput,
+  wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type MealSnapshotItem, type Exercise, type ExerciseInput,
   type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint,
   type Goal, type Profile,
 } from '@/api/wellness'
@@ -90,20 +90,31 @@ onMounted(loadAll)
 const mealDialog = ref(false)
 const editingMeal = ref<number | null>(null)
 const mealForm = reactive<MealInput>({ mealDate: today, mealType: 'BREAKFAST', note: '', items: [] })
-type DraftItem = { foodId: number | null; grams: number }
+type DraftItem = {
+  foodId: number | null; grams: number; manual: boolean
+  customName: string; customCalories: number
+}
 const draftItems = ref<DraftItem[]>([])
 function openMeal(kind = 'BREAKFAST', meal?: Meal) {
   editingMeal.value = meal?.id ?? null
   mealForm.mealDate = meal?.mealDate ?? date.value
   mealForm.mealType = meal?.mealType ?? kind
   mealForm.note = meal?.note || ''
-  draftItems.value = meal ? meal.items.map(i => ({ foodId: i.foodId, grams: Number(i.grams) })) : [{ foodId: null, grams: 100 }]
+  draftItems.value = meal ? meal.items.map(i => ({
+    foodId: i.foodId > 0 ? i.foodId : null,
+    grams: Number(i.grams), manual: i.foodId <= 0,
+    customName: i.foodId <= 0 ? i.foodName : '',
+    customCalories: i.foodId <= 0 ? Number(i.calories) : 0,
+  })) : [{ foodId: null, grams: 100, manual: false, customName: '', customCalories: 0 }]
   mealDialog.value = true
 }
-function addItem(foodId: number | null = null) { draftItems.value.push({ foodId, grams: 100 }) }
+function addItem(foodId: number | null = null) {
+  draftItems.value.push({ foodId, grams: 100, manual: false, customName: '', customCalories: 0 })
+}
 const mealPreview = computed(() => draftItems.value.reduce((sum, item) => {
   const food = foods.value.find(f => f.id === item.foodId)
-  return sum + (food ? Number(food.calories100g) * Number(item.grams || 0) / 100 : 0)
+  return sum + (item.manual ? Number(item.customCalories || 0) :
+    food ? Number(food.calories100g) * Number(item.grams || 0) / 100 : 0)
 }, 0))
 async function searchFoods(q: string) {
   try {
@@ -113,14 +124,35 @@ async function searchFoods(q: string) {
   } catch { ElMessage.error('食物搜索失败') }
 }
 async function saveMeal() {
-  const items = draftItems.value.filter((x): x is { foodId: number; grams: number } => x.foodId !== null && x.grams > 0)
-  if (!items.length || items.length !== draftItems.value.length) { ElMessage.warning('请完整选择食物和有效重量'); return }
+  if (!draftItems.value.length || draftItems.value.length > 8 ||
+      draftItems.value.some(item => item.manual
+        ? !item.customName.trim() || item.customName.length > 120 ||
+          !Number.isFinite(Number(item.customCalories)) || item.customCalories <= 0 ||
+          item.customCalories > 20000 || Math.abs(item.customCalories * 100 - Math.round(item.customCalories * 100)) > 1e-6 ||
+          !Number.isFinite(item.grams) || item.grams < 0 || item.grams > 3000
+        : !item.foodId || !Number.isFinite(item.grams) || item.grams <= 0 || item.grams > 3000)) {
+    ElMessage.warning('请完整填写食物、份量或本次热量')
+    return
+  }
   saving.value = true
   try {
-    const payload: MealInput = { mealDate: mealForm.mealDate, mealType: mealForm.mealType,
-      note: mealForm.note, items, idempotencyKey: editingMeal.value ? undefined : crypto.randomUUID() }
-    if (editingMeal.value !== null) await wellnessApi.updateMeal(editingMeal.value, payload)
-    else await wellnessApi.addMeal(payload)
+    const key = editingMeal.value === null ? crypto.randomUUID() : undefined
+    const hasManual = draftItems.value.some(item => item.manual)
+    if (hasManual) {
+      const items: MealSnapshotItem[] = draftItems.value.map(item => item.manual
+        ? { foodId: null, name: item.customName.trim(), grams: item.grams, calories: item.customCalories }
+        : { foodId: item.foodId, name: null, grams: item.grams, calories: null })
+      const payload = { mealDate: mealForm.mealDate, mealType: mealForm.mealType, note: mealForm.note,
+        items, idempotencyKey: key }
+      if (editingMeal.value !== null) await wellnessApi.updateMealSnapshots(editingMeal.value, payload)
+      else await wellnessApi.addMealSnapshots(payload)
+    } else {
+      const items = draftItems.value.map(item => ({ foodId: Number(item.foodId), grams: item.grams }))
+      const payload: MealInput = { mealDate: mealForm.mealDate, mealType: mealForm.mealType,
+        note: mealForm.note, items, idempotencyKey: key }
+      if (editingMeal.value !== null) await wellnessApi.updateMeal(editingMeal.value, payload)
+      else await wellnessApi.addMeal(payload)
+    }
     ElMessage.success('餐食已保存')
     mealDialog.value = false; date.value = mealForm.mealDate
     await Promise.all([loadDay(), wellnessApi.frequent().then(x => { frequentFoods.value = x }), loadTrend()])
@@ -345,7 +377,7 @@ async function saveProfile() {
           <section class="panel">
             <div class="panel-head"><h2>常吃食物</h2><span><el-button @click="openUsda()">USDA 食品库</el-button> <el-button @click="foodDialog=true">新增自定义食物</el-button></span></div>
             <div v-if="!frequentFoods.length" class="empty">添加餐次后，常吃食物会自动出现在这里。</div>
-            <div class="chips"><el-tag v-for="food in frequentFoods" :key="food.id" class="food-chip" @click="openMeal('SNACK'); draftItems=[{foodId:food.id,grams:100}]">
+            <div class="chips"><el-tag v-for="food in frequentFoods" :key="food.id" class="food-chip" @click="openMeal('SNACK'); draftItems=[{foodId:food.id,grams:100,manual:false,customName:'',customCalories:0}]">
               {{ food.name }} · {{ n(food.calories100g) }} kcal/100g
             </el-tag></div>
           </section>
@@ -429,17 +461,28 @@ async function saveProfile() {
             <el-form-item label="餐次"><el-select v-model="mealForm.mealType"><el-option v-for="kind in mealKinds" :key="kind" :label="label(kind)" :value="kind" /></el-select></el-form-item>
           </div>
           <div v-for="(item,idx) in draftItems" :key="idx" class="food-row">
-            <el-select v-model="item.foodId" filterable remote :remote-method="searchFoods" placeholder="搜索食物">
-              <el-option v-for="food in foods" :key="food.id" :value="food.id" :label="food.name + ' · ' + n(food.calories100g) + ' kcal/100g'" />
-            </el-select>
-            <el-input-number v-model="item.grams" :min="1" :max="10000" :precision="1" /><span class="muted">g</span>
+            <el-checkbox v-model="item.manual">本次自定义热量</el-checkbox>
+            <template v-if="item.manual">
+              <el-input v-model="item.customName" maxlength="120" placeholder="食物名称，例如红油馄饨" />
+              <el-input-number v-model="item.customCalories" :min="0.01" :max="20000" :precision="2" />
+              <span class="muted">本次 kcal</span>
+              <el-input-number v-model="item.grams" :min="0" :max="3000" :precision="1" />
+              <span class="muted">g，可填 0</span>
+            </template>
+            <template v-else>
+              <el-select v-model="item.foodId" filterable remote :remote-method="searchFoods" placeholder="搜索食物">
+                <el-option v-for="food in foods" :key="food.id" :value="food.id" :label="food.name + ' · ' + n(food.calories100g) + ' kcal/100g'" />
+              </el-select>
+              <el-input-number v-model="item.grams" :min="0.1" :max="3000" :precision="1" />
+              <span class="muted">g</span>
+            </template>
             <el-button link type="danger" @click="draftItems.splice(idx,1)">移除</el-button>
           </div>
           <el-button @click="addItem()">+ 添加食物</el-button>
           <el-button link type="primary" @click="foodDialog=true">没有找到？创建食物</el-button>
           <el-form-item label="备注"><el-input v-model="mealForm.note" maxlength="500" /></el-form-item>
           <p class="meal-total">本餐估算：{{ n(mealPreview) }} kcal</p>
-          <p class="muted">示例食物营养值为参考数据。烹饪油、配料、品牌营养标签请按实际情况确认。</p>
+          <p class="muted">自定义热量只保存在本餐次明细，不进入食品参考库；不确定重量可填 0，未知蛋白质、碳水和脂肪不会显示为 0。</p>
         </el-form>
         <template #footer><el-button @click="mealDialog=false">取消</el-button>
           <el-button type="primary" :loading="saving" @click="saveMeal()">保存餐次</el-button></template>
