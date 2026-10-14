@@ -96,14 +96,13 @@ jobs:
           for schema in app/docker/mysql/init/*.sql; do
             MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
           done
-          # AI is an additive V8 migration; initialize only the isolated CI database.
-          MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V8__ai_orchestrator.sql
-          MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V9__ai_provider_settings.sql
-          MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V10__openclaw_agent_tasks.sql
-          MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V11__codex_review_jobs.sql
-          MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V12__repair_legacy_food_seed_encoding.sql
-          MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V13__finance_ledger_foundation.sql
-          MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < app/backend/src/main/resources/db/migration/V14__ai_read_tools_and_navigation_cards.sql
+          # Keep integration DB aligned with all immutable migrations after the historical V1-V7 bootstrap.
+          for schema in $(find app/backend/src/main/resources/db/migration -name 'V*__*.sql' | sort -V); do
+            version=$(basename "$schema" | sed -E 's/V([0-9]+)__.*/\\1/')
+            if [ "$version" -gt 7 ]; then
+              MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+            fi
+          done
       - name: Verify video, private notification and wellness rules against MySQL
         working-directory: app/backend
         env:
