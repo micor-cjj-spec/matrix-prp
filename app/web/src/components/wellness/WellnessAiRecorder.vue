@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { apiClient, type ApiResponse } from '@/api/client'
 import { wellnessApi, type Food } from '@/api/wellness'
+import { cloneJson } from '@/utils/cloneJson'
 import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 type Action = 'meal.create' | 'exercise.create' | 'metric.create'
 type Item = { foodId: number; name: string; grams: number; calories: number | null }
@@ -67,7 +68,7 @@ async function plan() {
   try {
     const r = await apiClient.post<ApiResponse<Draft>>('/wellness/ai/prepare', form, { timeout: 60000 })
     draft.value = r.data.data
-    values.value = structuredClone(r.data.data.values)
+    values.value = cloneJson(r.data.data.values)
     if (values.value.items) {
       await Promise.all([...new Set(values.value.items.map(item => item.name))]
         .map(name => wellnessApi.foods(name).then(found => {
@@ -80,7 +81,7 @@ async function plan() {
   } finally { busy.value = false }
 }
 function correction(): Record<string, unknown> {
-  const v = structuredClone(values.value)
+  const v = cloneJson(values.value)
   if (draft.value?.action === 'exercise.create')
     v.estimatedKcal = v.estimatedKcal === '' || v.estimatedKcal == null ? null : Number(v.estimatedKcal)
   if (draft.value?.action === 'metric.create') {
