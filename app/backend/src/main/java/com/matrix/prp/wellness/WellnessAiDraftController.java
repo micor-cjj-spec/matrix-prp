@@ -50,7 +50,7 @@ public class WellnessAiDraftController {
             for(int i=history.size()-1;i>=0;i--) {
                 var message=history.get(i);
                 if(!"user".equals(message.role())) continue;
-                try { draft=service.prepareBatch(message.content()); }
+                try { draft=service.prepareBatch(message.content(),"DINNER"); }
                 catch(ResponseStatusException ex) {
                     if(ex.getStatusCode().value()==409) throw ex;
                 }
