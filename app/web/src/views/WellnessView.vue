@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import WellnessAiRecorder from '@/components/wellness/WellnessAiRecorder.vue'
 import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
+import PersonalDishManager from '@/components/wellness/PersonalDishManager.vue'
 import {
   wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type Exercise, type ExerciseInput,
   type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint,
@@ -348,6 +349,7 @@ async function saveProfile() {
               {{ food.name }} · {{ n(food.calories100g) }} kcal/100g
             </el-tag></div>
           </section>
+          <PersonalDishManager />
         </el-tab-pane>
 
         <el-tab-pane label="运动" name="exercise">
