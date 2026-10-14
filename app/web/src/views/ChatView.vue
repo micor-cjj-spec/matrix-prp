@@ -6,7 +6,7 @@ import AppLayout from '@/layouts/AppLayout.vue'
 import WellnessChatCard from '@/components/ai/WellnessChatCard.vue'
 import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
-import { fetchUsage, listConversations, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, prepareInlineHealthDraft, AiStreamHttpError,
+import { fetchUsage, listConversations, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, prepareInlineHealthDraft, confirmPendingHealthDraft, AiStreamHttpError,
   type AiUsage, type ChatMessage, type AiMessageBlock, type Conversation, type AiContextPreview } from '@/api/ai'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
@@ -325,17 +325,66 @@ function describeStreamError(error: unknown): string {
   if (error instanceof Error && error.name === 'AbortError') return '请求已取消。'
   return '聊天流式连接中断，请检查网络后重试。'
 }
+const explicitConfirm = /^(?:是的|对|嗯|确认|确认保存|确认录入|保存|保存吧|保存一下|好的|可以|没错|是|帮我保存到健康中心)$/u
+async function confirmPreviousHealthDraft(content: string) {
+  if (!selectedId.value || sending.value) {
+    ElMessage.warning('当前没有可确认的饮食记录，请先描述日期、餐次与热量')
+    return
+  }
+  const previousMessages = [...messages.value]
+  const pendingId = -Date.now()
+  const conversation = selectedId.value
+  sending.value = true
+  streamError.value = ''
+  input.value = ''
+  messages.value.push(
+    { id: pendingId, role: 'user', content, createdAt: new Date().toISOString() },
+    { id: pendingId - 1, role: 'assistant', content: '正在核实健康中心记录，请稍候…', createdAt: new Date().toISOString() },
+  )
+  bottom()
+  try {
+    const result = await confirmPendingHealthDraft(conversation, content)
+    // The backend returns a receipt only after the authorized draft was committed.
+    const assistant = messages.value[messages.value.length - 1]!
+    assistant.id = result.messageId
+    assistant.content = result.content
+    const [latest, blocks] = await Promise.allSettled([
+      listMessages(conversation, undefined, HISTORY_PAGE_SIZE + 1),
+      listMessageBlocks(conversation),
+    ])
+    if (latest.status === 'fulfilled') {
+      messages.value = latest.value.slice(-HISTORY_PAGE_SIZE)
+      hasOlder.value = latest.value.length > HISTORY_PAGE_SIZE
+    }
+    if (blocks.status === 'fulfilled') blocksByMessage.value = groupBlocks(blocks.value)
+    if (result.status !== 'SAVED' && result.status !== 'ALREADY_SAVED')
+      ElMessage.info(result.content)
+    try { await refresh() } catch { /* the server has already committed; never retry */ }
+  } catch {
+    // In case of uncertain HTTP outcome, never claim a write, and do not re-POST.
+    streamError.value = '保存结果未核实，请先到健康中心查看，避免重复提交；也可重新打开会话查看服务器回执。'
+    messages.value = previousMessages
+    input.value = content
+  } finally {
+    sending.value = false
+    bottom()
+  }
+}
 async function send(contextToken?: string) {
   const content = input.value.trim() || (chatPhoto.value ? '请识别照片中的食物，分析热量并记录这顿饮食' : '')
   if (!content || sending.value || content.length > 4000) return
+  if (explicitConfirm.test(content) && !chatPhoto.value && !selectedScopes.value.length) {
+    await confirmPreviousHealthDraft(content)
+    return
+  }
   if (chatPhoto.value && (content.length > 1500 ||
       selectedScopes.value.some(scope => scope !== 'wellness'))) {
     ElMessage.warning('食物照片只能用于健康记录，请缩短描述并移除其他应用引用后重试')
     return
   }
-  const writeVerb = /(?:记录|录入|添加|新增|保存|记下|记一下|帮我记|记一笔|存入)/u.test(content)
+  const writeVerb = /(?:记录|录入|录人|添加|新增|保存|记下|记一下|帮我记|记一笔|存入)/u.test(content)
   const foodContext = /(?:早饭|午饭|晚饭|早餐|午餐|晚餐|加餐|饮食|食物|热量|卡路里|吃了|喝了|这顿|我吃|今天吃)/u.test(content)
-  const directFoodQuantity = /(?:记|记录|录入|添加|新增|保存|记下)(?:一下|一笔|入)?\s*(?:一个|一份|一碗|一杯|两个|[0-9]+(?:g|克|ml|毫升))/u.test(content)
+  const directFoodQuantity = /(?:记|记录|录入|录人|添加|新增|保存|记下)(?:一下|一笔|入)?\s*(?:一个|一份|一碗|一杯|两个|[0-9]+(?:g|克|ml|毫升))/u.test(content)
   const notTechnicalOrOther = !/(?:如何实现|怎么开发|如何设计|为什么不能|记录日志|错误日志|会议记录|记录会议|记录任务|添加任务|添加待办|保存笔记|添加笔记)/u.test(content)
   const healthWrite = writeVerb && notTechnicalOrOther &&
     (foodContext || directFoodQuantity || selectedScopes.value.includes('wellness'))
