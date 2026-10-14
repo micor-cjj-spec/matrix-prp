@@ -391,7 +391,15 @@ async function send(contextToken?: string) {
   const notTechnicalOrOther = !/(?:如何实现|怎么开发|如何设计|为什么不能|记录日志|错误日志|会议记录|记录会议|记录任务|添加任务|添加待办|保存笔记|添加笔记)/u.test(content)
   const healthWrite = writeVerb && notTechnicalOrOther &&
     (foodContext || directFoodQuantity || selectedScopes.value.includes('wellness'))
-  if (content.length <= 1500 && (healthWrite || chatPhoto.value) &&
+  // Short follow-ups like "帮我录入一下" or "生成一下卡片" depend on
+  // the selected conversation's real user meal description, not model promises.
+  const hasRecentMeal = messages.value.slice(-40).some(m => m.role === 'user' &&
+    /(?:早餐|早饭|早上|午餐|午饭|中午|晚餐|晚饭|晚上|今晚|加餐|夜宵)/u.test(m.content) &&
+    /(?:米饭|炒菜|炒肉|馄饨|混沌|米线|鸡腿|面条|鸡蛋|牛奶|酸奶|土豆|面包|豆腐|青菜|排骨|饺子|饭|肉|菜|吃)/u.test(m.content))
+  const contextualMealCard = !!selectedId.value && notTechnicalOrOther &&
+    content.length <= 80 && hasRecentMeal &&
+    /(?:帮我|给我|为我|请)?.{0,8}(?:录入|录人|记录|保存|记一下)|(?:生成|创建|做).{0,12}卡片/u.test(content)
+  if (content.length <= 1500 && (healthWrite || contextualMealCard || chatPhoto.value) &&
       (selectedScopes.value.length === 0 ||
        selectedScopes.value.every(s => s === 'wellness'))) {
     await prepareInlineDiet(content.replace(/^@(健康)\s*/u, ''))
@@ -628,7 +636,8 @@ onBeforeUnmount(() => controller?.abort())
 .chat-suggestions button:hover{background:#f6f9ff;border-color:#bfd3f8}
 .chat-message{display:flex;gap:12px;margin-bottom:25px;align-items:flex-start;min-width:0}
 .chat-message-user{justify-content:flex-end}
-.chat-message-content{min-width:0;max-width:100%;line-height:1.85;font-size:15px;overflow-wrap:anywhere}
+.chat-message-content{flex:1 1 0;min-width:0;max-width:100%;line-height:1.85;font-size:15px;overflow-wrap:anywhere}
+.chat-message-user .chat-message-content{flex:0 1 auto}
 .chat-message-user .chat-message-content{max-width:84%;border-radius:18px 18px 4px 18px;background:#edf3fc;padding:10px 16px}
 .chat-user-text{white-space:pre-wrap}
 .chat-ai-mark{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:10px;background:#eaf1ff;color:#3477e6;font-size:15px;margin-top:3px}
@@ -679,7 +688,10 @@ onBeforeUnmount(() => controller?.abort())
 :deep(.markdown-body li){margin-bottom:4px}:deep(.markdown-body code){padding:2px 5px;background:#f1f5f9;color:#315b8f;border-radius:5px;font-size:13px}
 :deep(.markdown-body .markdown-code){background:#172334;color:#e2e8f0;border-radius:12px;padding:15px;overflow:auto;font-size:13px;line-height:1.65}
 :deep(.markdown-body .markdown-code code){background:transparent;color:inherit;padding:0}
-:deep(.markdown-body .markdown-table-wrap){max-width:100%;overflow-x:auto;margin:12px 0}
+:deep(.markdown-body .markdown-table-wrap){max-width:100%;width:100%;overflow-x:auto;margin:12px 0;-webkit-overflow-scrolling:touch}
+:deep(.markdown-body){max-width:100%;min-width:0;overflow-wrap:anywhere}
+:deep(.markdown-body img),:deep(.markdown-body pre){max-width:100%}
+:deep(.markdown-body img){height:auto}
 :deep(.markdown-body table){border-collapse:collapse;min-width:330px;font-size:13px}
 :deep(.markdown-body th),:deep(.markdown-body td){padding:8px 10px;border:1px solid #dbe4f0;text-align:left}
 :deep(.markdown-body th){background:#f4f7fc}
