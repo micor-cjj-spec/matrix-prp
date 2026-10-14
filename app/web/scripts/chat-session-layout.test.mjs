@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '../src/utils/chatRestore.ts'
+import { isMealCardRequest } from '../src/utils/mealCardIntent.ts'
 
 const mostRecent = [{id:'most-recent'}, {id:'older'}]
 const blank = {
@@ -229,9 +230,9 @@ test('chat meal follow-ups create an owner-scoped editable card rather than a pl
   const service = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiDraftService.java', import.meta.url), 'utf8')
   const card = readFileSync(new URL('../src/components/ai/WellnessChatCard.vue', import.meta.url), 'utf8')
   assert.match(view, /const contextualMealCard =/)
-  assert.match(view, /hasRecentMeal &&/)
+  assert.match(view, /isMealCardRequest\(content, hasRecentMeal\)/)
   assert.match(view, /healthWrite \|\| contextualMealCard \|\| chatPhoto/)
-  assert.match(controller, /service\.prepareConversationMeal\(chat\.messages\(user,conversationId,null,40\)\)/)
+  assert.match(controller, /chat\.messages\(user,conversationId,null,80\),text/)
   assert.match(service, /public Preview prepareConversationMeal\(/)
   assert.match(service, /"meal\.create",serialize\(payload\)/)
   assert.match(card, /draft\.modelUsed === 'conversation\/estimate-preview'/)
@@ -253,4 +254,24 @@ test('fixed iOS chat viewport never allows body scroll to detach the composer fr
   assert.match(layout, /'--prp-chat-viewport-height': chatViewportHeight/)
   assert.match(chat, /\.chat-message-content\{flex:1 1 0;min-width:0/)
   assert.match(chat, /markdown-table-wrap\)\{max-width:100%;width:100%;overflow-x:auto/)
+})
+
+
+test('real multi-turn user card request is routed to the health draft editor', () => {
+  assert.equal(isMealCardRequest('帮我创建一下卡片我录入今天的晚餐', true), true)
+  assert.equal(isMealCardRequest('帮我创建一下卡片我录入今天的晚餐', false), true)
+  assert.equal(isMealCardRequest('生成一下卡片我自己录入', true), true)
+  assert.equal(isMealCardRequest('帮我录入一下', true), true)
+  assert.equal(isMealCardRequest('帮我录入一下', false), false)
+  assert.equal(isMealCardRequest('帮我记录系统日志', true), false)
+  assert.equal(isMealCardRequest('给我生成一下晚餐健康记录', false), true)
+  assert.equal(isMealCardRequest('怎么设计健康记录卡片组件', true), false)
+  assert.equal(isMealCardRequest('帮我记录一条系统日志', true), false)
+  assert.equal(isMealCardRequest('生成一下卡片', false), false)
+  const controller = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiDraftController.java', import.meta.url), 'utf8')
+  assert.match(controller, /WellnessChatMealRequest\.isContextualFollowup\(text\)/)
+  assert.match(controller, /draft=service\.prepareConversationMeal\(/)
+  assert.match(controller, /if\(draft==null\) draft=service\.prepare\(text,image\)/)
+  const service = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiDraftService.java', import.meta.url), 'utf8')
+  assert.match(service, /未识别到有效食物明细/)
 })

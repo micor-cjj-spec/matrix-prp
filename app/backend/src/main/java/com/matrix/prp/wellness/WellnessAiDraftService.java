@@ -200,7 +200,11 @@ public class WellnessAiDraftService {
      * This only creates a PENDING draft. The human still confirms the actual write.
      */
     public Preview prepareConversationMeal(List<AiStore.Message> history) {
-        var candidate=WellnessChatMealContext.parse(history,today())
+        return prepareConversationMeal(history,"");
+    }
+
+    public Preview prepareConversationMeal(List<AiStore.Message> history,String request) {
+        var candidate=WellnessChatMealContext.parse(history,today(),request)
             .orElseThrow(()->new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                 "当前会话中没有足够的餐食信息，请补充日期、餐次和吃了什么，再生成卡片"));
         long user=CurrentUser.id();
@@ -384,7 +388,7 @@ public class WellnessAiDraftService {
     }
     private static ResponseStatusException invalid(String message){
         return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,message+
-            " — please correct the description or enter it manually");
+            "。请核对并补充信息，或在健康中心手动填写");
     }
     /** Extract at most one explicitly user-typed energy amount for a single food. */
     static BigDecimal userProvidedCalories(String input) {
@@ -434,7 +438,7 @@ public class WellnessAiDraftService {
                 String type=node.path("mealType").asText("");
                 if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type))throw invalid("Unknown meal type");
                 JsonNode items=node.path("items");
-                if(!items.isArray()||items.isEmpty()||items.size()>8) throw invalid("Food items missing");
+                if(!items.isArray()||items.isEmpty()||items.size()>8) throw invalid("未识别到有效食物明细，请补充吃了什么，或使用上下文健康记录卡片");
                 List<Map<String,Object>> parsed=new ArrayList<>();
                 for(JsonNode item:items){
                     String name=item.path("name").asText("").trim();

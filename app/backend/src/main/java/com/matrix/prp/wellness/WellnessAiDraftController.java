@@ -56,15 +56,17 @@ public class WellnessAiDraftController {
                 }
                 if(draft!=null)break;
             }
-            if(draft==null) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                "请补充晚餐食物及估算热量，当前对话中没有可复用的明确餐次明细");
+            // If no multi-meal note exists, the general contextual draft path
+            // below can still reuse a single meal without hallucinating detail.
         }
-        if(draft==null && !hasImage && conversationId!=null && !conversationId.isBlank() &&
-            text.matches("(?s).*(?:帮我录入|帮我录人|帮我记录|录入一下|录人一下|生成.{0,12}卡片|做.{0,12}卡片|记录这顿|保存这餐|帮我记一下).*") &&
-            !text.matches("(?s).*(?:米饭|馄饨|混沌|面条|炒菜|鸡蛋|牛奶|酸奶|肉|面包|热量|kcal).*")) {
-            // Resolve only messages owned by this authenticated conversation. AI estimates
-            // are PREVIEW suggestions, not authoritative nutritional facts.
-            draft=service.prepareConversationMeal(chat.messages(user,conversationId,null,40));
+        if(draft==null && !hasImage && WellnessChatMealRequest.isContextualFollowup(text)) {
+            if(conversationId==null || conversationId.isBlank())
+                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "当前没有可引用的餐食对话，请先告诉我吃了什么，再生成健康记录卡片");
+            // Resolve only messages owned by this authenticated conversation.
+            // The model's previous calorie estimate is a suggestion, never a write receipt.
+            draft=service.prepareConversationMeal(
+                chat.messages(user,conversationId,null,80),text);
         }
         if(draft==null) draft=service.prepare(text,image);
         String id=conversationId==null||conversationId.isBlank()
