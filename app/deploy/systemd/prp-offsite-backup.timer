@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily PRP encrypted off-host backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=5m
+Unit=prp-offsite-backup.service
+
+[Install]
+WantedBy=timers.target
