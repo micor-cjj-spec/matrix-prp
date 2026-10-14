@@ -57,6 +57,12 @@ class WellnessMealRepeatTests {
         assertThat(WellnessMealRepeatIntent.parse(
             "帮我分析早餐热量",now)).isEmpty();
         assertThat(WellnessMealRepeatIntent.parse(
+            "昨天早餐不一样，吃了鸡蛋",now)).isEmpty();
+        assertThat(WellnessMealRepeatIntent.parse(
+            "昨天和前天的早餐不要复制今天的",now)).isEmpty();
+        assertThat(WellnessMealRepeatIntent.parse(
+            "昨天早餐不同于今天，不要按今天早餐记录",now)).isEmpty();
+        assertThat(WellnessMealRepeatIntent.parse(
             "把今天早餐复制到昨天",now).orElseThrow().targets())
             .containsExactly(now.minusDays(1));
         assertThat(WellnessMealRepeatIntent.parse(
