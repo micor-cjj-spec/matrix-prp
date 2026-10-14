@@ -2,9 +2,9 @@
   "schema_version": 1,
   "approved_controller": {
     "path": "/usr/local/sbin/prp-release",
-    "sha256": "d3fbc61f76a3bd06d8192a44226cbef5698a8ef87b555493e9995e672811e687",
-    "approval_date": "2026-10-13",
-    "provenance": "SHA256 from 2026-10-13 Codex production report; every publish must independently attest the installed version.",
+    "sha256": "d3e5113cd8d37daabc179a2503dc36d42d1596db822239839b535525e3da75c6",
+    "approval_date": "2026-10-14",
+    "provenance": "Administrator-generated V17 candidate from verified production controller d3fbc61f76a3bd06d8192a44226cbef5698a8ef87b555493e9995e672811e687; python compile PASS and one-line diff reviewed 2026-10-14. Requires server installation and independent SHA256 attestation before PR merge.",
     "production_release": "r38390443099-1",
     "application_commit": "067c6dfccdceb29991a7d67c733ca205b398909f"
   }
