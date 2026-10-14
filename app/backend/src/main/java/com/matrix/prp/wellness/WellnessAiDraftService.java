@@ -125,6 +125,75 @@ public class WellnessAiDraftService {
         return new Preview(id,"meal.copy_batch",desc,"system/saved-meal",values,expiry.toString());
     }
 
+    /**
+     * Structured multi-meal input is backed only by energy amounts actually typed
+     * by the user, never by model-authored nutritional claims.
+     */
+    public Preview prepareBatch(String input) {
+        return prepareBatch(input,null);
+    }
+
+    /** Restrict an anaphoric follow-up to precisely the meal type the user named. */
+    Preview prepareBatch(String input,String onlyType) {
+        if(onlyType!=null && !Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(onlyType))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid requested meal type");
+        WellnessMealBatchIntent.Batch request;
+        try {
+            var parsed=WellnessMealBatchIntent.parse(input,today());
+            if(parsed.isEmpty())return null;
+            request=parsed.get();
+        }catch(IllegalArgumentException e){
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,e.getMessage());
+        }
+        long user=CurrentUser.id();
+        List<String> existing=wellness.meals(request.date()).stream()
+            .map(Meal::mealType).distinct().toList();
+        List<Map<String,Object>> meals=new ArrayList<>();
+        for(var meal:request.meals()){
+            if(onlyType!=null && !onlyType.equals(meal.type()))continue;
+            if(existing.contains(meal.type()))continue;
+            List<Map<String,Object>> items=new ArrayList<>();
+            for(var food:meal.foods()){
+                Map<String,Object> item=new LinkedHashMap<>();
+                item.put("foodId",0);
+                item.put("name",food.name());
+                item.put("grams",food.grams());
+                item.put("mode","manual");
+                item.put("manualCalories",food.calories());
+                item.put("calories",food.calories());
+                items.add(item);
+            }
+            Map<String,Object> record=new LinkedHashMap<>();
+            record.put("mealType",meal.type());
+            record.put("items",items);
+            record.put("note","用户明确提供的单次估算热量，宏量营养素未知");
+            record.put("totalCalories",meal.declaredTotal());
+            meals.add(record);
+        }
+        if(meals.isEmpty())throw new ResponseStatusException(HttpStatus.CONFLICT,
+            "当天这些餐次已有记录，请先核对健康中心，不能重复录入");
+        Map<String,Object> payload=new LinkedHashMap<>();
+        payload.put("date",request.date().toString());
+        payload.put("meals",meals);
+        payload.put("alreadyExistingTypes",existing.stream()
+            .filter(t->request.meals().stream().anyMatch(m->m.type().equals(t))).toList());
+        String id=UUID.randomUUID().toString();
+        LocalDateTime expires=LocalDateTime.now().plusMinutes(15);
+        String desc=request.date()+" 共 "+meals.size()+" 餐待确认（已存在的餐次不重复写入）";
+        db.update("INSERT INTO prp_wellness_ai_drafts " +
+            "(id,user_id,action_type,payload_json,description,model_used,expires_at) VALUES (?,?,?,?,?,?,?)",
+            id,user,"meal.create_batch",serialize(payload),desc,"system/user-supplied-kcal",
+            java.sql.Timestamp.valueOf(expires));
+        return new Preview(id,"meal.create_batch",desc,"system/user-supplied-kcal",payload,expires.toString());
+    }
+
+    private String serialize(Object payload){
+        try{return json.writeValueAsString(payload);}
+        catch(com.fasterxml.jackson.core.JsonProcessingException e){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid meal data");
+        }
+    }
+
     public Preview prepare(String input, MultipartFile image) {
         long user=CurrentUser.id();
         if(input==null || input.isBlank() || input.length()>1500)
@@ -497,6 +566,62 @@ public class WellnessAiDraftService {
             Object saved;
             String action=String.valueOf(row.get("action_type"));
             switch(action){
+                case "meal.create_batch" -> {
+                    LocalDate day;
+                    try{day=LocalDate.parse(date);}
+                    catch(Exception e){throw invalid("Invalid meal date");}
+                    if(day.isBefore(today().minusYears(2)) || day.isAfter(today().plusDays(1)))
+                        throw invalid("Meal date outside recording range");
+                    var groups=data.path("meals");
+                    if(!groups.isArray() || groups.isEmpty() || groups.size()>4)
+                        throw invalid("Invalid meal batch");
+                    // Serialize all meal confirmations for this account. This also protects
+                    // multiple pending drafts from creating duplicate same-day meal types.
+                    db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
+                    LinkedHashSet<String> types=new LinkedHashSet<>();
+                    List<WellnessService.AiMealItem> all=new ArrayList<>();
+                    for(var group:groups){
+                        String type=group.path("mealType").asText("");
+                        if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) || !types.add(type))
+                            throw invalid("Duplicate/invalid meal type");
+                        var foods=group.path("items");
+                        if(!foods.isArray() || foods.isEmpty() || foods.size()>8)
+                            throw invalid("Invalid meal items");
+                        BigDecimal sum=BigDecimal.ZERO;
+                        for(var item:foods){
+                            if(item.path("foodId").asLong(-1)!=0 ||
+                                !"manual".equals(item.path("mode").asText()))
+                                throw invalid("Only explicit user calorie snapshots supported");
+                            String name=item.path("name").asText("");
+                            BigDecimal grams=decimal(item,"grams",true);
+                            BigDecimal kcal=decimal(item,"manualCalories",true);
+                            if(name.isBlank()||name.length()>120||grams.compareTo(new BigDecimal("3000"))>0||
+                                kcal.signum()<=0||kcal.compareTo(new BigDecimal("20000"))>0||kcal.scale()>2)
+                                throw invalid("Invalid calorie snapshot");
+                            sum=sum.add(kcal);
+                        }
+                        BigDecimal total=decimal(group,"totalCalories",true);
+                        if(sum.compareTo(total)!=0)
+                            throw invalid("Meal total does not match its items");
+                    }
+                    for(var meal:wellness.meals(day))
+                        if(types.contains(meal.mealType()))
+                            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "目标日期已有相同餐次，请查看健康中心；本批次未新增记录");
+                    List<Meal> savedMeals=new ArrayList<>();
+                    int ordinal=0;
+                    for(var group:groups){
+                        List<WellnessService.AiMealItem> foods=new ArrayList<>();
+                        for(var item:group.path("items"))
+                            foods.add(new WellnessService.AiMealItem(null,item.path("name").asText(),
+                                decimal(item,"grams",true),decimal(item,"manualCalories",true)));
+                        // All inserts and CONSUMED transition are within this transaction.
+                        String key=draftId+"-"+ordinal++;
+                        savedMeals.add(wellness.addAiMeal(day,group.path("mealType").asText(),
+                            group.path("note").asText("用户估算"),foods,key));
+                    }
+                    saved=savedMeals;
+                }
                 case "meal.copy_batch" -> {
                     var targetNodes=data.path("targets");
                     if(!targetNodes.isArray() || targetNodes.size()<1 || targetNodes.size()>7)
@@ -574,6 +699,14 @@ public class WellnessAiDraftService {
                     saved=savedMeals;
                 }
                 case "meal.create" -> {
+                    LocalDate target=LocalDate.parse(date);
+                    String targetType=data.path("mealType").asText("");
+                    if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(targetType))
+                        throw invalid("Invalid meal type");
+                    db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
+                    if(wellness.meals(target).stream().anyMatch(m->m.mealType().equals(targetType)))
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "该日期的餐次已存在，请在健康中心查看或编辑，不能重复保存");
                     List<ItemInput> catalogItems=new ArrayList<>();
                     List<WellnessService.AiMealItem> snapshots=new ArrayList<>();
                     boolean hasManual=false;
