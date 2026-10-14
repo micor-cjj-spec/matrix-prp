@@ -72,7 +72,7 @@ def alert_failure():
 def validate_secret_exclusion_path(path):
     # Restic --exclude arguments are glob patterns, not literal filenames.
     # Reject metacharacters instead of risking a pattern that misses the unlock key.
-    if any(mark in str(path) for mark in ("*", "?", "[", "]", "\\\\")):
+    if any(mark in str(path) for mark in ("*", "?", "[", "]")) or chr(92) in str(path):
         fail("Restic unlock path contains unsupported pattern characters")
 
 def preflight():
