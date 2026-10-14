@@ -61,6 +61,30 @@ class WellnessChatMealContextTests {
         assertThat(draft.calories()).isEqualByComparingTo("780");
     }
 
+
+    @Test void neverFallsBackToOlderMealWhenLatestFoodIsOutsideCatalog(){
+        assertThat(WellnessChatMealContext.parse(List.of(
+            user(1,"今天午餐吃了米饭"),
+            assistant(2,"建议记 500 kcal"),
+            user(3,"今晚吃了寿司"),
+            assistant(4,"建议记 650 kcal"),
+            user(5,"帮我录入一下")
+        ),TODAY)).isEmpty();
+    }
+
+    @Test void tomorrowDinnerKeepsTomorrowAndRejectsUnsupportedAfterTomorrow(){
+        var meal=WellnessChatMealContext.parse(List.of(
+            user(1,"明天晚餐打算吃米饭"),
+            assistant(2,"建议记 600 kcal"),
+            user(3,"生成一下卡片")
+        ),TODAY).orElseThrow();
+        assertThat(meal.date()).isEqualTo(TODAY.plusDays(1));
+        assertThat(meal.mealType()).isEqualTo("DINNER");
+        assertThat(WellnessChatMealContext.parse(List.of(
+            user(1,"后天晚餐打算吃米饭")
+        ),TODAY)).isEmpty();
+    }
+
     @Test void userExplicitCaloriesTakePrecedenceOverAssistantSuggestion(){
         var draft=WellnessChatMealContext.parse(List.of(
             user(1,"2026-10-14 晚餐吃了米饭炒菜 700 kcal"),
