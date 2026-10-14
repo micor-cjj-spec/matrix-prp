@@ -56,6 +56,17 @@ class WellnessMealBatchFlowTests {
         verify(wellness,never()).addAiMeal(any(),anyString(),anyString(),anyList(),anyString());
         verify(wellness,never()).addFood(any());
     }
+    @Test void aDinnerOnlyFollowupNeverCreatesLunchEvenWhenHistoryContainsBoth() {
+        asOwner();
+        var db=mock(JdbcTemplate.class);
+        var wellness=mock(WellnessService.class);
+        var preview=service(db,wellness).prepareBatch(input(),"DINNER");
+        assertThat(preview.action()).isEqualTo("meal.create_batch");
+        var records=(List<?>)preview.values().get("meals");
+        assertThat(records).hasSize(1);
+        assertThat(records.toString()).contains("DINNER","105").doesNotContain("LUNCH","1450");
+    }
+
     @Test void skipsAlreadyRecordedLunchButAllowsMissingDinnerInSameDate() {
         asOwner();
         var db=mock(JdbcTemplate.class);
