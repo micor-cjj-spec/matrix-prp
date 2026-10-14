@@ -20,6 +20,9 @@ final class WellnessMealRepeatIntent {
 
     static Optional<Intent> parse(String input, LocalDate today) {
         if (input == null || input.isBlank() || input.length() > 1500) return Optional.empty();
+        // A negation must not accidentally become an affirmative write proposal.
+        if (Pattern.compile("不\\s*(?:一样|相同|同样|复制|照着|照搬|重复)|不是一样|并非一样|不同|别\\s*(?:复制|照着|照搬|重复)|不要\\s*(?:复制|照着|照搬|重复)").matcher(input).find())
+            return Optional.empty();
         boolean copy = Pattern.compile("一样|也是|同样|相同|复制|照着|照搬|重复|照.+(?:吃|记)|按.+(?:吃|记录)").matcher(input).find();
         if (!copy) return Optional.empty();
         String type;
