@@ -152,7 +152,8 @@ class WellnessMealRepeatTests {
             "date",today.minusDays(1).toString(),"sourceDate",today.toString(),
             "sourceMealId",91L,"mealType","BREAKFAST",
             "targets",List.of(today.minusDays(1).toString()),
-            "items",List.of(Map.of("foodId",101L,"grams",200))
+            "items",List.of(Map.of("foodId",101L,"grams",200),
+                Map.of("foodId",102L,"grams",200))
         );
         when(db.queryForList(contains("FROM prp_wellness_ai_drafts"),eq(id),eq(71L)))
             .thenReturn(List.of(Map.of("action_type","meal.copy_batch","payload_json",mapper.writeValueAsString(values),
