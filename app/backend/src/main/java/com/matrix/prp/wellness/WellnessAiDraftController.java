@@ -36,7 +36,9 @@ public class WellnessAiDraftController {
         long user=CurrentUser.id();
         if(conversationId!=null && !conversationId.isBlank() && !chat.owns(user,conversationId))
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
-        WellnessAiDraftService.Preview draft=service.prepare(text,image);
+        WellnessAiDraftService.Preview draft=image==null || image.isEmpty()
+            ? service.prepareRepeat(text) : null;
+        if(draft==null) draft=service.prepare(text,image);
         String id=conversationId==null||conversationId.isBlank()
             ? chat.create(user,text.substring(0,Math.min(48,text.length()))).id():conversationId;
         chat.append(user,id,"user",text);
