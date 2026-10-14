@@ -148,6 +148,7 @@ def backup():
             subprocess.run([
                 "restic", "backup", "--tag", "matrix-prp",
                 "--exclude", str(CONFIG / "restic-password"),
+                "--exclude", os.environ.get("RESTIC_PASSWORD_FILE", str(CONFIG / "restic-password")),
                 "--exclude", str(CONFIG / "backup.env"),
                 *paths
             ], check=True)
