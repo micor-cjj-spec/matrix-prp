@@ -130,6 +130,13 @@ public class WellnessAiDraftService {
      * by the user, never by model-authored nutritional claims.
      */
     public Preview prepareBatch(String input) {
+        return prepareBatch(input,null);
+    }
+
+    /** Restrict an anaphoric follow-up to precisely the meal type the user named. */
+    Preview prepareBatch(String input,String onlyType) {
+        if(onlyType!=null && !Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(onlyType))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid requested meal type");
         WellnessMealBatchIntent.Batch request;
         try {
             var parsed=WellnessMealBatchIntent.parse(input,today());
@@ -143,6 +150,7 @@ public class WellnessAiDraftService {
             .map(Meal::mealType).distinct().toList();
         List<Map<String,Object>> meals=new ArrayList<>();
         for(var meal:request.meals()){
+            if(onlyType!=null && !onlyType.equals(meal.type()))continue;
             if(existing.contains(meal.type()))continue;
             List<Map<String,Object>> items=new ArrayList<>();
             for(var food:meal.foods()){
