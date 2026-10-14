@@ -26,4 +26,27 @@ class VideoSecurityPrimitivesTests {
         assertThatThrownBy(() -> tickets.verify(valid, 10)).isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> tickets.verify(valid + "bad", 9)).isInstanceOf(ResponseStatusException.class);
     }
+    @Test
+    void malformedAndCrossAssetPlaybackTicketsFailClosed() {
+        MediaTicketService tickets = new MediaTicketService("0123456789-secret-signing-key-for-tests-abc");
+        String ticket = tickets.issue(45, 8).value();
+
+        assertThatThrownBy(() -> tickets.verify(ticket, 46))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> tickets.verify("", 45))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> tickets.verify("malformed", 45))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> tickets.verify(ticket + ".extra", 45))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> tickets.verify(ticket.substring(0, ticket.length() - 1) + "!", 45))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void shortSigningKeysAreRejectedAtStartup() {
+        assertThatThrownBy(() -> new MediaTicketService("short"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
 }
