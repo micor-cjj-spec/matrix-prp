@@ -426,10 +426,6 @@ onBeforeUnmount(() => controller?.abort())
             <div v-if="filteredOptions.length === 0" class="mention-empty">暂无匹配的可授权应用</div>
             <div class="mention-hint">引用其他应用仍需一次性只读授权；健康录入通过单独的待确认草稿操作。</div>
           </div>
-          <div v-if="wellnessRecorderVisible" class="chat-wellness-recorder">
-            <WellnessAiRecorder :initial-text="wellnessRecorderText"
-              @recorded="() => { wellnessRecorderVisible = false; wellnessRecorderText = '' }" />
-          </div>
           <div class="chat-composer">
             <el-input v-model="input" type="textarea" class="chat-input" resize="none" :autosize="{ minRows: 1, maxRows: 5 }"
               maxlength="4000" :disabled="sending" placeholder="询问 PRP 助手，输入 @ 引用应用…"
@@ -449,6 +445,26 @@ onBeforeUnmount(() => controller?.abort())
         </div>
       </div>
     </div>
+
+    <!-- Teleport the long edit form outside the height-constrained chat composer. -->
+    <el-dialog v-model="wellnessRecorderVisible" class="prp-health-chat-dialog" title="健康录入"
+      width="min(680px, calc(100vw - 20px))" top="max(12px, env(safe-area-inset-top))"
+      append-to-body :show-close="false" :close-on-click-modal="false" :destroy-on-close="true"
+      :style="{ display: 'flex', flexDirection: 'column',
+        height: 'min(740px, calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))',
+        overflow: 'hidden' }" @closed="wellnessRecorderText = ''">
+      <template #header="{ titleId, titleClass }">
+        <div class="chat-wellness-dialog-header">
+          <strong :id="titleId" :class="titleClass">健康录入</strong>
+          <button type="button" class="chat-wellness-close" aria-label="关闭健康录入"
+            @click="wellnessRecorderVisible = false"><el-icon><Close /></el-icon>关闭</button>
+        </div>
+      </template>
+      <div class="chat-wellness-scroll" role="region" aria-label="AI 健康记录表单">
+        <WellnessAiRecorder :initial-text="wellnessRecorderText"
+          @recorded="() => { wellnessRecorderVisible = false; wellnessRecorderText = '' }" />
+      </div>
+    </el-dialog>
 
     <el-drawer v-model="historyOpen" direction="ltr" :size="320" :with-header="false" append-to-body>
       <div class="chat-history">
@@ -559,6 +575,12 @@ onBeforeUnmount(() => controller?.abort())
 :deep(.markdown-body th),:deep(.markdown-body td){padding:8px 10px;border:1px solid #dbe4f0;text-align:left}
 :deep(.markdown-body th){background:#f4f7fc}
 :deep(.markdown-body blockquote){margin:10px 0;padding:6px 14px;border-left:3px solid #b4c7e7;color:#6b7b90}
+.chat-wellness-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.chat-wellness-dialog-header strong{font-size:16px}
+.chat-wellness-close{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:none;min-height:42px;padding:8px 12px;border:0;border-radius:9px;background:#eff4fa;color:#385675;font-size:14px;cursor:pointer}
+.chat-wellness-scroll{height:100%;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain;box-sizing:border-box;padding:10px 12px calc(16px + env(safe-area-inset-bottom, 0px))}
+:global(.prp-health-chat-dialog .el-dialog__header){flex:none;margin:0;padding:9px 14px;border-bottom:1px solid #e6edf5}
+:global(.prp-health-chat-dialog .el-dialog__body){flex:1 1 auto;min-height:0;overflow:hidden;padding:0}
 @media(max-width:860px){
   .prp-chat-header{height:54px;padding:0 10px}
   .prp-chat-messages{padding:19px 14px}
