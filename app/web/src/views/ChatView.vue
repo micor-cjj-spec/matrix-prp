@@ -308,6 +308,11 @@ function describeStreamError(error: unknown): string {
 async function send(contextToken?: string) {
   const content = input.value.trim() || (chatPhoto.value ? '请识别照片中的食物，分析热量并记录这顿饮食' : '')
   if (!content || sending.value || content.length > 4000) return
+  if (chatPhoto.value && (content.length > 1500 ||
+      selectedScopes.value.some(scope => scope !== 'wellness'))) {
+    ElMessage.warning('食物照片只能用于健康记录，请缩短描述并移除其他应用引用后重试')
+    return
+  }
   const healthWrite = /(?:记录|录入|添加|新增|保存|记下|记一下|帮我记|记一笔|存入)/u.test(content) &&
     /(?:早餐|午餐|晚餐|加餐|饮食|食物|热量|吃了|喝了|这顿|鸡蛋|牛奶|米饭)/u.test(content) &&
     !/(?:如何实现|怎么开发|如何设计|为什么不能)/u.test(content)
