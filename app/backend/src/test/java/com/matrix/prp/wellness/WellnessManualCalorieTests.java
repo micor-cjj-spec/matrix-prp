@@ -32,6 +32,7 @@ class WellnessManualCalorieTests {
     }
     private WellnessAiDraftService service(JdbcTemplate db, WellnessService wellness) {
         when(wellness.profile()).thenReturn(new Profile(null,"Asia/Shanghai"));
+        when(wellness.foods(anyString())).thenReturn(List.of());
         return new WellnessAiDraftService(db,wellness,mock(AiSettingsService.class),
             mock(AiStore.class),json,200,1000,250000,1000000);
     }
