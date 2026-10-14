@@ -143,7 +143,14 @@ def backup():
             paths = [str(stage), str(CONFIG), str(NGINX), str(MEDIA)]
             if KNOWLEDGE.is_dir():
                 paths.append(str(KNOWLEDGE))
-            subprocess.run(["restic", "backup", "--tag", "matrix-prp", *paths], check=True)
+            # The Restic encryption key and S3 credentials must not be stored in
+            # the same encrypted repository they unlock. Keep them in an independent vault.
+            subprocess.run([
+                "restic", "backup", "--tag", "matrix-prp",
+                "--exclude", str(CONFIG / "restic-password"),
+                "--exclude", str(CONFIG / "backup.env"),
+                *paths
+            ], check=True)
             # Detect media additions/deletions during the non-transactional file snapshot.
             if inventory(MEDIA) != before:
                 fail("Media inventory changed during snapshot; retry before accepting as verified")
