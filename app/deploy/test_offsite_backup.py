@@ -19,6 +19,11 @@ class OffsiteBackupTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(RuntimeError):
                 backup.validate_repository(value)
         backup.validate_repository("s3:https://s3.example.com/private-bucket/prp")
+        for value in ("", "http://alerts.example.com/hook", "https://localhost/hook",
+                      "https://user:secret@alerts.example.com/hook"):
+            with self.subTest(alert=value), self.assertRaises(RuntimeError):
+                backup.validate_alert_url(value)
+        backup.validate_alert_url("https://alerts.example.com/private/hook")
 
     def restored_fixture(self, target, *, db=b"CREATE TABLE sample(id INT);", video=b"video bytes"):
         stage = target / "var/lib/matrix-prp-backup/backup-test"
@@ -55,7 +60,11 @@ class OffsiteBackupTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "SHA256|missing bytes"):
                 backup.verify_restored(target)
             (stage / "matrix_prp.sql").write_bytes(b"CREATE TABLE sample(id INT);")
-            (media / "test.mp4").unlink()
+            # Name swap with identical byte size must also be detected.
+            (media / "test.mp4").rename(media / "renamed.mp4")
+            with self.assertRaisesRegex(RuntimeError, "inventory"):
+                backup.verify_restored(target)
+            (media / "renamed.mp4").unlink()
             with self.assertRaisesRegex(RuntimeError, "inventory"):
                 backup.verify_restored(target)
 
@@ -85,6 +94,8 @@ class OffsiteBackupTests(unittest.TestCase):
                  patch.object(backup.subprocess, "check_output", return_value="17"):
                 backup.backup()
             self.assertEqual(commands[-2][0:2], ["restic", "backup"])
+            self.assertIn(str(config / "restic-password"), commands[-2])
+            self.assertIn(str(config / "backup.env"), commands[-2])
             self.assertEqual(commands[-1], ["restic", "check"])
             self.assertFalse(list(state.glob("backup-*/matrix_prp.sql")))
             self.assertNotIn("private database snapshot", repr(commands))
