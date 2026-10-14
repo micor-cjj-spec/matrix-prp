@@ -78,7 +78,8 @@ public class WellnessAiChangeService {
                 Meal v=wellness.ownedMeal(id);
                 yield map("date",v.mealDate().toString(),"mealType",v.mealType(),
                     "note",v.note(),"items",v.items().stream().map(i->
-                        map("foodId",i.foodId(),"name",i.foodName(),"grams",i.grams())).toList());
+                        map("foodId",i.foodId(),"name",i.foodName(),"grams",i.grams(),
+                            "calories",i.foodId()<=0?i.calories():null)).toList());
             }
             case "exercise" -> {
                 Exercise v=wellness.ownedExercise(id);
@@ -128,11 +129,22 @@ public class WellnessAiChangeService {
                     throw invalid("Food list missing or too long");
                 List<Map<String,Object>> safe=new ArrayList<>();
                 for(JsonNode item:items) {
-                    if(!item.path("foodId").canConvertToLong()||item.path("foodId").asLong()<=0)
+                    if(!item.path("foodId").canConvertToLong())
                         throw invalid("Food ID required");
-                    Food food=wellness.accessibleFood(item.path("foodId").asLong());
-                    safe.add(map("foodId",food.id(),"name",food.name(),
-                        "grams",number(item.path("grams"),"grams","0.1","10000",false)));
+                    long foodId=item.path("foodId").asLong();
+                    if(foodId>0) {
+                        Food food=wellness.accessibleFood(foodId);
+                        safe.add(map("foodId",food.id(),"name",food.name(),
+                            "grams",number(item.path("grams"),"grams","0.1","10000",false),
+                            "calories",null));
+                    } else {
+                        String name=word(item.path("name"),120,false);
+                        BigDecimal kcal=number(item.path("calories"),"custom calories","0.01","20000",false);
+                        if(kcal.scale()>2)throw invalid("Custom calories precision");
+                        safe.add(map("foodId",0,"name",name,
+                            "grams",number(item.path("grams"),"grams","0","3000",false),
+                            "calories",kcal));
+                    }
                 }
                 yield map("date",d.toString(),"mealType",type,
                     "note",word(node.path("note"),500,true),"items",safe);
@@ -195,9 +207,14 @@ public class WellnessAiChangeService {
                 JsonNode old=original.path("items"),next=item.getValue();
                 if(!next.isArray()||next.size()!=old.size())
                     throw invalid("AI may only adjust existing food weights");
-                for(int i=0;i<next.size();i++)
+                for(int i=0;i<next.size();i++) {
                     if(next.get(i).path("foodId").asLong(-1)!=old.get(i).path("foodId").asLong(-2))
                         throw invalid("AI cannot switch foods");
+                    if(old.get(i).path("foodId").asLong(0)<=0 &&
+                       (!next.get(i).path("name").asText().equals(old.get(i).path("name").asText()) ||
+                        !next.get(i).path("calories").equals(old.get(i).path("calories"))))
+                        throw invalid("AI cannot rewrite custom calorie snapshots");
+                }
             }
             target.set(item.getKey(),item.getValue());
         }
@@ -302,8 +319,29 @@ public class WellnessAiChangeService {
                 saved=switch(kind){
                     case "meal" -> {
                         List<ItemInput> items=new ArrayList<>();
-                        for(JsonNode item:after.path("items"))
-                            items.add(new ItemInput(item.path("foodId").asLong(),item.path("grams").decimalValue()));
+                        List<WellnessService.AiMealItem> mixed=new ArrayList<>();
+                        boolean hasCustom=false;
+                        JsonNode beforeItems=payload.path("before").path("items");
+                        for(int i=0;i<after.path("items").size();i++) {
+                            JsonNode item=after.path("items").get(i);
+                            long foodId=item.path("foodId").asLong(0);
+                            BigDecimal grams=item.path("grams").decimalValue();
+                            if(foodId>0) {
+                                items.add(new ItemInput(foodId,grams));
+                                mixed.add(new WellnessService.AiMealItem(foodId,null,grams,null));
+                            } else {
+                                JsonNode original=beforeItems.get(i);
+                                if(original==null ||
+                                   !item.path("name").equals(original.path("name")) ||
+                                   !item.path("calories").equals(original.path("calories")))
+                                    throw invalid("Cannot change historical calorie snapshot through AI edit");
+                                hasCustom=true;
+                                mixed.add(new WellnessService.AiMealItem(null,item.path("name").asText(),
+                                    grams,item.path("calories").decimalValue()));
+                            }
+                        }
+                        if(hasCustom) yield wellness.updateAiMeal(target,day,after.path("mealType").asText(),
+                            after.path("note").asText(""),mixed);
                         yield wellness.updateMeal(target,new MealInput(day,after.path("mealType").asText(),
                             after.path("note").asText(""),items,null));
                     }
