@@ -74,8 +74,14 @@ def inventory(root):
     if not root.is_dir():
         fail("Video media directory is missing")
     files = sorted(p for p in root.rglob("*.mp4") if p.is_file())
-    # Only metadata is collected; media contents remain inside the encrypted restic repo.
-    return (len(files), sum(p.stat().st_size for p in files))
+    # File identities and sizes detect replaced/missing assets even if total bytes stay equal.
+    digest = hashlib.sha256()
+    total = 0
+    for path in files:
+        size = path.stat().st_size
+        total += size
+        digest.update((path.relative_to(root).as_posix() + "\\t" + str(size) + "\\n").encode())
+    return (len(files), total, digest.hexdigest())
 
 def schema_version():
     version = subprocess.check_output(DOCKER + [MYSQL_VERSION], text=True).strip()
@@ -106,6 +112,7 @@ def backup():
                 "database_bytes": dump.stat().st_size,
                 "media_files": before[0],
                 "media_bytes": before[1],
+                "media_inventory_sha256": before[2],
             }
             (stage / "manifest.json").write_text(json.dumps(meta, indent=2) + "\n")
             paths = [str(stage), str(CONFIG), str(NGINX), str(MEDIA)]
@@ -139,7 +146,7 @@ def verify_restored(target):
         if not (target / path.relative_to("/")).is_file():
             fail("Missing restored configuration: " + str(path))
     restored_media = target / MEDIA.relative_to("/")
-    if inventory(restored_media) != (meta.get("media_files"), meta.get("media_bytes")):
+    if inventory(restored_media) != (meta.get("media_files"), meta.get("media_bytes"), meta.get("media_inventory_sha256")):
         fail("Restored video inventory does not match snapshot metadata")
     print("Restored files validated (database SHA256, config, video inventory).")
     print("Database import and authenticated API/video tests on an isolated host are still required.")
