@@ -259,8 +259,10 @@ public class WellnessService {
     /** All meal writers use the same account-row lock before checking a meal slot.
      * This makes draft batches, history copies and manual writes serializable for
      * (owner,date,mealType) without an unsafe new production unique constraint. */
-    private void lockMealSlot(long user,LocalDate date,String type,long excludedId) {
+    private void lockMealOwner(long user) {
         db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
+    }
+    private void assertMealSlotFree(long user,LocalDate date,String type,long excludedId) {
         List<Long> duplicates=db.query(
             "SELECT id FROM prp_wellness_meals WHERE user_id=? AND meal_date=? AND meal_type=? " +
             "AND id<>? LIMIT 1",
@@ -275,14 +277,14 @@ public class WellnessService {
     public Meal addMeal(MealInput input) {
         validateMeal(input);
         long user=CurrentUser.id();
-        db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
+        lockMealOwner(user);
         String key=input.idempotencyKey()==null || input.idempotencyKey().isBlank() ? null : input.idempotencyKey();
         if(key!=null) {
             List<Long> found=db.query("SELECT id FROM prp_wellness_meals WHERE user_id=? AND idempotency_key=?",
                     (r,n)->r.getLong("id"),user,key);
             if(!found.isEmpty()) return meal(found.get(0));
         }
-        lockMealSlot(user,input.mealDate(),input.mealType(),-1L);
+        assertMealSlotFree(user,input.mealDate(),input.mealType(),-1L);
         long id=insert("INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) " +
                 "VALUES (?,?,?,?,?)",user,input.mealDate(),input.mealType(),input.note(),key);
         insertItems(id,input.items());
@@ -336,11 +338,11 @@ public class WellnessService {
         if(idempotencyKey==null || idempotencyKey.isBlank() || idempotencyKey.length()>80)
             throw new IllegalArgumentException("Missing idempotency key");
         long user=CurrentUser.id();
-        db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
+        lockMealOwner(user);
         List<Long> found=db.query("SELECT id FROM prp_wellness_meals WHERE user_id=? AND idempotency_key=?",
             (r,n)->r.getLong("id"),user,idempotencyKey);
         if(!found.isEmpty()) return meal(found.getFirst());
-        lockMealSlot(user,date,type,-1L);
+        assertMealSlotFree(user,date,type,-1L);
         long id=insert("INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) " +
             "VALUES (?,?,?,?,?)",user,date,type,note,idempotencyKey);
         insertAiItems(id,items);
@@ -353,7 +355,7 @@ public class WellnessService {
         validateAiMealInput(date,type,note,items);
         long user=CurrentUser.id();
         if(!before.mealDate().equals(date) || !before.mealType().equals(type))
-            lockMealSlot(user,date,type,id);
+            { lockMealOwner(user); assertMealSlotFree(user,date,type,id); }
         db.update("UPDATE prp_wellness_meals SET meal_date=?,meal_type=?,note=? WHERE id=? AND user_id=?",
                 date,type,note,id,CurrentUser.id());
         db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
@@ -365,7 +367,7 @@ public class WellnessService {
     public Meal updateMeal(long id, MealInput input) {
         Meal before=meal(id);validateMeal(input);
         if(!before.mealDate().equals(input.mealDate()) || !before.mealType().equals(input.mealType()))
-            lockMealSlot(CurrentUser.id(),input.mealDate(),input.mealType(),id);
+            { lockMealOwner(CurrentUser.id()); assertMealSlotFree(CurrentUser.id(),input.mealDate(),input.mealType(),id); }
         db.update("UPDATE prp_wellness_meals SET meal_date=?,meal_type=?,note=? WHERE id=? AND user_id=?",
                 input.mealDate(),input.mealType(),input.note(),id,CurrentUser.id());
         db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
