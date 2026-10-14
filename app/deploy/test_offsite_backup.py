@@ -42,6 +42,8 @@ class OffsiteBackupTests(unittest.TestCase):
         media = target / "srv/matrix-prp/video/media/42"
         media.mkdir(parents=True)
         (media / "test.mp4").write_bytes(video)
+        meta["media_inventory_sha256"] = backup.inventory(media.parent)[2]
+        (stage / "manifest.json").write_text(json.dumps(meta))
         return stage, media
 
     def test_restored_snapshot_validates_dump_and_video_inventory(self):
