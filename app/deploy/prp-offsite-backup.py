@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 STATE = Path("/var/lib/matrix-prp-backup")
 CONFIG = Path("/etc/matrix-prp")
@@ -45,10 +46,34 @@ def validate_repository(value):
     if parsed.hostname.lower() in {"localhost", "127.0.0.1", "::1"}:
         fail("Loopback S3 endpoints are not off-host backups")
 
+def validate_alert_url(value):
+    if not value:
+        fail("A production failure-alert webhook is required before enabling the timer")
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        fail("Alert endpoint must be a credential-free HTTPS hostname")
+    if parsed.hostname.lower() in {"localhost", "127.0.0.1", "::1"}:
+        fail("Loopback alert endpoints cannot notify an off-host operator")
+
+def alert_failure():
+    url = os.environ.get("PRP_BACKUP_ALERT_WEBHOOK_URL", "")
+    validate_alert_url(url)
+    body = json.dumps({
+        "text": "CRITICAL: Matrix PRP encrypted off-host backup failed. Inspect systemctl status prp-offsite-backup.service and its root-only journal.",
+        "service": "matrix-prp-offsite-backup",
+        "severity": "critical"
+    }).encode()
+    request = Request(url, body, headers={"Content-Type": "application/json"}, method="POST")
+    with urlopen(request, timeout=10) as response:
+        if response.status < 200 or response.status >= 300:
+            fail("Backup failure notification was not accepted")
+    print("PRP failure alert delivered")
+
 def preflight():
     if os.geteuid() != 0:
         fail("Run the backup as root via the dedicated systemd service")
     validate_repository(os.environ.get("RESTIC_REPOSITORY", ""))
+    validate_alert_url(os.environ.get("PRP_BACKUP_ALERT_WEBHOOK_URL", ""))
     password = Path(os.environ.get("RESTIC_PASSWORD_FILE", ""))
     if not password.is_absolute() or not password.is_file() or password.is_symlink():
         fail("RESTIC_PASSWORD_FILE must name a real root-owned local file")
@@ -153,10 +178,12 @@ def verify_restored(target):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["preflight", "backup", "verify-restored"])
+    parser.add_argument("action", choices=["preflight", "backup", "verify-restored", "alert-failure"])
     parser.add_argument("--target", help="Restored filesystem root on an isolated validation host")
     args = parser.parse_args()
-    if args.action == "verify-restored":
+    if args.action == "alert-failure":
+        alert_failure()
+    elif args.action == "verify-restored":
         if not args.target:
             parser.error("--target is required for verify-restored")
         verify_restored(args.target)
