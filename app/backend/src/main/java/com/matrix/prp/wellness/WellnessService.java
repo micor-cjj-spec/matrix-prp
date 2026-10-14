@@ -21,6 +21,86 @@ public class WellnessService {
     private final JdbcTemplate db;
     public WellnessService(JdbcTemplate db) { this.db = db; }
 
+    private static final String DISH_COLUMNS =
+        "id,merchant_name,dish_name,portion_label,portion_count,calories_per_serving,source_type,source_note";
+    private DishTemplate mapDish(java.sql.ResultSet r,int row) throws java.sql.SQLException {
+        return new DishTemplate(r.getLong("id"),r.getString("merchant_name"),
+            r.getString("dish_name"),r.getString("portion_label"),
+            r.getObject("portion_count")==null?null:r.getInt("portion_count"),
+            r.getBigDecimal("calories_per_serving"),r.getString("source_type"),r.getString("source_note"));
+    }
+    private void validateDish(DishTemplateInput input) {
+        if(input==null || input.merchantName()==null || input.merchantName().length()>100 ||
+           input.dishName()==null || input.dishName().isBlank() || input.dishName().length()>120 ||
+           input.portionLabel()==null || input.portionLabel().length()>100 ||
+           input.portionCount()!=null && (input.portionCount()<1 || input.portionCount()>9999) ||
+           input.caloriesPerServing()==null || input.caloriesPerServing().signum()<=0 ||
+           input.caloriesPerServing().compareTo(new BigDecimal("20000"))>0 ||
+           input.caloriesPerServing().scale()>2 ||
+           !Set.of("USER_ESTIMATE","AI_ESTIMATE","LABEL","OTHER").contains(input.sourceType()) ||
+           input.sourceNote()!=null && input.sourceNote().length()>255)
+            throw new IllegalArgumentException("Invalid personal dish template");
+    }
+
+    /** Search only current owner's serving templates; never return another account's dishes. */
+    public List<DishTemplate> dishTemplates(String q) {
+        String query=q==null?"":q.strip();
+        if(query.length()>100) throw new IllegalArgumentException("Dish search too long");
+        if(query.isEmpty())
+            return db.query("SELECT "+DISH_COLUMNS+" FROM prp_wellness_dish_templates " +
+                "WHERE user_id=? ORDER BY updated_at DESC,id DESC LIMIT 100",
+                this::mapDish,CurrentUser.id());
+        // Escaped LIKE query; "%" and "_" in user text are literal, not broad wildcards.
+        String pattern="%"+query.replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%";
+        return db.query("SELECT "+DISH_COLUMNS+" FROM prp_wellness_dish_templates " +
+            "WHERE user_id=? AND (dish_name LIKE ? OR merchant_name LIKE ?) " +
+            "ORDER BY updated_at DESC,id DESC LIMIT 30",
+            this::mapDish,CurrentUser.id(),pattern,pattern);
+    }
+
+    public DishTemplate ownedDishTemplate(long id) {
+        List<DishTemplate> rows=db.query("SELECT "+DISH_COLUMNS+" FROM prp_wellness_dish_templates " +
+            "WHERE id=? AND user_id=?",this::mapDish,id,CurrentUser.id());
+        if(rows.isEmpty())throw new ResourceNotFoundException("Personal dish not found");
+        return rows.getFirst();
+    }
+
+    /** Existing template identity is stable; repeated confirmations never overwrite its calories. */
+    @Transactional
+    public DishTemplate saveDishTemplate(DishTemplateInput input) {
+        validateDish(input);
+        long user=CurrentUser.id();
+        String merchant=input.merchantName().strip(),dish=input.dishName().strip(),
+            portion=input.portionLabel().strip();
+        List<Long> existing=db.query("SELECT id FROM prp_wellness_dish_templates " +
+                "WHERE user_id=? AND merchant_name=? AND dish_name=? AND portion_label=?",
+                (r,n)->r.getLong("id"),user,merchant,dish,portion);
+        if(!existing.isEmpty()) return ownedDishTemplate(existing.getFirst());
+        long id=insert("INSERT INTO prp_wellness_dish_templates " +
+            "(user_id,merchant_name,dish_name,portion_label,portion_count,calories_per_serving,source_type,source_note) " +
+            "VALUES (?,?,?,?,?,?,?,?)",user,merchant,dish,portion,
+            input.portionCount(),input.caloriesPerServing(),input.sourceType(),input.sourceNote());
+        return ownedDishTemplate(id);
+    }
+
+    @Transactional
+    public DishTemplate updateDishTemplate(long id,DishTemplateInput input) {
+        validateDish(input);
+        ownedDishTemplate(id);
+        db.update("UPDATE prp_wellness_dish_templates SET merchant_name=?,dish_name=?,portion_label=?, " +
+            "portion_count=?,calories_per_serving=?,source_type=?,source_note=? WHERE id=? AND user_id=?",
+            input.merchantName().strip(),input.dishName().strip(),input.portionLabel().strip(),
+            input.portionCount(),input.caloriesPerServing(),input.sourceType(),input.sourceNote(),
+            id,CurrentUser.id());
+        return ownedDishTemplate(id);
+    }
+
+    @Transactional
+    public void deleteDishTemplate(long id) {
+        if(db.update("DELETE FROM prp_wellness_dish_templates WHERE id=? AND user_id=?",
+            id,CurrentUser.id())!=1) throw new ResourceNotFoundException("Personal dish not found");
+    }
+
     private static final String FOOD_COLUMNS =
         "id,name,preparation,calories_100g,protein_100g,carbs_100g,fat_100g,source_note,owner_user_id";
     private static final String ITEM_COLUMNS =
@@ -191,6 +271,74 @@ public class WellnessService {
         insertItems(id,input.items());
         return meal(id);
     }
+    /** A single meal can mix catalog foods with user-entered per-serving calorie snapshots.
+     * Custom entries are intentionally never inserted into prp_wellness_foods. */
+    public record AiMealItem(Long foodId, String name, BigDecimal grams, BigDecimal calories) {}
+
+    private void validateAiMealInput(LocalDate date,String type,String note,List<AiMealItem> items) {
+        if(date==null || !Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) ||
+            items==null || items.isEmpty() || items.size()>8 ||
+            note!=null && note.length()>500)
+            throw new IllegalArgumentException("Invalid AI meal");
+        for(AiMealItem item:items) {
+            if(item==null) throw new IllegalArgumentException("Missing item");
+            if(item.foodId()!=null && item.foodId()>0) {
+                if(item.grams()==null || item.grams().compareTo(new BigDecimal("0.1"))<0 ||
+                    item.grams().compareTo(new BigDecimal("3000"))>0)
+                    throw new IllegalArgumentException("Invalid catalog food grams");
+                accessibleFood(item.foodId()); // owner/public catalog check
+            } else {
+                if(item.name()==null || item.name().isBlank() || item.name().length()>120 ||
+                   item.calories()==null || item.calories().compareTo(BigDecimal.ZERO)<=0 ||
+                   item.calories().compareTo(new BigDecimal("20000"))>0 ||
+                   item.calories().scale()>2 ||
+                   item.grams()!=null && (item.grams().signum()<0 ||
+                       item.grams().compareTo(new BigDecimal("3000"))>0))
+                    throw new IllegalArgumentException("Invalid custom calories or food");
+            }
+        }
+    }
+    private void insertAiItems(long id,List<AiMealItem> items) {
+        for(AiMealItem item:items) {
+            if(item.foodId()!=null && item.foodId()>0) {
+                insertItems(id,List.of(new ItemInput(item.foodId(),item.grams())));
+            } else {
+                // Calories describe only this eating event; macros are unknown, not inferred.
+                db.update("INSERT INTO prp_wellness_meal_items " +
+                    "(meal_id,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate) " +
+                    "VALUES (?,NULL,?,?,?,?,?,?,?)",
+                    id,item.name().trim(),item.grams()==null?BigDecimal.ZERO:item.grams(),
+                    item.calories(),null,null,null,1);
+            }
+        }
+    }
+
+    @Transactional
+    public Meal addAiMeal(LocalDate date,String type,String note,List<AiMealItem> items,String idempotencyKey) {
+        validateAiMealInput(date,type,note,items);
+        if(idempotencyKey==null || idempotencyKey.isBlank() || idempotencyKey.length()>80)
+            throw new IllegalArgumentException("Missing idempotency key");
+        long user=CurrentUser.id();
+        List<Long> found=db.query("SELECT id FROM prp_wellness_meals WHERE user_id=? AND idempotency_key=?",
+            (r,n)->r.getLong("id"),user,idempotencyKey);
+        if(!found.isEmpty()) return meal(found.getFirst());
+        long id=insert("INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) " +
+            "VALUES (?,?,?,?,?)",user,date,type,note,idempotencyKey);
+        insertAiItems(id,items);
+        return meal(id);
+    }
+
+    @Transactional
+    public Meal updateAiMeal(long id,LocalDate date,String type,String note,List<AiMealItem> items) {
+        meal(id); // owner check before any mutation
+        validateAiMealInput(date,type,note,items);
+        db.update("UPDATE prp_wellness_meals SET meal_date=?,meal_type=?,note=? WHERE id=? AND user_id=?",
+                date,type,note,id,CurrentUser.id());
+        db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
+        insertAiItems(id,items);
+        return meal(id);
+    }
+
     @Transactional
     public Meal updateMeal(long id, MealInput input) {
         meal(id);validateMeal(input);
@@ -221,6 +369,14 @@ public class WellnessService {
     @Transactional
     public Meal copyMeal(long id,LocalDate date) {
         Meal existing=meal(id);
+        if(existing.items().stream().anyMatch(i->i.foodId()<=0)) {
+            List<AiMealItem> snapshots=existing.items().stream()
+                .map(i->i.foodId()>0
+                    ?new AiMealItem(i.foodId(),null,i.grams(),null)
+                    :new AiMealItem(null,i.foodName(),i.grams(),i.calories())).toList();
+            return addAiMeal(date,existing.mealType(),existing.note(),snapshots,
+                UUID.randomUUID().toString());
+        }
         List<ItemInput> copies=existing.items().stream().map(i->new ItemInput(i.foodId(),i.grams())).toList();
         return addMeal(new MealInput(date,existing.mealType(),existing.note(),copies,null));
     }
@@ -308,8 +464,11 @@ public class WellnessService {
         List<Meal> dayMeals=meals(date);
         BigDecimal calories=BigDecimal.ZERO,protein=BigDecimal.ZERO,carbs=BigDecimal.ZERO,fat=BigDecimal.ZERO;
         for(Meal m:dayMeals) for(MealItem i:m.items()){
-            calories=calories.add(i.calories());protein=protein.add(i.proteinG());
-            carbs=carbs.add(i.carbsG());fat=fat.add(i.fatG());
+            calories=calories.add(i.calories());
+            // One unknown item makes the daily macro total incomplete, not "0 grams".
+            protein=protein==null || i.proteinG()==null?null:protein.add(i.proteinG());
+            carbs=carbs==null || i.carbsG()==null?null:carbs.add(i.carbsG());
+            fat=fat==null || i.fatG()==null?null:fat.add(i.fatG());
         }
         List<Exercise> ex=exercises(date);
         int minutes=ex.stream().mapToInt(Exercise::durationMinutes).sum();

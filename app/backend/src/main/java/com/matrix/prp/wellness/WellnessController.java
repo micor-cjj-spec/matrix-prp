@@ -16,6 +16,29 @@ public class WellnessController {
     private final UsdaFoodCatalog usda;
     public WellnessController(WellnessService service, UsdaFoodCatalog usda) { this.service = service; this.usda = usda; }
 
+    /** Reusable personal servings; separate from public/standard nutrition foods. */
+    @GetMapping("/dishes")
+    public ApiResponse<List<DishTemplate>> dishes(@RequestParam(defaultValue="") String q) {
+        return ApiResponse.success(service.dishTemplates(q));
+    }
+    @GetMapping("/dishes/{id}")
+    public ApiResponse<DishTemplate> dish(@PathVariable long id) {
+        return ApiResponse.success(service.ownedDishTemplate(id));
+    }
+    @PostMapping("/dishes")
+    public ApiResponse<DishTemplate> saveDish(@Valid @RequestBody DishTemplateInput input) {
+        return ApiResponse.success(service.saveDishTemplate(input));
+    }
+    @PutMapping("/dishes/{id}")
+    public ApiResponse<DishTemplate> updateDish(@PathVariable long id,@Valid @RequestBody DishTemplateInput input) {
+        return ApiResponse.success(service.updateDishTemplate(id,input));
+    }
+    @DeleteMapping("/dishes/{id}")
+    public ApiResponse<Void> deleteDish(@PathVariable long id) {
+        service.deleteDishTemplate(id);
+        return ApiResponse.success();
+    }
+
     @GetMapping("/foods")
     public ApiResponse<List<Food>> foods(@RequestParam(defaultValue="") String q) { return ApiResponse.success(service.foods(q)); }
     /** Exact ID lookup ensures unknown weight drafts show the actual matching food's kcal/100g. */
@@ -51,6 +74,26 @@ public class WellnessController {
     public ApiResponse<Meal> updateMeal(@PathVariable long id, @Valid @RequestBody MealInput request) {
         return ApiResponse.success(service.updateMeal(id, request));
     }
+    public record AiMealUpdateInput(LocalDate mealDate, String mealType, String note,
+                                    List<WellnessService.AiMealItem> items) {}
+    /** Update historical mixed meal snapshots without requiring a standard food reference. */
+    public record AiMealCreateInput(LocalDate mealDate, String mealType, String note,
+                                    List<WellnessService.AiMealItem> items, String idempotencyKey) {}
+    @PostMapping("/meals/snapshots")
+    public ApiResponse<Meal> addMealSnapshots(@RequestBody AiMealCreateInput input) {
+        if(input==null) throw new IllegalArgumentException("Meal details required");
+        return ApiResponse.success(service.addAiMeal(input.mealDate(),input.mealType(),input.note(),
+            input.items(),input.idempotencyKey()));
+    }
+
+    @PutMapping("/meals/{id}/snapshots")
+    public ApiResponse<Meal> updateMealSnapshots(@PathVariable long id,
+                                                  @RequestBody AiMealUpdateInput input) {
+        if(input==null) throw new IllegalArgumentException("Meal details required");
+        return ApiResponse.success(service.updateAiMeal(id,input.mealDate(),input.mealType(),
+            input.note(),input.items()));
+    }
+
     @DeleteMapping("/meals/{id}")
     public ApiResponse<Void> deleteMeal(@PathVariable long id) { service.deleteMeal(id); return ApiResponse.success(); }
     @PostMapping("/meals/{id}/copy")
