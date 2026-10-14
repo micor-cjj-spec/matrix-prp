@@ -27,6 +27,13 @@ export interface Meal {
   id: number; mealDate: string; mealType: string; note: string | null; items: MealItem[]
 }
 export interface ItemInput { foodId: number; grams: number }
+export interface MealSnapshotItem {
+  foodId: number | null; name: string | null; grams: number; calories: number | null
+}
+export interface MealSnapshotInput {
+  mealDate: string; mealType: string; note: string; items: MealSnapshotItem[]
+  idempotencyKey?: string
+}
 export interface MealInput {
   mealDate: string; mealType: string; note: string; items: ItemInput[]; idempotencyKey?: string
 }
@@ -93,6 +100,9 @@ export const wellnessApi = {
   addFood: (form: FoodInput) => post<Food>('/wellness/foods', form),
   meals: (date: string) => get<Meal[]>('/wellness/meals', { date }),
   addMeal: (form: MealInput) => post<Meal>('/wellness/meals', form),
+  addMealSnapshots: (form: MealSnapshotInput) => post<Meal>('/wellness/meals/snapshots', form),
+  updateMealSnapshots: (id: number, form: MealSnapshotInput) =>
+    put<Meal>('/wellness/meals/' + id + '/snapshots', form),
   updateMeal: (id: number, form: MealInput) => put<Meal>('/wellness/meals/' + id, form),
   deleteMeal: (id: number) => del('/wellness/meals/' + id),
   copyMeal: (id: number, date: string) => post<Meal>('/wellness/meals/' + id + '/copy?date=' + encodeURIComponent(date), {}),
