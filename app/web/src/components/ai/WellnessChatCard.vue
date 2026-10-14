@@ -23,7 +23,12 @@ const props = defineProps<{ draftId: string }>()
 const emit = defineEmits<{ saved: [] }>()
 const loading = ref(true)
 const saving = ref(false)
+const saveOutcomeUnknown = ref(false)
+const checkingSaveOutcome = ref(false)
 const error = ref('')
+// Global API requests can remain at 8s; only explicit draft writes need extra time.
+const WRITE_TIMEOUT_MS = 45000
+const STATUS_TIMEOUT_MS = 15000
 const draft = ref<Draft | null>(null)
 const status = ref('PENDING')
 const values = ref<DraftValues>({ date: '' })
@@ -80,7 +85,7 @@ function validManualCalories(item: Item) {
     !!item.name?.trim() && item.name.trim().length <= 120 &&
     Number.isFinite(Number(item.grams)) && Number(item.grams) >= 0 && Number(item.grams) <= 3000
 }
-const canConfirm = computed(() => !loading.value && !saving.value &&
+const canConfirm = computed(() => !loading.value && !saving.value && !saveOutcomeUnknown.value &&
   status.value === 'PENDING' && draft.value?.action === 'meal.create' &&
   items.value.length > 0 && items.value.every((item, i) =>
     isManual(item) ? validManualCalories(item) :
@@ -89,7 +94,7 @@ const canConfirm = computed(() => !loading.value && !saving.value &&
         : Boolean(selectedCandidate(i)))))
 const total = computed(() => items.value.reduce((sum, item, i) => sum + portion(item, i), 0))
 const batchCalories = computed(() => items.value.reduce((sum, item) => sum + (Number(item.calories) || 0), 0))
-const canConfirmBatch = computed(() => !loading.value && !saving.value &&
+const canConfirmBatch = computed(() => !loading.value && !saving.value && !saveOutcomeUnknown.value &&
   status.value === 'PENDING' && draft.value?.action === 'meal.copy_batch' &&
   (values.value.targets?.length ?? 0) >= 1 &&
   (values.value.targets?.length ?? 0) <= 7 &&
@@ -164,6 +169,55 @@ async function load() {
   } catch { error.value = '读取记录草稿失败或无权访问'; }
   finally { loading.value = false }
 }
+function markSaved() {
+  status.value = 'CONSUMED'
+  saveOutcomeUnknown.value = false
+  error.value = ''
+  emit('saved')
+}
+
+// A timed-out POST may still have committed on the server. Never assume failure
+// or automatically re-submit a financial/health write without checking the draft.
+async function refreshSaveOutcome(): Promise<'CONSUMED' | 'PENDING' | 'EXPIRED' | null> {
+  if (!draft.value) return null
+  try {
+    const result = await apiClient.get<ApiResponse<DraftView>>(
+      '/wellness/ai/drafts/' + draft.value.draftId, { timeout: STATUS_TIMEOUT_MS })
+    const freshStatus = result.data.data.status
+    if (freshStatus === 'CONSUMED') markSaved()
+    else if (freshStatus === 'EXPIRED') status.value = 'EXPIRED'
+    return freshStatus
+  } catch { return null }
+}
+async function handleWriteError(e: unknown) {
+  const err = e as { response?: { status?: number; data?: { message?: string } }; message?: string }
+  if (!err.response || err.response.status === 409) {
+    const result = await refreshSaveOutcome()
+    if (result === 'CONSUMED') return
+    if (!err.response) {
+      saveOutcomeUnknown.value = true
+      error.value = '保存请求已超时或网络中断，结果尚不确定。请先点击「检查保存状态」，不要反复提交。'
+      return
+    }
+  }
+  error.value = err.response?.data?.message || err.message || '保存失败，请核对信息后重试'
+}
+async function recheckSaveOutcome() {
+  if (checkingSaveOutcome.value || saving.value) return
+  checkingSaveOutcome.value = true
+  try {
+    const result = await refreshSaveOutcome()
+    if (result === 'PENDING') {
+      saveOutcomeUnknown.value = false
+      error.value = '目前草稿仍待确认。请先核对健康中心该日期的记录；如尚未保存，可再次确认。'
+    } else if (result === 'EXPIRED') {
+      saveOutcomeUnknown.value = false
+      error.value = '草稿已过期，请重新创建记录。'
+    } else if (!result) {
+      error.value = '暂时无法核实服务器是否保存成功，请稍后再检查；不要重复提交。'
+    }
+  } finally { checkingSaveOutcome.value = false }
+}
 async function confirm() {
   if (!canConfirm.value || !draft.value) return
   saving.value = true
@@ -193,13 +247,12 @@ async function confirm() {
       newItems.push({ ...item, foodId, grams: Number(item.grams) })
     }
     corrected.items = newItems
-    await apiClient.patch('/wellness/ai/drafts/' + draft.value.draftId, corrected)
-    await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/drafts/' + draft.value.draftId + '/confirm', {})
-    status.value = 'CONSUMED'
-    emit('saved')
+    await apiClient.patch('/wellness/ai/drafts/' + draft.value.draftId, corrected, { timeout: WRITE_TIMEOUT_MS })
+    await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/drafts/' + draft.value.draftId + '/confirm',
+      {}, { timeout: WRITE_TIMEOUT_MS })
+    markSaved()
   } catch (e) {
-    const err = e as { response?: { data?: { message?: string } }; message?: string }
-    error.value = err.response?.data?.message || err.message || '保存失败，请检查食品来源和克重'
+    await handleWriteError(e)
   } finally { saving.value = false }
 }
 async function confirmBatch() {
@@ -208,12 +261,11 @@ async function confirmBatch() {
   error.value = ''
   try {
     // Batch data is intentionally read-only; the server rechecks source and each destination.
-    await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/drafts/' + draft.value.draftId + '/confirm', {})
-    status.value = 'CONSUMED'
-    emit('saved')
+    await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/drafts/' + draft.value.draftId + '/confirm',
+      {}, { timeout: WRITE_TIMEOUT_MS })
+    markSaved()
   } catch (e) {
-    const err = e as { response?: { data?: { message?: string } }; message?: string }
-    error.value = err.response?.data?.message || err.message || '批量保存失败，请重新检查来源和目标日期'
+    await handleWriteError(e)
   } finally { saving.value = false }
 }
 onMounted(() => { void load() })
@@ -352,6 +404,10 @@ onMounted(() => { void load() })
       <p v-if="status === 'CONSUMED'"><RouterLink :to="'/wellness?date=' + values.date">查看当天健康记录 →</RouterLink></p>
     </template>
     <p v-if="error" class="health-chat-alert" role="alert">{{ error }}</p>
+    <button v-if="saveOutcomeUnknown" class="health-chat-recheck" type="button"
+      :disabled="checkingSaveOutcome || saving" @click="recheckSaveOutcome">
+      {{ checkingSaveOutcome ? '正在核实…' : '检查保存状态（防止重复记录）' }}
+    </button>
   </section>
 </template>
 
