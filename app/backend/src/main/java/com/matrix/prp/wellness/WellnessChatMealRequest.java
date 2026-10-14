@@ -15,7 +15,7 @@ final class WellnessChatMealRequest {
     private static final Pattern FOOD=Pattern.compile(
         "米饭|炒菜|炒肉|馄饨|混沌|米线|鸡腿|面条|鸡蛋|牛奶|酸奶|土豆|面包|豆腐|青菜|排骨|饺子|饭团|寿司|羊肉|烧烤|牛肉|米粉|粥");
     private static final Pattern TECH=Pattern.compile(
-        "如何|怎么|为什么|代码|接口|组件|页面|需求|设计|开发|实现|测试|报错|修复");
+        "如何|怎么|为什么|代码|接口|组件|页面|需求|设计|开发|实现|测试|报错|修复|日志|任务|会议|笔记|备忘");
     private WellnessChatMealRequest() {}
 
     static boolean isContextualFollowup(String text) {
