@@ -12,9 +12,11 @@ type Item = {
   sourceType?: 'USER_ESTIMATE' | 'AI_ESTIMATE' | 'LABEL' | 'OTHER'
   sourceNote?: string
 }
+type MultiMeal = { mealType: string; totalCalories: number; items: Item[]; note?: string }
 type DraftValues = {
   date: string; mealType?: string; items?: Item[]; note?: string
   sourceMealId?: number; sourceDate?: string; targets?: string[]
+  meals?: MultiMeal[]; alreadyExistingTypes?: string[]
 }
 type Draft = { draftId: string; action: string; description: string; modelUsed: string; expiresAt: string; values: DraftValues }
 type DraftView = { draft: Draft; status: 'PENDING' | 'CONSUMED' | 'EXPIRED' }
@@ -94,6 +96,13 @@ const canConfirm = computed(() => !loading.value && !saving.value && !saveOutcom
         : Boolean(selectedCandidate(i)))))
 const total = computed(() => items.value.reduce((sum, item, i) => sum + portion(item, i), 0))
 const batchCalories = computed(() => items.value.reduce((sum, item) => sum + (Number(item.calories) || 0), 0))
+const multiMeals = computed(() => values.value.meals ?? [])
+const multiCalories = computed(() => multiMeals.value.reduce((sum, meal) => sum + Number(meal.totalCalories || 0), 0))
+const canConfirmMulti = computed(() => !loading.value && !saving.value && !saveOutcomeUnknown.value &&
+  status.value === 'PENDING' && draft.value?.action === 'meal.create_batch' &&
+  multiMeals.value.length > 0 && multiMeals.value.length <= 4 &&
+  multiMeals.value.every(meal => meal.items.length > 0 && meal.items.length <= 8 &&
+    meal.items.every(item => Number(item.manualCalories) > 0)))
 const canConfirmBatch = computed(() => !loading.value && !saving.value && !saveOutcomeUnknown.value &&
   status.value === 'PENDING' && draft.value?.action === 'meal.copy_batch' &&
   (values.value.targets?.length ?? 0) >= 1 &&
@@ -259,6 +268,20 @@ async function confirm() {
     await handleWriteError(e)
   } finally { saving.value = false }
 }
+async function confirmMulti() {
+  if (!canConfirmMulti.value || !draft.value) return
+  saving.value = true
+  error.value = ''
+  try {
+    // Read-only preview. The backend validates every meal, total and duplicate
+    // before committing all meals in one transaction.
+    await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/drafts/' + draft.value.draftId + '/confirm',
+      {}, { timeout: WRITE_TIMEOUT_MS })
+    markSaved()
+  } catch (e) {
+    await handleWriteError(e)
+  } finally { saving.value = false }
+}
 async function confirmBatch() {
   if (!canConfirmBatch.value || !draft.value) return
   saving.value = true
@@ -277,11 +300,32 @@ onMounted(() => { void load() })
 
 <template>
   <section class="health-chat-card" aria-label="AI 饮食确认卡">
-    <strong>🍽️ {{ draft?.action === 'meal.copy_batch' ? '批量饮食记录' : 'AI 饮食记录' }}</strong>
+    <strong>🍽️ {{ draft?.action === 'meal.create_batch' ? '多餐次饮食记录' : draft?.action === 'meal.copy_batch' ? '批量饮食记录' : 'AI 饮食记录' }}</strong>
     <p v-if="loading">正在读取记录并查询食品营养库…</p>
     <template v-else-if="draft">
       <p v-if="status === 'CONSUMED'" class="health-chat-success">✓ 已确认保存到健康中心</p>
       <p v-else-if="status !== 'PENDING'">草稿已过期，请重新告诉 PRP 助手需要记录什么。</p>
+      <template v-else-if="draft.action === 'meal.create_batch'">
+        <p class="health-chat-note">日期：{{ values.date }} · 仅使用你明确填写的本次热量，未使用 AI 猜测。</p>
+        <p v-if="values.alreadyExistingTypes?.length" class="health-chat-note">
+          已存在的餐次（{{ values.alreadyExistingTypes.map(t => types[t] || t).join('、') }}）已跳过，请到健康中心核实原记录。
+        </p>
+        <div v-for="meal in multiMeals" :key="meal.mealType" class="health-chat-food">
+          <div class="health-chat-food-title">
+            <b>{{ types[meal.mealType] || meal.mealType }}</b>
+            <span>{{ Number(meal.totalCalories).toFixed(0) }} kcal</span>
+          </div>
+          <div v-for="(item, i) in meal.items" :key="i" class="health-chat-food-title">
+            <span>{{ item.name }}{{ Number(item.grams) > 0 ? ' · ' + item.grams + ' g' : '' }}</span>
+            <span>{{ Number(item.manualCalories).toFixed(0) }} kcal</span>
+          </div>
+        </div>
+        <div class="health-chat-total"><span>本次计划新增总热量</span><b>{{ multiCalories.toFixed(0) }} kcal</b></div>
+        <p class="health-chat-note">多餐次将在同一数据库事务中写入，任一餐次已存在则整个操作停止，不覆盖历史数据。需要修改明细请重新发送准确的食物和热量。</p>
+        <button type="button" class="health-chat-confirm" :disabled="!canConfirmMulti" @click="confirmMulti">
+          {{ saving ? '正在核实并保存…' : '确认保存 ' + multiMeals.length + ' 个餐次' }}
+        </button>
+      </template>
       <template v-else-if="draft.action === 'meal.copy_batch'">
         <div class="health-chat-food">
           <b>来源：{{ values.sourceDate }} 已保存的{{ types[values.mealType ?? ''] || '餐次' }}</b>
