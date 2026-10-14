@@ -12,6 +12,16 @@ public final class WellnessModels {
     public record Food(long id, String name, String preparation, BigDecimal calories100g,
                        BigDecimal protein100g, BigDecimal carbs100g, BigDecimal fat100g,
                        String sourceNote, boolean custom) {}
+    /** User-owned reusable serving estimate; deliberately separate from prp_wellness_foods. */
+    public record DishTemplate(long id, String merchantName, String dishName, String portionLabel,
+                               Integer portionCount, BigDecimal caloriesPerServing,
+                               String sourceType, String sourceNote) {}
+    public record DishTemplateInput(@NotNull @Size(max=100) String merchantName,
+                                    @NotBlank @Size(max=120) String dishName,
+                                    @NotNull @Size(max=100) String portionLabel,
+                                    @Min(1) @Max(9999) Integer portionCount,
+                                    @NotNull @DecimalMin("0.01") @DecimalMax("20000") BigDecimal caloriesPerServing,
+                                    @NotBlank String sourceType, @Size(max=255) String sourceNote) {}
     public record FoodInput(@NotBlank @Size(max=120) String name, String preparation,
                             @NotNull @DecimalMin("0") @DecimalMax("900") BigDecimal calories100g,
                             @NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal protein100g,
