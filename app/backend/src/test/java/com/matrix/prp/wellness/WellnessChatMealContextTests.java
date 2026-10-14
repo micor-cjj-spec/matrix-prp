@@ -62,14 +62,17 @@ class WellnessChatMealContextTests {
     }
 
 
-    @Test void neverFallsBackToOlderMealWhenLatestFoodIsOutsideCatalog(){
-        assertThat(WellnessChatMealContext.parse(List.of(
+    @Test void latestUnknownDishDoesNotBecomeAnOlderMeal(){
+        var draft=WellnessChatMealContext.parse(List.of(
             user(1,"今天午餐吃了米饭"),
             assistant(2,"建议记 500 kcal"),
             user(3,"今晚吃了寿司"),
             assistant(4,"建议记 650 kcal"),
             user(5,"帮我录入一下")
-        ),TODAY)).isEmpty();
+        ),TODAY).orElseThrow();
+        assertThat(draft.foodName()).isEqualTo("寿司");
+        assertThat(draft.mealType()).isEqualTo("DINNER");
+        assertThat(draft.calories()).isEqualByComparingTo("650");
     }
 
     @Test void tomorrowDinnerKeepsTomorrowAndRejectsUnsupportedAfterTomorrow(){
@@ -83,6 +86,42 @@ class WellnessChatMealContextTests {
         assertThat(WellnessChatMealContext.parse(List.of(
             user(1,"后天晚餐打算吃米饭")
         ),TODAY)).isEmpty();
+    }
+
+    @Test void screenshotFollowupSelectsRequestedDinnerEvenAfterLunchDiscussion(){
+        var draft=WellnessChatMealContext.parse(List.of(
+            user(1,"今天晚上我吃的楼下炒菜+米饭，饭比较多，炒菜吃的比较少"),
+            assistant(2,"估算热量：约780 kcal"),
+            user(3,"就是5个人点了两荤两素"),
+            assistant(4,"建议记 约650 kcal"),
+            user(5,"今天午餐吃了海味馄饨大碗16个"),
+            assistant(6,"建议记约720 kcal"),
+            user(7,"帮我创建一下卡片我录入今天的晚餐")
+        ),TODAY,"帮我创建一下卡片我录入今天的晚餐").orElseThrow();
+        assertThat(draft.date()).isEqualTo(TODAY);
+        assertThat(draft.mealType()).isEqualTo("DINNER");
+        assertThat(draft.calories()).isEqualByComparingTo("650");
+        assertThat(draft.foodName()).contains("米饭","两荤两素");
+    }
+
+    @Test void explicitlyRequestedMealCannotSilentlyFallBackToLunch(){
+        assertThat(WellnessChatMealContext.parse(List.of(
+            user(1,"今天午餐吃了馄饨"),assistant(2,"建议记650 kcal")
+        ),TODAY,"帮我生成今天晚餐的卡片")).isEmpty();
+    }
+
+    @Test void requestedDateCannotRewriteAnOlderMeal(){
+        assertThat(WellnessChatMealContext.parse(List.of(
+            user(1,"昨天晚餐吃了米饭"),assistant(2,"建议记650 kcal")
+        ),TODAY,"帮我生成今天晚餐的卡片")).isEmpty();
+    }
+
+    @Test void lateUnrelatedMealEstimateCannotContaminateAnOlderDinner(){
+        var dinner=WellnessChatMealContext.parse(List.of(
+            user(1,"今晚吃了米饭"),assistant(2,"建议记600 kcal"),
+            user(3,"午餐吃了馄饨"),assistant(4,"建议记900 kcal")
+        ),TODAY,"晚餐生成卡片").orElseThrow();
+        assertThat(dinner.calories()).isEqualByComparingTo("600");
     }
 
     @Test void userExplicitCaloriesTakePrecedenceOverAssistantSuggestion(){
