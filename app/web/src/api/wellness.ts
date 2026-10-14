@@ -5,6 +5,12 @@ export interface Food {
   protein100g: string; carbs100g: string; fat100g: string
   sourceNote: string | null; custom: boolean
 }
+export interface DishTemplate {
+  id: number; merchantName: string; dishName: string; portionLabel: string
+  portionCount: number | null; caloriesPerServing: number | string
+  sourceType: 'USER_ESTIMATE' | 'AI_ESTIMATE' | 'LABEL' | 'OTHER'; sourceNote: string | null
+}
+export type DishTemplateInput = Omit<DishTemplate, 'id'>
 export interface UsdaCandidate {
   fdcId: number; name: string; calories100g: number; protein100g: number
   carbs100g: number; fat100g: number; source: string
@@ -72,6 +78,11 @@ async function put<T>(url: string, body: unknown): Promise<T> {
 async function del(url: string): Promise<void> { await apiClient.delete(url) }
 
 export const wellnessApi = {
+  dishes: (q = '') => get<DishTemplate[]>('/wellness/dishes', { q }),
+  dish: (id: number) => get<DishTemplate>('/wellness/dishes/' + id),
+  addDish: (input: DishTemplateInput) => post<DishTemplate>('/wellness/dishes', input),
+  updateDish: (id: number, input: DishTemplateInput) => put<DishTemplate>('/wellness/dishes/' + id, input),
+  deleteDish: (id: number) => del('/wellness/dishes/' + id),
   foods: (q = '') => get<Food[]>('/wellness/foods', { q }),
   food: (id: number) => get<Food>('/wellness/foods/' + id),
   frequent: () => get<Food[]>('/wellness/foods/frequent'),
