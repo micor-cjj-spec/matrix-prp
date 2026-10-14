@@ -74,6 +74,17 @@ public class WellnessController {
     public ApiResponse<Meal> updateMeal(@PathVariable long id, @Valid @RequestBody MealInput request) {
         return ApiResponse.success(service.updateMeal(id, request));
     }
+    public record AiMealUpdateInput(LocalDate mealDate, String mealType, String note,
+                                    List<WellnessService.AiMealItem> items) {}
+    /** Update historical mixed meal snapshots without requiring a standard food reference. */
+    @PutMapping("/meals/{id}/snapshots")
+    public ApiResponse<Meal> updateMealSnapshots(@PathVariable long id,
+                                                  @RequestBody AiMealUpdateInput input) {
+        if(input==null) throw new IllegalArgumentException("Meal details required");
+        return ApiResponse.success(service.updateAiMeal(id,input.mealDate(),input.mealType(),
+            input.note(),input.items()));
+    }
+
     @DeleteMapping("/meals/{id}")
     public ApiResponse<Void> deleteMeal(@PathVariable long id) { service.deleteMeal(id); return ApiResponse.success(); }
     @PostMapping("/meals/{id}/copy")
