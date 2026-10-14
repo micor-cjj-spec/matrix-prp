@@ -691,6 +691,14 @@ public class WellnessAiDraftService {
                     saved=savedMeals;
                 }
                 case "meal.create" -> {
+                    LocalDate target=LocalDate.parse(date);
+                    String targetType=data.path("mealType").asText("");
+                    if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(targetType))
+                        throw invalid("Invalid meal type");
+                    db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
+                    if(wellness.meals(target).stream().anyMatch(m->m.mealType().equals(targetType)))
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "该日期的餐次已存在，请在健康中心查看或编辑，不能重复保存");
                     List<ItemInput> catalogItems=new ArrayList<>();
                     List<WellnessService.AiMealItem> snapshots=new ArrayList<>();
                     boolean hasManual=false;
