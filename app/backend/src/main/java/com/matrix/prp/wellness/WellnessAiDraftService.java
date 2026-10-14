@@ -37,6 +37,7 @@ public class WellnessAiDraftService {
     public record Preview(String draftId, String action, String description,
                           String modelUsed, Map<String,Object> values, String expiresAt) {}
     public record Outcome(String action, Object saved, String route) {}
+    public record DraftView(Preview draft,String status) {}
     private final JdbcTemplate db;
     private final WellnessService wellness;
     private final AiSettingsService settings;
@@ -105,6 +106,30 @@ public class WellnessAiDraftService {
         long outputTokens=root.path("usage").path("completion_tokens").asLong(0);
         usage.completed(user,month,inputTokens,outputTokens);
         return new Preview(id,action,description,config.provider().id()+"/"+model,verified,expiry.toString());
+    }
+
+    /** Owner-scoped reload for persisted chat confirmation cards; never exposes other users' drafts. */
+    public DraftView getDraft(String draftId) {
+        long user=CurrentUser.id();
+        if(draftId==null || !draftId.matches("[0-9a-fA-F-]{36}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid draft");
+        List<Map<String,Object>> rows=db.queryForList(
+            "SELECT action_type,payload_json,description,model_used,status,expires_at FROM prp_wellness_ai_drafts " +
+            "WHERE id=? AND user_id=?",draftId,user);
+        if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Draft not found");
+        var row=rows.get(0);
+        var expires=((java.sql.Timestamp)row.get("expires_at")).toLocalDateTime();
+        String status=String.valueOf(row.get("status"));
+        if("PENDING".equals(status) && !expires.isAfter(LocalDateTime.now())) status="EXPIRED";
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String,Object> values=json.readValue(String.valueOf(row.get("payload_json")),Map.class);
+            return new DraftView(new Preview(draftId,String.valueOf(row.get("action_type")),
+                String.valueOf(row.get("description")),String.valueOf(row.get("model_used")),
+                values,expires.toString()),status);
+        } catch(com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,"Invalid stored health draft");
+        }
     }
 
     static String detect(byte[] b){
