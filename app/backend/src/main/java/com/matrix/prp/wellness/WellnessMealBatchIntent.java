@@ -33,8 +33,8 @@ final class WellnessMealBatchIntent {
         "(?i)^(.{1,120}?)\\s*(\\d+(?:\\.\\d)?)\\s*(?:g|克)\\s*[，,。]?\\s*"+
         "(?:(?:请|麻烦)?(?:帮我|给我|为我))?\\s*(?:把|将)?\\s*"+
         "(?:录人|录入|记录|保存|归档|添加|记入|记到)\\s*"+
-        "(?:到|进|在)?\\s*(?:今天|昨天|前天|20\\d{2}年\\d{1,2}月\\d{1,2}日)?\\s*"+
-        "(?:的)?\\s*(?:早餐|早饭|午餐|午饭|晚餐|晚饭|加餐)?\\s*(?:里|中|记录)?\\s*[。.!！]?$",
+        "(?:到|进|在)?\\s*(?<destinationDate>今天|昨天|前天|20\\d{2}年\\d{1,2}月\\d{1,2}日)?\\s*"+
+        "(?:的)?\\s*(?<destinationMeal>早餐|早饭|午餐|午饭|晚餐|晚饭|加餐)?\\s*(?:里|中|记录)?\\s*[。.!！]?$",
         Pattern.CASE_INSENSITIVE);
 
     private static final Set<String> TYPES=Set.of("BREAKFAST","LUNCH","DINNER","SNACK");
@@ -92,6 +92,17 @@ final class WellnessMealBatchIntent {
                 boolean plain=grams.matches();
                 if(!plain) grams=GRAMS_WITH_RECORD_COMMAND.matcher(line);
                 if(plain || grams.matches()){
+                    if(!plain){
+                        String mentionedMeal=grams.group("destinationMeal");
+                        if(mentionedMeal!=null && !type(mentionedMeal).equals(type))
+                            throw new IllegalArgumentException("餐次标题与记录指令不一致，请确认早餐/午餐/晚餐");
+                        String mentionedDate=grams.group("destinationDate");
+                        if(mentionedDate!=null){
+                            LocalDate requestedDate=commandDate(mentionedDate,today);
+                            if(!requestedDate.equals(date))
+                                throw new IllegalArgumentException("记录日期与指令日期不一致，请明确选择日期");
+                        }
+                    }
                     // One-item meal declared total can supply its calorie estimate.
                     String name=grams.group(1).strip();
                     BigDecimal weight=new BigDecimal(grams.group(2));
@@ -132,6 +143,20 @@ final class WellnessMealBatchIntent {
         if(sum.compareTo(new BigDecimal("20000"))>0)
             throw new IllegalArgumentException("餐次总热量超出范围");
         return new Meal(type,declared==null?sum:declared,List.copyOf(foods));
+    }
+
+    private static LocalDate commandDate(String raw,LocalDate today){
+        if("今天".equals(raw))return today;
+        if("昨天".equals(raw))return today.minusDays(1);
+        if("前天".equals(raw))return today.minusDays(2);
+        var m=CN_DATE.matcher(raw);
+        if(!m.matches())throw new IllegalArgumentException("记录日期无效");
+        try{
+            return LocalDate.of(Integer.parseInt(m.group(1)),
+                Integer.parseInt(m.group(2)),Integer.parseInt(m.group(3)));
+        }catch(java.time.DateTimeException ex){
+            throw new IllegalArgumentException("记录日期无效");
+        }
     }
 
     private static String type(String zh){
