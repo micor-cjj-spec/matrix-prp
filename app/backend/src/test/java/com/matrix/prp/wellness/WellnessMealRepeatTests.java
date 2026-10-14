@@ -81,8 +81,8 @@ class WellnessMealRepeatTests {
         var preview=service.prepareRepeat("昨天和前天早餐也是这样吃的，请记录");
         assertThat(preview.action()).isEqualTo("meal.copy_batch");
         assertThat(preview.values().get("sourceMealId")).isEqualTo(91L);
-        assertThat((List<?>)preview.values().get("targets"))
-            .containsExactly(today.minusDays(2).toString(),today.minusDays(1).toString());
+        assertThat(preview.values().get("targets")).isEqualTo(
+            List.of(today.minusDays(2).toString(),today.minusDays(1).toString()));
         assertThat(preview.values().get("items").toString())
             .contains("鸡蛋","牛奶");
         verify(db).update(contains("INSERT INTO prp_wellness_ai_drafts"),any(Object[].class));
