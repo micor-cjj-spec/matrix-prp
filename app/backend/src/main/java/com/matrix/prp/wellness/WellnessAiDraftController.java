@@ -84,7 +84,7 @@ public class WellnessAiDraftController {
             !chat.owns(user,request.conversationId()))
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
         String words=request.message()==null?"":request.message().strip();
-        if(!words.matches("^(?:是的|对|嗯|确认|确认保存|确认录入|保存|保存吧|保存一下|好的|可以|没错|是)$"))
+        if(!words.matches("^(?:是的|对|嗯|确认|确认保存|确认录入|保存|保存吧|保存一下|好的|可以|没错|是|帮我保存到健康中心)$"))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"请明确确认当前待保存餐次");
         List<AiStore.MessageBlock> blocks=chat.blocks(user,request.conversationId()).stream()
             .filter(b->"wellness_draft".equals(b.type()) &&
