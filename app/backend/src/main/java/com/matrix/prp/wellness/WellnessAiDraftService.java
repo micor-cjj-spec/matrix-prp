@@ -194,6 +194,40 @@ public class WellnessAiDraftService {
         }
     }
 
+    /**
+     * A follow-up such as "帮我录入一下" can produce an owner-scoped editable
+     * card from the current conversation, even when the latest turn lacks food names.
+     * This only creates a PENDING draft. The human still confirms the actual write.
+     */
+    public Preview prepareConversationMeal(List<AiStore.Message> history) {
+        var candidate=WellnessChatMealContext.parse(history,today())
+            .orElseThrow(()->new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                "当前会话中没有足够的餐食信息，请补充日期、餐次和吃了什么，再生成卡片"));
+        long user=CurrentUser.id();
+        Map<String,Object> item=new LinkedHashMap<>();
+        item.put("foodId",0);
+        item.put("name",candidate.foodName());
+        item.put("grams",BigDecimal.ZERO);
+        item.put("mode","manual");
+        item.put("manualCalories",candidate.calories());
+        item.put("calories",candidate.calories());
+        item.put("sourceType",candidate.sourceType());
+        item.put("sourceNote","本次会话的粗略热量估算，请用户确认");
+        Map<String,Object> payload=new LinkedHashMap<>();
+        payload.put("date",candidate.date().toString());
+        payload.put("mealType",candidate.mealType());
+        payload.put("items",List.of(item));
+        payload.put("note",candidate.note());
+        String id=UUID.randomUUID().toString();
+        LocalDateTime expiry=LocalDateTime.now().plusMinutes(15);
+        db.update("INSERT INTO prp_wellness_ai_drafts " +
+            "(id,user_id,action_type,payload_json,description,model_used,expires_at) VALUES (?,?,?,?,?,?,?)",
+            id,user,"meal.create",serialize(payload),"聊天上下文中的饮食记录，待核对",
+            "conversation/estimate-preview",java.sql.Timestamp.valueOf(expiry));
+        return new Preview(id,"meal.create","聊天上下文中的饮食记录，待核对",
+            "conversation/estimate-preview",payload,expiry.toString());
+    }
+
     public Preview prepare(String input, MultipartFile image) {
         long user=CurrentUser.id();
         if(input==null || input.isBlank() || input.length()>1500)
