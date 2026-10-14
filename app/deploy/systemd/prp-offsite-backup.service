@@ -1,0 +1,20 @@
+[Unit]
+Description=Matrix PRP encrypted off-host disaster recovery backup
+Documentation=https://github.com/micor-cjj-spec/matrix-prp/blob/main/app/docs/technical/offsite-backup-operations.md
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=prp-offsite-backup-alert@%n.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=/etc/matrix-prp/backup.env
+ExecStart=/usr/bin/python3 /usr/local/sbin/prp-offsite-backup backup
+TimeoutStartSec=6h
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
