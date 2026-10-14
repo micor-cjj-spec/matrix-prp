@@ -121,6 +121,22 @@ class WellnessMealBatchFlowTests {
         verify(wellness,never()).addAiMeal(any(),anyString(),anyString(),anyList(),anyString());
         verify(db,never()).update(contains("status='CONSUMED'"),any(Object[].class));
     }
+    @Test void directMealWriterUsesSameOwnerRowLockAndRejectsDuplicateSlot() {
+        asOwner();
+        var db=mock(JdbcTemplate.class);
+        var service=new WellnessService(db);
+        when(db.query(contains("AND id<>? LIMIT 1"),
+            any(org.springframework.jdbc.core.RowMapper.class),
+            eq(71L),eq(day),eq("DINNER"),eq(-1L))).thenReturn(List.of(901L));
+        var item=new WellnessService.AiMealItem(null,"简爱无糖酸奶",
+            new BigDecimal("135"),new BigDecimal("105"));
+        assertThatThrownBy(()->service.addAiMeal(day,"DINNER","",List.of(item),"unique-draft-key"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("避免重复记录");
+        verify(db).queryForObject(contains("FOR UPDATE"),eq(Long.class),eq(71L));
+        verify(db,never()).update(contains("INSERT INTO prp_wellness_meals"),any(Object[].class));
+    }
+
     @Test void conversationalYesIsGroundedInConfirmedDraftAndReportsNoPendingOtherwise() {
         asOwner();
         var chat=mock(AiStore.class);
