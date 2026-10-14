@@ -235,6 +235,11 @@ test('chat meal follow-ups create an owner-scoped editable card rather than a pl
   assert.match(service, /public Preview prepareConversationMeal\(/)
   assert.match(service, /"meal\.create",serialize\(payload\)/)
   assert.match(card, /draft\.modelUsed === 'conversation\/estimate-preview'/)
+  // The contextual banner must precede the status/action v-if chain;
+  // putting it after the CONSUMED v-if turns the editor into an unreachable v-else.
+  const notice = card.indexOf('draft.modelUsed ===')
+  const consumed = card.indexOf('status === \'CONSUMED\'', card.indexOf('<template>'))
+  assert.ok(notice > 0 && consumed > notice)
   assert.match(card, /请确认或修改后再保存/)
 })
 
