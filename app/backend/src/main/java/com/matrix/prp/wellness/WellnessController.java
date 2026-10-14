@@ -16,6 +16,29 @@ public class WellnessController {
     private final UsdaFoodCatalog usda;
     public WellnessController(WellnessService service, UsdaFoodCatalog usda) { this.service = service; this.usda = usda; }
 
+    /** Reusable personal servings; separate from public/standard nutrition foods. */
+    @GetMapping("/dishes")
+    public ApiResponse<List<DishTemplate>> dishes(@RequestParam(defaultValue="") String q) {
+        return ApiResponse.success(service.dishTemplates(q));
+    }
+    @GetMapping("/dishes/{id}")
+    public ApiResponse<DishTemplate> dish(@PathVariable long id) {
+        return ApiResponse.success(service.ownedDishTemplate(id));
+    }
+    @PostMapping("/dishes")
+    public ApiResponse<DishTemplate> saveDish(@Valid @RequestBody DishTemplateInput input) {
+        return ApiResponse.success(service.saveDishTemplate(input));
+    }
+    @PutMapping("/dishes/{id}")
+    public ApiResponse<DishTemplate> updateDish(@PathVariable long id,@Valid @RequestBody DishTemplateInput input) {
+        return ApiResponse.success(service.updateDishTemplate(id,input));
+    }
+    @DeleteMapping("/dishes/{id}")
+    public ApiResponse<Void> deleteDish(@PathVariable long id) {
+        service.deleteDishTemplate(id);
+        return ApiResponse.success();
+    }
+
     @GetMapping("/foods")
     public ApiResponse<List<Food>> foods(@RequestParam(defaultValue="") String q) { return ApiResponse.success(service.foods(q)); }
     /** Exact ID lookup ensures unknown weight drafts show the actual matching food's kcal/100g. */
