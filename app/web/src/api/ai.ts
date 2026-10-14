@@ -90,3 +90,13 @@ export async function prepareInlineHealthDraft(text: string, conversationId: str
   const result = await apiClient.post<ApiResponse<InlineHealthDraftResponse>>('/wellness/ai/chat/prepare', data, { timeout: 60000 })
   return result.data.data
 }
+
+export interface InlineHealthConfirmation {
+  messageId: number; content: string; status: 'SAVED' | 'ALREADY_SAVED' | 'MULTIPLE_PENDING' | 'NO_PENDING'
+  route: string
+}
+export async function confirmPendingHealthDraft(conversationId: string, message: string) {
+  return (await apiClient.post<ApiResponse<InlineHealthConfirmation>>(
+    '/wellness/ai/chat/confirm-pending', { conversationId, message }, { timeout: 45000 }
+  )).data.data
+}
