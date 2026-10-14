@@ -19,6 +19,14 @@ class DeploymentBoundaryTests(unittest.TestCase):
    for p in payload.iterdir():tar.add(p,arcname=p.name)
    if extra:tar.addfile(extra,io.BytesIO(b'x') if extra.isfile() else None)
   return archive
+ def test_example_video_nginx_location_is_internal_only(self):
+  conf=(Path(__file__).parents[1]/'docker/nginx/video-storage.conf.example').read_text()
+  self.assertIn('location ^~ /_internal_prp_video/',conf)
+  self.assertIn('    internal;',conf)
+  self.assertIn('alias /srv/matrix-prp/video/media/;',conf)
+  self.assertIn('location ^~ /api/video/media/',conf)
+  self.assertIn('access_log off;',conf)
+
  def test_valid_artifact(self):
   with tempfile.TemporaryDirectory() as tmp:
    root=Path(tmp);out=root/'out';out.mkdir()
