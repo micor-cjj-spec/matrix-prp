@@ -388,7 +388,7 @@ public class WellnessAiDraftService {
     }
     private static ResponseStatusException invalid(String message){
         return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,message+
-            " — please correct the description or enter it manually");
+            "。请核对并补充信息，或在健康中心手动填写");
     }
     /** Extract at most one explicitly user-typed energy amount for a single food. */
     static BigDecimal userProvidedCalories(String input) {
