@@ -445,8 +445,11 @@ public class WellnessService {
         List<Meal> dayMeals=meals(date);
         BigDecimal calories=BigDecimal.ZERO,protein=BigDecimal.ZERO,carbs=BigDecimal.ZERO,fat=BigDecimal.ZERO;
         for(Meal m:dayMeals) for(MealItem i:m.items()){
-            calories=calories.add(i.calories());protein=protein.add(i.proteinG());
-            carbs=carbs.add(i.carbsG());fat=fat.add(i.fatG());
+            calories=calories.add(i.calories());
+            // One unknown item makes the daily macro total incomplete, not "0 grams".
+            protein=protein==null || i.proteinG()==null?null:protein.add(i.proteinG());
+            carbs=carbs==null || i.carbsG()==null?null:carbs.add(i.carbsG());
+            fat=fat==null || i.fatG()==null?null:fat.add(i.fatG());
         }
         List<Exercise> ex=exercises(date);
         int minutes=ex.stream().mapToInt(Exercise::durationMinutes).sum();
