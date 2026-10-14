@@ -54,7 +54,9 @@ const canConfirmBatch = computed(() => !loading.value && !saving.value &&
   (values.value.targets?.length ?? 0) >= 1 &&
   (values.value.targets?.length ?? 0) <= 7 &&
   !!values.value.sourceMealId && !!values.value.sourceDate &&
-  items.value.length > 0 && items.value.every(item => item.foodId > 0 && item.grams > 0))
+  items.value.length > 0 && items.value.every(item => item.foodId > 0 && item.grams > 0 ||
+    item.foodId === 0 && (item.mode === 'manual' || item.manualCalories != null) &&
+      Number(item.calories) > 0 && Number(item.grams) >= 0))
 function selectedCandidate(index: number) {
   return matches[index]?.find(candidate => candidate.fdcId === chosen[index])
 }
@@ -197,7 +199,7 @@ onMounted(() => { void load() })
         <div class="health-chat-food">
           <b>每一天复制的食品</b>
           <div v-for="(item, i) in items" :key="i" class="health-chat-food-title">
-            <span>{{ item.name }} · {{ item.grams }} g</span>
+            <span>{{ item.name }} · {{ item.grams > 0 ? item.grams + ' g' : '重量未记录' }}{{ item.foodId === 0 ? '（本次热量估算）' : '' }}</span>
             <span>{{ Number(item.calories ?? 0).toFixed(0) }} kcal</span>
           </div>
         </div>
