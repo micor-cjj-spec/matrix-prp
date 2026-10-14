@@ -307,6 +307,14 @@ public class WellnessAiDraftService {
         item.put("foodId",0L);
         item.put("mode","manual");
         item.put("manualCalories",energy);
+        // Optional user-spoken merchant/serving qualifiers are hints, not verified vendor facts.
+        if(source.contains("沙县小吃")) item.put("merchantName","沙县小吃");
+        if(source.contains("大碗")) item.put("portionLabel","大碗");
+        else if(source.contains("小碗")) item.put("portionLabel","小碗");
+        var count=java.util.regex.Pattern.compile("(\\d{1,4})\\s*个").matcher(source);
+        if(count.find()) item.put("portionCount",Integer.parseInt(count.group(1)));
+        if(source.contains("ChatGPT") || source.contains("GPT") || source.contains("AI估算") ||
+           source.contains("AI 估算")) item.put("sourceType","AI_ESTIMATE");
         item.put("calories",energy);
     }
     Map<String,Object> verify(JsonNode node){ return verify(node,false); }
@@ -332,7 +340,16 @@ public class WellnessAiDraftService {
                     if(grams==null)grams=BigDecimal.ZERO;
                     if(grams.compareTo(BigDecimal.valueOf(3000))>0)
                         throw invalid("Food grams out of range");
-                    boolean manual=edited && "manual".equals(item.path("mode").asText(""));
+                    String mode=edited?item.path("mode").asText("catalog"):"catalog";
+                    if(!Set.of("catalog","manual","template").contains(mode))
+                        throw invalid("Unknown energy source");
+                    boolean manual="manual".equals(mode), template="template".equals(mode);
+                    DishTemplate selectedTemplate=null;
+                    if(template) {
+                        long templateId=item.path("templateId").asLong(0);
+                        if(templateId<=0) throw invalid("Personal dish not selected");
+                        selectedTemplate=wellness.ownedDishTemplate(templateId);
+                    }
                     BigDecimal manualCalories=null;
                     if(manual) {
                         manualCalories=decimal(item,"manualCalories",true);
@@ -341,10 +358,11 @@ public class WellnessAiDraftService {
                             manualCalories.scale()>2)
                             throw invalid("Manual kcal must be between 0 and 20000");
                     }
+                    if(template) manualCalories=selectedTemplate.caloriesPerServing();
                     Food match=null;
-                    if(!manual && edited && item.path("foodId").canConvertToLong() && item.path("foodId").asLong()>0)
+                    if(!manual && !template && edited && item.path("foodId").canConvertToLong() && item.path("foodId").asLong()>0)
                         match=wellness.accessibleFood(item.path("foodId").asLong());
-                    if(!manual && !edited) {
+                    if(!manual && !template && !edited) {
                         // Conservative name matching; do not silently equate similarly named recipes.
                         String normalized=normalize(name);
                         match=wellness.foods(name).stream()
@@ -352,12 +370,32 @@ public class WellnessAiDraftService {
                     }
                     Map<String,Object> record=new LinkedHashMap<>();
                     record.put("foodId",match==null?0:match.id());
-                    record.put("mode",manual?"manual":"catalog");
-                    record.put("name",match==null?name:match.name());
-                    record.put("grams",grams);
+                    record.put("mode",template?"template":manual?"manual":"catalog");
+                    record.put("name",template?selectedTemplate.dishName():match==null?name:match.name());
+                    record.put("grams",template?BigDecimal.ZERO:grams);
+                    record.put("templateId",template?selectedTemplate.id():null);
                     record.put("manualCalories",manualCalories);
-                    record.put("calories",manual?manualCalories:match==null||grams.signum()==0?null:
+                    record.put("calories",manual||template?manualCalories:match==null||grams.signum()==0?null:
                         NutritionMath.portion(match.calories100g(),grams));
+                    if(edited && manual) {
+                        boolean save=item.path("saveToFavorites").asBoolean(false);
+                        String merchant=item.path("merchantName").asText("").strip();
+                        String portion=item.path("portionLabel").asText("").strip();
+                        String source=item.path("sourceType").asText("USER_ESTIMATE");
+                        String sourceNote=item.path("sourceNote").asText("").strip();
+                        int count=item.path("portionCount").isNull()||item.path("portionCount").asText("").isBlank()
+                            ?0:item.path("portionCount").asInt(-1);
+                        if(merchant.length()>100 || portion.length()>100 || sourceNote.length()>255 ||
+                            !Set.of("USER_ESTIMATE","AI_ESTIMATE","LABEL","OTHER").contains(source) ||
+                            count<0 || count>9999)
+                            throw invalid("Invalid personal dish details");
+                        record.put("saveToFavorites",save);
+                        record.put("merchantName",merchant);
+                        record.put("portionLabel",portion);
+                        record.put("portionCount",count==0?null:count);
+                        record.put("sourceType",source);
+                        record.put("sourceNote",sourceNote);
+                    }
                     parsed.add(record);
                 }
                 String note=node.path("note").asText("");
@@ -543,13 +581,30 @@ public class WellnessAiDraftService {
                         String mode=item.path("mode").asText("catalog");
                         long foodId=item.path("foodId").asLong(0);
                         BigDecimal grams=item.path("grams").decimalValue();
-                        if("manual".equals(mode)) {
+                        if("manual".equals(mode) || "template".equals(mode)) {
                             if(foodId!=0) throw invalid("Custom entries may not reference catalog foods");
                             BigDecimal kcal=decimal(item,"manualCalories",true);
                             if(kcal.signum()<=0 || kcal.compareTo(new BigDecimal("20000"))>0 ||
                                 kcal.scale()>2 || grams.signum()<0 || grams.compareTo(new BigDecimal("3000"))>0)
                                 throw invalid("Invalid custom food calories");
-                            snapshots.add(new WellnessService.AiMealItem(null,item.path("name").asText(),grams,kcal));
+                            String name=item.path("name").asText("");
+                            if("template".equals(mode)) {
+                                DishTemplate source=wellness.ownedDishTemplate(item.path("templateId").asLong(0));
+                                if(kcal.compareTo(source.caloriesPerServing())!=0 ||
+                                    !name.equals(source.dishName()))
+                                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                        "常吃餐品已修改，请重新选择模板后确认");
+                                name=source.dishName();
+                            } else if(item.path("saveToFavorites").asBoolean(false)) {
+                                String merchant=item.path("merchantName").asText("");
+                                String portion=item.path("portionLabel").asText("");
+                                Integer count=item.path("portionCount").isNumber()
+                                    ?item.path("portionCount").asInt():null;
+                                wellness.saveDishTemplate(new DishTemplateInput(merchant,name,portion,
+                                    count,kcal,item.path("sourceType").asText("USER_ESTIMATE"),
+                                    item.path("sourceNote").asText("")));
+                            }
+                            snapshots.add(new WellnessService.AiMealItem(null,name,grams,kcal));
                             hasManual=true;
                         } else {
                             if(foodId<=0||grams.signum()<=0)
