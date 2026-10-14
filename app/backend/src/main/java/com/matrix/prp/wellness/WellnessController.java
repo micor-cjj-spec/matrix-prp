@@ -18,6 +18,11 @@ public class WellnessController {
 
     @GetMapping("/foods")
     public ApiResponse<List<Food>> foods(@RequestParam(defaultValue="") String q) { return ApiResponse.success(service.foods(q)); }
+    /** Exact ID lookup ensures unknown weight drafts show the actual matching food's kcal/100g. */
+    @GetMapping("/foods/{id}")
+    public ApiResponse<Food> food(@PathVariable long id) {
+        return ApiResponse.success(service.accessibleFood(id));
+    }
     @GetMapping("/foods/usda/status")
     public ApiResponse<java.util.Map<String,Boolean>> usdaStatus() {
         return ApiResponse.success(java.util.Map.of("configured", usda.configured()));
