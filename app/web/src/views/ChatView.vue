@@ -447,7 +447,7 @@ onBeforeUnmount(() => controller?.abort())
     </div>
 
     <!-- Teleport the long edit form outside the height-constrained chat composer. -->
-    <el-dialog v-model="wellnessRecorderVisible" class="prp-health-chat-dialog"
+    <el-dialog v-model="wellnessRecorderVisible" class="prp-health-chat-dialog" title="健康录入"
       width="min(680px, calc(100vw - 20px))" top="max(12px, env(safe-area-inset-top))"
       append-to-body :show-close="false" :close-on-click-modal="false" :destroy-on-close="true"
       :style="{ display: 'flex', flexDirection: 'column',
