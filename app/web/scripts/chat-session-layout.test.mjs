@@ -133,7 +133,7 @@ test('inline meal capture permits per-event calories without adding a food to US
   const drafts = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiDraftService.java', import.meta.url), 'utf8')
   assert.match(card, /本次自定义热量（不入食品库）/)
   assert.match(card, /v-model\.number="item\.manualCalories"/)
-  assert.match(card, /Snapshot-only: do not call USDA import/)
+  assert.match(card, /Server owns template lookup; custom snapshots never use the standard food catalog/)
   assert.match(card, /manualCalories: Number\(item\.manualCalories\)/)
   assert.match(drafts, /applyUserCalorieEstimate\(verified,input\)/)
   assert.match(drafts, /case "meal\.create"[\s\S]*?wellness\.addAiMeal/)
