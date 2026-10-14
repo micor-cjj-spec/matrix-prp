@@ -139,6 +139,16 @@ public class WellnessService {
         if(input.items().stream().anyMatch(i->i==null || i.foodId()==null || i.grams()==null))
             throw new IllegalArgumentException("Invalid meal item");
     }
+    /** Recent owner-only snapshots used to resolve "same as my saved breakfast" safely. */
+    public List<Meal> recentMeals(String type, LocalDate through, int days) {
+        if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) || days<1 || days>31)
+            throw new IllegalArgumentException("Invalid recent meal search");
+        return db.query("SELECT id,meal_date,meal_type,note FROM prp_wellness_meals " +
+            "WHERE user_id=? AND meal_type=? AND meal_date BETWEEN ? AND ? " +
+            "ORDER BY meal_date DESC,id DESC LIMIT 30",
+            (r,n)->mealFromRow(r),CurrentUser.id(),type,through.minusDays(days-1),through);
+    }
+
     public List<Meal> meals(LocalDate date) {
         List<Meal> result=new ArrayList<>();
         db.query("SELECT id,meal_date,meal_type,note FROM prp_wellness_meals " +
