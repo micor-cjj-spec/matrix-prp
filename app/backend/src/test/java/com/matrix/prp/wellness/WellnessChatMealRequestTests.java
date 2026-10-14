@@ -13,6 +13,15 @@ class WellnessChatMealRequestTests {
         assertThat(WellnessChatMealRequest.isContextualFollowup("晚餐也帮我录入")).isTrue();
         assertThat(WellnessChatMealRequest.isContextualFollowup("帮我生成今天晚餐的记录卡片")).isTrue();
     }
+    @Test void lateNightImportRequestsAreContextualNotOrdinaryModelChat(){
+        for(String message: new String[]{
+            "你帮我导入", "你帮我导入一下", "帮我导入",
+            "帮我把这顿写入健康中心", "帮我归档晚餐",
+            "请把这餐导入健康记录"})
+            assertThat(WellnessChatMealRequest.isContextualFollowup(message))
+                .as(message).isTrue();
+    }
+
     @Test void fullFoodDescriptionsAndDeveloperQuestionsCannotReuseOlderFood(){
         assertThat(WellnessChatMealRequest.isContextualFollowup(
             "今晚吃了寿司，帮我生成卡片")).isFalse();
