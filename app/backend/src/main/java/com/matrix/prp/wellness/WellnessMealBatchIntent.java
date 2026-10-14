@@ -81,6 +81,10 @@ final class WellnessMealBatchIntent {
                 if(grams.matches()){
                     // One-item meal declared total can supply the per-event kcal at finish().
                     foods.add(new Food(grams.group(1).strip(),new BigDecimal(grams.group(2)),null));
+                } else {
+                    // Do not silently drop a named food such as "鸡蛋" just because
+                    // the user omitted grams/kcal. Ask for correction before saving.
+                    throw new IllegalArgumentException("无法解析餐次明细："+line+"；请为食物补充本次热量");
                 }
             }
         }
