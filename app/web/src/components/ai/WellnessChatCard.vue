@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiClient, type ApiResponse } from '@/api/client'
-import { wellnessApi, type Food, type UsdaCandidate } from '@/api/wellness'
+import { wellnessApi, type Food, type UsdaCandidate, type DishTemplate } from '@/api/wellness'
 import { cloneJson } from '@/utils/cloneJson'
 
 type Item = {
   foodId: number; name: string; grams: number; calories: number | null
-  mode?: 'catalog' | 'manual'; manualCalories?: number | null
+  mode?: 'catalog' | 'manual' | 'template'; manualCalories?: number | null
+  templateId?: number | null; saveToFavorites?: boolean; merchantName?: string
+  portionLabel?: string; portionCount?: number | null
+  sourceType?: 'USER_ESTIMATE' | 'AI_ESTIMATE' | 'LABEL' | 'OTHER'
+  sourceNote?: string
 }
 type DraftValues = {
   date: string; mealType?: string; items?: Item[]; note?: string
@@ -30,12 +34,48 @@ const sourceAvailable = ref(false)
 const foodLoadingErrors = reactive<Record<number, string>>({})
 const originalCalories = reactive<Record<number, { grams: number; kcal: number }>>({})
 const calorieDensity = reactive<Record<number, number>>({})
+const suggestedDishes = reactive<Record<number, DishTemplate[]>>({})
+const allPersonalDishes = ref<DishTemplate[]>([])
+function usePersonalDish(index: number, templateId: number) {
+  const dish = allPersonalDishes.value.find(x => x.id === Number(templateId))
+  const item = items.value[index]
+  if (!dish || !item) return
+  item.mode = 'template'
+  item.templateId = dish.id
+  item.foodId = 0
+  item.name = dish.dishName
+  item.grams = 0
+  item.manualCalories = Number(dish.caloriesPerServing)
+  item.merchantName = dish.merchantName
+  item.portionLabel = dish.portionLabel
+  item.portionCount = dish.portionCount
+  item.sourceType = dish.sourceType
+  item.sourceNote = dish.sourceNote || ''
+  item.saveToFavorites = false
+}
+function normalizeDish(text: string) { return text.replace(/[\\s（）()]/g, '').toLowerCase() }
+async function loadDishSuggestions() {
+  try {
+    allPersonalDishes.value = await wellnessApi.dishes()
+    items.value.forEach((item, i) => {
+      const name = normalizeDish(item.name)
+      suggestedDishes[i] = allPersonalDishes.value.filter(d => {
+        const dishName = normalizeDish(d.dishName)
+        return name.length >= 2 && (name.includes(dishName) || dishName.includes(name))
+      }).slice(0, 8)
+    })
+  } catch {
+    allPersonalDishes.value = []
+  }
+}
+
 const types: Record<string, string> = { BREAKFAST: '早餐', LUNCH: '午餐', DINNER: '晚餐', SNACK: '加餐' }
 const items = computed(() => values.value.items ?? [])
-function isManual(item: Item) { return item.mode === 'manual' }
+function isManual(item: Item) { return item.mode === 'manual' || item.mode === 'template' }
 function validManualCalories(item: Item) {
   const n = Number(item.manualCalories)
-  return item.manualCalories !== null && item.manualCalories !== undefined &&
+  return (item.mode !== 'template' || !!item.templateId) &&
+    item.manualCalories !== null && item.manualCalories !== undefined &&
     Number.isFinite(n) && n > 0 && n <= 20000 && Math.round(n * 100) === n * 100 &&
     !!item.name?.trim() && item.name.trim().length <= 120 &&
     Number.isFinite(Number(item.grams)) && Number(item.grams) >= 0 && Number(item.grams) <= 3000
@@ -100,7 +140,7 @@ async function load() {
     status.value = response.data.data.status
     values.value = cloneJson(response.data.data.draft.values)
     values.value.items?.forEach((item, i) => {
-      item.mode = item.mode === 'manual' ? 'manual' : 'catalog'
+      item.mode = item.mode === 'manual' || item.mode === 'template' ? item.mode : 'catalog'
       if (item.foodId && Number(item.grams) > 0 && item.calories != null)
         originalCalories[i] = { grams: Number(item.grams), kcal: Number(item.calories) }
     })
@@ -117,8 +157,10 @@ async function load() {
         }
       }) ?? [])
     }
-    if (status.value === 'PENDING' && draft.value.action === 'meal.create')
+    if (status.value === 'PENDING' && draft.value.action === 'meal.create') {
+      await loadDishSuggestions()
       await searchMissingFoods()
+    }
   } catch { error.value = '读取记录草稿失败或无权访问'; }
   finally { loading.value = false }
 }
@@ -133,9 +175,10 @@ async function confirm() {
       const item = items.value[i]!
       if (isManual(item)) {
         if (!validManualCalories(item)) throw new Error('请输入本次实际估算的食物名称和总热量')
-        // Snapshot-only: do not call USDA import or create a catalog record.
+        // Server owns template lookup; custom snapshots never use the standard food catalog.
         newItems.push({ ...item, foodId: 0, grams: Number(item.grams) || 0,
-          mode: 'manual', manualCalories: Number(item.manualCalories) })
+          mode: item.mode === 'template' ? 'template' : 'manual',
+          manualCalories: Number(item.manualCalories) })
         continue
       }
       let foodId = Number(item.foodId)
@@ -218,10 +261,20 @@ onMounted(() => { void load() })
         </div>
         <div v-for="(item, i) in items" :key="i" class="health-chat-food">
           <div class="health-chat-food-title"><b>{{ item.name }}</b><span>{{ !isManual(item) && item.foodId && !Number.isFinite(calorieDensity[i]) ? '热量待读取' : portion(item, i).toFixed(0) + ' kcal' }}</span></div>
+          <label v-if="suggestedDishes[i]?.length">匹配到你的常吃餐品（手动选择后才使用）
+            <select :value="item.mode === 'template' ? item.templateId ?? '' : ''"
+              :disabled="saving" @change="usePersonalDish(i, Number(($event.target as HTMLSelectElement).value))">
+              <option value="">选择常吃餐品</option>
+              <option v-for="dish in suggestedDishes[i]" :key="dish.id" :value="dish.id">
+                {{ dish.merchantName || '个人餐品' }} · {{ dish.dishName }} {{ dish.portionLabel }} · {{ dish.caloriesPerServing }} kcal/份
+              </option>
+            </select>
+          </label>
           <label>热量来源
             <select v-model="item.mode" :disabled="saving">
               <option value="catalog">使用食品库 / USDA 营养数据</option>
               <option value="manual">本次自定义热量（不入食品库）</option>
+              <option v-if="item.mode === 'template'" value="template">引用个人常吃餐品</option>
             </select>
           </label>
           <template v-if="isManual(item)">
@@ -230,13 +283,43 @@ onMounted(() => { void load() })
             </label>
             <label>本次摄入总热量（kcal）
               <input v-model.number="item.manualCalories" type="number" min="0.01" max="20000" step="0.01"
-                inputmode="decimal" :disabled="saving" placeholder="如：650" />
+                inputmode="decimal" :disabled="saving || item.mode === 'template'" placeholder="如：650" />
             </label>
             <label>可食用克重（可选）
               <input v-model.number="item.grams" type="number" min="0" max="3000" step="0.1"
                 inputmode="decimal" :disabled="saving" placeholder="不清楚可留 0" /> g
             </label>
             <p class="health-chat-note">仅保存本次餐次的食物名称与总热量，不新增食品库数据；蛋白质、碳水、脂肪未知，不代表为 0。</p>
+            <template v-if="item.mode === 'manual'">
+              <label class="health-chat-check">
+                <input v-model="item.saveToFavorites" type="checkbox" :disabled="saving" />
+                同时保存到「我的常吃餐品」
+              </label>
+              <template v-if="item.saveToFavorites">
+                <label>商家名称（可留空）
+                  <input v-model.trim="item.merchantName" maxlength="100" :disabled="saving" placeholder="例如：楼下沙县小吃" />
+                </label>
+                <label>份量规格（整份热量，不是每 100g）
+                  <input v-model.trim="item.portionLabel" maxlength="100" :disabled="saving" placeholder="例如：大碗" />
+                </label>
+                <label>数量（可选）
+                  <input v-model.number="item.portionCount" type="number" min="1" max="9999"
+                    :disabled="saving" placeholder="例如：17 个" />
+                </label>
+                <label>热量参考来源
+                  <select v-model="item.sourceType" :disabled="saving">
+                    <option value="USER_ESTIMATE">我自己的估算</option>
+                    <option value="AI_ESTIMATE">AI 辅助估算</option>
+                    <option value="LABEL">包装 / 商家标注</option>
+                    <option value="OTHER">其他来源</option>
+                  </select>
+                </label>
+                <label>来源说明（可选）
+                  <input v-model.trim="item.sourceNote" maxlength="255" :disabled="saving" placeholder="例如：与 ChatGPT 讨论估算" />
+                </label>
+              </template>
+            </template>
+            <p v-if="item.mode === 'template'" class="health-chat-note">引用你保存的餐品每份参考热量，实际确认后只保存本次快照；更新模板不会修改历史记录。</p>
           </template>
           <template v-else>
           <label>可食用克重 <input v-model.number="item.grams" type="number" min="0.1" max="3000" step="0.1" inputmode="decimal" :disabled="saving" /> g</label>
@@ -280,6 +363,8 @@ onMounted(() => { void load() })
 .health-chat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0}
 .health-chat-food{display:grid;gap:6px;padding:11px 0;border-bottom:1px solid #dce5f1;min-width:0}
 .health-chat-food-title,.health-chat-total{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.health-chat-check{display:flex!important;align-items:center;gap:8px;font-size:13px!important}
+.health-chat-check input{width:auto;min-width:16px;height:18px}
 .health-chat-note{font-size:12px;color:#64748b}
 .health-chat-alert{font-size:12px;color:#a63b36}
 .health-chat-success{color:#06784b;font-weight:600}
