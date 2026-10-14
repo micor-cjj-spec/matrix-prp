@@ -88,6 +88,8 @@ test('AI health recording uses a closable scrollable modal instead of growing th
   assert.doesNotMatch(chat, /class="chat-wellness-recorder"/)
   assert.match(chat, /<el-dialog v-model="wellnessRecorderVisible"/)
   assert.match(chat, /append-to-body :show-close="false" :close-on-click-modal="false" :destroy-on-close="true"/)
+  assert.match(chat, /<template #header="\{ titleId, titleClass \}">/)
+  assert.match(chat, /<strong :id="titleId" :class="titleClass">健康录入<\/strong>/)
   assert.match(chat, /aria-label="关闭健康录入"/)
   assert.match(chat, /@click="wellnessRecorderVisible = false"/)
   assert.match(chat, /class="chat-wellness-scroll" role="region"/)
