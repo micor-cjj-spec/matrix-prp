@@ -3,10 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
-import WellnessAiRecorder from '@/components/wellness/WellnessAiRecorder.vue'
+import WellnessChatCard from '@/components/ai/WellnessChatCard.vue'
 import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
-import { fetchUsage, listConversations, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, AiStreamHttpError,
+import { fetchUsage, listConversations, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, prepareInlineHealthDraft, AiStreamHttpError,
   type AiUsage, type ChatMessage, type AiMessageBlock, type Conversation, type AiContextPreview } from '@/api/ai'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
@@ -54,11 +54,56 @@ const previewVisible = ref(false)
 const previewing = ref(false)
 const confirming = ref(false)
 const streamError = ref('')
-const wellnessRecorderVisible = ref(false)
-const wellnessRecorderText = ref('')
-function openWellnessRecorder() {
-  wellnessRecorderVisible.value = !wellnessRecorderVisible.value
-  if (wellnessRecorderVisible.value && input.value.trim()) wellnessRecorderText.value = input.value.trim()
+const chatPhoto = ref<File | null>(null)
+const photoInput = ref<HTMLInputElement | null>(null)
+function photoSelected(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 3_000_000) {
+    ElMessage.warning('仅支持小于3MB的 JPG、PNG 或 WebP 食物照片')
+  } else chatPhoto.value = file
+  if (photoInput.value) photoInput.value.value = ''
+}
+async function prepareInlineDiet(content: string) {
+  if (sending.value) return
+  const photo = chatPhoto.value
+  const originalText = input.value
+  const previousMessages = [...messages.value]
+  const id = -Date.now()
+  ++activeSelectionRequest
+  input.value = ''
+  chatPhoto.value = null
+  selectedScopes.value = []
+  invalidatePreview()
+  mentionOpen.value = false
+  sending.value = true
+  streamError.value = ''
+  messages.value.push(
+    { id, role: 'user', content: photo ? content + '（附餐食照片）' : content, createdAt: new Date().toISOString() },
+    { id: id - 1, role: 'assistant', content: '正在整理饮食和营养数据，请稍候…', createdAt: new Date().toISOString() },
+  )
+  bottom()
+  try {
+    const result = await prepareInlineHealthDraft(content, selectedId.value, photo)
+    selectedId.value = result.conversationId
+    const [latest, blocks] = await Promise.all([
+      listMessages(result.conversationId, undefined, HISTORY_PAGE_SIZE + 1),
+      listMessageBlocks(result.conversationId),
+    ])
+    messages.value = latest.slice(-HISTORY_PAGE_SIZE)
+    blocksByMessage.value = groupBlocks(blocks)
+    hasOlder.value = latest.length > HISTORY_PAGE_SIZE
+    await refresh()
+  } catch (e) {
+    const err = e as { response?: { data?: { message?: string } } }
+    streamError.value = err.response?.data?.message || 'AI 饮食记录解析失败，请检查模型配置并重试'
+    input.value = originalText
+    chatPhoto.value = photo
+    messages.value = previousMessages
+  } finally {
+    sending.value = false
+    bottom()
+  }
 }
 const scroller = ref<HTMLElement | null>(null)
 const models = computed(() => settings.value?.providers.find(item => item.id === provider.value)?.models ?? [])
@@ -261,20 +306,15 @@ function describeStreamError(error: unknown): string {
   return '聊天流式连接中断，请检查网络后重试。'
 }
 async function send(contextToken?: string) {
-  const content = input.value.trim()
+  const content = input.value.trim() || (chatPhoto.value ? '请识别照片中的食物，分析热量并记录这顿饮食' : '')
   if (!content || sending.value || content.length > 4000) return
-  const healthWrite = /(记下|记录|录入|新增|添加|记一笔|记一下|帮我记|修改|更正|改成|删除|撤销|删掉)/u.test(content) &&
-    /(早餐|午餐|晚餐|加餐|吃了|喝了|食物|热量|体重|体脂|腰围|跑步|步行|运动|骑行|健身)/u.test(content) &&
-    !/(如何|怎么|为什么|分析|建议|计划|查询|如何设计)/u.test(content)
-  if (content.length <= 1500 && healthWrite &&
+  const healthWrite = /(?:记录|录入|添加|新增|保存|记下|记一下|帮我记|记一笔|存入)/u.test(content) &&
+    /(?:早餐|午餐|晚餐|加餐|饮食|食物|热量|吃了|喝了|这顿|鸡蛋|牛奶|米饭)/u.test(content) &&
+    !/(?:如何实现|怎么开发|如何设计|为什么不能)/u.test(content)
+  if (content.length <= 1500 && (healthWrite || chatPhoto.value) &&
       (selectedScopes.value.length === 0 ||
-       selectedScopes.value.every(s => s === 'wellness' || s === 'wellness_body'))) {
-    wellnessRecorderText.value = content.replace(/^@(健康|身体指标)\\s*/u, '')
-    wellnessRecorderVisible.value = true
-    input.value = ''
-    selectedScopes.value = []
-    invalidatePreview()
-    mentionOpen.value = false
+       selectedScopes.value.every(s => s === 'wellness'))) {
+    await prepareInlineDiet(content.replace(/^@(健康)\s*/u, ''))
     return
   }
   if (selectedScopes.value.length > 0 && !contextToken) { await showPreview(); return }
@@ -395,8 +435,11 @@ onBeforeUnmount(() => controller?.abort())
             <div v-if="message.role === 'assistant' && !message.content" class="chat-typing">正在思考 <span>···</span></div>
             <div v-else-if="message.role === 'assistant'" class="markdown-body" v-html="renderSafeMarkdown(message.content)" />
             <div v-else class="chat-user-text">{{ message.content }}</div>
-            <AiNavigationCard v-for="(block, i) in blocksByMessage[message.id] ?? []"
-              :key="message.id + '-' + i" :block="block" />
+            <template v-for="(block, i) in blocksByMessage[message.id] ?? []" :key="message.id + '-' + i">
+              <AiNavigationCard v-if="block.type === 'navigation'" :block="block" />
+              <WellnessChatCard v-else-if="block.type === 'wellness_draft'"
+                :draft-id="block.route" @saved="bottom()" />
+            </template>
             <div v-if="message.role === 'assistant' && message.content" class="chat-message-actions">
               <button title="复制回复" aria-label="复制回复" @click="copy(message.content)"><el-icon><CopyDocument /></el-icon></button>
               <button v-if="index === messages.length - 1 && !sending" title="重新提问" aria-label="重新提问" @click="retry"><el-icon><RefreshRight /></el-icon></button>
@@ -424,7 +467,11 @@ onBeforeUnmount(() => controller?.abort())
               <strong>@{{ item.label }}</strong><span>{{ item.hint }}</span>
             </button>
             <div v-if="filteredOptions.length === 0" class="mention-empty">暂无匹配的可授权应用</div>
-            <div class="mention-hint">引用其他应用仍需一次性只读授权；健康录入通过单独的待确认草稿操作。</div>
+            <div class="mention-hint">引用其他应用需要一次性只读授权；饮食记录在聊天卡片中确认后才写入。</div>
+          </div>
+          <div v-if="chatPhoto" class="chat-photo-preview">
+            <span>📷 {{ chatPhoto.name }}</span>
+            <button type="button" aria-label="移除照片" @click="chatPhoto = null">移除</button>
           </div>
           <div class="chat-composer">
             <el-input v-model="input" type="textarea" class="chat-input" resize="none" :autosize="{ minRows: 1, maxRows: 5 }"
@@ -434,9 +481,11 @@ onBeforeUnmount(() => controller?.abort())
               <div class="chat-compose-left">
                 <button type="button" aria-label="引用 PRP 应用" title="引用应用" @click="mentionOpen = !mentionOpen; mentionQuery = ''"><el-icon><Plus /></el-icon></button>
                 <button type="button" class="chat-at" @click="mentionOpen = !mentionOpen; mentionQuery = ''">@ 应用</button>
-                <button type="button" class="chat-at" @click="openWellnessRecorder()">📷 健康录入</button>
+                <input ref="photoInput" type="file" accept="image/jpeg,image/png,image/webp"
+                  class="chat-photo-input" aria-label="添加食物照片" @change="photoSelected" />
+                <button type="button" class="chat-at" aria-label="添加食物照片" @click="photoInput?.click()">📷 食物照片</button>
               </div>
-              <button type="button" class="chat-send" aria-label="发送消息" :disabled="!input.trim() || sending || previewing" @click="send()">
+              <button type="button" class="chat-send" aria-label="发送消息" :disabled="(!input.trim() && !chatPhoto) || sending || previewing" @click="send()">
                 <el-icon><Promotion /></el-icon>
               </button>
             </div>
@@ -445,26 +494,6 @@ onBeforeUnmount(() => controller?.abort())
         </div>
       </div>
     </div>
-
-    <!-- Teleport the long edit form outside the height-constrained chat composer. -->
-    <el-dialog v-model="wellnessRecorderVisible" class="prp-health-chat-dialog" title="健康录入"
-      width="min(680px, calc(100vw - 20px))" top="max(12px, env(safe-area-inset-top))"
-      append-to-body :show-close="false" :close-on-click-modal="false" :destroy-on-close="true"
-      :style="{ display: 'flex', flexDirection: 'column',
-        height: 'min(740px, calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))',
-        overflow: 'hidden' }" @closed="wellnessRecorderText = ''">
-      <template #header="{ titleId, titleClass }">
-        <div class="chat-wellness-dialog-header">
-          <strong :id="titleId" :class="titleClass">健康录入</strong>
-          <button type="button" class="chat-wellness-close" aria-label="关闭健康录入"
-            @click="wellnessRecorderVisible = false"><el-icon><Close /></el-icon>关闭</button>
-        </div>
-      </template>
-      <div class="chat-wellness-scroll" role="region" aria-label="AI 健康记录表单">
-        <WellnessAiRecorder :initial-text="wellnessRecorderText"
-          @recorded="() => { wellnessRecorderVisible = false; wellnessRecorderText = '' }" />
-      </div>
-    </el-dialog>
 
     <el-drawer v-model="historyOpen" direction="ltr" :size="320" :with-header="false" append-to-body>
       <div class="chat-history">
@@ -575,12 +604,10 @@ onBeforeUnmount(() => controller?.abort())
 :deep(.markdown-body th),:deep(.markdown-body td){padding:8px 10px;border:1px solid #dbe4f0;text-align:left}
 :deep(.markdown-body th){background:#f4f7fc}
 :deep(.markdown-body blockquote){margin:10px 0;padding:6px 14px;border-left:3px solid #b4c7e7;color:#6b7b90}
-.chat-wellness-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
-.chat-wellness-dialog-header strong{font-size:16px}
-.chat-wellness-close{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:none;min-height:42px;padding:8px 12px;border:0;border-radius:9px;background:#eff4fa;color:#385675;font-size:14px;cursor:pointer}
-.chat-wellness-scroll{height:100%;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain;box-sizing:border-box;padding:10px 12px calc(16px + env(safe-area-inset-bottom, 0px))}
-:global(.prp-health-chat-dialog .el-dialog__header){flex:none;margin:0;padding:9px 14px;border-bottom:1px solid #e6edf5}
-:global(.prp-health-chat-dialog .el-dialog__body){flex:1 1 auto;min-height:0;overflow:hidden;padding:0}
+.chat-photo-input{display:none}
+.chat-photo-preview{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;margin-bottom:6px;background:#eff6ff;border-radius:9px;color:#1d4ed8;font-size:12px}
+.chat-photo-preview span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-photo-preview button{border:none;background:transparent;color:#375bb2;cursor:pointer}
 @media(max-width:860px){
   .prp-chat-header{height:54px;padding:0 10px}
   .prp-chat-messages{padding:19px 14px}
