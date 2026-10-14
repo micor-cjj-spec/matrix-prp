@@ -199,6 +199,14 @@ jobs:
             echo "::error::Candidate must be a successful Deploy PRP run triggered by main CI at the current commit."
             exit 2
           }
+      # Checkout must run BEFORE downloading release.tar.gz: the default clean checkout
+      # removes untracked files, including already-verified release archives.
+      - name: Checkout controller manifest for the exact release commit
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         if: github.event_name == 'workflow_run' || inputs.action == 'deploy'
         with:
@@ -233,12 +241,6 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           test -s ~/.ssh/prp_deploy
           test -s ~/.ssh/known_hosts
-      - name: Checkout controller manifest for the exact release commit
-        if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-          persist-credentials: false
       - name: Verify approved production controller before deploying
         if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
         env:
@@ -260,7 +262,11 @@ jobs:
           set -euo pipefail
           ssh_args=(-i ~/.ssh/prp_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
           case "$ACTION" in
-            deploy|promote) ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" deploy < release.tar.gz ;;
+            deploy|promote)
+              # Never invoke the production controller without a local release archive.
+              test -s release.tar.gz
+              ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" deploy < release.tar.gz
+              ;;
             check) ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" check ;;
             rollback)
               [[ "$RELEASE_ID" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$ ]] || { echo 'Invalid release ID'; exit 2; }
