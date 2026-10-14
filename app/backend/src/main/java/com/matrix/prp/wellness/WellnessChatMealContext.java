@@ -23,23 +23,32 @@ final class WellnessChatMealContext {
     private WellnessChatMealContext() {}
 
     static Optional<Candidate> parse(List<AiStore.Message> history, LocalDate today) {
+        return parse(history,today,"");
+    }
+
+    static Optional<Candidate> parse(List<AiStore.Message> history, LocalDate today,String request) {
         if(history==null || history.isEmpty())return Optional.empty();
-        // The store returns messages oldest first; select the LATEST user meal,
-        // never a copied assistant recipe or another conversation's meal.
+        String requestedType=type(request==null?"":request);
+        LocalDate requestedDate=explicitDate(request==null?"":request,today);
+        // Select an authenticated user's described meal, never an assistant
+        // response. An explicit meal request must not silently select lunch
+        // when the user has asked to create a dinner card.
         for(int i=history.size()-1;i>=0;i--) {
             AiStore.Message source=history.get(i);
             if(!"user".equals(source.role()) || source.content()==null)continue;
             String text=source.content().strip();
             String type=type(text);
-            if(type==null)continue;
-            if(!FOOD.matcher(text).find()){
-                // Do not skip a newer unrecognized meal (e.g. sushi) and fall
-                // back to an older recognizable meal, silently saving the wrong one.
+            if(type==null || (requestedType!=null && !requestedType.equals(type)))continue;
+            if(!FOOD.matcher(text).find() && extractDescribedFood(text)==null){
+                // The latest explicit meal description may be incomplete. Do
+                // not replace it with an unrelated older meal.
                 if(text.matches("(?s).*(?:吃了|吃的|吃过|喝了|点了|打算吃|准备吃|想吃|吃的是|餐[:：]|饭[:：]|餐吃|饭吃).*"))
                     return Optional.empty();
                 continue;
             }
             LocalDate date=mealDate(text,today);
+            if(requestedDate!=null && !requestedDate.equals(date))
+                return Optional.empty();
             if(date==null || date.isAfter(today.plusDays(1)) || date.isBefore(today.minusYears(2)))
                 return Optional.empty();
             StringBuilder detail=new StringBuilder(text);
@@ -56,7 +65,20 @@ final class WellnessChatMealContext {
             BigDecimal kcal=WellnessAiDraftService.userProvidedCalories(text);
             String sourceType="USER_ESTIMATE";
             if(kcal==null) {
-                for(int j=history.size()-1;j>i;j--){
+                // Stop at the next independently described meal. A later lunch
+                // estimate must never become the estimate for an earlier dinner.
+                int until=history.size();
+                for(int j=i+1;j<history.size();j++){
+                    var next=history.get(j);
+                    if(!"user".equals(next.role()) || next.content()==null)continue;
+                    String other=next.content().strip();
+                    if(type(other)!=null &&
+                       (FOOD.matcher(other).find() || extractDescribedFood(other)!=null)) {
+                        until=j;
+                        break;
+                    }
+                }
+                for(int j=until-1;j>i;j--){
                     var reply=history.get(j);
                     if(!"assistant".equals(reply.role()) || reply.content()==null)continue;
                     var m=ENERGY.matcher(reply.content());
@@ -82,6 +104,27 @@ final class WellnessChatMealContext {
             return Optional.of(new Candidate(date,type,name,kcal,sourceType,note));
         }
         return Optional.empty();
+    }
+
+    private static LocalDate explicitDate(String text,LocalDate today) {
+        if(text.isBlank())return null;
+        // A user request's date constrains the history search; it never
+        // silently rewrites the date of another historical meal.
+        if(ISO.matcher(text).find() || CHINESE.matcher(text).find() ||
+            text.contains("今天") || text.contains("昨天") ||
+            text.contains("前天") || text.contains("明天") ||
+            text.contains("明晚") || text.contains("后天"))
+            return mealDate(text,today);
+        return null;
+    }
+
+    private static String extractDescribedFood(String text) {
+        var m=Pattern.compile("(?:吃了|吃的|吃过|喝了|点了|打算吃|准备吃|想吃|吃的是)\\s*(.{1,75})")
+            .matcher(text);
+        if(!m.find())return null;
+        String food=m.group(1).split("[，。！？；;\\n]|(?:帮我|给我|请你|记录|录入|保存)",2)[0].strip();
+        // If the user has not yet named a food, do not fill from the assistant.
+        return food.isEmpty() || food.length()>70 ? null : food;
     }
 
     private static String type(String text) {
@@ -118,8 +161,12 @@ final class WellnessChatMealContext {
             food="鸡腿饭";
         else {
             var m=FOOD.matcher(original);
-            if(!m.find())return "";
-            food=m.group();
+            if(m.find())food=m.group();
+            else {
+                String described=extractDescribedFood(original);
+                if(described==null)return "";
+                food=described;
+            }
         }
         if(original.contains("两荤两素"))food+="（两荤两素）";
         if(original.contains("饭比较多") || original.contains("饭多菜少"))
