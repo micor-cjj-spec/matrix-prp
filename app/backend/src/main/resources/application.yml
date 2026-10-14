@@ -69,10 +69,14 @@ matrix-prp:
       api-key: ${MATRIX_PRP_DEEPSEEK_API_KEY:}
       model: ${MATRIX_PRP_DEEPSEEK_MODEL:deepseek-chat}
     max-output-tokens: 1024
-    user-monthly-requests: ${MATRIX_PRP_AI_USER_MONTHLY_REQUESTS:200}
-    global-monthly-requests: ${MATRIX_PRP_AI_GLOBAL_MONTHLY_REQUESTS:1000}
-    user-monthly-reserved-tokens: ${MATRIX_PRP_AI_USER_MONTHLY_TOKENS:250000}
-    global-monthly-reserved-tokens: ${MATRIX_PRP_AI_GLOBAL_MONTHLY_TOKENS:1000000}
+    # The two dimensions are independent: a request consumes both 1 call and
+    # estimated token reservation. Keep token budgets sufficient for 2,000
+    # typical chat calls. Provider billing / rate limits still apply.
+    # Production can override these values with the named environment variables.
+    user-monthly-requests: ${MATRIX_PRP_AI_USER_MONTHLY_REQUESTS:2000}
+    global-monthly-requests: ${MATRIX_PRP_AI_GLOBAL_MONTHLY_REQUESTS:10000}
+    user-monthly-reserved-tokens: ${MATRIX_PRP_AI_USER_MONTHLY_TOKENS:12000000}
+    global-monthly-reserved-tokens: ${MATRIX_PRP_AI_GLOBAL_MONTHLY_TOKENS:60000000}
 
   wellness:
     # Optional USDA FoodData Central (CC0) server-only key; never exposed to browsers.
