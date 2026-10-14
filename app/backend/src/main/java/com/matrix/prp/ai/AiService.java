@@ -48,10 +48,10 @@ public class AiService {
                      ObjectMapper json, Environment environment,
                      @Qualifier("aiExecutor") TaskExecutor executor,
                      @Value("${matrix-prp.ai.max-output-tokens:1024}") int outputLimit,
-                     @Value("${matrix-prp.ai.user-monthly-requests:200}") int perUserRequests,
-                     @Value("${matrix-prp.ai.global-monthly-requests:1000}") int globalRequests,
-                     @Value("${matrix-prp.ai.user-monthly-reserved-tokens:250000}") long perUserTokens,
-                     @Value("${matrix-prp.ai.global-monthly-reserved-tokens:1000000}") long globalTokens) {
+                     @Value("${matrix-prp.ai.user-monthly-requests:2000}") int perUserRequests,
+                     @Value("${matrix-prp.ai.global-monthly-requests:10000}") int globalRequests,
+                     @Value("${matrix-prp.ai.user-monthly-reserved-tokens:12000000}") long perUserTokens,
+                     @Value("${matrix-prp.ai.global-monthly-reserved-tokens:60000000}") long globalTokens) {
         this.store = store;
         this.deepSeek = deepSeek;
         this.settings = settings;
