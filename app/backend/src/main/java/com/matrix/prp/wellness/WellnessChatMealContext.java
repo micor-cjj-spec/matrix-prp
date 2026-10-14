@@ -46,7 +46,10 @@ final class WellnessChatMealContext {
                     return Optional.empty();
                 continue;
             }
-            LocalDate date=mealDate(text,today);
+            // Resolve "今天/昨天" relative to the original user message,
+            // not the follow-up after midnight or on a later day.
+            LocalDate sourceDay=source.createdAt()==null?today:source.createdAt().toLocalDate();
+            LocalDate date=mealDate(text,sourceDay);
             if(requestedDate!=null && !requestedDate.equals(date))
                 continue; // Search older same-type meals for the explicitly requested date.
             if(date==null || date.isAfter(today.plusDays(1)) || date.isBefore(today.minusYears(2)))
@@ -63,6 +66,10 @@ final class WellnessChatMealContext {
                     detailText.contains("炒菜比较少")))detail.append("；").append(detailText);
             }
             BigDecimal kcal=WellnessAiDraftService.userProvidedCalories(text);
+            // Repeated identical totals are common in pasted notes:
+            // "晚餐（约650 kcal） ... 合计约650 kcal". A conflicting
+            // combination (e.g. multiple dishes with different kcal) is not safe.
+            if(kcal==null) kcal=repeatedIdenticalCalories(text);
             String sourceType="USER_ESTIMATE";
             if(kcal==null) {
                 // Stop at the next independently described meal. A later lunch
@@ -104,6 +111,23 @@ final class WellnessChatMealContext {
             return Optional.of(new Candidate(date,type,name,kcal,sourceType,note));
         }
         return Optional.empty();
+    }
+
+    private static BigDecimal repeatedIdenticalCalories(String text) {
+        var m=Pattern.compile("(?iu)(?<![\\d.])(\\d{1,4}(?:\\.\\d{1,2})?)\\s*(?:kcal|千卡|大卡|卡路里)(?!\\w)")
+            .matcher(text);
+        BigDecimal value=null;
+        int count=0;
+        while(m.find()) {
+            if(++count>6)return null;
+            BigDecimal next;
+            try {next=new BigDecimal(m.group(1));}
+            catch(NumberFormatException ex){return null;}
+            if(next.signum()<=0 || next.compareTo(new BigDecimal("20000"))>0)return null;
+            if(value!=null && value.compareTo(next)!=0)return null;
+            value=next;
+        }
+        return count>=2?value:null;
     }
 
     private static LocalDate explicitDate(String text,LocalDate today) {
