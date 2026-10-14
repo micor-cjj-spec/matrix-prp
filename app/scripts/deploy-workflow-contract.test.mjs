@@ -64,3 +64,18 @@ test('server migration safety checks stay in the release helper', () => {
   assert.match(server, /assert_preserved\(before,snapshot\(db\)\)/)
   assert.match(server, /run\(\['systemctl','start',SERVICE\]\)/)
 })
+
+test('publish checks out the attested commit before downloading any release archive', () => {
+  const checkout = publish.indexOf('Checkout controller manifest for the exact release commit')
+  const download = publish.indexOf('name: prp-release')
+  const verify = publish.indexOf('Validate artifact matches the tested main commit')
+  const attestation = publish.indexOf('Verify approved production controller before deploying')
+  const deploy = publish.indexOf('Deploy or operate production')
+  assert.ok(checkout >= 0 && download > checkout && verify > download,
+    'Checkout must finish before download and release SHA validation (checkout cleans untracked files)')
+  assert.ok(attestation > verify && deploy > attestation,
+    'Artifact SHA and controller hash must be checked before production operation')
+  assert.equal(publish.split('Checkout controller manifest for the exact release commit').length, 2,
+    'Do not add another checkout after artifact extraction')
+  assert.ok(publish.indexOf('test -s release.tar.gz', deploy) > deploy, 'Deploy checks the release archive exists')
+})
