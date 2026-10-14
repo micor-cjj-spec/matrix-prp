@@ -191,6 +191,55 @@ public class WellnessService {
         insertItems(id,input.items());
         return meal(id);
     }
+    /** A single meal can mix catalog foods with user-entered per-serving calorie snapshots.
+     * Custom entries are intentionally never inserted into prp_wellness_foods. */
+    public record AiMealItem(Long foodId, String name, BigDecimal grams, BigDecimal calories) {}
+
+    @Transactional
+    public Meal addAiMeal(LocalDate date,String type,String note,List<AiMealItem> items,String idempotencyKey) {
+        if(date==null || !Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) ||
+            items==null || items.isEmpty() || items.size()>8 ||
+            note!=null && note.length()>500 || idempotencyKey==null ||
+            idempotencyKey.isBlank() || idempotencyKey.length()>80)
+            throw new IllegalArgumentException("Invalid AI meal");
+        for(AiMealItem item:items) {
+            if(item==null) throw new IllegalArgumentException("Missing item");
+            if(item.foodId()!=null && item.foodId()>0) {
+                if(item.grams()==null || item.grams().compareTo(new BigDecimal("0.1"))<0 ||
+                    item.grams().compareTo(new BigDecimal("3000"))>0)
+                    throw new IllegalArgumentException("Invalid catalog food grams");
+                food(item.foodId()); // owner/public catalog check
+            } else {
+                if(item.name()==null || item.name().isBlank() || item.name().length()>120 ||
+                   item.calories()==null || item.calories().compareTo(BigDecimal.ZERO)<=0 ||
+                   item.calories().compareTo(new BigDecimal("20000"))>0 ||
+                   item.calories().scale()>2 ||
+                   item.grams()!=null && (item.grams().signum()<0 ||
+                       item.grams().compareTo(new BigDecimal("3000"))>0))
+                    throw new IllegalArgumentException("Invalid custom calories or food");
+            }
+        }
+        long user=CurrentUser.id();
+        List<Long> found=db.query("SELECT id FROM prp_wellness_meals WHERE user_id=? AND idempotency_key=?",
+            (r,n)->r.getLong("id"),user,idempotencyKey);
+        if(!found.isEmpty()) return meal(found.getFirst());
+        long id=insert("INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) "+
+            "VALUES (?,?,?,?,?)",user,date,type,note,idempotencyKey);
+        for(AiMealItem item:items) {
+            if(item.foodId()!=null && item.foodId()>0) {
+                insertItems(id,List.of(new ItemInput(item.foodId(),item.grams())));
+            } else {
+                // Calories describe only this eating event; macros are unknown, not inferred.
+                db.update("INSERT INTO prp_wellness_meal_items " +
+                    "(meal_id,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate) " +
+                    "VALUES (?,NULL,?,?,?,?,?,?,?)",
+                    id,item.name().trim(),item.grams()==null?BigDecimal.ZERO:item.grams(),
+                    item.calories(),BigDecimal.ZERO,BigDecimal.ZERO,BigDecimal.ZERO,1);
+            }
+        }
+        return meal(id);
+    }
+
     @Transactional
     public Meal updateMeal(long id, MealInput input) {
         meal(id);validateMeal(input);
