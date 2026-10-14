@@ -5,6 +5,7 @@
 ## 设计边界
 
 - **远端**：采用 Restic + HTTPS S3 兼容存储，Restic 在发往对象存储前加密并进行去重，密钥不进入应用数据库、GitHub 或构建产物。不得把目的地放在生产机同一磁盘、同一故障域，也不得使用未加密的 HTTP。
+- **密钥分离**：Restic 密码文件与 S3 凭据文件从备份中显式排除，必须另外放在独立密码管理器中，并由至少一名授权恢复管理员验证能在异机安全取回；否则远端快照可能无法解密恢复。
 - **内容**：每次生成 MySQL `matrix_prp` 一致性逻辑转储（`--single-transaction`），备份 `/etc/matrix-prp`、`/etc/nginx/snippets/matrix-prp.conf`、`/srv/matrix-prp/video/media`，存在时附带 `/srv/matrix-prp/knowledge`。配置包含秘密，只能存入加密仓库。
 - **验证**：对数据库转储执行 SHA256、记录 Flyway Schema 版本、对视频文件路径和大小做清单指纹。Restic 对远端仓库执行 metadata `check`。这些不等于远端**全部数据**可恢复；月度恢复演练必须真实下载、验证和导入。
 - **一致性范围**：数据库快照和视频文件不是跨资源原子快照。视频上传/删除期间，若视频数量、文件名或大小变更则失败并告警；极端的同大小原地改写依然不能完全排除。建议安排低活动时段，确保已完成上传的视频采用不可变文件策略。
@@ -22,8 +23,10 @@
 
 ```bash
 install -d -m 0700 -o root -g root /var/lib/matrix-prp-backup
-install -m 0600 -o root -g root /dev/null /etc/matrix-prp/restic-password
-install -m 0600 -o root -g root /dev/null /etc/matrix-prp/backup.env
+umask 077
+test -e /etc/matrix-prp/restic-password || touch /etc/matrix-prp/restic-password
+test -e /etc/matrix-prp/backup.env || touch /etc/matrix-prp/backup.env
+chown root:root /etc/matrix-prp/restic-password /etc/matrix-prp/backup.env
 # 在服务器上安全填充随机的 Restic 密钥，以及 backup.env 中的远端凭据/告警地址。
 # 仅将 app/deploy/systemd/prp-offsite-backup.env.example 作为字段模板，绝不要使用里面的占位值。
 chmod 0600 /etc/matrix-prp/restic-password /etc/matrix-prp/backup.env
@@ -75,6 +78,7 @@ python3 prp-offsite-backup.py verify-restored --target /srv/prp-restore-sandbox
 
 ## 三、保留策略与验收标准
 
+- **凭据安全**：远端快照包括敏感业务配置但不包括 Restic 密码文件或 S3 凭据文件。异机恢复必须从独立密钥库恢复这些秘密，不得从备份仓库反向获取。
 - **建议起点**：保留最近 7 份每日恢复点、4 份周恢复点、3 份月恢复点。Restic `forget --tag matrix-prp --keep-daily 7 --keep-weekly 4 --keep-monthly 3` 和 `prune` 仅由管理员在恢复演练成功、远端生命周期策略审查后单独执行；初始版本不自动删除任何远端数据。
 - **建议目标**：RPO ≤ 24 小时、RTO ≤ 4 小时；只有在真实故障模拟、隔离恢复演练和告警送达验证完成后才能对外声明达标。
 - **禁止**：直接覆盖生产库、还原恢复时清空生产视频、给 GitHub Actions 配置 MySQL root/Restic/S3 密钥、把私有文件打包进 Release/Artifacts、绕过发布权限保护。
