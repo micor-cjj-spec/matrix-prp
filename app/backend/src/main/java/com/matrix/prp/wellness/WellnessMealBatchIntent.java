@@ -26,6 +26,17 @@ final class WellnessMealBatchIntent {
         "^(?:[-*•]\\s*)?(.{1,120}?)\\s*[:：]\\s*约?\\s*(\\d+(?:\\.\\d{1,2})?)\\s*(?:kcal|千卡|大卡|卡路里)\\s*$",
         Pattern.CASE_INSENSITIVE);
     private static final Pattern GRAMS=Pattern.compile("(?i)^(.{1,120}?)\\s*(\\d+(?:\\.\\d)?)\\s*(?:g|克)(?:\\s*[（(].*[）)])?$");
+    // A food quantity may be immediately followed by a *safe, bounded* imperative,
+    // e.g. "简爱无糖酸奶135g帮我录人到昨天的晚餐". Do not include that imperative
+    // in the food name or silently ignore any unrecognized trailing text.
+    private static final Pattern GRAMS_WITH_RECORD_COMMAND=Pattern.compile(
+        "(?i)^(.{1,120}?)\\s*(\\d+(?:\\.\\d)?)\\s*(?:g|克)\\s*[，,。]?\\s*"+
+        "(?:(?:请|麻烦)?(?:帮我|给我|为我))?\\s*(?:把|将)?\\s*"+
+        "(?:录人|录入|记录|保存|归档|添加|记入|记到)\\s*"+
+        "(?:到|进|在)?\\s*(?:今天|昨天|前天|20\\d{2}年\\d{1,2}月\\d{1,2}日)?\\s*"+
+        "(?:的)?\\s*(?:早餐|早饭|午餐|午饭|晚餐|晚饭|加餐)?\\s*(?:里|中|记录)?\\s*[。.!！]?$",
+        Pattern.CASE_INSENSITIVE);
+
     private static final Set<String> TYPES=Set.of("BREAKFAST","LUNCH","DINNER","SNACK");
 
     private WellnessMealBatchIntent() {}
@@ -78,18 +89,23 @@ final class WellnessMealBatchIntent {
                 foods.add(new Food(name,weight,kcal));
             } else {
                 var grams=GRAMS.matcher(line);
-                if(grams.matches()){
-                    // One-item meal declared total can supply the per-event kcal at finish().
-                    foods.add(new Food(grams.group(1).strip(),new BigDecimal(grams.group(2)),null));
+                boolean plain=grams.matches();
+                if(!plain) grams=GRAMS_WITH_RECORD_COMMAND.matcher(line);
+                if(plain || grams.matches()){
+                    // One-item meal declared total can supply its calorie estimate.
+                    String name=grams.group(1).strip();
+                    BigDecimal weight=new BigDecimal(grams.group(2));
+                    if(name.isBlank() || name.length()>120)
+                        throw new IllegalArgumentException("食物名称不合法");
+                    foods.add(new Food(name,weight,null));
                 } else {
-                    // Do not silently drop a named food such as "鸡蛋" just because
-                    // the user omitted grams/kcal. Ask for correction before saving.
+                    // A partially parsed food is *never* silently dropped.
                     throw new IllegalArgumentException("无法解析餐次明细："+line+"；请为食物补充本次热量");
                 }
             }
         }
         if(type!=null)meals.add(finish(type,declared,foods));
-        if(meals.size()<2 || meals.size()>4)return Optional.empty();
+        if(meals.isEmpty() || meals.size()>4)return Optional.empty();
         Set<String> seen=new LinkedHashSet<>();
         for(Meal meal:meals)
             if(!TYPES.contains(meal.type()) || !seen.add(meal.type()))
