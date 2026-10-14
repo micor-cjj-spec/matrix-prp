@@ -80,6 +80,28 @@ class WellnessMealBatchIntentTests {
         assertThat(meal.foods().getFirst().grams()).isEqualByComparingTo("135");
     }
 
+    @Test void contradictoryMealDestinationIsRejectedInsteadOfSavingBreakfastAsDinner() {
+        String source="早餐（约105 kcal）\n简爱无糖酸奶135g帮我录入到昨天的晚餐";
+        assertThatThrownBy(()->WellnessMealBatchIntent.parse(source,today))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("餐次标题与记录指令不一致");
+    }
+
+    @Test void contradictoryExplicitDateAndRelativeCommandIsRejected() {
+        String source="2026-10-12\n晚餐（约105 kcal）\n简爱无糖酸奶135g帮我录入到昨天的晚餐";
+        assertThatThrownBy(()->WellnessMealBatchIntent.parse(source,today))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("记录日期与指令日期不一致");
+    }
+
+    @Test void matchingExplicitDateInSuffixRemainsSupported() {
+        String source="晚餐（约105 kcal）\n简爱无糖酸奶135g帮我录入到2026年10月13日的晚餐";
+        var result=WellnessMealBatchIntent.parse(source,today).orElseThrow();
+        assertThat(result.date()).isEqualTo(LocalDate.of(2026,10,13));
+        assertThat(result.meals()).hasSize(1);
+        assertThat(result.meals().getFirst().type()).isEqualTo("DINNER");
+    }
+
     @Test void aCommandCannotConcealAnAdditionalUnparsedFoodOrAlterTheEnergy() {
         String source="晚餐（约105 kcal）\n简爱无糖酸奶135g加一个鸡蛋帮我录入到昨天的晚餐";
         assertThatThrownBy(()->WellnessMealBatchIntent.parse(source,today))
