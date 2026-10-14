@@ -152,6 +152,8 @@ public class WellnessAiDraftService {
         JsonNode output=parseJson(root.path("choices").path(0).path("message").path("content").asText(""));
         Map<String,Object> verified=verify(output);
         String action=output.path("action").asText();
+        // Explicit calories originate only in the authenticated user's message, never the model JSON.
+        if("meal.create".equals(action)) applyUserCalorieEstimate(verified,input);
         String description=description(action,verified);
         String id=UUID.randomUUID().toString();
         LocalDateTime expiry=LocalDateTime.now().plusMinutes(15);
@@ -275,6 +277,32 @@ public class WellnessAiDraftService {
         return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,message+
             " — please correct the description or enter it manually");
     }
+    /** Extract at most one explicitly user-typed energy amount for a single food. */
+    static BigDecimal userProvidedCalories(String input) {
+        if(input==null) return null;
+        var matcher=java.util.regex.Pattern.compile(
+            "(?iu)(?<![\\d.])(\\d+(?:\\.\\d{1,2})?)\\s*(?:千卡|大卡|kcal|卡路里)(?!\\w)").matcher(input);
+        BigDecimal found=null;
+        while(matcher.find()){
+            if(found!=null)return null; // ambiguous multi-food or multiple energy amounts
+            try { found=new BigDecimal(matcher.group(1)); }
+            catch(NumberFormatException e){ return null; }
+        }
+        return found!=null && found.signum()>0 &&
+            found.compareTo(new BigDecimal("20000"))<=0 ? found : null;
+    }
+    @SuppressWarnings("unchecked")
+    static void applyUserCalorieEstimate(Map<String,Object> values,String source) {
+        BigDecimal energy=userProvidedCalories(source);
+        if(energy==null) return;
+        var rows=(List<Map<String,Object>>)values.get("items");
+        if(rows==null || rows.size()!=1) return;
+        Map<String,Object> item=rows.getFirst();
+        item.put("foodId",0L);
+        item.put("mode","manual");
+        item.put("manualCalories",energy);
+        item.put("calories",energy);
+    }
     Map<String,Object> verify(JsonNode node){ return verify(node,false); }
     Map<String,Object> verify(JsonNode node,boolean edited){
         if(!node.isObject())throw invalid("Invalid AI action");
@@ -298,10 +326,19 @@ public class WellnessAiDraftService {
                     if(grams==null)grams=BigDecimal.ZERO;
                     if(grams.compareTo(BigDecimal.valueOf(3000))>0)
                         throw invalid("Food grams out of range");
+                    boolean manual=edited && "manual".equals(item.path("mode").asText(""));
+                    BigDecimal manualCalories=null;
+                    if(manual) {
+                        manualCalories=decimal(item,"manualCalories",true);
+                        if(manualCalories.signum()<=0 ||
+                            manualCalories.compareTo(new BigDecimal("20000"))>0 ||
+                            manualCalories.scale()>2)
+                            throw invalid("Manual kcal must be between 0 and 20000");
+                    }
                     Food match=null;
-                    if(edited && item.path("foodId").canConvertToLong() && item.path("foodId").asLong()>0)
+                    if(!manual && edited && item.path("foodId").canConvertToLong() && item.path("foodId").asLong()>0)
                         match=wellness.accessibleFood(item.path("foodId").asLong());
-                    if(!edited) {
+                    if(!manual && !edited) {
                         // Conservative name matching; do not silently equate similarly named recipes.
                         String normalized=normalize(name);
                         match=wellness.foods(name).stream()
@@ -309,9 +346,11 @@ public class WellnessAiDraftService {
                     }
                     Map<String,Object> record=new LinkedHashMap<>();
                     record.put("foodId",match==null?0:match.id());
+                    record.put("mode",manual?"manual":"catalog");
                     record.put("name",match==null?name:match.name());
                     record.put("grams",grams);
-                    record.put("calories",match==null||grams.signum()==0?null:
+                    record.put("manualCalories",manualCalories);
+                    record.put("calories",manual?manualCalories:match==null||grams.signum()==0?null:
                         NutritionMath.portion(match.calories100g(),grams));
                     parsed.add(record);
                 }
@@ -473,16 +512,37 @@ public class WellnessAiDraftService {
                     saved=savedMeals;
                 }
                 case "meal.create" -> {
-                    List<ItemInput> items=new ArrayList<>();
+                    List<ItemInput> catalogItems=new ArrayList<>();
+                    List<WellnessService.AiMealItem> snapshots=new ArrayList<>();
+                    boolean hasManual=false;
                     for(JsonNode item:data.path("items")) {
+                        String mode=item.path("mode").asText("catalog");
                         long foodId=item.path("foodId").asLong(0);
                         BigDecimal grams=item.path("grams").decimalValue();
-                        if(foodId<=0||grams.signum()<=0)
-                            throw invalid("Please select a food and valid weight for each item");
-                        items.add(new ItemInput(foodId,grams));
+                        if("manual".equals(mode)) {
+                            if(foodId!=0) throw invalid("Custom entries may not reference catalog foods");
+                            BigDecimal kcal=decimal(item,"manualCalories",true);
+                            if(kcal.signum()<=0 || kcal.compareTo(new BigDecimal("20000"))>0 ||
+                                kcal.scale()>2 || grams.signum()<0 || grams.compareTo(new BigDecimal("3000"))>0)
+                                throw invalid("Invalid custom food calories");
+                            snapshots.add(new WellnessService.AiMealItem(null,item.path("name").asText(),grams,kcal));
+                            hasManual=true;
+                        } else {
+                            if(foodId<=0||grams.signum()<=0)
+                                throw invalid("Please select a catalog food and valid weight, or use custom calories");
+                            catalogItems.add(new ItemInput(foodId,grams));
+                            snapshots.add(new WellnessService.AiMealItem(foodId,null,grams,null));
+                        }
                     }
-                    saved=wellness.addMeal(new MealInput(LocalDate.parse(date),
-                        data.path("mealType").asText(),data.path("note").asText(""),items,draftId));
+                    String note=data.path("note").asText("");
+                    if(hasManual) {
+                        String marker="用户自定义热量（营养素未知）";
+                        note=(note.isBlank()?marker:note+"；"+marker);
+                        if(note.length()>500)note=note.substring(0,500);
+                        saved=wellness.addAiMeal(LocalDate.parse(date),data.path("mealType").asText(),
+                            note,snapshots,draftId);
+                    } else saved=wellness.addMeal(new MealInput(LocalDate.parse(date),
+                        data.path("mealType").asText(),note,catalogItems,draftId));
                 }
                 case "exercise.create" -> {
                     String raw=data.path("estimatedKcal").asText("");
