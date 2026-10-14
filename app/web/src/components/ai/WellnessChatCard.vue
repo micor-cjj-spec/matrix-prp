@@ -191,12 +191,16 @@ async function refreshSaveOutcome(): Promise<'CONSUMED' | 'PENDING' | 'EXPIRED' 
 }
 async function handleWriteError(e: unknown) {
   const err = e as { response?: { status?: number; data?: { message?: string } }; message?: string }
-  if (!err.response || err.response.status === 409) {
+  // Any missing response, gateway timeout or server-side 5xx may have committed
+  // even though the response was lost. Do not enable a blind retry on HTTP 504.
+  const responseStatus = err.response?.status
+  const ambiguous = !err.response || responseStatus === 408 || (responseStatus != null && responseStatus >= 500)
+  if (ambiguous || responseStatus === 409) {
     const result = await refreshSaveOutcome()
     if (result === 'CONSUMED') return
-    if (!err.response) {
+    if (ambiguous) {
       saveOutcomeUnknown.value = true
-      error.value = '保存请求已超时或网络中断，结果尚不确定。请先点击「检查保存状态」，不要反复提交。'
+      error.value = '保存请求超时或服务器响应异常，结果尚不确定。请先点击「检查保存状态」，不要反复提交。'
       return
     }
   }
