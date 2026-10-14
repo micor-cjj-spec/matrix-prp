@@ -11,9 +11,14 @@ const auth = useAuthStore()
 // On iOS, a textarea can retain focus after the software keyboard has closed.
 // Measure the actual visual viewport rather than using :focus to hide tabs.
 const keyboardVisible = ref(false)
+const chatViewportHeight = ref('100dvh')
 function updateKeyboardVisibility() {
   const viewport = window.visualViewport
   keyboardVisible.value = Boolean(viewport && window.innerHeight - viewport.height - viewport.offsetTop > 150)
+  // When the keyboard is open, constrain the fixed chat shell to the visible
+  // viewport. When it closes, restore CSS dvh to avoid stale iOS dimensions.
+  chatViewportHeight.value = keyboardVisible.value && viewport
+    ? `${Math.round(viewport.height)}px` : '100dvh'
 }
 function prepareMobileNavigation() {
   const active = document.activeElement
@@ -57,7 +62,8 @@ const currentTitle = computed(() => {
 </script>
 
 <template>
-  <main class="app-shell prp-shell" :class="{ 'prp-shell-chat': activeMain === 'chat', 'prp-keyboard-open': activeMain === 'chat' && keyboardVisible }">
+  <main class="app-shell prp-shell" :class="{ 'prp-shell-chat': activeMain === 'chat', 'prp-keyboard-open': activeMain === 'chat' && keyboardVisible }"
+    :style="activeMain === 'chat' ? { '--prp-chat-viewport-height': chatViewportHeight } : undefined">
     <aside class="sidebar prp-sidebar" aria-label="主导航">
       <RouterLink to="/" class="brand prp-brand">
         <span class="brand-mark">M</span>
