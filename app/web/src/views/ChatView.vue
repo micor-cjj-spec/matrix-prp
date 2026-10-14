@@ -86,14 +86,34 @@ async function prepareInlineDiet(content: string) {
   try {
     const result = await prepareInlineHealthDraft(content, selectedId.value, photo)
     selectedId.value = result.conversationId
-    const [latest, blocks] = await Promise.all([
+    // The POST already persisted both messages and the draft: never resubmit on a refresh failure.
+    const assistant = messages.value[messages.value.length - 1]!
+    assistant.id = result.messageId
+    assistant.content = '已整理健康记录，请核对下方食物与来源，然后确认保存。'
+    const localBlock: AiMessageBlock = {
+      messageId: result.messageId, type: 'wellness_draft', module: 'wellness',
+      label: '待确认健康记录', route: result.draft.draftId,
+    }
+    blocksByMessage.value = { ...blocksByMessage.value, [result.messageId]: [localBlock] }
+    const [latest, blocks] = await Promise.allSettled([
       listMessages(result.conversationId, undefined, HISTORY_PAGE_SIZE + 1),
       listMessageBlocks(result.conversationId),
     ])
-    messages.value = latest.slice(-HISTORY_PAGE_SIZE)
-    blocksByMessage.value = groupBlocks(blocks)
-    hasOlder.value = latest.length > HISTORY_PAGE_SIZE
-    await refresh()
+    if (latest.status === 'fulfilled') {
+      messages.value = latest.value.slice(-HISTORY_PAGE_SIZE)
+      hasOlder.value = latest.value.length > HISTORY_PAGE_SIZE
+    }
+    if (blocks.status === 'fulfilled') {
+      const restored = groupBlocks(blocks.value)
+      blocksByMessage.value = {
+        ...restored,
+        [result.messageId]: restored[result.messageId] ?? [localBlock],
+      }
+    }
+    if (latest.status === 'rejected' || blocks.status === 'rejected') {
+      ElMessage.warning('饮食草稿已保存，历史同步暂时失败，重新打开本会话即可恢复')
+    }
+    try { await refresh() } catch { /* POST was successful; optional history refresh must not retry it */ }
   } catch (e) {
     const err = e as { response?: { data?: { message?: string } } }
     streamError.value = err.response?.data?.message || 'AI 饮食记录解析失败，请检查模型配置并重试'
@@ -313,9 +333,12 @@ async function send(contextToken?: string) {
     ElMessage.warning('食物照片只能用于健康记录，请缩短描述并移除其他应用引用后重试')
     return
   }
-  const healthWrite = /(?:记录|录入|添加|新增|保存|记下|记一下|帮我记|记一笔|存入)/u.test(content) &&
-    /(?:早餐|午餐|晚餐|加餐|饮食|食物|热量|吃了|喝了|这顿|鸡蛋|牛奶|米饭)/u.test(content) &&
-    !/(?:如何实现|怎么开发|如何设计|为什么不能)/u.test(content)
+  const writeVerb = /(?:记录|录入|添加|新增|保存|记下|记一下|帮我记|记一笔|存入)/u.test(content)
+  const foodContext = /(?:早饭|午饭|晚饭|早餐|午餐|晚餐|加餐|饮食|食物|热量|卡路里|吃了|喝了|这顿|我吃|今天吃)/u.test(content)
+  const directFoodQuantity = /(?:记|记录|录入|添加|新增|保存|记下)(?:一下|一笔|入)?\\s*(?:一个|一份|一碗|一杯|两个|[0-9]+(?:g|克|ml|毫升))/u.test(content)
+  const notTechnicalOrOther = !/(?:如何实现|怎么开发|如何设计|为什么不能|记录日志|错误日志|会议记录|记录会议|记录任务|添加任务|添加待办|保存笔记|添加笔记)/u.test(content)
+  const healthWrite = writeVerb && notTechnicalOrOther &&
+    (foodContext || directFoodQuantity || selectedScopes.value.includes('wellness'))
   if (content.length <= 1500 && (healthWrite || chatPhoto.value) &&
       (selectedScopes.value.length === 0 ||
        selectedScopes.value.every(s => s === 'wellness'))) {
