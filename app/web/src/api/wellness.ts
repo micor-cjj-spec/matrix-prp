@@ -73,6 +73,7 @@ async function del(url: string): Promise<void> { await apiClient.delete(url) }
 
 export const wellnessApi = {
   foods: (q = '') => get<Food[]>('/wellness/foods', { q }),
+  food: (id: number) => get<Food>('/wellness/foods/' + id),
   frequent: () => get<Food[]>('/wellness/foods/frequent'),
   usdaStatus: () => get<{ configured: boolean }>('/wellness/foods/usda/status'),
   searchUsda: (q: string) => get<UsdaCandidate[]>('/wellness/foods/usda/search', { q }),
