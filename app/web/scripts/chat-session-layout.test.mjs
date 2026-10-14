@@ -168,7 +168,7 @@ test('diet drafts use long per-write timeouts and verify uncertain saves before 
   assert.match(card, /apiClient\.patch\([^\n]*corrected, \{ timeout: WRITE_TIMEOUT_MS \}\)/)
   assert.match(card, /'\/confirm',[\s\S]*?\{\}, \{ timeout: WRITE_TIMEOUT_MS \}\)/)
   assert.match(card, /async function refreshSaveOutcome\(/)
-  assert.match(card, /status === 'CONSUMED'\) markSaved\(\)/)
+  assert.match(card, /freshStatus === 'CONSUMED'\) markSaved\(\)/)
   assert.match(card, /async function handleWriteError\(/)
   assert.match(card, /if \(!err\.response \|\| err\.response\.status === 409\)/)
   assert.match(card, /saveOutcomeUnknown\.value = true/)
