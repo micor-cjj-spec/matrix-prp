@@ -433,7 +433,9 @@ async function send(contextToken?: string) {
         eventError = true
         const status = Number(data.status)
         streamError.value = status === 429
-          ? '本月 AI 调用额度已用完（HTTP 429），请查看用量或稍后重试。'
+          ? data.quotaSource === 'provider'
+            ? '模型服务商返回 HTTP 429：可能限流或 API 余额不足，请检查服务商账户后重试。'
+            : 'PRP 本月 AI 调用配额已用完（HTTP 429），请查看本月用量。'
           : status === 503
             ? 'AI 服务暂时不可用（HTTP 503），请稍后重试。'
             : '生成失败，请稍后重试。'
