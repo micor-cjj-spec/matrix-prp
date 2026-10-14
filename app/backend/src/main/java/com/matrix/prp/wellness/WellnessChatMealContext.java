@@ -31,7 +31,14 @@ final class WellnessChatMealContext {
             if(!"user".equals(source.role()) || source.content()==null)continue;
             String text=source.content().strip();
             String type=type(text);
-            if(type==null || !FOOD.matcher(text).find())continue;
+            if(type==null)continue;
+            if(!FOOD.matcher(text).find()){
+                // Do not skip a newer unrecognized meal (e.g. sushi) and fall
+                // back to an older recognizable meal, silently saving the wrong one.
+                if(text.matches("(?s).*(?:吃了|吃的|吃过|喝了|点了|打算吃|准备吃|想吃|吃的是|餐[:：]|饭[:：]|餐吃|饭吃).*"))
+                    return Optional.empty();
+                continue;
+            }
             LocalDate date=mealDate(text,today);
             if(date==null || date.isAfter(today.plusDays(1)) || date.isBefore(today.minusYears(2)))
                 return Optional.empty();
@@ -78,7 +85,7 @@ final class WellnessChatMealContext {
     }
 
     private static String type(String text) {
-        if(text.matches("(?s).*(?:晚餐|晚饭|晚上|今晚).*"))return "DINNER";
+        if(text.matches("(?s).*(?:晚餐|晚饭|晚上|今晚|明晚).*"))return "DINNER";
         if(text.matches("(?s).*(?:午餐|午饭|中午).*"))return "LUNCH";
         if(text.matches("(?s).*(?:早餐|早饭|早上).*"))return "BREAKFAST";
         if(text.contains("加餐") || text.contains("夜宵"))return "SNACK";
@@ -92,7 +99,10 @@ final class WellnessChatMealContext {
             if(cn.find())return LocalDate.of(Integer.parseInt(cn.group(1)),
                 Integer.parseInt(cn.group(2)),Integer.parseInt(cn.group(3)));
             if(text.contains("前天"))return today.minusDays(2);
-            if(text.contains("昨天"))return today.minusDays(1);
+            if(text.contains("昨天") || text.contains("昨晚"))return today.minusDays(1);
+            if(text.contains("明天") || text.contains("明日") || text.contains("明晚") ||
+                text.contains("明早"))return today.plusDays(1);
+            if(text.contains("后天"))return null; // outside the supported date window
             return today;
         }catch(Exception ex){return null;}
     }
