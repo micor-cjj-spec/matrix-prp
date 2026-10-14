@@ -22,12 +22,15 @@ const resolving = ref(false)
 const sourceAvailable = ref(false)
 const foodLoadingErrors = reactive<Record<number, string>>({})
 const originalCalories = reactive<Record<number, { grams: number; kcal: number }>>({})
+const calorieDensity = reactive<Record<number, number>>({})
 const types: Record<string, string> = { BREAKFAST: '早餐', LUNCH: '午餐', DINNER: '晚餐', SNACK: '加餐' }
 const items = computed(() => values.value.items ?? [])
 const canConfirm = computed(() => !loading.value && !saving.value && !resolving.value &&
   status.value === 'PENDING' && draft.value?.action === 'meal.create' &&
   items.value.length > 0 && items.value.every((item, i) =>
-    Number(item.grams) > 0 && (Number(item.foodId) > 0 || Boolean(selectedCandidate(i)))))
+    Number(item.grams) > 0 && (Number(item.foodId) > 0
+      ? Number.isFinite(calorieDensity[i])
+      : Boolean(selectedCandidate(i)))))
 const total = computed(() => items.value.reduce((sum, item, i) => sum + portion(item, i), 0))
 function selectedCandidate(index: number) {
   return matches[index]?.find(candidate => candidate.fdcId === chosen[index])
@@ -36,8 +39,8 @@ function portion(item: Item, index: number) {
   const grams = Number(item.grams)
   if (!Number.isFinite(grams) || grams <= 0) return 0
   if (Number(item.foodId) > 0) {
-    const original = originalCalories[index]
-    return original && original.grams > 0 ? original.kcal * grams / original.grams : 0
+    const density = calorieDensity[index]
+    return Number.isFinite(density) ? density * grams / 100 : 0
   }
   const candidate = selectedCandidate(index)
   return candidate ? Number(candidate.calories100g) * grams / 100 : 0
@@ -73,6 +76,19 @@ async function load() {
       if (item.foodId && Number(item.grams) > 0 && item.calories != null)
         originalCalories[i] = { grams: Number(item.grams), kcal: Number(item.calories) }
     })
+    if (status.value === 'PENDING' && draft.value.action === 'meal.create') {
+      await Promise.all(values.value.items?.map(async (item, i) => {
+        if (!item.foodId) return
+        try {
+          const food = await wellnessApi.food(item.foodId)
+          calorieDensity[i] = Number(food.calories100g)
+        } catch {
+          const previous = originalCalories[i]
+          if (previous?.grams > 0) calorieDensity[i] = previous.kcal * 100 / previous.grams
+          else foodLoadingErrors[i] = '食品热量读取失败，请重新打开记录卡片'
+        }
+      }) ?? [])
+    }
     if (status.value === 'PENDING' && draft.value.action === 'meal.create')
       await searchMissingFoods()
   } catch { error.value = '读取记录草稿失败或无权访问'; }
@@ -126,7 +142,7 @@ onMounted(() => { void load() })
           </select></label>
         </div>
         <div v-for="(item, i) in items" :key="i" class="health-chat-food">
-          <div class="health-chat-food-title"><b>{{ item.name }}</b><span>{{ portion(item, i).toFixed(0) }} kcal</span></div>
+          <div class="health-chat-food-title"><b>{{ item.name }}</b><span>{{ item.foodId && !Number.isFinite(calorieDensity[i]) ? '热量待读取' : portion(item, i).toFixed(0) + ' kcal' }}</span></div>
           <label>可食用克重 <input v-model.number="item.grams" type="number" min="0.1" max="3000" step="0.1" inputmode="decimal" :disabled="saving" /> g</label>
           <p v-if="Number(item.foodId)>0" class="health-chat-note">已匹配个人/公共食品库，热量由服务器复核</p>
           <template v-else>
@@ -142,6 +158,7 @@ onMounted(() => { void load() })
             <p v-else class="health-chat-alert">{{ foodLoadingErrors[i] || '查询中…' }}</p>
           </template>
           <p v-if="Number(item.grams)<=0" class="health-chat-alert">请补充实际或估算重量，不能凭空生成营养数据</p>
+          <p v-if="foodLoadingErrors[i] && item.foodId" class="health-chat-alert">{{ foodLoadingErrors[i] }}</p>
         </div>
         <div class="health-chat-total"><span>预计总摄入</span><b>{{ total.toFixed(0) }} kcal</b></div>
         <p class="health-chat-note">营养为参考估算；调味油、品牌和份量可能造成差异。确认后将按食品库数据重新计算并保存。</p>
