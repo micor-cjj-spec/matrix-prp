@@ -94,7 +94,10 @@ public class JdbcAiStore implements AiStore {
         if (valid==null || valid!=1)
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Assistant message not found");
         for (MessageBlock block:blocks) {
-            if (!"navigation".equals(block.type()) || block.route().length()>300)
+            boolean navigation="navigation".equals(block.type()) && block.route()!=null && block.route().length()<=300;
+            boolean healthDraft="wellness_draft".equals(block.type()) && "wellness".equals(block.module())
+                && block.route()!=null && block.route().matches("[0-9a-fA-F-]{36}");
+            if(!navigation && !healthDraft)
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unsupported message block");
             db.update("""
                 INSERT INTO prp_ai_message_blocks(message_id,user_id,block_type,module,label,route,created_at)
