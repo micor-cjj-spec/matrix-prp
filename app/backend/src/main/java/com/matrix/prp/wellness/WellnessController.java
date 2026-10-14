@@ -77,6 +77,15 @@ public class WellnessController {
     public record AiMealUpdateInput(LocalDate mealDate, String mealType, String note,
                                     List<WellnessService.AiMealItem> items) {}
     /** Update historical mixed meal snapshots without requiring a standard food reference. */
+    public record AiMealCreateInput(LocalDate mealDate, String mealType, String note,
+                                    List<WellnessService.AiMealItem> items, String idempotencyKey) {}
+    @PostMapping("/meals/snapshots")
+    public ApiResponse<Meal> addMealSnapshots(@RequestBody AiMealCreateInput input) {
+        if(input==null) throw new IllegalArgumentException("Meal details required");
+        return ApiResponse.success(service.addAiMeal(input.mealDate(),input.mealType(),input.note(),
+            input.items(),input.idempotencyKey()));
+    }
+
     @PutMapping("/meals/{id}/snapshots")
     public ApiResponse<Meal> updateMealSnapshots(@PathVariable long id,
                                                   @RequestBody AiMealUpdateInput input) {
