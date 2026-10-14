@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiClient, type ApiResponse } from '@/api/client'
 import { wellnessApi, type Food, type UsdaCandidate } from '@/api/wellness'
+import { cloneJson } from '@/utils/cloneJson'
 
 type Item = { foodId: number; name: string; grams: number; calories: number | null }
 type DraftValues = { date: string; mealType?: string; items?: Item[]; note?: string }
@@ -71,7 +72,7 @@ async function load() {
     const response = await apiClient.get<ApiResponse<DraftView>>('/wellness/ai/drafts/' + props.draftId)
     draft.value = response.data.data.draft
     status.value = response.data.data.status
-    values.value = structuredClone(response.data.data.draft.values)
+    values.value = cloneJson(response.data.data.draft.values)
     values.value.items?.forEach((item, i) => {
       if (item.foodId && Number(item.grams) > 0 && item.calories != null)
         originalCalories[i] = { grams: Number(item.grams), kcal: Number(item.calories) }
@@ -99,7 +100,7 @@ async function confirm() {
   saving.value = true
   error.value = ''
   try {
-    const corrected = structuredClone(values.value)
+    const corrected = cloneJson(values.value)
     const newItems: Item[] = []
     for (let i = 0; i < items.value.length; i++) {
       const item = items.value[i]!
