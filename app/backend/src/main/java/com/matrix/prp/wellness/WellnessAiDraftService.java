@@ -60,6 +60,65 @@ public class WellnessAiDraftService {
     }
     private LocalDate today(){return LocalDate.now(ZoneId.of(wellness.profile().timezone()));}
 
+    /**
+     * Bounded repeat of an actually saved owner-owned meal, not a second AI guess.
+     * Returns null when the request is not an explicit, supported historical meal copy.
+     */
+    public Preview prepareRepeat(String input) {
+        var intent=WellnessMealRepeatIntent.parse(input,today());
+        if(intent.isEmpty()) return null;
+        var request=intent.get();
+        var candidates=wellness.recentMeals(request.mealType(),today(),31).stream()
+            .filter(meal->!request.targets().contains(meal.mealDate())).toList();
+        if(candidates.isEmpty())
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                "没有找到已保存的同类餐次，请先保存一条来源记录，并明确写明食物及份量");
+        var source=candidates.getFirst();
+        if(candidates.stream().filter(meal->meal.mealDate().equals(source.mealDate())).count()>1)
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "来源日期有多条同类餐次，请明确选择要复制的那一条");
+        if(source.items().isEmpty() || source.items().size()>8 ||
+            source.items().stream().anyMatch(item->item.foodId()<=0 || item.grams()==null ||
+                item.grams().signum()<=0 || item.grams().compareTo(BigDecimal.valueOf(3000))>0))
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                "来源餐次包含无法安全复制的食物，请先核对健康中心的来源记录");
+        for(var item:source.items()) wellness.accessibleFood(item.foodId());
+        for(var target:request.targets())
+            if(wellness.meals(target).stream().anyMatch(m->m.mealType().equals(request.mealType())))
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    target+" 已有同类型餐次，请先检查健康中心，避免重复记录");
+        List<Map<String,Object>> foods=new ArrayList<>();
+        for(var item:source.items()) {
+            Map<String,Object> copy=new LinkedHashMap<>();
+            copy.put("foodId",item.foodId());
+            copy.put("name",item.foodName());
+            copy.put("grams",item.grams());
+            copy.put("calories",item.calories());
+            foods.add(copy);
+        }
+        Map<String,Object> values=new LinkedHashMap<>();
+        values.put("date",request.targets().getFirst().toString());
+        values.put("sourceMealId",source.id());
+        values.put("sourceDate",source.mealDate().toString());
+        values.put("mealType",request.mealType());
+        values.put("targets",request.targets().stream().map(LocalDate::toString).toList());
+        values.put("items",foods);
+        values.put("note",source.note()==null?"":source.note());
+        String id=UUID.randomUUID().toString();
+        LocalDateTime expiry=LocalDateTime.now().plusMinutes(15);
+        String desc="将 "+source.mealDate()+" 已保存的"+request.mealType()+"复制到 "+
+            request.targets().size()+" 个日期，确认后批量保存";
+        try {
+            db.update("INSERT INTO prp_wellness_ai_drafts " +
+                "(id,user_id,action_type,payload_json,description,model_used,expires_at) VALUES (?,?,?,?,?,?,?)",
+                id,CurrentUser.id(),"meal.copy_batch",json.writeValueAsString(values),desc,
+                "system/saved-meal",java.sql.Timestamp.valueOf(expiry));
+        } catch(com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,"无法编码批量饮食草稿");
+        }
+        return new Preview(id,"meal.copy_batch",desc,"system/saved-meal",values,expiry.toString());
+    }
+
     public Preview prepare(String input, MultipartFile image) {
         long user=CurrentUser.id();
         if(input==null || input.isBlank() || input.length()>1500)
