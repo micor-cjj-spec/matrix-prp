@@ -90,11 +90,13 @@ class OffsiteBackupTests(unittest.TestCase):
                  patch.object(backup, "NGINX", nginx), patch.object(backup, "MEDIA", media), \
                  patch.object(backup, "KNOWLEDGE", root / "missing"), \
                  patch.object(backup, "preflight", return_value=None), \
+                 patch.dict(backup.os.environ, {"RESTIC_PASSWORD_FILE": str(config / "custom-unlock.key")}), \
                  patch.object(backup.subprocess, "run", side_effect=fake_run), \
                  patch.object(backup.subprocess, "check_output", return_value="17"):
                 backup.backup()
             self.assertEqual(commands[-2][0:2], ["restic", "backup"])
             self.assertIn(str(config / "restic-password"), commands[-2])
+            self.assertIn(str(config / "custom-unlock.key"), commands[-2])
             self.assertIn(str(config / "backup.env"), commands[-2])
             self.assertEqual(commands[-1], ["restic", "check"])
             self.assertFalse(list(state.glob("backup-*/matrix_prp.sql")))
