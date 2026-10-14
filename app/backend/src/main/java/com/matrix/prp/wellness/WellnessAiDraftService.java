@@ -414,6 +414,64 @@ public class WellnessAiDraftService {
             Object saved;
             String action=String.valueOf(row.get("action_type"));
             switch(action){
+                case "meal.copy_batch" -> {
+                    var targetNodes=data.path("targets");
+                    if(!targetNodes.isArray() || targetNodes.size()<1 || targetNodes.size()>7)
+                        throw invalid("Invalid batch targets");
+                    String type=data.path("mealType").asText("");
+                    if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type))
+                        throw invalid("Invalid batch meal type");
+                    long sourceId=data.path("sourceMealId").asLong(0);
+                    if(sourceId<=0) throw invalid("Missing source meal");
+                    var source=wellness.ownedMeal(sourceId); // enforces authenticated ownership
+                    if(!source.mealDate().toString().equals(data.path("sourceDate").asText()) ||
+                        !source.mealType().equals(type))
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "来源餐次发生变化，请重新创建批量草稿");
+                    var snapshot=data.path("items");
+                    if(!snapshot.isArray() || snapshot.size()!=source.items().size() ||
+                        snapshot.isEmpty() || snapshot.size()>8)
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "来源食物与草稿不一致，请重新创建");
+                    List<ItemInput> copied=new ArrayList<>();
+                    for(int i=0;i<source.items().size();i++) {
+                        var original=source.items().get(i);
+                        var expected=snapshot.get(i);
+                        if(original.foodId()<=0 || original.grams()==null ||
+                            original.foodId()!=expected.path("foodId").asLong(-1) ||
+                            !expected.path("grams").isNumber() ||
+                            original.grams().compareTo(expected.path("grams").decimalValue())!=0)
+                            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "来源餐次食物或份量已改变，请重新预览后确认");
+                        wellness.accessibleFood(original.foodId());
+                        copied.add(new ItemInput(original.foodId(),original.grams()));
+                    }
+                    LinkedHashSet<LocalDate> targets=new LinkedHashSet<>();
+                    LocalDate now=today();
+                    for(JsonNode target:targetNodes) {
+                        LocalDate day;
+                        try { day=LocalDate.parse(target.asText()); }
+                        catch(Exception e){ throw invalid("Invalid target date"); }
+                        if(!day.isBefore(now) || day.isBefore(now.minusYears(2)) ||
+                            day.equals(source.mealDate()) || !targets.add(day))
+                            throw invalid("Invalid or duplicated target date");
+                        if(wellness.meals(day).stream().anyMatch(m->m.mealType().equals(type)))
+                            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                day+" 已有该餐次，本次未新增任何记录");
+                    }
+                    if(targets.size()!=targetNodes.size() ||
+                        !targets.iterator().next().toString().equals(date))
+                        throw invalid("Batch target/date mismatch");
+                    List<Meal> savedMeals=new ArrayList<>();
+                    int index=0;
+                    for(var day:targets) {
+                        // Unique per-draft + per-day key, in the same transaction as draft consumption.
+                        String key=draftId+"-"+index++;
+                        savedMeals.add(wellness.addMeal(new MealInput(day,type,
+                            source.note(),copied,key)));
+                    }
+                    saved=savedMeals;
+                }
                 case "meal.create" -> {
                     List<ItemInput> items=new ArrayList<>();
                     for(JsonNode item:data.path("items")) {
