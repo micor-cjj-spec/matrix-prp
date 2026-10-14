@@ -48,7 +48,7 @@ final class WellnessChatMealContext {
             }
             LocalDate date=mealDate(text,today);
             if(requestedDate!=null && !requestedDate.equals(date))
-                return Optional.empty();
+                continue; // Search older same-type meals for the explicitly requested date.
             if(date==null || date.isAfter(today.plusDays(1)) || date.isBefore(today.minusYears(2)))
                 return Optional.empty();
             StringBuilder detail=new StringBuilder(text);
@@ -112,8 +112,10 @@ final class WellnessChatMealContext {
         // silently rewrites the date of another historical meal.
         if(ISO.matcher(text).find() || CHINESE.matcher(text).find() ||
             text.contains("今天") || text.contains("昨天") ||
-            text.contains("前天") || text.contains("明天") ||
-            text.contains("明晚") || text.contains("后天"))
+            text.contains("前天") || text.contains("昨晚") ||
+            text.contains("明天") || text.contains("明日") ||
+            text.contains("明晚") || text.contains("明早") ||
+            text.contains("后天"))
             return mealDate(text,today);
         return null;
     }
