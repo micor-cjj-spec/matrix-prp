@@ -373,7 +373,10 @@ async function confirmPreviousHealthDraft(content: string) {
 async function send(contextToken?: string) {
   const content = input.value.trim() || (chatPhoto.value ? '请识别照片中的食物，分析热量并记录这顿饮食' : '')
   if (!content || sending.value || content.length > 4000) return
-  if (explicitConfirm.test(content) && !chatPhoto.value && !selectedScopes.value.length) {
+  const hasHealthCard = Object.values(blocksByMessage.value).some(blocks =>
+    blocks.some(block => block.type === 'wellness_draft'))
+  if (explicitConfirm.test(content) && !chatPhoto.value && !selectedScopes.value.length &&
+      (hasHealthCard || /保存|确认录入/u.test(content))) {
     await confirmPreviousHealthDraft(content)
     return
   }
