@@ -108,6 +108,12 @@ class VideoDatabaseIT {
         mvc.perform(get("/api/video/media/{id}", videoId).param("ticket", ticket + "bad"))
                 .andExpect(status().isForbidden());
 
+        // A missing signed ticket and a ticket for another video ID must never stream media.
+        mvc.perform(get("/api/video/media/{id}", videoId))
+                .andExpect(status().is4xxClientError());
+        mvc.perform(get("/api/video/media/{id}", videoId + 1).param("ticket", ticket))
+                .andExpect(status().isForbidden());
+
         String invite = postJson("/api/auth/invitations", admin, Map.of()).path("code").asText();
         String friend = postJson("/api/auth/register", null, Map.of(
                 "username", "video_friend_case", "password", "friend-password-2026",
