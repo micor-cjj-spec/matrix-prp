@@ -161,7 +161,11 @@ async function updateMetric(item: MetricEdit) {
                 <label>热量（kcal）<input v-if="food.foodId === null" v-model.number="food.calories" type="number" min="0.01" max="20000" step="0.01" :disabled="saving" />
                   <input v-else value="由食品库复算" disabled /></label>
               </div>
+              <button v-if="meal.items.length > 1" type="button" class="ai-action-secondary"
+                :disabled="saving" @click="meal.items.splice(i, 1)">移除这项食物</button>
             </div>
+            <button v-if="meal.items.length < 8" type="button" class="ai-action-secondary"
+              :disabled="saving" @click="meal.items.push({ foodId: null, name: '', grams: 0, calories: null })">+ 添加自定义食物</button>
             <label>备注<textarea v-model="meal.note" maxlength="500" rows="2" :disabled="saving" /></label>
             <p class="ai-action-hint">食品库模式由服务器按实际重量重新计算热量；自定义热量保留本次快照。</p>
             <button type="button" class="ai-action-submit" :disabled="saving" @click="updateMeal(meal)">保存修改</button>
@@ -211,5 +215,7 @@ async function updateMetric(item: MetricEdit) {
 .prp-ai-action-dialog .ai-action-food{display:grid;gap:8px;padding:12px;background:#f7f9fc;border-radius:9px}
 .prp-ai-action-dialog .ai-action-submit{background:#2563eb;border:0;color:white;border-radius:8px;padding:10px 15px;min-height:42px;font-weight:600;cursor:pointer}
 .prp-ai-action-dialog .ai-action-submit:disabled{opacity:.55;cursor:not-allowed}
+.prp-ai-action-dialog .ai-action-secondary{background:transparent;border:1px solid #bfcee3;color:#2563eb;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:13px}
+.prp-ai-action-dialog .ai-action-secondary:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:550px){.prp-ai-action-dialog .ai-action-two{grid-template-columns:1fr}.prp-ai-action-dialog .el-dialog__body{padding:8px 14px}}
 </style>
