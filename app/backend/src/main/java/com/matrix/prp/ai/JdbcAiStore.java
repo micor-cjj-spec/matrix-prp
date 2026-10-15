@@ -29,13 +29,40 @@ public class JdbcAiStore implements AiStore {
 
     @Override
     public List<Conversation> list(long userId) {
-        return db.query("SELECT id,title,updated_at FROM prp_ai_conversations WHERE user_id=? ORDER BY updated_at DESC LIMIT 50",
-                (rs, n) -> new Conversation(rs.getString(1), rs.getString(2), rs.getTimestamp(3).toLocalDateTime()), userId);
+        return page(userId, null, null, 50);
+    }
+
+    @Override
+    public List<Conversation> page(long userId, LocalDateTime beforeUpdatedAt, String beforeId, int limit) {
+        String cursor=beforeUpdatedAt==null?"":" AND (updated_at<? OR (updated_at=? AND id<?))";
+        String sql="SELECT id,title,updated_at FROM prp_ai_conversations " +
+            "WHERE user_id=? AND deleted_at IS NULL" + cursor +
+            " ORDER BY updated_at DESC,id DESC LIMIT ?";
+        var mapper=(org.springframework.jdbc.core.RowMapper<Conversation>)(rs,n) ->
+            new Conversation(rs.getString(1),rs.getString(2),rs.getTimestamp(3).toLocalDateTime());
+        return beforeUpdatedAt==null
+            ? db.query(sql,mapper,userId,limit)
+            : db.query(sql,mapper,userId,beforeUpdatedAt,beforeUpdatedAt,beforeId,limit);
+    }
+
+    @Override
+    public void rename(long userId,String conversationId,String title) {
+        int changed=db.update("UPDATE prp_ai_conversations SET title=?,title_source='USER' " +
+            "WHERE id=? AND user_id=? AND deleted_at IS NULL",title,conversationId,userId);
+        if(changed!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
+    }
+
+    @Override
+    public void softDelete(long userId,String conversationId) {
+        int changed=db.update("UPDATE prp_ai_conversations SET deleted_at=? " +
+            "WHERE id=? AND user_id=? AND deleted_at IS NULL",
+            LocalDateTime.now(java.time.Clock.systemUTC()),conversationId,userId);
+        if(changed!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
     }
 
     @Override
     public boolean owns(long userId, String conversationId) {
-        Integer count = db.queryForObject("SELECT count(*) FROM prp_ai_conversations WHERE user_id=? AND id=?",
+        Integer count = db.queryForObject("SELECT count(*) FROM prp_ai_conversations WHERE user_id=? AND id=? AND deleted_at IS NULL",
                 Integer.class, userId, conversationId);
         return count != null && count > 0;
     }
@@ -47,7 +74,7 @@ public class JdbcAiStore implements AiStore {
                 SELECT m.id,m.role,m.content,m.created_at
                 FROM prp_ai_messages m
                 JOIN prp_ai_conversations c ON c.id=m.conversation_id
-                WHERE c.user_id=? AND c.id=?
+                WHERE c.user_id=? AND c.id=? AND c.deleted_at IS NULL
                 """ + cursorCondition + " ORDER BY m.id DESC LIMIT ?";
         Object[] parameters = beforeId == null
                 ? new Object[]{userId, conversationId, limit}
@@ -65,7 +92,7 @@ public class JdbcAiStore implements AiStore {
         int affected = db.update(connection -> {
             var stmt=connection.prepareStatement("""
                 INSERT INTO prp_ai_messages(conversation_id,role,content,created_at)
-                SELECT id,?,?,? FROM prp_ai_conversations WHERE id=? AND user_id=?
+                SELECT id,?,?,? FROM prp_ai_conversations WHERE id=? AND user_id=? AND deleted_at IS NULL
                 """, Statement.RETURN_GENERATED_KEYS);
             stmt.setString(1,role);
             stmt.setString(2,content);
@@ -89,7 +116,7 @@ public class JdbcAiStore implements AiStore {
         Integer valid=db.queryForObject("""
             SELECT COUNT(*) FROM prp_ai_messages m
             JOIN prp_ai_conversations c ON m.conversation_id=c.id
-            WHERE m.id=? AND m.role='assistant' AND c.id=? AND c.user_id=?
+            WHERE m.id=? AND m.role='assistant' AND c.id=? AND c.user_id=? AND c.deleted_at IS NULL
             """,Integer.class,messageId,conversationId,userId);
         if (valid==null || valid!=1)
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Assistant message not found");
@@ -113,7 +140,7 @@ public class JdbcAiStore implements AiStore {
             FROM prp_ai_message_blocks b
             JOIN prp_ai_messages m ON m.id=b.message_id
             JOIN prp_ai_conversations c ON c.id=m.conversation_id
-            WHERE c.id=? AND c.user_id=? AND b.user_id=?
+            WHERE c.id=? AND c.user_id=? AND b.user_id=? AND c.deleted_at IS NULL
             ORDER BY b.id DESC LIMIT 500
             """,(rs,n)->new MessageBlock(rs.getLong(1),rs.getString(2),rs.getString(3),
                 rs.getString(4),rs.getString(5)),conversationId,userId,userId);
