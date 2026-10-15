@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: matrix-prp-backend
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   datasource:
     url: ${MATRIX_PRP_DB_URL:jdbc:mysql://localhost:3306/matrix_prp?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${MATRIX_PRP_DB_USER:matrix_prp}
