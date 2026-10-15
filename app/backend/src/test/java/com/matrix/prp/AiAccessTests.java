@@ -119,6 +119,53 @@ class AiAccessTests {
     }
 
     @Test
+    void ownerCanPageRenameAndDeleteChatWithoutTouchingSavedOtherData() throws Exception {
+        String admin = login("admin", "matrix-prp");
+        long owner = users.findByUsername("admin").orElseThrow().id();
+        String chat = store.create(owner,"AI 旧会话").id();
+        store.append(owner,chat,"user","已保存的健康信息只是会话引用，不是业务数据");
+        String another = store.create(owner,"另一个会话").id();
+        var page = mvc.perform(get("/api/ai/conversations/page").param("limit","1")
+                .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items.length()").value(1))
+            .andExpect(jsonPath("$.data.hasMore").value(true)).andReturn();
+        String cursor = json.readTree(page.getResponse().getContentAsString())
+            .path("data").path("nextCursor").asText();
+        mvc.perform(get("/api/ai/conversations/page").param("cursor",cursor).param("limit","1")
+                .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/ai/conversations/page").param("cursor","bogus").param("limit","1")
+                .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin))
+            .andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/ai/conversations/{id}",chat)
+                .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\\"title\\":\\"健康记录归档对话\\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.title").value("健康记录归档对话"));
+        mvc.perform(patch("/api/ai/conversations/{id}",chat)
+                .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin)
+                .contentType(MediaType.APPLICATION_JSON).content("{\\"title\\":\\"   \\"}"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(delete("/api/ai/conversations/{id}",chat)
+                .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/ai/conversations/{id}/messages",chat)
+                .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin))
+            .andExpect(status().isNotFound());
+        mvc.perform(patch("/api/ai/conversations/{id}",chat)
+                .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin)
+                .contentType(MediaType.APPLICATION_JSON).content("{\\"title\\":\\"再次更名\\"}"))
+            .andExpect(status().isNotFound());
+        mvc.perform(delete("/api/ai/conversations/{id}",chat)
+                .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin))
+            .andExpect(status().isNotFound());
+        assertThat(store.list(owner).stream().noneMatch(c->c.id().equals(chat))).isTrue();
+        assertThat(store.list(owner).stream().anyMatch(c->c.id().equals(another))).isTrue();
+    }
+
+    @Test
     void reservationIsAtomicAndFailsClosedAtLimit() {
         long user = 99999L;
         store.reserve(user, "2099-10", 100, 1, 120, 10, 1000);
