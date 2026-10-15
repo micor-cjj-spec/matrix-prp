@@ -75,12 +75,13 @@ async function reload() {
 }
 watch(() => [props.modelValue, props.draftId], () => { if (props.modelValue) void reload() }, { immediate: true })
 function close() { if (!saving.value) emit('update:modelValue', false) }
+function onVisibleChanged(visible: boolean) { if (!visible) close() }
 async function saved() { emit('changed'); await reload() }
 function errorMessage(e: unknown): string {
   const err = e as { response?: { status?: number; data?: { message?: string } } }
   if (err.response?.status === 404) return '原记录已删除，不能自动重新创建'
   if (err.response?.status === 409) return '记录已变化或该日期存在相同餐次，请重新打开核对'
-  if (!err.response || err.response.status >= 500) return '保存结果暂时不确定，请重新打开核实，不要连续提交'
+  if (!err.response?.status || err.response.status >= 500) return '保存结果暂时不确定，请重新打开核实，不要连续提交'
   return err.response.data?.message || '保存失败，请核对字段'
 }
 async function updateMeal(item: MealEdit) {
@@ -129,7 +130,7 @@ async function updateMetric(item: MetricEdit) {
 <template>
   <el-dialog :model-value="modelValue" title="AI 健康记录" :width="'min(96vw, 700px)'"
     append-to-body :close-on-click-modal="false" :close-on-press-escape="!saving"
-    class="prp-ai-action-dialog" @update:model-value="visible => { if (!visible) close() }">
+    class="prp-ai-action-dialog" @update:model-value="onVisibleChanged">
     <div class="ai-action-body">
       <p v-if="loading">正在加载记录…</p>
       <p v-if="error" class="ai-action-error" role="alert">{{ error }}</p>
