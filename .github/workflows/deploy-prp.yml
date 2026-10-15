@@ -279,7 +279,7 @@ jobs:
       # Failure-only and read-only. This step cannot undo/override a failed
       # deploy, and it never uploads raw SSH stdout or root-only logs.
       - name: Collect sanitized diagnosis on publish failure
-        if: failure() && steps.production_operation.outcome == 'failure'
+        if: failure() && steps.production_operation.outcome == 'failure' && (github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote')
         env:
           DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
           RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
@@ -304,7 +304,7 @@ jobs:
             --summary "$GITHUB_STEP_SUMMARY" \
             --json-output "$RUNNER_TEMP/prp-safe-diagnostic.json"
       - name: Upload sanitized deployment diagnosis
-        if: failure() && steps.production_operation.outcome == 'failure'
+        if: failure() && steps.production_operation.outcome == 'failure' && (github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: prp-safe-deployment-diagnosis
