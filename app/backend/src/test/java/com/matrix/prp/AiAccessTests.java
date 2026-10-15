@@ -76,6 +76,17 @@ class AiAccessTests {
         store.append(owner, conversation, "user", "Private note");
         mvc.perform(get("/api/ai/conversations/{id}/messages", conversation)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + friend)).andExpect(status().isNotFound());
+        mvc.perform(patch("/api/ai/conversations/{id}", conversation)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + friend)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("title","恶意更改"))))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete("/api/ai/conversations/{id}", conversation)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + friend))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/ai/conversations/{id}/messages", conversation)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin))
+                .andExpect(status().isOk());
         mvc.perform(get("/api/ai/conversations")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + friend))
                 .andExpect(jsonPath("$.data.length()").value(0));
