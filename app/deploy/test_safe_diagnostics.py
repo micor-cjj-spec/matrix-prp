@@ -137,7 +137,12 @@ class SafeDeploymentDiagnosticsTests(unittest.TestCase):
         self.assertIn("id: production_operation", workflow)
         self.assertIn("if: failure() && steps.production_operation.outcome == 'failure'", workflow)
         self.assertIn('"prp-deploy@$DEPLOY_HOST" diagnose', workflow)
-        self.assertIn('"prp-deploy@$DEPLOY_HOST" status', workflow)
+        # On failure this workflow may NOT call status, because a failed
+        # status() can overwrite the original last-error.log traceback.
+        failure_path = workflow.split("- name: Collect sanitized diagnosis on publish failure", 1)[1]
+        failure_path = failure_path.split("- name: Upload sanitized deployment diagnosis", 1)[0]
+        self.assertNotIn('"prp-deploy@$DEPLOY_HOST" status', failure_path)
+        self.assertIn(': > "$status"', failure_path)
         self.assertIn("render_safe_diagnostic.py", workflow)
         self.assertIn('prp-publish-start-utc.txt', workflow)
         self.assertIn('--attempt-start', workflow)
