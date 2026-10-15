@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import WellnessChatCard from '@/components/ai/WellnessChatCard.vue'
 import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
+import ChatConversationPanel from '@/components/ai/ChatConversationPanel.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
-import { fetchUsage, listConversations, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, prepareInlineHealthDraft, confirmPendingHealthDraft, AiStreamHttpError,
+import { fetchUsage, pageConversations, renameConversation, deleteConversation, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, prepareInlineHealthDraft, confirmPendingHealthDraft, AiStreamHttpError,
   type AiUsage, type ChatMessage, type AiMessageBlock, type Conversation, type AiContextPreview } from '@/api/ai'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
@@ -39,6 +40,10 @@ const sending = ref(false)
 const historyOpen = ref(false)
 const historyLoading = ref(false)
 const historyLoadError = ref(false)
+const conversationsCursor = ref<string | null>(null)
+const conversationsHasMore = ref(false)
+const conversationsLoadingMore = ref(false)
+const managingConversation = ref(false)
 const showJumpToBottom = ref(false)
 let explicitlyStartedNew = false
 let activeSelectionRequest = 0
@@ -167,13 +172,15 @@ async function persistModel(previous: { provider: string; model: string }) {
 
 async function refresh(restoreLatest = false) {
   historyLoading.value = true
-  // Usage failure must not hide conversations that were loaded successfully.
-  const [chats, current] = await Promise.allSettled([listConversations(), fetchUsage()])
+  // A refresh reopens the first cursor page; lazy pages are loaded on demand.
+  const [chats, current] = await Promise.allSettled([pageConversations(), fetchUsage()])
   if (chats.status === 'fulfilled') {
-    conversations.value = chats.value
+    conversations.value = chats.value.items
+    conversationsCursor.value = chats.value.nextCursor
+    conversationsHasMore.value = chats.value.hasMore
     historyLoadError.value = false
     if (restoreLatest) {
-      const id = latestChatToRestore(chats.value, {
+      const id = latestChatToRestore(chats.value.items, {
         selectedId: selectedId.value,
         hasMessages: messages.value.length > 0,
         isSending: sending.value,
@@ -188,6 +195,58 @@ async function refresh(restoreLatest = false) {
   }
   if (current.status === 'fulfilled') usage.value = current.value
   historyLoading.value = false
+}
+async function loadMoreConversations() {
+  if (!conversationsHasMore.value || !conversationsCursor.value ||
+      conversationsLoadingMore.value || historyLoading.value) return
+  const cursor = conversationsCursor.value
+  conversationsLoadingMore.value = true
+  try {
+    const page = await pageConversations(cursor)
+    const existing = new Set(conversations.value.map(item => item.id))
+    conversations.value = [...conversations.value, ...page.items.filter(item => !existing.has(item.id))]
+    conversationsCursor.value = page.nextCursor
+    conversationsHasMore.value = page.hasMore
+  } catch { ElMessage.error('加载更多会话失败，请重试') }
+  finally { conversationsLoadingMore.value = false }
+}
+async function renameSelectedConversation(item: Conversation) {
+  if (sending.value || managingConversation.value) return
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的会话标题', '重命名会话', {
+      inputValue: item.title,
+      inputPattern: /\S/u,
+      inputErrorMessage: '会话标题不能为空',
+      inputValidator: (title: string) => title.trim().length <= 120 || '标题不能超过 120 个字符',
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+    })
+    managingConversation.value = true
+    const title = String(value).trim()
+    await renameConversation(item.id, title)
+    conversations.value = conversations.value.map(c => c.id === item.id ? { ...c, title } : c)
+    ElMessage.success('已重命名')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error('重命名失败，请重试')
+  } finally { managingConversation.value = false }
+}
+async function deleteSelectedConversation(item: Conversation) {
+  if (sending.value || managingConversation.value || loadingOlder.value) return
+  try {
+    await ElMessageBox.confirm(
+      '确认删除“' + item.title + '”？删除后不再显示此聊天，也不能继续在此会话发送消息。已经保存到健康中心等应用的数据不会删除。',
+      '删除会话', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
+        confirmButtonClass: 'chat-delete-confirm' },
+    )
+    managingConversation.value = true
+    await deleteConversation(item.id)
+    conversations.value = conversations.value.filter(c => c.id !== item.id)
+    if (selectedId.value === item.id) newChat()
+    ElMessage.success('会话已删除')
+    void refresh()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error('删除失败，会话仍然保留')
+  } finally { managingConversation.value = false }
 }
 function onMessagesScroll() {
   const el = scroller.value
@@ -224,6 +283,12 @@ async function select(id: string, automaticRestore = false) {
     if (!canApply) return
     if (!automaticRestore) explicitlyStartedNew = false
     selectedId.value = id
+    // Prevent a draft or one-time authorization leaking across conversations.
+    input.value = ''
+    selectedScopes.value = []
+    preview.value = null
+    chatPhoto.value = null
+    mentionOpen.value = false
     hasOlder.value = data.length > HISTORY_PAGE_SIZE
     messages.value = data.slice(-HISTORY_PAGE_SIZE)
     blocksByMessage.value = groupBlocks(blocks)
@@ -264,6 +329,12 @@ function newChat() {
   hasOlder.value = false
   messages.value = []
   blocksByMessage.value = {}
+  input.value = ''
+  selectedScopes.value = []
+  preview.value = null
+  chatPhoto.value = null
+  mentionOpen.value = false
+  showJumpToBottom.value = false
   streamError.value = ''
   historyOpen.value = false
 }
@@ -468,10 +539,20 @@ onBeforeUnmount(() => controller?.abort())
 
 <template>
   <AppLayout>
+    <div class="prp-chat-workspace">
+      <aside class="chat-desktop-sidebar" aria-label="桌面聊天会话侧边栏">
+        <ChatConversationPanel :conversations="conversations" :selected-id="selectedId"
+          :loading="historyLoading" :loading-more="conversationsLoadingMore"
+          :has-more="conversationsHasMore" :error="historyLoadError"
+          :busy="sending || managingConversation || loadingOlder" :usage="usage"
+          @select="select" @new-chat="newChat" @rename="renameSelectedConversation"
+          @remove="deleteSelectedConversation" @load-more="loadMoreConversations"
+          @retry="refresh()" />
+      </aside>
     <div class="prp-chat-screen">
       <header class="prp-chat-header">
         <div class="chat-header-left">
-          <button class="chat-icon-button" aria-label="打开历史会话" title="历史会话" @click="historyOpen = true"><el-icon><Menu /></el-icon></button>
+          <button class="chat-icon-button chat-mobile-menu" aria-label="打开历史会话" title="历史会话" @click="historyOpen = true"><el-icon><Menu /></el-icon></button>
           <div class="chat-brand">
             <div class="chat-title">PRP 助手 <el-icon class="chat-brand-icon"><ArrowDown /></el-icon></div>
             <div class="chat-subtitle">{{ currentProviderName }} · {{ model }}</div>
@@ -583,28 +664,17 @@ onBeforeUnmount(() => controller?.abort())
         </div>
       </div>
     </div>
+    </div>
 
-    <el-drawer v-model="historyOpen" direction="ltr" :size="320" :with-header="false" append-to-body>
-      <div class="chat-history">
-        <div class="chat-history-top">
-          <h2>历史会话</h2>
-          <button class="chat-icon-button" aria-label="关闭历史会话" @click="historyOpen = false"><el-icon><Close /></el-icon></button>
-        </div>
-        <button class="chat-new-button" @click="newChat"><el-icon><Plus /></el-icon> 新对话</button>
-        <div class="chat-history-list">
-          <button v-for="item in conversations" :key="item.id" class="chat-history-item"
-            :class="{ selected: item.id === selectedId }" :disabled="sending" @click="select(item.id)">
-            <el-icon><ChatDotRound /></el-icon><span>{{ item.title }}</span>
-          </button>
-          <p v-if="historyLoading && !conversations.length" class="chat-history-empty">正在加载历史会话…</p>
-          <div v-else-if="historyLoadError" class="chat-history-load-error" role="alert">
-            <span>暂时无法读取历史记录，记录并未因此删除。</span>
-            <button type="button" @click="refresh()">重试加载</button>
-          </div>
-          <p v-else-if="!conversations.length" class="chat-history-empty">还没有历史会话</p>
-        </div>
-        <div v-if="usage" class="chat-history-usage">本月请求 {{ usage.requests }}/{{ usage.maxRequests }}</div>
-      </div>
+    <el-drawer v-model="historyOpen" direction="ltr" :size="'min(86vw, 320px)'"
+      :with-header="false" append-to-body class="prp-chat-history-drawer">
+      <ChatConversationPanel mobile :conversations="conversations" :selected-id="selectedId"
+        :loading="historyLoading" :loading-more="conversationsLoadingMore"
+        :has-more="conversationsHasMore" :error="historyLoadError"
+        :busy="sending || managingConversation || loadingOlder" :usage="usage"
+        @select="select" @new-chat="newChat" @rename="renameSelectedConversation"
+        @remove="deleteSelectedConversation" @load-more="loadMoreConversations"
+        @close="historyOpen = false" @retry="refresh()" />
     </el-drawer>
 
     <el-dialog v-model="previewVisible" title="确认本次共享的数据" width="min(580px, 95vw)" append-to-body>
@@ -620,6 +690,9 @@ onBeforeUnmount(() => controller?.abort())
 </template>
 
 <style scoped>
+.prp-chat-workspace{display:flex;flex:1;min-height:0;min-width:0;height:100%}
+.chat-desktop-sidebar{display:block;flex:0 0 270px;min-height:0;border-right:1px solid #e8eef5;background:#fbfcff}
+.chat-mobile-menu{display:none!important}
 .prp-chat-screen{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;position:relative;background:#fff;color:#1e293b}
 .prp-chat-header{height:66px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 27px;border-bottom:1px solid #edf1f6;background:#fff}
 .chat-header-left,.chat-header-actions{display:flex;align-items:center;gap:13px;min-width:0}
@@ -702,6 +775,8 @@ onBeforeUnmount(() => controller?.abort())
 .chat-photo-preview span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-photo-preview button{border:none;background:transparent;color:#375bb2;cursor:pointer}
 @media(max-width:860px){
+  .chat-desktop-sidebar{display:none}
+  .chat-mobile-menu{display:inline-grid!important}
   .prp-chat-header{height:54px;padding:0 10px}
   .prp-chat-messages{padding:19px 14px}
   .chat-message{gap:8px;margin-bottom:19px}
