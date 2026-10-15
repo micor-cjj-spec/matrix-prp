@@ -97,6 +97,8 @@ def report(path: Path = LOG_PATH, now: datetime | None = None) -> dict:
             "state": "available",
             "timestamp_utc": utc.isoformat().replace("+00:00", "Z"),
         }
+    except FileNotFoundError:
+        return base
     except (OSError, ValueError, OverflowError):
         return {**base, "state": "unavailable", "code": "DIAGNOSTIC_UNAVAILABLE"}
 
