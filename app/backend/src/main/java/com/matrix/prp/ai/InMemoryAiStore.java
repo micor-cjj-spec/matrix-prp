@@ -24,12 +24,32 @@ public class InMemoryAiStore implements AiStore {
         blocks.put(item.id(), new ArrayList<>());
         return item;
     }
+    private final Set<String> deleted = new HashSet<>();
     @Override public synchronized List<Conversation> list(long user) {
-        return conversations.values().stream().filter(c -> c.userId == user).map(Owned::conversation).toList();
+        return page(user,null,null,50);
+    }
+    @Override public synchronized List<Conversation> page(long user,LocalDateTime before,String beforeId,int limit) {
+        return conversations.values().stream()
+            .filter(c->c.userId==user && !deleted.contains(c.conversation.id()))
+            .map(Owned::conversation)
+            .filter(c->before==null || c.updatedAt().isBefore(before) ||
+                (c.updatedAt().equals(before)&&c.id().compareTo(beforeId)<0))
+            .sorted(Comparator.comparing(Conversation::updatedAt)
+                .thenComparing(Conversation::id).reversed())
+            .limit(limit).toList();
+    }
+    @Override public synchronized void rename(long user,String id,String title) {
+        if(!owns(user,id))throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
+        var item=conversations.get(id);
+        conversations.put(id,new Owned(user,new Conversation(id,title,item.conversation.updatedAt())));
+    }
+    @Override public synchronized void softDelete(long user,String id) {
+        if(!owns(user,id))throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
+        deleted.add(id);
     }
     @Override public synchronized boolean owns(long user, String id) {
         Owned c = conversations.get(id);
-        return c != null && c.userId == user;
+        return c != null && c.userId == user && !deleted.contains(id);
     }
     @Override public synchronized List<Message> messages(long user, String id, Long beforeId, int limit) {
         if (!owns(user, id)) return List.of();
@@ -40,7 +60,10 @@ public class InMemoryAiStore implements AiStore {
     @Override public synchronized long append(long user, String id, String role, String content) {
         if (!owns(user, id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found");
         long messageId=nextId++;
-        messages.get(id).add(new Message(messageId, role, content, LocalDateTime.now()));
+        LocalDateTime now=LocalDateTime.now();
+        messages.get(id).add(new Message(messageId,role,content,now));
+        Owned existing=conversations.get(id);
+        conversations.put(id,new Owned(user,new Conversation(id,existing.conversation.title(),now)));
         return messageId;
     }
     @Override public synchronized void saveBlocks(long user,String id,long messageId,List<MessageBlock> items) {
