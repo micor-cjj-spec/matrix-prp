@@ -50,7 +50,8 @@ function choose(id: string) {
 }
 function action(name: 'rename' | 'remove', item: Conversation) {
   menuId.value = null
-  emit(name,item)
+  if (name === 'rename') emit('rename',item)
+  else emit('remove',item)
 }
 </script>
 
