@@ -108,12 +108,13 @@ public class WellnessAiDraftController {
                     .isAfter(java.time.LocalDateTime.now()))
                 pending.add(view);
         }
-        String response,route="",status;
+        String response,route="",status,linkedDraftId=null;
         if(pending.size()>1) {
-            response="当前会话有多个待确认饮食草稿，请点击对应卡片的「确认保存」，避免保存错日期或餐次。";
+            response="当前会话有多个待确认饮食草稿，请点击对应记录链接的「确认保存」，避免保存错日期或餐次。";
             status="MULTIPLE_PENDING";
         } else if(pending.size()==1) {
             var selected=pending.getFirst();
+            linkedDraftId=selected.draft().draftId();
             var outcome=service.confirm(selected.draft().draftId());
             Object saved=outcome.saved();
             if(saved instanceof List<?> records) {
@@ -134,6 +135,7 @@ public class WellnessAiDraftController {
             status="SAVED";
             route=outcome.route();
         } else if(mostRecent!=null && "CONSUMED".equals(mostRecent.status())) {
+            linkedDraftId=mostRecent.draft().draftId();
             response="这份饮食草稿已确认保存过，没有再次创建记录。请在健康中心核对。";
             status="ALREADY_SAVED";
             route="/wellness?date="+mostRecent.draft().values().get("date");
@@ -143,6 +145,8 @@ public class WellnessAiDraftController {
         }
         chat.append(user,request.conversationId(),"user",words);
         long assistant=chat.append(user,request.conversationId(),"assistant",response);
+        if(linkedDraftId!=null) chat.saveBlocks(user,request.conversationId(),assistant,List.of(
+            new AiStore.MessageBlock(assistant,"wellness_draft","wellness","已保存健康记录",linkedDraftId)));
         return ApiResponse.success(new ChatConfirmation(assistant,response,status,route));
     }
 
