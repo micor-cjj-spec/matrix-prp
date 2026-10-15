@@ -149,6 +149,21 @@ class SafeDeploymentDiagnosticsTests(unittest.TestCase):
         self.assertIn("prp-safe-deployment-diagnosis", workflow)
         self.assertNotIn("cat /var/lib/matrix-prp-deploy", workflow)
 
+    def test_admin_installer_is_reviewable_and_does_not_replace_controller(self):
+        import subprocess
+        script = ROOT / "admin_install_diagnostic.sh"
+        subprocess.run(["bash", "-n", str(script)], check=True, capture_output=True)
+        source = script.read_text()
+        self.assertIn('--check', source)
+        self.assertIn('--apply', source)
+        self.assertIn("STOP: unapproved controller hash", source)
+        self.assertIn('controller=/usr/local/sbin/prp-release', source)
+        self.assertIn('cp -a "$gateway" "$backup/gateway.original"', source)
+        self.assertIn('visudo -cf "$sudoers"', source)
+        self.assertNotIn('install "$here/server-release.py"', source)
+        self.assertNotIn('NOPASSWD: ALL', source)
+        self.assertNotIn('chmod 777', source)
+
     def test_gateway_allows_only_fixed_diagnostic_command(self):
         gateway = (ROOT / "ssh-gateway.sh").read_text()
         self.assertIn("diagnose) exec sudo -n /usr/local/sbin/prp-diagnose ;;", gateway)
