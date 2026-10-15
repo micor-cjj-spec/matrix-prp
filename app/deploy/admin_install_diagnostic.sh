@@ -58,7 +58,11 @@ echo "$gateway" > "$backup/gateway.path"
 chmod 600 "$backup/gateway.path"
 done_helper=0; done_sudoers=0; done_gateway=0
 rollback() {
-  if (( done_gateway )); then cp -a "$backup/gateway.original" "$gateway"; fi
+  if (( done_gateway )); then
+    restore="$(mktemp -- "$(dirname "$gateway")/.prp-restore.XXXXXXXX")"
+    cp -a "$backup/gateway.original" "$restore"
+    mv -f -- "$restore" "$gateway"
+  fi
   if (( done_sudoers )); then rm -f "$sudoers"; fi
   if (( done_helper )); then rm -f "$target"; fi
 }
@@ -68,10 +72,14 @@ done_helper=1
 install -o root -g root -m 0440 "$work/sudoers" "$sudoers"
 done_sudoers=1
 visudo -cf "$sudoers" >/dev/null
-cp "$work/gateway.after" "$gateway"
-chmod --reference="$backup/gateway.original" "$gateway"
-chown --reference="$backup/gateway.original" "$gateway"
+# Install gateway atomically from a temporary file in its own filesystem.
+# Never truncate the live forced-command file in place.
+candidate="$(mktemp -- "$(dirname "$gateway")/.prp-gateway.XXXXXXXX")"
+install -m 0700 "$work/gateway.after" "$candidate"
+chmod --reference="$backup/gateway.original" "$candidate"
+chown --reference="$backup/gateway.original" "$candidate"
 done_gateway=1
+mv -f -- "$candidate" "$gateway"
 sh -n "$gateway"
 [[ "$(sha256sum "$controller" | cut -d' ' -f1)" == "$expected" ]]
 "$target" | python3 -c '
