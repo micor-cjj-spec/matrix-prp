@@ -204,7 +204,7 @@ async function updateMetric(item: MetricEdit) {
 .prp-ai-action-dialog .ai-action-section{border-top:1px solid #e2e8f0;margin-top:15px;padding-top:15px;display:grid;gap:12px}
 .prp-ai-action-dialog h3{margin:0;font-size:15px}
 .prp-ai-action-dialog label{display:grid;gap:5px;color:#475569;font-size:13px;min-width:0}
-.prp-ai-action-dialog input,.prp-ai-action-dialog select,.prp-ai-action-dialog textarea{box-sizing:border-box;width:100%;min-width:0;min-height:40px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font:inherit;font-size:14px}
+.prp-ai-action-dialog input,.prp-ai-action-dialog select,.prp-ai-action-dialog textarea{box-sizing:border-box;width:100%;min-width:0;min-height:40px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font:inherit;font-size:16px}
 .prp-ai-action-dialog input:disabled{background:#f5f7fb}
 .prp-ai-action-dialog .ai-action-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .prp-ai-action-dialog .ai-action-food{display:grid;gap:8px;padding:12px;background:#f7f9fc;border-radius:9px}
