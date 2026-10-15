@@ -36,7 +36,11 @@ const groups = computed(() => {
     { label: '更早', items: [] as Conversation[] },
   ]
   for (const chat of props.conversations) {
-    const timestamp = new Date(chat.updatedAt).getTime()
+    // JDBC stores UTC LocalDateTime without an offset. Parse it as UTC before
+    // grouping by the viewer's local day; otherwise 01:00 Beijing moves to yesterday.
+    const utcTime = /(?:Z|[+-]\\d{2}:\\d{2})$/u.test(chat.updatedAt)
+      ? chat.updatedAt : chat.updatedAt + 'Z'
+    const timestamp = new Date(utcTime).getTime()
     const age = Number.isFinite(timestamp) ? startToday - timestamp : 31 * day
     const index = age < 0 ? 0 : age < day ? 1 : age < 6 * day ? 2 : age < 29 * day ? 3 : 4
     sections[index].items.push(chat)
