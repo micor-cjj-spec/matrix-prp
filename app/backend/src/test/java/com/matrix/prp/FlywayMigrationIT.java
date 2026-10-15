@@ -148,7 +148,7 @@ class FlywayMigrationIT {
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(18);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(19);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(10);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() " +
                 "AND table_name='prp_ai_conversations' AND column_name IN ('deleted_at','is_pinned','title_source')"))
@@ -161,6 +161,7 @@ class FlywayMigrationIT {
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='prp_wellness_meal_items' AND column_name IN ('protein_g','carbs_g','fat_g') AND is_nullable='YES'")).isEqualTo(3);
 
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='prp_finance_transfers'")).isEqualTo(1);
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('prp_finance_import_batches','prp_finance_import_rows','prp_finance_source_links')")).isEqualTo(3);
         insertSentinel(url, "flyway_fresh_ci");
         long before = count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'");
         assertThat(migration.migrate().migrationsExecuted).isZero();
