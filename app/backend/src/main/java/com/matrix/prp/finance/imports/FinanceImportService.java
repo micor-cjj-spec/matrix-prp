@@ -74,6 +74,10 @@ public class FinanceImportService {
         String digest;
         try { digest=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
         catch (Exception e) { throw new IllegalStateException("SHA-256 unavailable",e); }
+        List<Long> differentSource=jdbc.query(
+            "SELECT id FROM prp_finance_import_batches WHERE user_id=? AND platform='WECHAT' AND sha256=? AND source_account_key<>?",
+            (rs,n)->rs.getLong(1),owner,digest,source);
+        if(!differentSource.isEmpty()) throw bad("Same file was already uploaded for another source account");
         List<Long> existing=jdbc.query(
             "SELECT id FROM prp_finance_import_batches WHERE user_id=? AND platform='WECHAT' AND source_account_key=? AND sha256=?",
             (rs,n)->rs.getLong(1),owner,source,digest);
@@ -109,8 +113,8 @@ public class FinanceImportService {
 
     private boolean sourceAlreadyPosted(long user,String source,String transaction) {
         Integer n=jdbc.queryForObject("SELECT COUNT(*) FROM prp_finance_source_links "
-            +"WHERE user_id=? AND platform='WECHAT' AND source_account_key=? AND source_transaction_id=?",
-            Integer.class,user,source,transaction);
+            +"WHERE user_id=? AND platform='WECHAT' AND source_transaction_id=?",
+            Integer.class,user,transaction);
         return n != null && n>0;
     }
 
