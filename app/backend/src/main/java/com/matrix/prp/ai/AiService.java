@@ -84,6 +84,40 @@ public class AiService {
     }
 
     public List<Conversation> conversations() { return store.list(CurrentUser.id()); }
+    public record ConversationPage(List<Conversation> items,String nextCursor,boolean hasMore) {}
+
+    public ConversationPage pageConversations(String cursor,int limit) {
+        if(limit<1 || limit>50)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid page size");
+        java.time.LocalDateTime before=null;
+        String beforeId=null;
+        if(cursor!=null && !cursor.isBlank()) {
+            String[] values=cursor.split("\\|",2);
+            if(values.length!=2)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid cursor");
+            try {
+                before=java.time.LocalDateTime.parse(values[0]);
+                beforeId=java.util.UUID.fromString(values[1]).toString();
+            }catch(IllegalArgumentException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid cursor");
+            }
+        }
+        List<Conversation> page=store.page(CurrentUser.id(),before,beforeId,limit+1);
+        boolean hasMore=page.size()>limit;
+        List<Conversation> items=page.subList(0,Math.min(limit,page.size()));
+        Conversation last=items.isEmpty()?null:items.getLast();
+        return new ConversationPage(items,hasMore && last!=null ?
+            last.updatedAt().toString()+"|"+last.id() : null,hasMore);
+    }
+
+    public void renameConversation(String id,String title) {
+        String clean=title==null?"":title.strip();
+        if(clean.isBlank() || clean.length()>120)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Title must be 1–120 characters");
+        store.rename(CurrentUser.id(),id,clean);
+    }
+
+    public void deleteConversation(String id) {
+        store.softDelete(CurrentUser.id(),id);
+    }
     public List<Message> messages(String id) {
         return messages(id, null, 200);
     }

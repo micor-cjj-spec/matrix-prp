@@ -27,6 +27,28 @@ public class AiController {
         return ApiResponse.success(service.conversations());
     }
 
+    @GetMapping("/conversations/page")
+    public ApiResponse<AiService.ConversationPage> pageConversations(
+            @RequestParam(required=false) String cursor,
+            @RequestParam(defaultValue="20") int limit) {
+        return ApiResponse.success(service.pageConversations(cursor,limit));
+    }
+
+    public record RenameConversationRequest(@NotBlank @Size(max=120) String title) {}
+
+    @PatchMapping("/conversations/{id}")
+    public ApiResponse<Map<String,Object>> renameConversation(@PathVariable String id,
+            @Valid @RequestBody RenameConversationRequest request) {
+        service.renameConversation(id,request.title());
+        return ApiResponse.success(Map.of("id",id,"title",request.title().strip()));
+    }
+
+    @DeleteMapping("/conversations/{id}")
+    public ApiResponse<Map<String,Object>> deleteConversation(@PathVariable String id) {
+        service.deleteConversation(id);
+        return ApiResponse.success(Map.of("id",id,"deleted",true));
+    }
+
     @GetMapping("/conversations/{id}/messages")
     public ApiResponse<List<AiStore.Message>> messages(
             @PathVariable String id,
