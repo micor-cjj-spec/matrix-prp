@@ -103,6 +103,22 @@ class SafeDeploymentDiagnosticsTests(unittest.TestCase):
         self.assertEqual(report["diagnostic"]["table"], "prp_ai_conversations")
         self.assertIsNone(report["production"]["release"])
 
+    def test_does_not_attribute_prior_failure_to_current_deploy(self):
+        diagnostic = {
+            "state": "available", "code": "PRESERVED_ROW_CHANGED",
+            "stage": "preservation_check", "table": "prp_ai_conversations",
+            "exception": "AssertionError",
+            "timestamp_utc": "2026-10-15T04:10:00Z",
+        }
+        old = renderer.create_report(diagnostic, {}, "a" * 40,
+                                     "2026-10-15T05:40:00Z")
+        self.assertEqual(old["diagnostic"]["state"], "stale")
+        self.assertEqual(old["diagnostic"]["code"], "STALE_DIAGNOSTIC")
+        self.assertIsNone(old["diagnostic"]["table"])
+        current = renderer.create_report(diagnostic, {}, "a" * 40,
+                                         "2026-10-15T04:09:59Z")
+        self.assertEqual(current["diagnostic"]["code"], "PRESERVED_ROW_CHANGED")
+
     def test_malformed_input_types_and_invalid_table_fail_closed(self):
         malformed = {"state": ["available"], "code": {"secret": "x"},
                      "stage": ["unknown"], "table": "prp_users\nTOKEN=abc",
@@ -123,6 +139,8 @@ class SafeDeploymentDiagnosticsTests(unittest.TestCase):
         self.assertIn('"prp-deploy@$DEPLOY_HOST" diagnose', workflow)
         self.assertIn('"prp-deploy@$DEPLOY_HOST" status', workflow)
         self.assertIn("render_safe_diagnostic.py", workflow)
+        self.assertIn('prp-publish-start-utc.txt', workflow)
+        self.assertIn('--attempt-start', workflow)
         self.assertIn("prp-safe-deployment-diagnosis", workflow)
         self.assertNotIn("cat /var/lib/matrix-prp-deploy", workflow)
 
