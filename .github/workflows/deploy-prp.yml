@@ -254,6 +254,7 @@ jobs:
           ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" controller-sha256 > "$RUNNER_TEMP/prp-controller-sha256.txt"
           python3 app/deploy/verify_controller.py --manifest app/deploy/controller-manifest.json --response "$RUNNER_TEMP/prp-controller-sha256.txt"
       - name: Deploy or operate production
+        id: production_operation
         env:
           DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
           ACTION: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}
@@ -275,6 +276,41 @@ jobs:
             *) exit 2 ;;
           esac
           ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" status
+      # Failure-only and read-only. This step cannot undo/override a failed
+      # deploy, and it never uploads raw SSH stdout or root-only logs.
+      - name: Collect sanitized diagnosis on publish failure
+        if: failure() && steps.production_operation.outcome == 'failure'
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+          RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_args=(-i ~/.ssh/prp_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          diagnosis="$RUNNER_TEMP/prp-remote-diagnosis-untrusted.json"
+          status="$RUNNER_TEMP/prp-remote-status-untrusted.json"
+          # 'diagnose' must be installed and approved separately by an administrator.
+          # An older gateway rejects it; fall back to the already-supported status.
+          if ! ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" diagnose > "$diagnosis" 2>/dev/null; then
+            : > "$diagnosis"
+          fi
+          if ! ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" status > "$status" 2>/dev/null; then
+            : > "$status"
+          fi
+          python3 app/deploy/render_safe_diagnostic.py \
+            --diagnostic "$diagnosis" \
+            --status "$status" \
+            --target-sha "$RELEASE_SHA" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --json-output "$RUNNER_TEMP/prp-safe-diagnostic.json"
+      - name: Upload sanitized deployment diagnosis
+        if: failure() && steps.production_operation.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: prp-safe-deployment-diagnosis
+          path: ${{ runner.temp }}/prp-safe-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Write deployment summary
         if: success()
         env:
