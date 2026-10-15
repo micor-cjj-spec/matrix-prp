@@ -3,6 +3,7 @@ import { getStoredToken } from '@/utils/token'
 import { createSseParser } from './sseParser'
 
 export interface Conversation { id: string; title: string; updatedAt: string }
+export interface ConversationPage { items: Conversation[]; nextCursor: string | null; hasMore: boolean }
 export interface AiMessageBlock { messageId: number; type: 'navigation' | 'wellness_draft'; module: string; label: string; route: string }
 export interface ChatMessage { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }
 export interface AiUsage {
@@ -19,6 +20,19 @@ export class AiStreamHttpError extends Error {
 
 export async function listConversations() {
   return (await apiClient.get<ApiResponse<Conversation[]>>('/ai/conversations')).data.data
+}
+export async function pageConversations(cursor?: string | null, limit = 20) {
+  return (await apiClient.get<ApiResponse<ConversationPage>>('/ai/conversations/page', {
+    params: { ...(cursor ? { cursor } : {}), limit },
+  })).data.data
+}
+export async function renameConversation(id: string, title: string) {
+  return (await apiClient.patch<ApiResponse<{ id: string; title: string }>>(
+    '/ai/conversations/' + encodeURIComponent(id), { title },
+  )).data.data
+}
+export async function deleteConversation(id: string) {
+  await apiClient.delete('/ai/conversations/' + encodeURIComponent(id))
 }
 export async function listMessages(id: string, beforeId?: number, limit = 200) {
   return (await apiClient.get<ApiResponse<ChatMessage[]>>(
