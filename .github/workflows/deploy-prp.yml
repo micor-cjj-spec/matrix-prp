@@ -291,14 +291,13 @@ jobs:
           ssh_args=(-i ~/.ssh/prp_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
           diagnosis="$RUNNER_TEMP/prp-remote-diagnosis-untrusted.json"
           status="$RUNNER_TEMP/prp-remote-status-untrusted.json"
-          # 'diagnose' must be installed and approved separately by an administrator.
-          # An older gateway rejects it; fall back to the already-supported status.
+          # 'diagnose' must be independently approved and installed.
+          # NEVER probe 'status' following a failed deploy: the installed
+          # controller may overwrite last-error.log if status itself fails.
           if ! ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" diagnose > "$diagnosis" 2>/dev/null; then
             : > "$diagnosis"
           fi
-          if ! ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" status > "$status" 2>/dev/null; then
-            : > "$status"
-          fi
+          : > "$status"
           python3 app/deploy/render_safe_diagnostic.py \
             --diagnostic "$diagnosis" \
             --status "$status" \
