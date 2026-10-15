@@ -262,6 +262,8 @@ jobs:
         run: |
           set -euo pipefail
           ssh_args=(-i ~/.ssh/prp_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          # Correlate the root-only diagnostic to this exact publish attempt.
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > "$RUNNER_TEMP/prp-publish-start-utc.txt"
           case "$ACTION" in
             deploy|promote)
               # Never invoke the production controller without a local release archive.
@@ -301,6 +303,7 @@ jobs:
             --diagnostic "$diagnosis" \
             --status "$status" \
             --target-sha "$RELEASE_SHA" \
+            --attempt-start "$RUNNER_TEMP/prp-publish-start-utc.txt" \
             --summary "$GITHUB_STEP_SUMMARY" \
             --json-output "$RUNNER_TEMP/prp-safe-diagnostic.json"
       - name: Upload sanitized deployment diagnosis
