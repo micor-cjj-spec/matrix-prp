@@ -34,10 +34,12 @@ public class JdbcAiStore implements AiStore {
 
     @Override
     public List<Conversation> page(long userId, LocalDateTime beforeUpdatedAt, String beforeId, int limit) {
-        String cursor=beforeUpdatedAt==null?"":" AND (updated_at<? OR (updated_at=? AND id<?))";
-        String sql="SELECT id,title,updated_at FROM prp_ai_conversations " +
-            "WHERE user_id=? AND deleted_at IS NULL" + cursor +
-            " ORDER BY updated_at DESC,id DESC LIMIT ?";
+        String cursor=beforeUpdatedAt==null?"":" AND (c.updated_at<? OR (c.updated_at=? AND c.id<?))";
+        String sql="SELECT c.id,COALESCE(m.title_override,c.title),c.updated_at " +
+            "FROM prp_ai_conversations c " +
+            "LEFT JOIN prp_ai_conversation_meta m ON m.conversation_id=c.id " +
+            "WHERE c.user_id=? AND m.deleted_at IS NULL" + cursor +
+            " ORDER BY c.updated_at DESC,c.id DESC LIMIT ?";
         var mapper=(org.springframework.jdbc.core.RowMapper<Conversation>)(rs,n) ->
             new Conversation(rs.getString(1),rs.getString(2),rs.getTimestamp(3).toLocalDateTime());
         return beforeUpdatedAt==null
@@ -45,26 +47,58 @@ public class JdbcAiStore implements AiStore {
             : db.query(sql,mapper,userId,beforeUpdatedAt,beforeUpdatedAt,beforeId,limit);
     }
 
+    /**
+     * Metadata is isolated from the historical prp_ai_conversations row.
+     * Production's fail-closed deployment gate hashes SELECT * of old tables.
+     */
     @Override
+    @Transactional
     public void rename(long userId,String conversationId,String title) {
-        int changed=db.update("UPDATE prp_ai_conversations SET title=?,title_source='USER' " +
-            "WHERE id=? AND user_id=? AND deleted_at IS NULL",title,conversationId,userId);
-        if(changed!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
+        // Insert only for the authenticated owner. Existing tombstones are never resurrected.
+        ensureMetadata(userId,conversationId);
+        int changed=db.update("""
+            UPDATE prp_ai_conversation_meta m
+            JOIN prp_ai_conversations c ON c.id=m.conversation_id
+            SET m.title_override=?,m.title_source='USER'
+            WHERE c.id=? AND c.user_id=? AND m.deleted_at IS NULL
+            """,title,conversationId,userId);
+        // An identical title can yield changed=0; still a valid idempotent rename.
+        if(changed==0 && !owns(userId,conversationId))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
     }
 
     @Override
+    @Transactional
     public void softDelete(long userId,String conversationId) {
-        int changed=db.update("UPDATE prp_ai_conversations SET deleted_at=? " +
-            "WHERE id=? AND user_id=? AND deleted_at IS NULL",
-            LocalDateTime.now(java.time.Clock.systemUTC()),conversationId,userId);
-        if(changed!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
+        ensureMetadata(userId,conversationId);
+        int changed=db.update("""
+            UPDATE prp_ai_conversation_meta m
+            JOIN prp_ai_conversations c ON c.id=m.conversation_id
+            SET m.deleted_at=?
+            WHERE c.id=? AND c.user_id=? AND m.deleted_at IS NULL
+            """,LocalDateTime.now(java.time.Clock.systemUTC()),conversationId,userId);
+        if(changed!=1)
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Conversation not found");
+    }
+
+    private void ensureMetadata(long userId,String conversationId) {
+        // This creates a blank metadata row without modifying the parent conversation
+        // or granting a different user a way to modify/delete the conversation.
+        db.update("""
+            INSERT IGNORE INTO prp_ai_conversation_meta(conversation_id)
+            SELECT c.id FROM prp_ai_conversations c
+            WHERE c.id=? AND c.user_id=?
+            """,conversationId,userId);
     }
 
     @Override
     public boolean owns(long userId, String conversationId) {
-        Integer count = db.queryForObject("SELECT count(*) FROM prp_ai_conversations WHERE user_id=? AND id=? AND deleted_at IS NULL",
-                Integer.class, userId, conversationId);
-        return count != null && count > 0;
+        Integer count=db.queryForObject("""
+            SELECT COUNT(*) FROM prp_ai_conversations c
+            LEFT JOIN prp_ai_conversation_meta m ON m.conversation_id=c.id
+            WHERE c.id=? AND c.user_id=? AND m.deleted_at IS NULL
+            """,Integer.class,conversationId,userId);
+        return count!=null && count>0;
     }
 
     @Override
@@ -74,7 +108,8 @@ public class JdbcAiStore implements AiStore {
                 SELECT m.id,m.role,m.content,m.created_at
                 FROM prp_ai_messages m
                 JOIN prp_ai_conversations c ON c.id=m.conversation_id
-                WHERE c.user_id=? AND c.id=? AND c.deleted_at IS NULL
+                LEFT JOIN prp_ai_conversation_meta meta ON meta.conversation_id=c.id
+                WHERE c.user_id=? AND c.id=? AND meta.deleted_at IS NULL
                 """ + cursorCondition + " ORDER BY m.id DESC LIMIT ?";
         Object[] parameters = beforeId == null
                 ? new Object[]{userId, conversationId, limit}
@@ -92,7 +127,9 @@ public class JdbcAiStore implements AiStore {
         int affected = db.update(connection -> {
             var stmt=connection.prepareStatement("""
                 INSERT INTO prp_ai_messages(conversation_id,role,content,created_at)
-                SELECT id,?,?,? FROM prp_ai_conversations WHERE id=? AND user_id=? AND deleted_at IS NULL
+                SELECT c.id,?,?,? FROM prp_ai_conversations c
+                LEFT JOIN prp_ai_conversation_meta meta ON meta.conversation_id=c.id
+                WHERE c.id=? AND c.user_id=? AND meta.deleted_at IS NULL
                 """, Statement.RETURN_GENERATED_KEYS);
             stmt.setString(1,role);
             stmt.setString(2,content);
@@ -116,7 +153,8 @@ public class JdbcAiStore implements AiStore {
         Integer valid=db.queryForObject("""
             SELECT COUNT(*) FROM prp_ai_messages m
             JOIN prp_ai_conversations c ON m.conversation_id=c.id
-            WHERE m.id=? AND m.role='assistant' AND c.id=? AND c.user_id=? AND c.deleted_at IS NULL
+            LEFT JOIN prp_ai_conversation_meta meta ON meta.conversation_id=c.id
+            WHERE m.id=? AND m.role='assistant' AND c.id=? AND c.user_id=? AND meta.deleted_at IS NULL
             """,Integer.class,messageId,conversationId,userId);
         if (valid==null || valid!=1)
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Assistant message not found");
@@ -140,7 +178,8 @@ public class JdbcAiStore implements AiStore {
             FROM prp_ai_message_blocks b
             JOIN prp_ai_messages m ON m.id=b.message_id
             JOIN prp_ai_conversations c ON c.id=m.conversation_id
-            WHERE c.id=? AND c.user_id=? AND b.user_id=? AND c.deleted_at IS NULL
+            LEFT JOIN prp_ai_conversation_meta meta ON meta.conversation_id=c.id
+            WHERE c.id=? AND c.user_id=? AND b.user_id=? AND meta.deleted_at IS NULL
             ORDER BY b.id DESC LIMIT 500
             """,(rs,n)->new MessageBlock(rs.getLong(1),rs.getString(2),rs.getString(3),
                 rs.getString(4),rs.getString(5)),conversationId,userId,userId);
