@@ -10,8 +10,8 @@ installed production controller; never overwrite the latter from this repository
 
 This change introduces:
 
-1. An Actions **failure-only** step that invokes the already permitted `status` command,
-   plus optional fixed `diagnose` if independently installed. It publishes only a
+1. An Actions **failure-only** step that attempts only the fixed `diagnose`
+   command after independent installation. It publishes only a
    **strictly validated JSON report** and GitHub Step Summary.
 2. A root-owned `prp-diagnose` helper that reads a single fixed error-log path and emits
    only a known error code, an approved pipeline stage, a *table name* where applicable,
@@ -25,17 +25,21 @@ In a public GitHub repository, **never publish raw logs, raw stderr, backups, tr
 full database rows** to Actions outputs or artifacts. Actions cannot view root-only
 records without the separately authorized read-only helper.
 
-## Status without server changes
+## Behavior before the helper is installed
 
-A failed publish can already use the existing `status` command. The new workflow:
-- tries the exact command `ssh ... diagnose` and discards any rejection text;
-- calls the existing `ssh ... status`;
-- sanitizes both results with `app/deploy/render_safe_diagnostic.py`;
-- writes only sanitized details to the Actions Summary and `prp-safe-deployment-diagnosis` artifact.
+When a publish fails, Actions attempts only the fixed `ssh ... diagnose`
+command. On older gateways this returns an error, which is discarded. Actions
+then publishes an allowlisted "diagnostic unavailable" report. It does **not**
+request raw logs or invoke the existing `status` command after a failure.
 
-Before installation, the report says that the diagnostic command is unavailable.
-**This does not reveal the exact failing assertion.** Its benefit is immediate
-visibility of the runtime release, deployed commit, service status and schema version.
+**Why avoid status?** The current installed controller's global exception handler
+writes `last-error.log` with mode `w`. A failure while probing status could
+overwrite the original deployment traceback and destroy the evidence. Successful
+releases retain their normal status verification.
+
+Once the administrator installs `diagnose`, the rendered report includes the
+sanitized failure code/stage/object. Until then, the exact assertion remains
+unavailable without authorized administrator inspection.
 
 ## One-time administrator-only setup
 
@@ -89,8 +93,9 @@ will report `STALE_DIAGNOSTIC` instead of misattributing an old failure to a new
 1. Open the failed **Deploy PRP** GitHub Actions run.
 2. Read its `PRP production deployment diagnosis (sanitized)` Step Summary.
 3. Open its `prp-safe-deployment-diagnosis` artifact if structured details are needed.
-4. Correlate `code`, `stage`, `table`, `production.commit`,
-   `production.schema_version` and `production.service` against the intended SHA.
+4. Correlate `code`, `stage`, `table`, diagnostic timestamp and the intended
+   release SHA. Production runtime metadata is intentionally unavailable on
+   failed publishes without an independently reviewed read-only source.
 5. If `code` is unknown, stale, or malformed, ask the authorized administrator for
    a *specific* root-only traceback excerpt. Never guess an unobserved assertion.
 
