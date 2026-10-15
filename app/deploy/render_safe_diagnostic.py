@@ -8,6 +8,7 @@ Actions summaries or artifacts. This remains useful without the optional host
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -81,12 +82,26 @@ def safe_status(data: dict) -> dict:
     }
 
 
-def create_report(diagnostic: dict, status: dict, target_sha: str) -> dict:
+def create_report(diagnostic: dict, status: dict, target_sha: str,
+                  attempt_start: str | None = None) -> dict:
+    clean = safe_diagnostic(diagnostic)
+    # The host log can belong to a previous failed run. Do not attribute an
+    # earlier failure to this deployment, even if it is less than 2 hours old.
+    if attempt_start and UTC_TIMESTAMP.fullmatch(attempt_start):
+        diagnostic_time = clean["timestamp_utc"]
+        if clean["state"] == "available" and diagnostic_time:
+            try:
+                observed = datetime.fromisoformat(diagnostic_time.replace("Z", "+00:00"))
+                began = datetime.fromisoformat(attempt_start.replace("Z", "+00:00"))
+                if observed.timestamp() < began.timestamp() - 60:
+                    clean = safe_diagnostic({"state": "stale", "code": "STALE_DIAGNOSTIC"})
+            except ValueError:
+                clean = safe_diagnostic({"state": "unavailable"})
     return {
         "schema_version": 1,
         "outcome": "deploy_failed",
         "target_commit": target_sha if HEX40.fullmatch(target_sha) else None,
-        "diagnostic": safe_diagnostic(diagnostic),
+        "diagnostic": clean,
         "production": safe_status(status),
         "limitations": ("No detailed host diagnosis available until administrator-approved "
                         "read-only diagnose command is installed."
@@ -125,11 +140,16 @@ def main() -> int:
     parser.add_argument("--diagnostic", required=True, type=Path)
     parser.add_argument("--status", required=True, type=Path)
     parser.add_argument("--target-sha", required=True)
+    parser.add_argument("--attempt-start", required=True, type=Path)
     parser.add_argument("--summary", required=True, type=Path)
     parser.add_argument("--json-output", required=True, type=Path)
     args = parser.parse_args()
+    try:
+        attempt_start = args.attempt_start.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        attempt_start = None
     report = create_report(load_untrusted(args.diagnostic),
-                           load_untrusted(args.status), args.target_sha)
+                           load_untrusted(args.status), args.target_sha, attempt_start)
     args.summary.open("a", encoding="utf-8").write("\n".join(summary_lines(report)) + "\n")
     args.json_output.write_text(json.dumps(report, indent=2, ensure_ascii=True) + "\n",
                                 encoding="utf-8")
