@@ -1,6 +1,7 @@
 package com.matrix.prp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -123,6 +124,29 @@ class FlywayMigrationIT {
         assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(count(url,"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()"
                 +" AND table_name='prp_ai_conversations'")).isEqualTo(5);
+        // End-to-end JDBC service uses only the new companion table for
+        // rename/delete. Both the owner boundary and parent row hash hold.
+        var source=new org.springframework.jdbc.datasource.DriverManagerDataSource(url,user(),password());
+        var chat=new com.matrix.prp.ai.JdbcAiStore(new org.springframework.jdbc.core.JdbcTemplate(source));
+        String id="00000000-0000-0000-0000-00000000f018";
+        assertThat(chat.list(99999L)).extracting(com.matrix.prp.ai.AiStore.Conversation::title)
+            .contains("historic chat");
+        assertThatThrownBy(()->chat.rename(88L,id,"foreign change"))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(()->chat.softDelete(88L,id))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        chat.rename(99999L,id,"user renamed");
+        assertThat(chat.list(99999L)).extracting(com.matrix.prp.ai.AiStore.Conversation::title)
+            .contains("user renamed");
+        assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
+        chat.softDelete(99999L,id);
+        assertThat(chat.owns(99999L,id)).isFalse();
+        assertThat(chat.list(99999L)).isEmpty();
+        assertThatThrownBy(()->chat.rename(99999L,id,"restore incorrectly"))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(()->chat.softDelete(99999L,id))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
         assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(18);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(10);
