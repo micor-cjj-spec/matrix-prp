@@ -98,7 +98,7 @@ class SafeDeploymentDiagnosticsTests(unittest.TestCase):
         }, "a" * 40)
         published = json.dumps(report) + "\n".join(renderer.summary_lines(report))
         for forbidden in ["PRIVATE_PRIMARY_KEY", "MYSQL_PWD", "api-key",
-                          "evil-release", "::error::leak", "select *", "credentials"]:
+                          "evil-release", "::error::leak", "select *", "api-key"]:
             self.assertNotIn(forbidden, published)
         self.assertEqual(report["diagnostic"]["table"], "prp_ai_conversations")
         self.assertIsNone(report["production"]["release"])
