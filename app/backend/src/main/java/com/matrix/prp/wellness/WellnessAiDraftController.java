@@ -151,6 +151,11 @@ public class WellnessAiDraftController {
         return ApiResponse.success(service.getDraft(draftId));
     }
 
+    @GetMapping("/drafts/{draftId}/targets")
+    public ApiResponse<List<WellnessAiDraftService.ActionTarget>> targets(@PathVariable String draftId) {
+        return ApiResponse.success(service.actionTargets(draftId));
+    }
+
     @PostMapping(value="/prepare",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<WellnessAiDraftService.Preview> prepare(
         @RequestParam @NotBlank @Size(max=1500) String text,

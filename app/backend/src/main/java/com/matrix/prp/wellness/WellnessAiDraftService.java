@@ -306,6 +306,51 @@ public class WellnessAiDraftService {
         }
     }
 
+    /** Owner-scoped, stable action targets. The chat link never assumes a consumed draft is editable. */
+    public record ActionTarget(String type,long recordId,Object record,boolean deleted) {}
+
+    public List<ActionTarget> actionTargets(String draftId) {
+        DraftView view=getDraft(draftId); // validates owner even for old/deleted links
+        if(!"CONSUMED".equals(view.status())) return List.of();
+        long user=CurrentUser.id();
+        List<Map<String,Object>> rows=db.queryForList(
+            "SELECT target_type,record_id FROM prp_wellness_ai_action_targets " +
+            "WHERE draft_id=? AND user_id=? ORDER BY ordinal",draftId,user);
+        List<ActionTarget> targets=new ArrayList<>();
+        for(var row:rows) {
+            String type=String.valueOf(row.get("target_type"));
+            long id=((Number)row.get("record_id")).longValue();
+            Object record=null;
+            try {
+                record=switch(type) {
+                    case "meal" -> wellness.ownedMeal(id);
+                    case "exercise" -> wellness.ownedExercise(id);
+                    case "metric" -> wellness.ownedMetric(id);
+                    default -> null;
+                };
+            } catch(com.matrix.prp.common.api.ResourceNotFoundException deleted) {
+                // Persist a tombstone in the link; never silently recreate a deleted record.
+            }
+            targets.add(new ActionTarget(type,id,record,record==null));
+        }
+        return targets;
+    }
+
+    private void linkSavedTargets(String draftId,long user,Object saved) {
+        List<?> records=saved instanceof List<?> list?list:List.of(saved);
+        int ordinal=0;
+        for(Object record:records) {
+            String type;long recordId;
+            if(record instanceof Meal meal) {type="meal";recordId=meal.id();}
+            else if(record instanceof Exercise exercise) {type="exercise";recordId=exercise.id();}
+            else if(record instanceof BodyMetric metric) {type="metric";recordId=metric.id();}
+            else throw new IllegalArgumentException("Unsupported saved health record");
+            db.update("INSERT INTO prp_wellness_ai_action_targets " +
+                "(draft_id,user_id,ordinal,target_type,record_id) VALUES (?,?,?,?,?)",
+                draftId,user,ordinal++,type,recordId);
+        }
+    }
+
     static String detect(byte[] b){
         if(b==null || b.length<12)return null;
         if((b[0]&255)==255 && (b[1]&255)==216 && (b[2]&255)==255)return "image/jpeg";
@@ -810,6 +855,9 @@ public class WellnessAiDraftService {
                 }
                 default -> throw invalid("Invalid draft action");
             }
+            // New action links always target the actual rows. Same transaction as the write
+            // and CONSUMED transition; uncertain responses can be inspected safely later.
+            linkSavedTargets(draftId,user,saved);
             int changed=db.update("UPDATE prp_wellness_ai_drafts SET status='CONSUMED',consumed_at=NOW() "+
                 "WHERE id=? AND user_id=? AND status='PENDING'",draftId,user);
             if(changed!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Draft already used");
