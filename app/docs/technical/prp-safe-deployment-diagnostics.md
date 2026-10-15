@@ -41,6 +41,36 @@ Once the administrator installs `diagnose`, the rendered report includes the
 sanitized failure code/stage/object. Until then, the exact assertion remains
 unavailable without authorized administrator inspection.
 
+## Reviewable installer (does not auto-apply)
+
+The branch now contains `app/deploy/admin_install_diagnostic.sh`. It
+accepts an **explicit absolute path to the installed root-owned forced-command
+gateway**; the repository's reference gateway is not an acceptable replacement.
+The initial `--check` operation validates the approved controller hash,
+the installed gateway's structure, the helper source, sudoers syntax and the
+**exact one-line candidate diff**, without changing production files.
+
+After the administrator reviews the diff and approves the fixed sudoers rule,
+use `--apply` with the **same** gateway path. This creates a root-only dated
+backup under `/var/backups/prp-diagnose/`, installs the helper and
+exact-command sudoers entry, patches only the confirmed gateway anchor, and
+verifies the original controller checksum. An installation failure attempts
+to restore the gateway and remove new helper/sudoers entries.
+
+Example (requires an administrator-managed checked-out copy of this branch,
+pinned to its audited commit SHA; never run an unreviewed `curl | bash`):
+
+```bash
+sudo bash app/deploy/admin_install_diagnostic.sh --check /absolute/installed/ssh-gateway
+# Review the displayed diff and sudoers scope before continuing.
+sudo bash app/deploy/admin_install_diagnostic.sh --apply /absolute/installed/ssh-gateway
+```
+
+Do not run `--apply` until the actual installed gateway path and source
+have been verified. Keep an independent root shell open while validating
+the new SSH forced command. After installation, explicitly verify denied
+shell, SFTP, and argument-bearing diagnose requests as described below.
+
 ## One-time administrator-only setup
 
 Do not perform these steps from an ordinary PR or GitHub Action. The original
