@@ -72,7 +72,7 @@ public class WellnessAiDraftController {
         String id=conversationId==null||conversationId.isBlank()
             ? chat.create(user,text.substring(0,Math.min(48,text.length()))).id():conversationId;
         chat.append(user,id,"user",text);
-        long assistant=chat.append(user,id,"assistant","已整理健康记录，请核对下方食物与来源，然后确认保存。");
+        long assistant=chat.append(user,id,"assistant","已整理健康记录，请点击下方链接核对并确认保存。");
         chat.saveBlocks(user,id,assistant,List.of(
             new AiStore.MessageBlock(assistant,"wellness_draft","wellness","待确认健康记录",draft.draftId())));
         return ApiResponse.success(new ChatDraft(id,assistant,draft));
