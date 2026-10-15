@@ -11,6 +11,9 @@ public interface AiStore {
 
     Conversation create(long userId, String title);
     List<Conversation> list(long userId);
+    List<Conversation> page(long userId, LocalDateTime beforeUpdatedAt, String beforeId, int limit);
+    void rename(long userId, String conversationId, String title);
+    void softDelete(long userId, String conversationId);
     boolean owns(long userId, String conversationId);
     default List<Message> messages(long userId, String conversationId) {
         return messages(userId, conversationId, null, 200);
