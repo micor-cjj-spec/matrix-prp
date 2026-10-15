@@ -49,6 +49,7 @@ CREATE TABLE prp_finance_source_links (
  created_at DATETIME(6) NOT NULL,
  UNIQUE KEY uk_finance_external_identity (user_id,platform,source_account_key,source_transaction_id),
  UNIQUE KEY uk_finance_source_row (import_row_id),
+ UNIQUE KEY uk_finance_platform_global_id (user_id,platform,source_transaction_id),
  KEY idx_finance_source_transaction (user_id,finance_transaction_id),
  CONSTRAINT fk_finance_source_row FOREIGN KEY (import_row_id)
    REFERENCES prp_finance_import_rows(id),
