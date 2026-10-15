@@ -307,6 +307,8 @@ test('desktop sidebar and mobile drawer share one conversation panel', () => {
   assert.match(panel, /今天/)
   assert.match(panel, /昨天/)
   assert.match(panel, /加载更多会话/)
+  assert.match(panel, /chat.updatedAt \+ 'Z'/)
+  assert.match(panel, /new Date\(utcTime\)/)
   assert.match(panel, /:disabled="busy"/)
 })
 
