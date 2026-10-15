@@ -55,7 +55,7 @@ class AiAccessTests {
 
     private String login(String name, String password) throws Exception {
         String body = json.writeValueAsString(Map.of("username", name, "password", password));
-                .content(json.writeValueAsString(Map.of("title","   ")))
+        String response = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         return json.readTree(response).path("data").path("token").asText();
     }
@@ -141,12 +141,13 @@ class AiAccessTests {
         mvc.perform(patch("/api/ai/conversations/{id}",chat)
                 .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("title","健康记录归档对话")))
+                .content(json.writeValueAsString(Map.of("title","健康记录归档对话"))))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.title").value("健康记录归档对话"));
         mvc.perform(patch("/api/ai/conversations/{id}",chat)
                 .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin)
-                .contentType(MediaType.APPLICATION_JSON).content("{\\"title\\":\\"   \\"}"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("title","   "))))
             .andExpect(status().isBadRequest());
         mvc.perform(delete("/api/ai/conversations/{id}",chat)
                 .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin))
@@ -156,7 +157,8 @@ class AiAccessTests {
             .andExpect(status().isNotFound());
         mvc.perform(patch("/api/ai/conversations/{id}",chat)
                 .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin)
-                .content(json.writeValueAsString(Map.of("title","再次更名")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("title","再次更名"))))
             .andExpect(status().isNotFound());
         mvc.perform(delete("/api/ai/conversations/{id}",chat)
                 .header(HttpHeaders.AUTHORIZATION,"Bearer "+admin))
