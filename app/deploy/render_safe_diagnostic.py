@@ -47,15 +47,15 @@ def load_untrusted(path: Path) -> dict:
 
 def safe_diagnostic(data: dict) -> dict:
     state = data.get("state")
-    if state not in STATES:
+    if not isinstance(state, str) or state not in STATES:
         state = "unavailable"
-    code = data.get("code") if data.get("code") in CODES else "DIAGNOSTIC_UNAVAILABLE"
-    stage = data.get("stage") if data.get("stage") in STAGES else "unknown"
+    code = data.get("code") if isinstance(data.get("code"), str) and data.get("code") in CODES else "DIAGNOSTIC_UNAVAILABLE"
+    stage = data.get("stage") if isinstance(data.get("stage"), str) and data.get("stage") in STAGES else "unknown"
     table = data.get("table")
     if not isinstance(table, str) or not TABLE.fullmatch(table):
         table = None
     exception = data.get("exception")
-    if exception not in EXCEPTIONS:
+    if not isinstance(exception, str) or exception not in EXCEPTIONS:
         exception = None
     timestamp = data.get("timestamp_utc")
     if not isinstance(timestamp, str) or not UTC_TIMESTAMP.fullmatch(timestamp):
@@ -90,7 +90,7 @@ def create_report(diagnostic: dict, status: dict, target_sha: str) -> dict:
         "production": safe_status(status),
         "limitations": ("No detailed host diagnosis available until administrator-approved "
                         "read-only diagnose command is installed."
-                        if diagnostic.get("state") not in STATES else None),
+                        if not isinstance(diagnostic.get("state"), str) or diagnostic.get("state") not in STATES else None),
     }
 
 
