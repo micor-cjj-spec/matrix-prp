@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node ../scripts/sync-features.mjs --check && node --test ../scripts/four-tab-navigation.test.mjs && node --test ../scripts/feature-impact.test.mjs ../scripts/deploy-workflow-contract.test.mjs && node --experimental-strip-types --test scripts/api-url.test.mjs scripts/auth-session.test.mjs scripts/video-playback.test.mjs scripts/admin-access.test.mjs scripts/sse-parser.test.mjs scripts/chat-session-layout.test.mjs scripts/wellness-read-intent.test.mjs scripts/json-clone.test.mjs && vue-tsc -b && vite build",
+    "build": "node ../scripts/sync-features.mjs --check && node --test ../scripts/four-tab-navigation.test.mjs && node --test ../scripts/feature-impact.test.mjs ../scripts/deploy-workflow-contract.test.mjs && node --experimental-strip-types --test scripts/api-url.test.mjs scripts/auth-session.test.mjs scripts/video-playback.test.mjs scripts/admin-access.test.mjs scripts/sse-parser.test.mjs scripts/chat-session-layout.test.mjs scripts/wellness-read-intent.test.mjs scripts/json-clone.test.mjs scripts/vocal-pitch.test.mjs && vue-tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc -b",
     "features:check": "node ../scripts/sync-features.mjs --check",

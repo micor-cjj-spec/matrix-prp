@@ -7,26 +7,32 @@ export function estimatePitch(data: Float32Array, sampleRate: number): number | 
   if (Math.sqrt(sum / data.length) < 0.018) return null
   const minLag = Math.floor(sampleRate / 1200)
   const maxLag = Math.min(data.length / 2, Math.ceil(sampleRate / 65))
-  let bestLag = 0
-  let bestCorrelation = 0
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    let product = 0, left = 0, right = 0
-    for (let i = 0; i < data.length - lag; i += 2) {
-      const a = data[i], b = data[i + lag]
-      product += a * b
-      left += a * a
-      right += b * b
+  const window = Math.min(2048, data.length - maxLag)
+  const differences = new Float64Array(maxLag + 1)
+  // YIN-like cumulative mean normalized difference: prefer the first good trough,
+  // not the global autocorrelation peak (which often aliases one octave lower).
+  for (let lag = 2; lag <= maxLag; lag++) {
+    let difference = 0
+    for (let i = 0; i < window; i += 2) {
+      const delta = data[i] - data[i + lag]
+      difference += delta * delta
     }
-    const correlation = product / Math.sqrt(left * right + 1e-12)
-    if (correlation > bestCorrelation) {
-      bestCorrelation = correlation
-      bestLag = lag
+    differences[lag] = difference
+  }
+  let cumulative = 0
+  const normalized = new Float64Array(maxLag + 1)
+  for (let lag = 2; lag <= maxLag; lag++) {
+    cumulative += differences[lag]
+    normalized[lag] = cumulative > 0 ? (differences[lag] * (lag - 1)) / cumulative : 1
+  }
+  for (let lag = Math.max(2, minLag); lag < maxLag; lag++) {
+    if (normalized[lag] < 0.13) {
+      while (lag + 1 <= maxLag && normalized[lag + 1] < normalized[lag]) lag++
+      const hz = sampleRate / lag
+      return hz >= 65 && hz <= 1200 ? Math.round(hz * 10) / 10 : null
     }
   }
-  // A strong autocorrelation peak is needed, otherwise prefer no result to a guessed note.
-  if (bestCorrelation < 0.87 || !bestLag) return null
-  const hz = sampleRate / bestLag
-  return hz >= 65 && hz <= 1200 ? Math.round(hz * 10) / 10 : null
+  return null
 }
 
 export function displayNote(hz: number | null): string {
