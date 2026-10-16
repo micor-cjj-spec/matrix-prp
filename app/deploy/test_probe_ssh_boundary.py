@@ -22,6 +22,9 @@ class ProtocolEvidenceTests(unittest.TestCase):
             "category": "GATEWAY_REJECTED", "sftp_accessible": False})
         self.init_probe.start()
         self.addCleanup(self.init_probe.stop)
+        self.exchange = patch.object(probe.gate.Verifier, "sftp_exchange", new=fixtures.mock_exchange)
+        self.exchange.start()
+        self.addCleanup(self.exchange.stop)
 
     def collect(self, sftp):
         def runner(args, **kwargs):
@@ -42,7 +45,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
         self.assertFalse(sftp["gateway_denial"])
         self.assertTrue(sftp["subsystem_request_failed"])
         self.assertEqual(sftp["verification"], "FAIL")
-        self.assertEqual([c["verification"] for c in report["checks"][-2:]], ["PASS", "PASS"])
+        self.assertEqual([c["verification"] for c in report["checks"] if c['stage'] in ['local-forwarding-denial','remote-forwarding-denial']], ["PASS", "PASS"])
 
     def test_explicit_gateway_rejection_passes_existing_rule(self):
         report = self.collect(response(2, err=probe.gate.GATEWAY_DENIAL))
@@ -62,14 +65,14 @@ class ProtocolEvidenceTests(unittest.TestCase):
                 self.assertFalse(self.collect(result)["production_gate_passed"])
 
     def test_transport_failures_are_reported_not_accepted(self):
-        for error, expected in [(b"Permission denied (publickey).", "AUTHENTICATION_FAILED"),
-                                (b"Host key verification failed.", "HOST_KEY_FAILED"),
-                                (b"Connection refused", "CONNECTION_FAILED")]:
+        for error, expected in [(b"Permission denied (publickey).", "SFTP_AUTHENTICATION_ERROR"),
+                                (b"Host key verification failed.", "SFTP_HOST_KEY_ERROR"),
+                                (b"Connection refused", "SFTP_NETWORK_ERROR")]:
             report = self.collect(response(255, err=error+b" subsystem request failed on channel 0"))
             self.assertFalse(report["production_gate_passed"])
             self.assertEqual(report["checks"][8]["exception_category"], expected)
         report = self.collect(subprocess.TimeoutExpired("ssh", 20, stderr=b"SECRET"))
-        self.assertEqual(report["checks"][8]["exception_category"], "TIMEOUT")
+        self.assertEqual(report["checks"][8]["exception_category"], "SFTP_TIMED_OUT")
         self.assertFalse(report["production_gate_passed"])
 
     def test_attestation_failure_never_runs_further_probes(self):

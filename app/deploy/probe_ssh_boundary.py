@@ -14,6 +14,8 @@ STAGES = (
     "controller-attestation", "diagnose", "shell-denial", "sftp-command-denial",
     "argument-denial", "semicolon-denial", "newline-denial", "shell-request-denial",
     "sftp-subsystem-denial", "local-forwarding-denial", "remote-forwarding-denial",
+    "ssh-policy-attestation",
+    "sftp-exact-command-denial",
 )
 
 
@@ -39,7 +41,13 @@ class Probe(gate.Verifier):
         super().__init__(host, identity, manifest, runner)
         self.observations = {}
 
-    def call(self, stage, args):
+    def sftp_exchange(self, command=None):
+        result = super().sftp_exchange(command)
+        stage = "sftp-exact-command-denial" if command else "sftp-subsystem-denial"
+        self.observations[stage] = dict(result)
+        return result
+
+    def call(self, stage, args, payload=None):
         assert stage in STAGES
         original = self.runner
 
@@ -50,7 +58,7 @@ class Probe(gate.Verifier):
 
         self.runner = record
         try:
-            return super().call(stage, args)
+            return super().call(stage, args, payload=payload)
         except gate.BoundaryError as exc:
             self.observations.setdefault(stage, {})["exception_category"] = exc.code
             raise
@@ -63,6 +71,7 @@ class Probe(gate.Verifier):
             self.verify()
         except gate.BoundaryError as exc:
             failure = exc
+            self.observations.setdefault(exc.stage, {})
         # Only continue read-only forwarding probes after both identity and safe JSON
         # have passed. The production verifier itself remains strictly fail-fast.
         if failure and STAGES.index(failure.stage) > STAGES.index("diagnose"):
