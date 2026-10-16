@@ -41,6 +41,17 @@ jobs:
             --host "$DEPLOY_HOST" --identity "$HOME/.ssh/prp_deploy" \
             --manifest app/deploy/controller-manifest.json \
             --output "$RUNNER_TEMP/prp-ssh-protocol.json"
+      - name: Collect unapproved policy baseline candidate
+        if: always()
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 app/deploy/collect_policy_candidate.py \
+            --host "$DEPLOY_HOST" --identity "$HOME/.ssh/prp_deploy" \
+            --manifest app/deploy/controller-manifest.json \
+            --output "$RUNNER_TEMP/prp-policy-candidate.json"
       - name: Publish safe evidence summary
         if: always()
         shell: bash
@@ -59,7 +70,9 @@ jobs:
         if: always()
         with:
           name: prp-readonly-ssh-evidence
-          path: ${{ runner.temp }}/prp-ssh-protocol.json
+          path: |
+            ${{ runner.temp }}/prp-ssh-protocol.json
+            ${{ runner.temp }}/prp-policy-candidate.json
           if-no-files-found: warn
           retention-days: 14
       - name: Remove ephemeral credentials
