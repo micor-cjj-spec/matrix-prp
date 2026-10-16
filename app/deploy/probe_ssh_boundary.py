@@ -105,11 +105,13 @@ class Probe(gate.Verifier):
         # The legacy test supplies DEVNULL and can make a started server exit on EOF.
         # INIT-only evidence holds stdin open, so VERSION cannot be missed for that reason.
         init_result = {"category": "NOT_RUN", "sftp_accessible": False}
-        if failure is None or STAGES.index(failure.stage) > STAGES.index("diagnose"):
+        if failure is None:
+            init_result = getattr(self, "sftp_evidence", init_result)
+        elif STAGES.index(failure.stage) > STAGES.index("diagnose"):
             init_result = probe_sftp_init.probe(self.base, self.destination)
         return {"schema_version": 1, "diagnostic_only": True,
-                "production_gate_passed": failure is None and init_result["category"] in {
-                    "GATEWAY_REJECTED", "SSH_PROTOCOL_REJECTED"},
+                "production_gate_passed": failure is None and getattr(self, "sftp_verdict", None) ==
+                    "SFTP_DENIED_BY_FORCED_GATEWAY" and init_result.get("sftp_accessible") is False,
                 "checks": result, "sftp_init_probe": init_result}
 
 

@@ -52,11 +52,28 @@ class ProtocolEvidenceTests(unittest.TestCase):
         self.assertTrue(report["production_gate_passed"])
 
     def test_successful_init_overrides_legacy_denial_and_blocks(self):
+        original = fixtures.mock_exchange
+        def accessible(v, command=None):
+            result = original(v, command)
+            if command is None:
+                result.update(category="SFTP_ACCESSIBLE", version_response=True, sftp_accessible=True)
+            return result
         with patch.object(probe.probe_sftp_init, "probe", return_value={
-            "category": "SFTP_ACCESSIBLE", "sftp_accessible": True}):
+            "category": "SFTP_ACCESSIBLE", "sftp_accessible": True}), \
+             patch.object(probe.gate.Verifier, "sftp_exchange", new=accessible):
             report = self.collect(response(2, err=probe.gate.GATEWAY_DENIAL))
         self.assertFalse(report["production_gate_passed"])
         self.assertTrue(report["sftp_init_probe"]["sftp_accessible"])
+
+    def test_readonly_summary_uses_actual_correlated_production_path(self):
+        original = self.fixture.runner
+        def runner(args, **kwargs):
+            if "-s" in args:
+                return response(2)
+            return original(args, **kwargs)
+        report = probe.Probe("example.invalid", Path("test"), MANIFEST, runner).collect()
+        self.assertTrue(report["production_gate_passed"])
+        self.assertEqual(report["sftp_init_probe"]["category"], "SUBSYSTEM_EXITED_WITHOUT_VERSION")
 
     def test_sftp_success_or_payload_never_passes(self):
         for result in [response(), response(2, out=b"SFTP", err=probe.gate.GATEWAY_DENIAL),

@@ -103,8 +103,10 @@ class Verifier:
             exact = self.sftp_exchange(command=baseline["subsystem_command"])
             sftp_policy.checked_exchange(exact)
             actual = self.sftp_exchange()
-            self.sftp_verdict = sftp_policy.correlate(exact, actual)
+            verdict = sftp_policy.correlate(exact, actual)
             sftp_policy.verify_proof(self.manifest, data["ssh_policy"], challenge)
+            self.sftp_verdict = verdict
+            self.sftp_evidence = actual
         except sftp_policy.PolicyError as exc:
             raise BoundaryError("sftp-subsystem-denial", str(exc)) from None
 
