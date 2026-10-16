@@ -72,7 +72,7 @@ class SSHBoundaryTests(unittest.TestCase):
 
     def test_complete_gate_and_timeouts_without_shell_execution(self):
         self.verifier().verify()
-        self.assertEqual(len(self.calls), 13)
+        self.assertEqual(len(self.calls), 15)  # Includes independent post-SFTP and post-forwarding proofs.
         self.assertEqual(self.calls[0][0][-1], "controller-sha256")
         for args, kwargs in self.calls:
             self.assertEqual(kwargs["timeout"], 20)

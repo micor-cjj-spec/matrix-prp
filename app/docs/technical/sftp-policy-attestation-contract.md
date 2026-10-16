@@ -101,3 +101,8 @@ No root helper implementation or broad read API is supplied here: loaded-policy
 and session binding must be implemented and reviewed against the real server,
 not replaced by constant true flags. Until then, leave the PR unmerged, keep FAIL
 and retain the running V17 service. Formal V19 publishing requires separate approval.
+
+
+## Recovery hardening
+
+The verifier now recollects independent nonce-bound proofs after the two SFTP probes and again after forwarding checks. This detects filesystem/policy drift during testing and prevents replaying the pre-probe proof as a post-probe observation. Fixture tests exercise both drift and replay rejection. Production baseline and helper authorization are still prerequisites; no policy values are auto-approved.

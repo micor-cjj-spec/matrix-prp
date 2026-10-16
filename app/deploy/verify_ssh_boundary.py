@@ -68,7 +68,7 @@ class Verifier:
     def sftp_exchange(self, command=None):
         return probe_sftp_init.probe(self.base, self.destination, command=command)
 
-    def verify_subsystem(self):
+    def fresh_policy(self):
         # A one-off administrator audit or exec refusal is NOT a live policy proof.
         try:
             baseline = sftp_policy.baseline_from(self.manifest)
@@ -98,6 +98,10 @@ class Verifier:
             raise BoundaryError("ssh-policy-attestation", str(exc)) from None
         except (ValueError, TypeError, RecursionError):
             raise BoundaryError("ssh-policy-attestation", "SSH_POLICY_PROOF_INVALID") from None
+        return baseline, data, challenge
+
+    def verify_subsystem(self):
+        baseline, data, challenge = self.fresh_policy()
         try:
             # The fixed mapping comes from a validated, nonce-bound LIVE server proof.
             exact = self.sftp_exchange(command=baseline["subsystem_command"])
@@ -105,6 +109,7 @@ class Verifier:
             actual = self.sftp_exchange()
             verdict = sftp_policy.correlate(exact, actual)
             sftp_policy.verify_proof(self.manifest, data["ssh_policy"], challenge)
+            self.fresh_policy()  # New nonce + live recollection catches drift during either probe.
             self.sftp_verdict = verdict
             self.sftp_evidence = actual
         except sftp_policy.PolicyError as exc:
@@ -166,6 +171,7 @@ class Verifier:
                                    "127.0.0.1:0:127.0.0.1:1", self.destination])
         if result.returncode != 255 or result.stdout or b"remote port forwarding failed" not in result.stderr.lower():
             raise BoundaryError(stage, "EXPECTED_FORWARDING_DENIAL_MISSING")
+        self.fresh_policy()  # Revalidate after forwarding; never reuse a cached proof.
 
 
 def main():

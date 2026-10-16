@@ -158,6 +158,40 @@ class CorrelatedProductionGateTests(unittest.TestCase):
             self.v.runner = run
             self.assert_blocked("CONNECTION_FAILED")
 
+    def test_fresh_independent_nonces_before_after_sftp_and_after_forwarding(self):
+        self.v.verify()
+        nonces=[kw['input'] for args,kw in self.fixture.calls if args[-1]=='diagnose' and len(kw.get('input',b''))==32]
+        self.assertEqual(len(nonces),3)
+        self.assertEqual(len(set(nonces)),3)
+
+    def test_drift_during_sftp_is_detected_by_new_server_collection(self):
+        original=self.v.runner
+        count=0
+        def run(args,**kwargs):
+            nonlocal count
+            if args[-1]=='diagnose' and len(kwargs.get('input',b''))==32:
+                count+=1
+                if count==2:
+                    data=fixtures.policy_response(kwargs['input'])
+                    data['ssh_policy']['baseline']['gateway_sha256']='0'*64
+                    return fixtures.response(out=json.dumps(data).encode())
+            return original(args,**kwargs)
+        self.v.runner=run
+        self.assert_blocked('SSH_POLICY_DRIFT')
+
+    def test_replaying_prior_proof_at_post_probe_check_is_rejected(self):
+        original=self.v.runner
+        cached=None
+        def run(args,**kwargs):
+            nonlocal cached
+            if args[-1]=='diagnose' and len(kwargs.get('input',b''))==32:
+                if cached is not None:return cached
+                cached=original(args,**kwargs)
+                return cached
+            return original(args,**kwargs)
+        self.v.runner=run
+        self.assert_blocked('SSH_POLICY_CHALLENGE_MISMATCH')
+
 
 if __name__ == "__main__":
     unittest.main()
