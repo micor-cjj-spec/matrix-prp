@@ -2,10 +2,10 @@
   "schema_version": 1,
   "approved_controller": {
     "path": "/usr/local/sbin/prp-release",
-    "sha256": "d3e5113cd8d37daabc179a2503dc36d42d1596db822239839b535525e3da75c6",
-    "approval_date": "2026-10-14",
-    "provenance": "Administrator-generated V17 candidate from verified production controller d3fbc61f76a3bd06d8192a44226cbef5698a8ef87b555493e9995e672811e687; python compile PASS and one-line diff reviewed 2026-10-14. Requires server installation and independent SHA256 attestation before PR merge.",
-    "production_release": "r38390443099-1",
-    "application_commit": "067c6dfccdceb29991a7d67c733ca205b398909f"
+    "sha256": "7d23ea686b7eca6e66619979357953a0a18fc366d4896f900ea6cae743b396d1",
+    "approval_date": "2026-10-16",
+    "provenance": "Explicit administrator approval on 2026-10-16. Installed atomically from attested controller d3e5113cd8d37daabc179a2503dc36d42d1596db822239839b535525e3da75c6; exact reviewed diff SHA256 25a26aab7b982a8fe27ef08b98728280fc9770cc019ffff187b81b3b02963b4d changes snapshot/assert_preserved only. V18 empty metadata and exact V19 same-owner durable-key backfill verified on restored isolated data. Post-install hash, mode and unchanged V17 data attested.",
+    "production_release": "r38606951415-1",
+    "application_commit": "79f569e7e668b200a0fa34aa8302cc8db281dea9"
   }
 }

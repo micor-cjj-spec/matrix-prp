@@ -241,6 +241,18 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           test -s ~/.ssh/prp_deploy
           test -s ~/.ssh/known_hosts
+      - name: Verify restricted SSH boundary before production operation
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
+        timeout-minutes: 3
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 app/deploy/verify_ssh_boundary.py \
+            --host "$DEPLOY_HOST" \
+            --identity "$HOME/.ssh/prp_deploy" \
+            --manifest app/deploy/controller-manifest.json
       - name: Verify approved production controller before deploying
         if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
         env:

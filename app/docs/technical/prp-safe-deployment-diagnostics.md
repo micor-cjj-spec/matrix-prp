@@ -183,3 +183,41 @@ subsequent independently reviewed manifest update before production deployment.
 Do not merge this PR until installation, review and CI are complete and the
 automatic main deployment is prepared. No production retry is needed to inspect
 the existing failed run. Old logs beyond the two-hour TTL remain stale.
+
+## Approved installation and blocking SSH gate (2026-10-16)
+
+The administrator approved A, B, and the adjusted verification order. The diagnostic
+helper is installed with the previously reviewed hash and the gateway/sudoers scope
+is unchanged except for the fixed no-argument command. B has now been atomically
+installed and independently attested as
+`7d23ea686b7eca6e66619979357953a0a18fc366d4896f900ea6cae743b396d1`.
+Only the reviewed `snapshot` and `assert_preserved` functions changed. Installation
+kept the running application and V17 database unchanged. The controller manifest
+now binds this actual installed hash; it was not changed to bypass a mismatch.
+
+`verify_ssh_boundary.py` executes in the existing production-environment publish
+job after checkout/identity setup and before ANY production controller operation.
+It validates controller-sha256 against the manifest, validates the fixed diagnostic
+JSON with the same explicit enums/table allowlist, and checks exact gateway denials
+for shell, SFTP (command and subsystem), parameters and injection. It verifies the
+`direct-tcpip` channel used by local forwarding with `ssh -W`, plus remote forwarding.
+The targets are non-business loopback port 1; remote listen port 0 requests an
+otherwise valid ephemeral listener. No application payload or business record is
+sent. A wrongly accepted remote forward times out and disconnects, failing the gate.
+
+Every SSH invocation has a 20-second subprocess deadline, strict host-key checking,
+batch authentication, and explicit identity selection. Command denials require both
+exit 2 AND the actual installed gateway denial marker, with no stdout. Forwarding
+requires exit 255 AND the expected OpenSSH permission-denial marker, with no stdout.
+Authentication, host-key, DNS/connection failures and timeouts have separate fixed
+error codes and never count as successful rejection. Raw stderr/stdout, host names,
+private keys, tokens and diagnostic contents are not printed by the verifier.
+
+The gate has no continue-on-error and uses a fail-fast shell. Failure leaves
+`production_operation` skipped: no backup, migration, or release switch occurs.
+The existing controller attestation remains as a second check after this gate.
+Checks on PR branches cannot access production secrets; the environment remains
+main-only. The old manual `check` action retains its existing behavior (it does
+not check out deploy sources); this new gate runs for deploy/promote and main
+CI-triggered publication. A failure is a STOP for review, never a reason to bypass
+the gate or roll back the database.
