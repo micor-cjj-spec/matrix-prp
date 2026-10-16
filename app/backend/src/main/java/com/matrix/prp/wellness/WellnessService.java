@@ -229,6 +229,40 @@ public class WellnessService {
             (r,n)->mealFromRow(r),CurrentUser.id(),type,through.minusDays(days-1),through);
     }
 
+    /**
+     * Read-only overview of saved meal slots for completed calendar days.
+     * Missing means no PRP record, not that the user ate a meal or should have eaten one.
+     * Today is intentionally excluded because some meal times may not have arrived yet.
+     */
+    public record MealCoverageDay(LocalDate date, List<String> recordedMealTypes,
+                                  List<String> missingMealTypes, int savedMealCount) {}
+
+    public List<MealCoverageDay> mealCoverage(int days) {
+        if (!Set.of(7, 14, 30).contains(days))
+            throw new IllegalArgumentException("days must be 7, 14 or 30");
+        long owner = CurrentUser.id();
+        LocalDate end = today().minusDays(1);
+        LocalDate start = end.minusDays(days - 1);
+        Map<LocalDate,List<String>> stored = new HashMap<>();
+        db.query("SELECT meal_date,meal_type FROM prp_wellness_meals " +
+                "WHERE user_id=? AND meal_date BETWEEN ? AND ? ORDER BY meal_date DESC,id DESC",
+                (org.springframework.jdbc.core.RowCallbackHandler) r ->
+                    stored.computeIfAbsent(r.getObject("meal_date",LocalDate.class),
+                    ignored -> new ArrayList<>()).add(r.getString("meal_type")),
+                owner, start, end);
+
+        List<MealCoverageDay> result = new ArrayList<>();
+        List<String> usualMeals = List.of("BREAKFAST", "LUNCH", "DINNER");
+        for (int offset = 0; offset < days; offset++) {
+            LocalDate date = end.minusDays(offset);
+            List<String> saved = stored.getOrDefault(date, List.of());
+            List<String> recorded = saved.stream().distinct().toList();
+            List<String> missing = usualMeals.stream().filter(type -> !recorded.contains(type)).toList();
+            result.add(new MealCoverageDay(date, recorded, missing, saved.size()));
+        }
+        return result;
+    }
+
     public List<Meal> meals(LocalDate date) {
         List<Meal> result=new ArrayList<>();
         db.query("SELECT id,meal_date,meal_type,note FROM prp_wellness_meals " +

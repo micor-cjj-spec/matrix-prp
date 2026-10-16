@@ -3,7 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
-import WellnessChatCard from '@/components/ai/WellnessChatCard.vue'
+import AiActionLink from '@/components/ai/AiActionLink.vue'
+import AiActionDialog from '@/components/ai/AiActionDialog.vue'
+import { useRoute } from 'vue-router'
 import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
 import ChatConversationPanel from '@/components/ai/ChatConversationPanel.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
@@ -12,6 +14,7 @@ import { fetchUsage, pageConversations, renameConversation, deleteConversation, 
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 import { isMealCardRequest } from '@/utils/mealCardIntent'
+import { isWellnessReadQuery } from '@/utils/wellnessReadIntent'
 
 type ContextOption = { value: string; label: string; hint: string }
 const options: ContextOption[] = [
@@ -25,6 +28,19 @@ const optionByValue = (value: string) => options.find(option => option.value ===
 const conversations = ref<Conversation[]>([])
 const messages = ref<ChatMessage[]>([])
 const blocksByMessage = ref<Record<number, AiMessageBlock[]>>({})
+const route = useRoute()
+const actionDialogVisible = ref(false)
+const activeActionId = ref<string | null>(null)
+const actionRevision = ref(0)
+function openAction(id: string) {
+  if (!/^[0-9a-fA-F-]{36}$/.test(id)) return
+  activeActionId.value = id
+  actionDialogVisible.value = true
+}
+watch(() => route.query.action, value => {
+  if (typeof value === 'string') openAction(value)
+}, { immediate: true })
+
 function groupBlocks(blocks: AiMessageBlock[]): Record<number, AiMessageBlock[]> {
   const grouped: Record<number, AiMessageBlock[]> = {}
   for (const block of blocks) (grouped[block.messageId] ??= []).push(block)
@@ -95,7 +111,7 @@ async function prepareInlineDiet(content: string) {
     // The POST already persisted both messages and the draft: never resubmit on a refresh failure.
     const assistant = messages.value[messages.value.length - 1]!
     assistant.id = result.messageId
-    assistant.content = '已整理健康记录，请核对下方食物与来源，然后确认保存。'
+    assistant.content = '已整理健康记录，请点击下方链接核对并确认保存。'
     const localBlock: AiMessageBlock = {
       messageId: result.messageId, type: 'wellness_draft', module: 'wellness',
       label: '待确认健康记录', route: result.draft.draftId,
@@ -457,18 +473,27 @@ async function send(contextToken?: string) {
     ElMessage.warning('食物照片只能用于健康记录，请缩短描述并移除其他应用引用后重试')
     return
   }
+  // A natural-language read request needs explicit consent, even without an @健康 mention.
+  // Check BEFORE the meal-writing intent regex: "没有录入" is a query, not a write.
+  if (!contextToken && !chatPhoto.value && selectedScopes.value.length === 0 &&
+      isWellnessReadQuery(content)) {
+    selectedScopes.value = ['wellness']
+    invalidatePreview()
+    await showPreview()
+    return
+  }
   const writeVerb = /(?:记录|录入|录人|导入|写入|归档|添加|新增|保存|记下|记一下|帮我记|记一笔|存入)/u.test(content)
   const foodContext = /(?:早饭|午饭|晚饭|早餐|午餐|晚餐|加餐|饮食|食物|热量|卡路里|吃了|喝了|这顿|我吃|今天吃)/u.test(content)
   const directFoodQuantity = /(?:记|记录|录入|录人|添加|新增|保存|记下)(?:一下|一笔|入)?\s*(?:一个|一份|一碗|一杯|两个|[0-9]+(?:g|克|ml|毫升))/u.test(content)
   const notTechnicalOrOther = !/(?:如何实现|怎么开发|如何设计|为什么不能|记录日志|错误日志|会议记录|记录会议|记录任务|添加任务|添加待办|保存笔记|添加笔记)/u.test(content)
-  const healthWrite = writeVerb && notTechnicalOrOther &&
+  const healthWrite = !isWellnessReadQuery(content) && writeVerb && notTechnicalOrOther &&
     (foodContext || directFoodQuantity || selectedScopes.value.includes('wellness'))
   // Short follow-ups like "帮我录入一下" or "生成一下卡片" depend on
   // the selected conversation's real user meal description, not model promises.
   const hasRecentMeal = messages.value.slice(-40).some(m => m.role === 'user' &&
     /(?:早餐|早饭|早上|午餐|午饭|中午|晚餐|晚饭|晚上|今晚|加餐|夜宵)/u.test(m.content) &&
     /(?:米饭|炒菜|炒肉|馄饨|混沌|米线|鸡腿|面条|鸡蛋|牛奶|酸奶|土豆|面包|豆腐|青菜|排骨|饺子|饭|肉|菜|吃)/u.test(m.content))
-  const contextualMealCard = isMealCardRequest(content, hasRecentMeal)
+  const contextualMealCard = !isWellnessReadQuery(content) && isMealCardRequest(content, hasRecentMeal)
   if (content.length <= 1500 && (healthWrite || contextualMealCard || chatPhoto.value) &&
       (selectedScopes.value.length === 0 ||
        selectedScopes.value.every(s => s === 'wellness'))) {
@@ -607,8 +632,8 @@ onBeforeUnmount(() => controller?.abort())
             <div v-else class="chat-user-text">{{ message.content }}</div>
             <template v-for="(block, i) in blocksByMessage[message.id] ?? []" :key="message.id + '-' + i">
               <AiNavigationCard v-if="block.type === 'navigation'" :block="block" />
-              <WellnessChatCard v-else-if="block.type === 'wellness_draft'"
-                :draft-id="block.route" @saved="bottom()" />
+              <AiActionLink v-else-if="block.type === 'wellness_draft'"
+                :draft-id="block.route" :refresh-key="actionRevision" @open="openAction" />
             </template>
             <div v-if="message.role === 'assistant' && message.content" class="chat-message-actions">
               <button title="复制回复" aria-label="复制回复" @click="copy(message.content)"><el-icon><CopyDocument /></el-icon></button>
@@ -619,6 +644,8 @@ onBeforeUnmount(() => controller?.abort())
         <p v-if="streamError" class="chat-error" role="alert">{{ streamError }}</p>
       </div>
 
+      <AiActionDialog v-model="actionDialogVisible" :draft-id="activeActionId"
+        @changed="actionRevision++" />
       <div class="prp-chat-footer">
         <div class="chat-footer-inner">
           <button v-if="showJumpToBottom" type="button" class="chat-jump-bottom" @click="bottom">
