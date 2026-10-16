@@ -246,7 +246,8 @@ public class WellnessService {
         Map<LocalDate,List<String>> stored = new HashMap<>();
         db.query("SELECT meal_date,meal_type FROM prp_wellness_meals " +
                 "WHERE user_id=? AND meal_date BETWEEN ? AND ? ORDER BY meal_date DESC,id DESC",
-                r -> stored.computeIfAbsent(r.getObject("meal_date",LocalDate.class),
+                (org.springframework.jdbc.core.RowCallbackHandler) r ->
+                    stored.computeIfAbsent(r.getObject("meal_date",LocalDate.class),
                     ignored -> new ArrayList<>()).add(r.getString("meal_type")),
                 owner, start, end);
 
