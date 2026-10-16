@@ -51,7 +51,6 @@ export function useVocalRecorder() {
         if (hz !== null && points.value.length < 1800) {
           points.value.push({ time: Math.round(now * 100) / 100, hz })
         }
-        if (now >= 180) void stop()
       }, 160)
     } catch (error) {
       await cleanup()

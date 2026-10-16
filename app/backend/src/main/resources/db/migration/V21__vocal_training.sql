@@ -7,7 +7,7 @@ CREATE TABLE prp_vocal_takes (
   note VARCHAR(500) NOT NULL DEFAULT '',
   duration_seconds INT NOT NULL,
   mime_type VARCHAR(40) NOT NULL,
-  storage_key CHAR(40) NOT NULL,
+  storage_key VARCHAR(48) NOT NULL,
   size_bytes BIGINT NOT NULL,
   analysis_json TEXT NOT NULL,
   ai_feedback TEXT NULL,

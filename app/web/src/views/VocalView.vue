@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { vocalApi, type VocalExercise, type VocalTake, type PitchPoint } from '@/api/vocal'
@@ -21,7 +21,6 @@ const microphone = useVocalRecorder()
 const exercise = computed(() => exercises.value.find(e => e.code === selected.value))
 const curve = computed(() => lastPitchCurve(microphone.points.value))
 const recordedMinutes = computed(() => Math.round(takes.value.reduce((acc, t) => acc + t.durationSeconds, 0) / 60))
-const latest = computed(() => takes.value.at(0) ?? null)
 const exerciseName = (code: string) => exercises.value.find(e => e.code === code)?.name ?? code
 const formatTime = (seconds: number) => String(Math.floor(seconds / 60)).padStart(2,'0') + ':' +
   String(seconds % 60).padStart(2,'0')
@@ -30,6 +29,9 @@ onMounted(async () => {
   try { [exercises.value, takes.value] = await Promise.all([vocalApi.exercises(), vocalApi.takes()]) }
   catch { ElMessage.error('声乐训练数据加载失败，请确认功能迁移已安装') }
   finally { loading.value = false }
+})
+watch(() => microphone.seconds.value, value => {
+  if (value >= 180 && microphone.recording.value) void stop()
 })
 onBeforeUnmount(() => { if (playerUrl.value) URL.revokeObjectURL(playerUrl.value) })
 
