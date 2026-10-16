@@ -15,6 +15,8 @@ test('meal record gap questions request one-time wellness consent', () => {
   assert.match(view, /selectedScopes\.value = \['wellness'\]/)
   assert.match(view, /await showPreview\(\)/)
   assert.ok(view.indexOf('isWellnessReadQuery(content)') < view.indexOf('const writeVerb ='))
+  assert.match(view, /const healthWrite = !isWellnessReadQuery\(content\)/)
+  assert.match(view, /const contextualMealCard = !isWellnessReadQuery\(content\)/)
 })
 
 test('writing meals and technical questions do not trigger read permissions', () => {
