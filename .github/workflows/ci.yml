@@ -191,3 +191,4 @@ jobs:
           /tmp/prp-diagnostic-tests/bin/python -m unittest discover -s app/deploy -v
           bash -n app/deploy/admin_install_diagnostic.sh
           sh -n app/deploy/ssh-gateway.sh
+          node --test app/scripts/deploy-workflow-contract.test.mjs

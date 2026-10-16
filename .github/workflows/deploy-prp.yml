@@ -12,7 +12,7 @@ on:
         description: Deploy main, check production, or roll back an application release
         type: choice
         options: [promote, deploy, check, rollback, build]
-        default: promote
+        default: build
       release_id:
         description: Existing release ID (required for rollback; schema version must match)
         type: string
@@ -134,30 +134,23 @@ jobs:
           RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
           {
-            echo '## Verified release candidate — automatic deployment'
+            echo '## Verified release candidate — build only'
             echo ''
             echo "Commit: \`$RELEASE_COMMIT\`"
             echo "Candidate Actions run ID: \`$GITHUB_RUN_ID\`"
             echo ''
-            echo 'The production publish job will run automatically after successful CI and build.'
+            echo 'Automatic CI creates a candidate only. Production operations require a separately authorized manual dispatch.'
             echo 'If production requires reviewers, GitHub will still hold the job for approval.'
           } >> "$GITHUB_STEP_SUMMARY"
   publish:
     needs: build
-    # No PR / fork / failed CI can publish. Environment controls still apply.
+    # Main CI builds a candidate only. Production operations require an explicit dispatch.
+    # Merging read-only diagnostics must never start a database migration.
     if: >-
       always() && github.ref == 'refs/heads/main' &&
-      (
-        (github.event_name == 'workflow_run' &&
-         needs.build.result == 'success' &&
-         github.event.workflow_run.conclusion == 'success' &&
-         github.event.workflow_run.event == 'push' &&
-         github.event.workflow_run.head_branch == 'main' &&
-         github.event.workflow_run.head_repository.full_name == github.repository) ||
-        (github.event_name == 'workflow_dispatch' &&
-         ((inputs.action == 'deploy' && needs.build.result == 'success') ||
-          ((inputs.action == 'promote' || inputs.action == 'check' || inputs.action == 'rollback') && needs.build.result == 'skipped')))
-      )
+      github.event_name == 'workflow_dispatch' &&
+      ((inputs.action == 'deploy' && needs.build.result == 'success') ||
+       ((inputs.action == 'promote' || inputs.action == 'check' || inputs.action == 'rollback') && needs.build.result == 'skipped'))
     environment:
       name: production
       url: https://micor.top/prp/
