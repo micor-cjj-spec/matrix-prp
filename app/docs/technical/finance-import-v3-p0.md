@@ -15,7 +15,7 @@
 - `POST /api/finance/imports/{id}/commit`: JSON `{"paymentAccounts":{"零钱":123}}`。事务中校验用户、账户币种、来源唯一标识，逐条把 READY 消费写入 V2 收支账本与 source link；重复点击不会多记账。未映射账户的 READY 流水保持待入账。
 
 ## 新建表和数据保护
-V19 只 CREATE：
+V20 只 CREATE：
 - `prp_finance_import_batches`：平台、来源账号、文件哈希、文件名、状态。
 - `prp_finance_import_rows`：每笔来源流水及 REVIEW/READY/DUPLICATE/POSTED。
 - `prp_finance_source_links`：与 `prp_finance_transactions` 的最终关联及 DB 唯一索引。
@@ -30,8 +30,8 @@ V19 只 CREATE：
 
 ## 开发与上线验收
 1. `WeChatBillParserTests` 构造合成测试文件，覆盖 Excel serial 日期、金额、全额退款隔离以及无效文件。
-2. V19 应通过 GitHub Actions 的无损迁移校验及 Flyway V17→V19 / 旧库 baseline 测试，确认历史记录快照不变。
+2. V20 应通过 GitHub Actions 的无损迁移校验及 Flyway V17→V20 / 旧库 baseline 测试，确认历史记录快照不变。
 3. 用用户提供的 85 条真实账单仅在本地、临时隔离测试库验收；**不要把包含商户/交易单号的账单上传到 PR 或 CI artifacts**。
 4. 核验首次上传记录为 85 行，未确认前实际财务记录数不变；一般消费 READY，退款、转账和红包 REVIEW。
 5. 确认零钱映射后只增加 READY 的正常消费，重复上传/重复确认都不增加流水；另一个 JWT 用户不可读取或确认这些批次。
-6. 当前 main 生产发布仍失败于 V18 预检断言。此 PR **仅供代码评审，不合并、不自动部署**。先取得与 V18 独立的生产迁移放行，再审查 V19 发布。
+6. 当前 main 生产发布仍失败于 V18+V19 的预检断言。此 PR **仅供代码评审，不合并、不自动部署**。先取得与 V18 独立的生产迁移放行，再审查 V20 发布。

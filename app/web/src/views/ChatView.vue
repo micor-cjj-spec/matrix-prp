@@ -3,7 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
-import WellnessChatCard from '@/components/ai/WellnessChatCard.vue'
+import AiActionLink from '@/components/ai/AiActionLink.vue'
+import AiActionDialog from '@/components/ai/AiActionDialog.vue'
+import { useRoute } from 'vue-router'
 import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
 import ChatConversationPanel from '@/components/ai/ChatConversationPanel.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
@@ -25,6 +27,19 @@ const optionByValue = (value: string) => options.find(option => option.value ===
 const conversations = ref<Conversation[]>([])
 const messages = ref<ChatMessage[]>([])
 const blocksByMessage = ref<Record<number, AiMessageBlock[]>>({})
+const route = useRoute()
+const actionDialogVisible = ref(false)
+const activeActionId = ref<string | null>(null)
+const actionRevision = ref(0)
+function openAction(id: string) {
+  if (!/^[0-9a-fA-F-]{36}$/.test(id)) return
+  activeActionId.value = id
+  actionDialogVisible.value = true
+}
+watch(() => route.query.action, value => {
+  if (typeof value === 'string') openAction(value)
+}, { immediate: true })
+
 function groupBlocks(blocks: AiMessageBlock[]): Record<number, AiMessageBlock[]> {
   const grouped: Record<number, AiMessageBlock[]> = {}
   for (const block of blocks) (grouped[block.messageId] ??= []).push(block)
@@ -95,7 +110,7 @@ async function prepareInlineDiet(content: string) {
     // The POST already persisted both messages and the draft: never resubmit on a refresh failure.
     const assistant = messages.value[messages.value.length - 1]!
     assistant.id = result.messageId
-    assistant.content = '已整理健康记录，请核对下方食物与来源，然后确认保存。'
+    assistant.content = '已整理健康记录，请点击下方链接核对并确认保存。'
     const localBlock: AiMessageBlock = {
       messageId: result.messageId, type: 'wellness_draft', module: 'wellness',
       label: '待确认健康记录', route: result.draft.draftId,
@@ -607,8 +622,8 @@ onBeforeUnmount(() => controller?.abort())
             <div v-else class="chat-user-text">{{ message.content }}</div>
             <template v-for="(block, i) in blocksByMessage[message.id] ?? []" :key="message.id + '-' + i">
               <AiNavigationCard v-if="block.type === 'navigation'" :block="block" />
-              <WellnessChatCard v-else-if="block.type === 'wellness_draft'"
-                :draft-id="block.route" @saved="bottom()" />
+              <AiActionLink v-else-if="block.type === 'wellness_draft'"
+                :draft-id="block.route" :refresh-key="actionRevision" @open="openAction" />
             </template>
             <div v-if="message.role === 'assistant' && message.content" class="chat-message-actions">
               <button title="复制回复" aria-label="复制回复" @click="copy(message.content)"><el-icon><CopyDocument /></el-icon></button>
@@ -619,6 +634,8 @@ onBeforeUnmount(() => controller?.abort())
         <p v-if="streamError" class="chat-error" role="alert">{{ streamError }}</p>
       </div>
 
+      <AiActionDialog v-model="actionDialogVisible" :draft-id="activeActionId"
+        @changed="actionRevision++" />
       <div class="prp-chat-footer">
         <div class="chat-footer-inner">
           <button v-if="showJumpToBottom" type="button" class="chat-jump-bottom" @click="bottom">

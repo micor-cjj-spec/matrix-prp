@@ -1,4 +1,4 @@
--- V19: additive import staging and exact-source deduplication; no ALTER/UPDATE to historical tables.
+-- V20: additive import staging and exact-source deduplication; no ALTER/UPDATE to historical tables.
 CREATE TABLE prp_finance_import_batches (
  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
  user_id BIGINT NOT NULL,

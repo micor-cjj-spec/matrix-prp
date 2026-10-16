@@ -145,4 +145,51 @@ class WellnessDatabaseIT {
         }
     }
 
+
+    @Test void savedAiActionTargetsFollowRealRecordsAndEnforceOwnership() throws Exception {
+        String a=login("video_admin","video-test-admin-password-2026");
+        Long userId=jdbc.queryForObject("SELECT id FROM prp_users WHERE username=?",Long.class,"video_admin");
+        String draftId=UUID.randomUUID().toString();
+        String date="2026-09-26";
+        String payload=mapper.writeValueAsString(Map.of(
+            "date",date,"meals",List.of(Map.of("mealType","BREAKFAST","totalCalories",105,
+                "items",List.of(Map.of("foodId",0,"mode","manual",
+                    "name","Draft target test yogurt","grams",135,"manualCalories",105))))));
+        jdbc.update("INSERT INTO prp_wellness_ai_drafts " +
+            "(id,user_id,action_type,payload_json,description,model_used,expires_at) VALUES (?,?,?,?,?,?,?)",
+            draftId,userId,"meal.create_batch",payload,"Linked test record","test",
+            Timestamp.valueOf(LocalDateTime.now().plusMinutes(10)));
+        String url="/api/wellness/ai/drafts/"+draftId+"/targets";
+        assertThat(getData(url,a).size()).isZero();
+        JsonNode saved=postJson("/api/wellness/ai/drafts/"+draftId+"/confirm",a,Map.of());
+        long id=saved.path("saved").get(0).path("id").asLong();
+        assertThat(id).isPositive();
+        JsonNode targets=getData(url,a);
+        assertThat(targets.size()).isEqualTo(1);
+        assertThat(targets.get(0).path("recordId").asLong()).isEqualTo(id);
+        assertThat(targets.get(0).path("record").path("items").get(0).path("foodName").asText())
+            .isEqualTo("Draft target test yogurt");
+        assertThat(targets.get(0).path("deleted").asBoolean()).isFalse();
+        mvc.perform(auth(post("/api/wellness/ai/drafts/{id}/confirm",draftId),a))
+            .andExpect(status().isConflict());
+        mvc.perform(auth(put("/api/wellness/meals/{id}/snapshots",id)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsBytes(Map.of("mealDate",date,"mealType","BREAKFAST",
+                "note","Changed after AI confirmation",
+                "items",List.of(Map.of("foodId",0,"name","Changed meal","grams",135,"calories",115))))),a))
+            .andExpect(status().isOk());
+        assertThat(getData(url,a).get(0).path("record").path("note").asText())
+            .isEqualTo("Changed after AI confirmation");
+        String invite=postJson("/api/auth/invitations",a,Map.of()).path("code").asText();
+        String outsider=postJson("/api/auth/register",null,Map.of(
+            "username","ai_action_guest_"+UUID.randomUUID().toString().substring(0,8),
+            "password","guest-password-2026", "displayName","Guest",
+            "invitationCode",invite)).path("token").asText();
+        mvc.perform(auth(get(url),outsider)).andExpect(status().isNotFound());
+        mvc.perform(auth(delete("/api/wellness/meals/{id}",id),a)).andExpect(status().isOk());
+        JsonNode missing=getData(url,a);
+        assertThat(missing.get(0).path("deleted").asBoolean()).isTrue();
+        assertThat(missing.get(0).path("record").isNull()).isTrue();
+    }
+
 }
