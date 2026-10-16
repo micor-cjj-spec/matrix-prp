@@ -126,7 +126,7 @@ test('diet chat backend persists only authorized owner-scoped draft blocks', () 
 test('review regressions: explicit food intent, no stale photos, no POST repeat after history failure', () => {
   const chat = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
   assert.match(chat, /const directFoodQuantity =/)
-  assert.match(chat, /const healthWrite = writeVerb && notTechnicalOrOther/)
+  assert.match(chat, /const healthWrite = !isWellnessReadQuery\(content\) && writeVerb && notTechnicalOrOther/)
   assert.match(chat, /if \(chatPhoto\.value && \(content\.length > 1500/)
   assert.match(chat, /const \[latest, blocks\] = await Promise\.allSettled\(/)
   assert.match(chat, /const localBlock: AiMessageBlock/)
