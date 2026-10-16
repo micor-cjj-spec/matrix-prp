@@ -170,7 +170,7 @@ def connection(chain):
                 continue
     matches = set()
     for name,ipv6 in [('tcp',False),('tcp6',True)]:
-        for line in (Path('/proc/net')/name).read_text().splitlines()[1:]:
+        for line in bounded_file(Path('/proc/net')/name,2097152).decode().splitlines()[1:]:
             fields = line.split()
             if fields[3] == '01' and fields[9] in inodes:
                 local,lport = decode_address(fields[1],ipv6);peer,pport = decode_address(fields[2],ipv6)
@@ -241,7 +241,7 @@ def loaded_configuration(records,daemon_birth):
 def record_is_trusted(record):
     parents=all(p[1]==0 and (p[4] is not None or not p[3]&0o022) for p in record.get('parents',[]))
     if record.get('missing'):return parents
-    if 'target' in record:return parents and record_is_trusted(record['target'])
+    if 'target' in record:return parents and record.get('uid')==0 and record_is_trusted(record['target'])
     return parents and record.get('uid')==0 and not record.get('mode',0o777)&0o022
 
 
@@ -294,7 +294,7 @@ def collect_policy(challenge):
               'subsystem':'sftp '+SUBSYSTEM,'permituserrc':'yes','chrootdirectory':'none'}
     require(all(effective.get(k)==[v] for k,v in required.items()),"SSH_EFFECTIVE_POLICY_UNSUPPORTED")
     # restrict on the sole authenticated key disables user rc, forwarding, agent, X11 and PTY.
-    for path in [GATEWAY,HELPER,SSHD,SESSION,SUBSYSTEM,'/usr/bin/python3','/bin/sh','/usr/bin/sudo','/usr/bin/journalctl','/usr/bin/systemctl','/usr/bin/busctl','/etc/passwd','/etc/group','/etc/nsswitch.conf','/etc/sudoers','/etc/sudoers.d','/home/prp-deploy/.ssh']:
+    for path in [GATEWAY,HELPER,SSHD,SESSION,SUBSYSTEM,'/usr/local/sbin/prp-release','/usr/bin/python3','/bin/sh','/usr/bin/sudo','/usr/bin/journalctl','/usr/bin/systemctl','/usr/bin/busctl','/etc/passwd','/etc/group','/etc/nsswitch.conf','/etc/sudoers','/etc/sudoers.d','/home/prp-deploy/.ssh']:
         record(path)
     for path in sorted(Path('/etc/sudoers.d').iterdir()):record(str(path))
     record('/etc/ssh/sshrc',missing=True)

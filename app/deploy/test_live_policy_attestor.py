@@ -78,6 +78,8 @@ class LivePolicyAttestorTests(unittest.TestCase):
     def test_group_writable_or_unprivileged_synthetic_metadata_cannot_pass(self):
         record={'uid':0,'mode':0o755,'parents':[['/',0,0,0o777,None]]}
         self.assertFalse(policy.record_is_trusted(record))
+        link={'uid':1001,'target':{'uid':0,'mode':0o755,'parents':[]},'parents':[]}
+        self.assertFalse(policy.record_is_trusted(link))
 
     def test_kernel_socket_address_decoding(self):
         self.assertEqual(policy.decode_address('0100007F:0016',False),('127.0.0.1',22))
