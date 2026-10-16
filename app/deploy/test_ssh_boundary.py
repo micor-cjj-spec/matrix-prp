@@ -86,6 +86,16 @@ class SSHBoundaryTests(unittest.TestCase):
         with self.assertRaises(gate.BoundaryError):
             self.verifier(run).verify()
 
+    def test_subsystem_protocol_marker_is_not_approved_before_live_evidence(self):
+        def run(args, **kwargs):
+            if "-s" in args:
+                return response(255, err=b"subsystem request failed on channel 0\n")
+            return self.runner(args, **kwargs)
+        with self.assertRaises(gate.BoundaryError) as raised:
+            self.verifier(run).verify()
+        self.assertEqual(raised.exception.stage, "sftp-subsystem-denial")
+        self.assertEqual(raised.exception.code, "EXPECTED_GATEWAY_DENIAL_MISSING")
+
     def test_accepted_shell_and_sftp_fail_closed(self):
         for index in ["sh", "-s"]:
             def run(args, **kwargs):
