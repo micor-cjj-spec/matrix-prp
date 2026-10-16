@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 
 import verify_ssh_boundary as gate
+import probe_sftp_init
 
 STAGES = (
     "controller-attestation", "diagnose", "shell-denial", "sftp-command-denial",
@@ -23,6 +24,9 @@ def metadata(result):
         "exit_code": result.returncode,
         "stdout_empty": not result.stdout,
         "stdout_bytes": len(result.stdout),
+        "stderr_bytes": len(result.stderr),
+        "stderr_empty": not result.stderr,
+        "stderr_category": probe_sftp_init.classify(result.stdout, result.stderr, result.returncode)["category"],
         "gateway_denial": gate.GATEWAY_DENIAL in result.stderr,
         "subsystem_request_failed": b"subsystem request failed on channel " in stderr,
         "administratively_prohibited": b"administratively prohibited" in stderr,
@@ -89,8 +93,15 @@ class Probe(gate.Verifier):
             if failure and failure.stage == stage:
                 entry["exception_category"] = failure.code
             result.append({"stage": stage, **entry})
+        # The legacy test supplies DEVNULL and can make a started server exit on EOF.
+        # INIT-only evidence holds stdin open, so VERSION cannot be missed for that reason.
+        init_result = {"category": "NOT_RUN", "sftp_accessible": False}
+        if failure is None or STAGES.index(failure.stage) > STAGES.index("diagnose"):
+            init_result = probe_sftp_init.probe(self.base, self.destination)
         return {"schema_version": 1, "diagnostic_only": True,
-                "production_gate_passed": failure is None, "checks": result}
+                "production_gate_passed": failure is None and init_result["category"] in {
+                    "GATEWAY_REJECTED", "SSH_PROTOCOL_REJECTED"},
+                "checks": result, "sftp_init_probe": init_result}
 
 
 def main():

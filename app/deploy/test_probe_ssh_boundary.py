@@ -18,6 +18,10 @@ class ProtocolEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.fixture = fixtures.SSHBoundaryTests()
         self.fixture.setUp()
+        self.init_probe = patch.object(probe.probe_sftp_init, "probe", return_value={
+            "category": "GATEWAY_REJECTED", "sftp_accessible": False})
+        self.init_probe.start()
+        self.addCleanup(self.init_probe.stop)
 
     def collect(self, sftp):
         def runner(args, **kwargs):
@@ -43,6 +47,13 @@ class ProtocolEvidenceTests(unittest.TestCase):
     def test_explicit_gateway_rejection_passes_existing_rule(self):
         report = self.collect(response(2, err=probe.gate.GATEWAY_DENIAL))
         self.assertTrue(report["production_gate_passed"])
+
+    def test_successful_init_overrides_legacy_denial_and_blocks(self):
+        with patch.object(probe.probe_sftp_init, "probe", return_value={
+            "category": "SFTP_ACCESSIBLE", "sftp_accessible": True}):
+            report = self.collect(response(2, err=probe.gate.GATEWAY_DENIAL))
+        self.assertFalse(report["production_gate_passed"])
+        self.assertTrue(report["sftp_init_probe"]["sftp_accessible"])
 
     def test_sftp_success_or_payload_never_passes(self):
         for result in [response(), response(2, out=b"SFTP", err=probe.gate.GATEWAY_DENIAL),
