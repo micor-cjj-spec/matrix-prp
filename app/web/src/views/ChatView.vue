@@ -14,6 +14,7 @@ import { fetchUsage, pageConversations, renameConversation, deleteConversation, 
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 import { isMealCardRequest } from '@/utils/mealCardIntent'
+import { isWellnessReadQuery } from '@/utils/wellnessReadIntent'
 
 type ContextOption = { value: string; label: string; hint: string }
 const options: ContextOption[] = [
@@ -470,6 +471,15 @@ async function send(contextToken?: string) {
   if (chatPhoto.value && (content.length > 1500 ||
       selectedScopes.value.some(scope => scope !== 'wellness'))) {
     ElMessage.warning('食物照片只能用于健康记录，请缩短描述并移除其他应用引用后重试')
+    return
+  }
+  // A natural-language read request needs explicit consent, even without an @健康 mention.
+  // Check BEFORE the meal-writing intent regex: "没有录入" is a query, not a write.
+  if (!contextToken && !chatPhoto.value && selectedScopes.value.length === 0 &&
+      isWellnessReadQuery(content)) {
+    selectedScopes.value = ['wellness']
+    invalidatePreview()
+    await showPreview()
     return
   }
   const writeVerb = /(?:记录|录入|录人|导入|写入|归档|添加|新增|保存|记下|记一下|帮我记|记一笔|存入)/u.test(content)
