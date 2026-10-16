@@ -10,6 +10,9 @@ mode="$1"; gateway="$2"
 [[ "$EUID" == 0 && "$gateway" == /* && -f "$gateway" && ! -L "$gateway" ]] || exit 2
 [[ "$(stat -c '%u:%g' "$gateway")" == "0:0" ]] || exit 2
 [[ "$(stat -c '%a' "$gateway")" =~ ^(700|750|755)$ ]] || exit 2
+# Serialize with deploy without modifying the existing lock file.
+exec 9</var/lib/matrix-prp-deploy/deploy.lock
+flock -n 9 || { echo "STOP: deployment in progress" >&2; exit 2; }
 here="$(cd -- "$(dirname -- "$0")" && pwd)"
 controller=/usr/local/sbin/prp-release
 helper="$here/read_only_diagnostic.py"
@@ -26,21 +29,26 @@ PY
 actual="$(sha256sum "$controller" | cut -d' ' -f1)"
 [[ "$expected" == "$actual" ]] || { echo "STOP: unapproved controller hash" >&2; exit 2; }
 [[ -f "$helper" && ! -e "$target" && ! -e "$sudoers" ]] || { echo "STOP: missing source or existing diagnostic installation" >&2; exit 2; }
-python3 -m py_compile "$helper"
+python3 -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_bytes())' "$helper"
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
 cp -a -- "$gateway" "$work/gateway.before"
 python3 - "$gateway" "$work/gateway.after" <<'PY'
 import pathlib,sys
 source=pathlib.Path(sys.argv[1]).read_text()
-anchor='  controller-sha256) exec /usr/bin/sha256sum /usr/local/sbin/prp-release ;;'
-if source.count(anchor)!=1 or 'prp-diagnose' in source or 'diagnose)' in source:
+anchors = (
+    '  controller-sha256) exec /usr/bin/sha256sum /usr/local/sbin/prp-release ;;',
+    '  controller-sha256)\n    exec /usr/bin/sha256sum /usr/local/sbin/prp-release\n    ;;',
+)
+matched = [a for a in anchors if source.count(a) == 1]
+if len(matched)!=1 or 'prp-diagnose' in source or 'diagnose)' in source:
     raise SystemExit('Installed gateway unexpected: review required')
+anchor=matched[0]
 addition='  diagnose) exec sudo -n /usr/local/sbin/prp-diagnose ;;'
 pathlib.Path(sys.argv[2]).write_text(source.replace(anchor,anchor+'\n'+addition))
 PY
 sh -n "$work/gateway.after"
-printf '%s\n' 'prp-deploy ALL=(root) NOPASSWD: /usr/local/sbin/prp-diagnose' > "$work/sudoers"
+printf '%s\n' 'prp-deploy ALL=(root) NOPASSWD: /usr/local/sbin/prp-diagnose ""' > "$work/sudoers"
 chmod 440 "$work/sudoers"
 visudo -cf "$work/sudoers" >/dev/null
 diff -u "$work/gateway.before" "$work/gateway.after" || [[ $? == 1 ]]
@@ -54,6 +62,7 @@ backup="/var/backups/prp-diagnose/$(date -u '+%Y%m%dT%H%M%SZ')"
 [[ ! -e "$backup" ]] || exit 2
 install -d -o root -g root -m 0700 "$backup"
 cp -a "$gateway" "$backup/gateway.original"
+cp -a /etc/sudoers.d "$backup/sudoers.d.before"
 echo "$gateway" > "$backup/gateway.path"
 chmod 600 "$backup/gateway.path"
 done_helper=0; done_sudoers=0; done_gateway=0
@@ -67,10 +76,10 @@ rollback() {
   if (( done_helper )); then rm -f "$target"; fi
 }
 trap rollback ERR
-install -o root -g root -m 0755 "$helper" "$target"
 done_helper=1
-install -o root -g root -m 0440 "$work/sudoers" "$sudoers"
+install -o root -g root -m 0755 "$helper" "$target"
 done_sudoers=1
+install -o root -g root -m 0440 "$work/sudoers" "$sudoers"
 visudo -cf "$sudoers" >/dev/null
 # Install gateway atomically from a temporary file in its own filesystem.
 # Never truncate the live forced-command file in place.

@@ -5,6 +5,8 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+import subprocess
+from unittest.mock import patch
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parent
@@ -90,12 +92,13 @@ class SafeDeploymentDiagnosticsTests(unittest.TestCase):
             "traceback": "MYSQL_PWD=leak",
             "unknown_secret": "api-key",
         }
+        attack["timestamp_utc"] = "2026-10-15T04:10:00Z"
         report = renderer.create_report(attack, {
             "release": "evil-release\n::error::leak",
             "service": "failed",
             "schema_version": "select * from secrets",
             "metadata": {"commit": "malicious", "credentials": "secret"},
-        }, "a" * 40)
+        }, "a" * 40, "2026-10-15T04:09:59Z")
         published = json.dumps(report) + "\n".join(renderer.summary_lines(report))
         for forbidden in ["PRIVATE_PRIMARY_KEY", "MYSQL_PWD", "api-key",
                           "evil-release", "::error::leak", "select *", "api-key"]:
@@ -169,6 +172,83 @@ class SafeDeploymentDiagnosticsTests(unittest.TestCase):
         self.assertIn("diagnose) exec sudo -n /usr/local/sbin/prp-diagnose ;;", gateway)
         self.assertNotIn('diagnose\\ *)', gateway)
         self.assertIn("controller-sha256)", gateway)
+
+
+class DiagnosticBoundaryRegressionTests(unittest.TestCase):
+    def test_unknown_table_identifier_is_not_a_table_allowlist(self):
+        trace = "in assert_preserved\nAssertionError: ('Historical row changed or deleted', 'prp_secret_token_material', 'private-key')"
+        result = host.classify(trace)
+        self.assertIsNone(result['table'])
+        self.assertNotIn('private-key', json.dumps(result))
+        self.assertIsNone(renderer.safe_diagnostic({'state':'available','table':'prp_secret_token_material'})['table'])
+
+    def test_current_new_object_assertion_has_distinct_safe_code(self):
+        result = host.classify("in assert_preserved\nAssertionError: Unexpected new business table")
+        self.assertEqual(result['code'],'UNEXPECTED_BUSINESS_TABLE')
+        self.assertIsNone(result['table'])
+
+    def test_log_symlink_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)/'private';target.write_text('secret')
+            link = Path(tmp)/'last-error.log';link.symlink_to(target)
+            self.assertEqual(host.report(link)['state'],'unavailable')
+
+    def test_nonregular_log_is_refused_without_blocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fifo=Path(tmp)/'log';os.mkfifo(fifo,0o600)
+            self.assertEqual(host.report(fifo)['state'],'unavailable')
+
+    def test_group_writable_log_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'log';path.write_text('secret');path.chmod(0o660)
+            self.assertEqual(host.report(path)['state'],'unavailable')
+
+    def test_missing_or_invalid_correlation_cannot_be_available(self):
+        valid={'state':'available','code':'UNEXPECTED_BUSINESS_TABLE','timestamp_utc':'2026-10-15T04:10:00Z'}
+        for start in [None,'invalid','2026-99-99T04:09:00Z']:
+            self.assertEqual(renderer.create_report(valid,{},'a'*40,start)['diagnostic']['state'],'unavailable')
+        valid['timestamp_utc']=None
+        self.assertEqual(renderer.create_report(valid,{},'a'*40,'2026-10-15T04:09:00Z')['diagnostic']['state'],'unavailable')
+
+    def test_even_a_one_second_old_failure_cannot_be_current(self):
+        data={'state':'available','code':'UNEXPECTED_BUSINESS_TABLE','timestamp_utc':'2026-10-15T04:10:00Z'}
+        self.assertEqual(renderer.create_report(data,{},'a'*40,'2026-10-15T04:10:01Z')['diagnostic']['state'],'stale')
+
+    def test_installer_supports_both_exact_reviewed_gateway_layouts(self):
+        script=(ROOT/'admin_install_diagnostic.sh').read_text()
+        embedded=script.split('python3 - "$gateway" "$work/gateway.after"',1)[1].split("\n",1)[1].split("\nPY",1)[0]
+        for anchor in ['  controller-sha256) exec /usr/bin/sha256sum /usr/local/sbin/prp-release ;;',
+                       '  controller-sha256)\n    exec /usr/bin/sha256sum /usr/local/sbin/prp-release\n    ;;']:
+            with tempfile.TemporaryDirectory() as tmp:
+                before=Path(tmp)/'before';after=Path(tmp)/'after'
+                original='#!/bin/sh\ncase "$SSH_ORIGINAL_COMMAND" in\n'+anchor+'\n  *) exit 2 ;;\nesac\n'
+                before.write_text(original)
+                subprocess.run(['python3','-c',embedded,str(before),str(after)],check=True,capture_output=True)
+                self.assertEqual(after.read_text().replace('\n  diagnose) exec sudo -n /usr/local/sbin/prp-diagnose ;;',''),original)
+        self.assertIn('/usr/local/sbin/prp-diagnose ""',script)
+
+    def test_gateway_denies_shell_and_diagnostic_arguments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);sudo=root/'sudo'
+            sudo.write_text('#!/bin/sh\nprintf "%s\n" "$@"\n');sudo.chmod(0o755)
+            env={**os.environ,'PATH':str(root)+':'+os.environ['PATH']}
+            for command in ['sh','bash','sftp','diagnose /etc/shadow','diagnose; id','diagnose\nstatus','rollback x y','rollback x;id','']:
+                result=subprocess.run(['sh',str(ROOT/'ssh-gateway.sh')],env={**env,'SSH_ORIGINAL_COMMAND':command},capture_output=True,text=True)
+                self.assertEqual(result.returncode,2,command);self.assertEqual(result.stdout,'',command)
+            result=subprocess.run(['sh',str(ROOT/'ssh-gateway.sh')],env={**env,'SSH_ORIGINAL_COMMAND':'diagnose'},capture_output=True,text=True)
+            self.assertEqual(result.returncode,0)
+            self.assertEqual(result.stdout.splitlines(),['-n','/usr/local/sbin/prp-diagnose'])
+
+    def test_no_argument_diagnostic_and_no_root_bypass(self):
+        with patch.object(host.os,'geteuid',return_value=1001),patch.object(host.sys,'argv',['helper']):
+            self.assertEqual(host.main(),2)
+        with patch.object(host.os,'geteuid',return_value=0),patch.object(host.sys,'argv',['helper','/etc/shadow']):
+            self.assertEqual(host.main(),2)
+
+    def test_installer_hash_allowlist_is_not_relaxed(self):
+        manifest=json.loads((ROOT/'controller-manifest.json').read_text())
+        self.assertEqual(manifest['approved_controller']['sha256'],'d3e5113cd8d37daabc179a2503dc36d42d1596db822239839b535525e3da75c6')
+        self.assertEqual(host.KNOWN_TABLES,renderer.KNOWN_TABLES)
 
 
 if __name__ == "__main__":

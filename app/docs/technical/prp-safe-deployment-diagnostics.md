@@ -102,7 +102,7 @@ approval manifest must remain unchanged.
 5. Add one reviewed **exact-command** sudoers entry for the restricted account:
 
    ```sudoers
-   prp-deploy ALL=(root) NOPASSWD: /usr/local/sbin/prp-diagnose
+   prp-deploy ALL=(root) NOPASSWD: /usr/local/sbin/prp-diagnose ""
    ```
 
    Apply it through `visudo` syntax validation; **do not use `NOPASSWD: ALL`**.
@@ -129,9 +129,16 @@ will report `STALE_DIAGNOSTIC` instead of misattributing an old failure to a new
 5. If `code` is unknown, stale, or malformed, ask the authorized administrator for
    a *specific* root-only traceback excerpt. Never guess an unobserved assertion.
 
-## Deployment safety and current V18 blocker
+## Deployment safety and current V18/V19 blocker
 
-The production V18 rollout remains blocked by its data-preservation preflight, so
+The installed controller still runs the V17 policy and rejects the new
+`prp_ai_conversation_meta` (V18) and `prp_wellness_ai_action_targets` (V19) tables.
+The current V18 creates a separate empty metadata table; it does not change old
+conversation rows. V19 can legitimately backfill nonempty owner-scoped action
+links using durable meal idempotency keys. A future controller patch must verify
+those exact backfill rows, not merely permit every new table or require all new
+tables to be empty. The controller fix requires separate administrator approval.
+The production rollout remains blocked by its preservation preflight, so
 **merging this PR would trigger the existing automatic deploy workflow again**.
 Keep this feature PR unmerged until there is an approved way to prevent an
 unintended V18 retry or the underlying preservation fault is resolved. No root
@@ -140,3 +147,39 @@ by this diagnostic feature itself.
 
 This feature does not disable row fingerprint assertions, migrations, rollback
 safety, controller attestation, release identity verification, or production approval.
+
+## Review update 2026-10-16
+
+The feature branch is synchronized with main `a9c2fde2d813849df2c5e4162a9741f03a442175`.
+The server gateway is `/usr/local/bin/prp-deploy-gateway`, root:root 0755. Its
+controller-sha256 case is multiline; the installer now recognizes exactly the
+reviewed one-line and multiline forms and refuses unknown/duplicate anchors.
+Existing deploy/rollback cases are preserved byte-for-byte. The install takes
+the existing deployment lock, backs up the gateway and sudoers directory, and
+adds only a separate no-argument sudo rule (`""` means no command arguments).
+`--check` does not install or modify production files.
+
+The helper pins `/usr/bin/python3 -I`, refuses symbolic links, FIFOs and writable
+or incorrectly owned logs, and reads only the fixed log path. Both host and
+renderer use the same explicit migration-derived table-name allowlist. Unknown
+identifiers that merely start with `prp_` are never published. Unknown new-table
+assertions have a distinct `UNEXPECTED_BUSINESS_TABLE` code without guessing the
+new table from source-code lines in the traceback.
+
+The renderer requires valid attempt and diagnostic timestamps. Even a log from
+one second before the publish attempt is stale; missing timestamps are unavailable.
+It assumes bounded host/runner clock skew only for future timestamp rejection,
+never uses skew tolerance to attribute a prior error to a new attempt. Diagnosis
+SSH is bounded to 20 seconds with a file-size limit. Diagnostic collection and
+artifact upload are best-effort and do not change the failed deploy outcome.
+The CI diagnostics job exercises parser privacy, freshness, file permissions,
+actual shell command rejection, both gateway layouts, and controller attestation.
+
+After approval, install diagnostics FIRST while the attested controller still
+matches `d3e5113cd8d37daabc179a2503dc36d42d1596db822239839b535525e3da75c6`.
+Do not change the manifest to bypass a mismatch. A separately approved controller
+patch needs its own before/after hashes, isolated migration reproduction and a
+subsequent independently reviewed manifest update before production deployment.
+Do not merge this PR until installation, review and CI are complete and the
+automatic main deployment is prepared. No production retry is needed to inspect
+the existing failed run. Old logs beyond the two-hour TTL remain stale.

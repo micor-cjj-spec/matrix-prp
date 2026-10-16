@@ -17,6 +17,7 @@ MAX_INPUT = 8 * 1024
 CODES = {
     "PRESERVED_ROW_CHANGED", "PRESERVED_FOOD_CHANGED",
     "PRESERVED_VIDEO_CHANGED", "PRESERVATION_ASSERTION",
+    "UNEXPECTED_BUSINESS_TABLE", "UNEXPECTED_MIGRATION_ROWS",
     "MIGRATION_FAILED", "DEPLOY_COMMAND_FAILED", "DEPLOY_ERROR_UNKNOWN",
     "STALE_DIAGNOSTIC", "DIAGNOSTIC_UNAVAILABLE", "NO_DIAGNOSTIC",
 }
@@ -32,7 +33,7 @@ EXCEPTIONS = {
 SERVICES = {"active", "inactive", "failed", "activating", "deactivating", "unknown"}
 HEX40 = re.compile(r"[a-f0-9]{40}\Z")
 IDENT = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}\Z")
-TABLE = re.compile(r"prp_[a-z][a-z0-9_]{0,62}\Z")
+KNOWN_TABLES = frozenset(('prp_ai_agent_tasks', 'prp_ai_codex_jobs', 'prp_ai_conversation_meta', 'prp_ai_conversations', 'prp_ai_message_blocks', 'prp_ai_messages', 'prp_ai_preferences', 'prp_ai_provider_credentials', 'prp_ai_tool_audit', 'prp_ai_usage', 'prp_finance_accounts', 'prp_finance_categories', 'prp_finance_transactions', 'prp_finance_transfers', 'prp_invitations', 'prp_notification_deliveries', 'prp_notification_messages', 'prp_notification_rules', 'prp_practice_ai_usage', 'prp_practice_attempts', 'prp_practice_banks', 'prp_practice_imports', 'prp_practice_questions', 'prp_practice_subjects', 'prp_push_subscriptions', 'prp_record_tags', 'prp_records', 'prp_reviews', 'prp_tags', 'prp_tasks', 'prp_users', 'prp_video_assets', 'prp_video_folders', 'prp_video_progress', 'prp_video_uploads', 'prp_wellness_ai_action_targets', 'prp_wellness_ai_drafts', 'prp_wellness_body_metrics', 'prp_wellness_dish_templates', 'prp_wellness_exercises', 'prp_wellness_foods', 'prp_wellness_goals', 'prp_wellness_meal_items', 'prp_wellness_meals', 'prp_wellness_profiles'))
 UTC_TIMESTAMP = re.compile(r"20\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z")
 
 
@@ -42,7 +43,7 @@ def load_untrusted(path: Path) -> dict:
             return {}
         parsed = json.loads(path.read_text(encoding="utf-8"))
         return parsed if isinstance(parsed, dict) else {}
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, RecursionError):
         return {}
 
 
@@ -53,7 +54,7 @@ def safe_diagnostic(data: dict) -> dict:
     code = data.get("code") if isinstance(data.get("code"), str) and data.get("code") in CODES else "DIAGNOSTIC_UNAVAILABLE"
     stage = data.get("stage") if isinstance(data.get("stage"), str) and data.get("stage") in STAGES else "unknown"
     table = data.get("table")
-    if not isinstance(table, str) or not TABLE.fullmatch(table):
+    if not isinstance(table, str) or table not in KNOWN_TABLES:
         table = None
     exception = data.get("exception")
     if not isinstance(exception, str) or exception not in EXCEPTIONS:
@@ -87,16 +88,20 @@ def create_report(diagnostic: dict, status: dict, target_sha: str,
     clean = safe_diagnostic(diagnostic)
     # The host log can belong to a previous failed run. Do not attribute an
     # earlier failure to this deployment, even if it is less than 2 hours old.
-    if attempt_start and UTC_TIMESTAMP.fullmatch(attempt_start):
-        diagnostic_time = clean["timestamp_utc"]
-        if clean["state"] == "available" and diagnostic_time:
-            try:
-                observed = datetime.fromisoformat(diagnostic_time.replace("Z", "+00:00"))
-                began = datetime.fromisoformat(attempt_start.replace("Z", "+00:00"))
-                if observed.timestamp() < began.timestamp() - 60:
-                    clean = safe_diagnostic({"state": "stale", "code": "STALE_DIAGNOSTIC"})
-            except ValueError:
-                clean = safe_diagnostic({"state": "unavailable"})
+    if clean["state"] == "available":
+        try:
+            if not isinstance(attempt_start, str) or not UTC_TIMESTAMP.fullmatch(attempt_start):
+                raise ValueError("Missing attempt timestamp")
+            if not clean["timestamp_utc"]:
+                raise ValueError("Missing diagnostic timestamp")
+            observed = datetime.fromisoformat(clean["timestamp_utc"].replace("Z", "+00:00"))
+            began = datetime.fromisoformat(attempt_start.replace("Z", "+00:00"))
+            if observed < began:
+                clean = safe_diagnostic({"state": "stale", "code": "STALE_DIAGNOSTIC"})
+            elif observed.timestamp() > datetime.now(timezone.utc).timestamp() + 300:
+                raise ValueError("Future diagnostic timestamp")
+        except ValueError:
+            clean = safe_diagnostic({"state": "unavailable", "code": "DIAGNOSTIC_UNAVAILABLE"})
     return {
         "schema_version": 1,
         "outcome": "deploy_failed",
