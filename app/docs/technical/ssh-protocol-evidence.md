@@ -57,3 +57,29 @@ the `prp-readonly-ssh-evidence` artifact / Step Summary. Do not dispatch Deploy 
 Tests cover protocol denial telemetry without premature acceptance, successful or
 interactive SFTP fail-closed behavior, connection and timeout errors, forwarding
 permission checks, redaction, workflow isolation, and automatic-publish prevention.
+
+## INIT-only evidence and the DEVNULL ambiguity
+
+The legacy production verifier supplies DEVNULL, immediately sending EOF. A
+working subsystem can exit on EOF without returning VERSION. Therefore exit code
+2 and empty stdout do not establish a permission denial.
+
+The read-only probe additionally sends exactly one 9-byte SSH_FXP_INIT(version 3)
+packet and keeps stdin open until a complete VERSION, exit, limit, or timeout.
+It never constructs file, directory, upload, download, or write requests. A valid
+SSH_FXP_VERSION (including structurally valid optional extension pairs) proves
+SFTP access, fails the diagnostic result and closes SSH immediately. No subsequent
+SFTP request is sent. The client is killed before stdin closes on timeout, avoiding
+an EOF-induced exit being mistaken for denial.
+
+Both pipes are drained with selectors on Linux; stdout is capped at 8192 bytes,
+stderr at 65536 bytes, and total exchange time at 20 seconds. OpenSSH -vv stderr
+exists only in bounded memory. Only counts, booleans and fixed categories leave
+the process. No raw debug output, server text, extension names or values are saved.
+
+Categories distinguish VERSION access, explicit SSH protocol rejection, explicit
+gateway rejection, subsystem startup failure, accepted subsystem exit without
+VERSION, EOF without VERSION, authentication/host key/network errors, timeout,
+output limit and unknown failure. Neither EOF nor an arbitrary exit is rejection.
+The production verifier and all production SSH configuration remain unchanged.
+Changing the formal acceptance predicate requires review of actual evidence first.
