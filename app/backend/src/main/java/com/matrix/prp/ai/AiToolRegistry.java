@@ -57,6 +57,9 @@ public class AiToolRegistry {
         if (scopes.contains("wellness")) result.add(new Definition("wellness_trends","wellness",
             "查询用户近7/14/30天每天的饮食热量及运动分钟；未记录的热量返回null，绝不是零，不包含体重",
             schema(Map.of("days",field("integer","只能是7、14或30，默认7")))));
+        if (scopes.contains("wellness")) result.add(new Definition("wellness_meal_coverage","wellness",
+            "检查当前用户最近7、14或30个完整自然日（不包括今天）早餐、午餐和晚餐哪些已经录入PRP、哪些没有记录。用户询问漏录、缺少的用餐记录或哪些餐未录入时优先调用。没有记录不意味着实际吃过或应该吃。",
+            schema(Map.of("days",field("integer","仅7、14或30，默认7；今天排除以免误报尚未到来的餐次")))));
         if (scopes.contains("wellness_body")) result.add(new Definition("wellness_body_trends","wellness_body",
             "仅在单独授权身体指标后查询近7/14/30天体重测量趋势，不包含病历及其他个人健康信息",
             schema(Map.of("days",field("integer","只能是7、14或30，默认7")))));
@@ -74,7 +77,7 @@ public class AiToolRegistry {
         return switch (name) {
             case "tasks_list" -> "tasks";
             case "practice_statistics" -> "practice";
-            case "wellness_daily", "wellness_trends" -> "wellness";
+            case "wellness_daily", "wellness_trends", "wellness_meal_coverage" -> "wellness";
             case "wellness_body_trends" -> "wellness_body";
             case "finance_monthly" -> "finance";
             case "navigation_open" -> "";
@@ -118,6 +121,19 @@ public class AiToolRegistry {
                 data.put("fatGrams",day.fatG()); data.put("mealCount",day.mealCount());
                 data.put("exerciseMinutes",day.exerciseMinutes());
                 yield new Result(data,navigation.resolve("wellness",null));
+            }
+            case "wellness_meal_coverage" -> {
+                var service = wellness.getIfAvailable();
+                if (service == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Wellness unavailable");
+                int days = daysArg(args);
+                var coverage = service.mealCoverage(days);
+                int missingCount = coverage.stream().mapToInt(d -> d.missingMealTypes().size()).sum();
+                yield new Result(Map.of(
+                    "days",days,"includesToday",false,
+                    "missingSlotCount",missingCount,
+                    "entries",coverage,
+                    "meaning","缺少餐次表示PRP数据库中没有对应日期餐次的记录，不代表用户确实进食或需要补记"),
+                    navigation.resolve("wellness",null));
             }
             case "wellness_trends", "wellness_body_trends" -> {
                 var service=wellness.getIfAvailable();

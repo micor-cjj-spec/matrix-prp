@@ -202,8 +202,13 @@ public class AiService {
                     List<MessageBlock> cards = new ArrayList<>();
                     if (useTools) {
                         Set<String> approved = Set.copyOf(selectedScopes);
-                        List<AiToolPlanner.Call> calls = planner.plan(
-                            legacy ? settings.resolve(user) : provider, history, tools.definitions(approved));
+                        // A missing-meal query always reads the authorised owner-scoped records;
+                        // do not depend on an upstream model deciding to call the function.
+                        List<AiToolPlanner.Call> calls = approved.contains("wellness") && mealCoverageIntent(content)
+                            ? List.of(new AiToolPlanner.Call("wellness_meal_coverage",
+                                json.createObjectNode().put("days", coverageDays(content))))
+                            : planner.plan(legacy ? settings.resolve(user) : provider,
+                                history, tools.definitions(approved));
                         List<Map<String,Object>> observations = new ArrayList<>();
                         for (var call : calls) {
                             long started = System.nanoTime();
@@ -270,6 +275,19 @@ public class AiService {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI workers are busy");
         }
         return emitter;
+    }
+
+    static boolean mealCoverageIntent(String text) {
+        if (text == null) return false;
+        boolean aboutMeals = text.matches("(?s).*(用餐|饮食|吃饭|早餐|午餐|晚餐|餐次|三餐|吃的饭).*");
+        boolean aboutGaps = text.matches("(?s).*(没录|没有录|未录|漏录|漏记|没记|缺少记录|哪些.*没有记录|哪几.*没有记录).*");
+        return aboutMeals && aboutGaps;
+    }
+
+    static int coverageDays(String text) {
+        if (text.matches("(?s).*(30天|三十天|一个月|近一月|近1个月).*")) return 30;
+        if (text.matches("(?s).*(14天|十四天|两周|两个星期).*")) return 14;
+        return 7;
     }
 
     private static long estimatedInput(List<DeepSeekClient.ChatMessage> history) {
