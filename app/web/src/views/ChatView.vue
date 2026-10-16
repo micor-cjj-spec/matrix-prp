@@ -486,14 +486,14 @@ async function send(contextToken?: string) {
   const foodContext = /(?:早饭|午饭|晚饭|早餐|午餐|晚餐|加餐|饮食|食物|热量|卡路里|吃了|喝了|这顿|我吃|今天吃)/u.test(content)
   const directFoodQuantity = /(?:记|记录|录入|录人|添加|新增|保存|记下)(?:一下|一笔|入)?\s*(?:一个|一份|一碗|一杯|两个|[0-9]+(?:g|克|ml|毫升))/u.test(content)
   const notTechnicalOrOther = !/(?:如何实现|怎么开发|如何设计|为什么不能|记录日志|错误日志|会议记录|记录会议|记录任务|添加任务|添加待办|保存笔记|添加笔记)/u.test(content)
-  const healthWrite = writeVerb && notTechnicalOrOther &&
+  const healthWrite = !isWellnessReadQuery(content) && writeVerb && notTechnicalOrOther &&
     (foodContext || directFoodQuantity || selectedScopes.value.includes('wellness'))
   // Short follow-ups like "帮我录入一下" or "生成一下卡片" depend on
   // the selected conversation's real user meal description, not model promises.
   const hasRecentMeal = messages.value.slice(-40).some(m => m.role === 'user' &&
     /(?:早餐|早饭|早上|午餐|午饭|中午|晚餐|晚饭|晚上|今晚|加餐|夜宵)/u.test(m.content) &&
     /(?:米饭|炒菜|炒肉|馄饨|混沌|米线|鸡腿|面条|鸡蛋|牛奶|酸奶|土豆|面包|豆腐|青菜|排骨|饺子|饭|肉|菜|吃)/u.test(m.content))
-  const contextualMealCard = isMealCardRequest(content, hasRecentMeal)
+  const contextualMealCard = !isWellnessReadQuery(content) && isMealCardRequest(content, hasRecentMeal)
   if (content.length <= 1500 && (healthWrite || contextualMealCard || chatPhoto.value) &&
       (selectedScopes.value.length === 0 ||
        selectedScopes.value.every(s => s === 'wellness'))) {
