@@ -79,6 +79,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/vocal',
+      name: 'vocal',
+      component: () => import('@/views/VocalView.vue'),
+      meta: { requiresAuth: true, title: '声乐训练中心' },
+    },
+    {
       path: '/practice',
       name: 'practice',
       component: () => import('@/views/PracticeView.vue'),
