@@ -8,6 +8,10 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import secrets
+
+import probe_sftp_init
+import sftp_policy
 
 from render_safe_diagnostic import safe_diagnostic
 from verify_controller import verify_response
@@ -30,9 +34,10 @@ class Verifier:
                      "-o", "ConnectTimeout=15", "-o", "ConnectionAttempts=1"]
         self.manifest, self.runner = manifest, runner
 
-    def call(self, stage: str, args: list[str]):
+    def call(self, stage: str, args: list[str], payload=None):
         try:
-            result = self.runner(self.base + args, stdin=subprocess.DEVNULL,
+            input_options = {"stdin": subprocess.DEVNULL} if payload is None else {"input": payload}
+            result = self.runner(self.base + args, **input_options,
                                  capture_output=True, timeout=20,
                                  env={**os.environ, "LC_ALL": "C"})
         except subprocess.TimeoutExpired:
@@ -59,6 +64,56 @@ class Verifier:
         result = self.call(stage, args)
         if result.returncode != 2 or result.stdout or GATEWAY_DENIAL not in result.stderr:
             raise BoundaryError(stage, "EXPECTED_GATEWAY_DENIAL_MISSING")
+
+    def sftp_exchange(self, command=None):
+        return probe_sftp_init.probe(self.base, self.destination, command=command)
+
+    def fresh_policy(self):
+        # A one-off administrator audit or exec refusal is NOT a live policy proof.
+        try:
+            baseline = sftp_policy.baseline_from(self.manifest)
+        except sftp_policy.PolicyError as exc:
+            raise BoundaryError("ssh-policy-attestation", str(exc)) from None
+        challenge = secrets.token_bytes(32)
+        response = self.call("ssh-policy-attestation", [self.destination, "diagnose"], payload=challenge)
+        try:
+            def unique(pairs):
+                d = {}
+                for k, v in pairs:
+                    if k in d:
+                        raise ValueError()
+                    d[k] = v
+                return d
+            data = json.loads(response.stdout, object_pairs_hook=unique)
+            if (response.returncode != 0 or not isinstance(data, dict)
+                    or set(data) != {"schema_version", "state", "code", "stage", "table", "exception", "timestamp_utc", "ssh_policy"}):
+                raise sftp_policy.PolicyError("SSH_POLICY_PROOF_UNAVAILABLE")
+            diagnostic = {k: v for k, v in data.items() if k != "ssh_policy"}
+            if (type(data["schema_version"]) is not int or data["schema_version"] != 1
+                    or data["state"] not in {"available", "stale", "no_log"}
+                    or safe_diagnostic(diagnostic) != {k: v for k, v in diagnostic.items() if k != "schema_version"}):
+                raise sftp_policy.PolicyError("SSH_POLICY_PROOF_INVALID")
+            sftp_policy.verify_proof(self.manifest, data["ssh_policy"], challenge)
+        except sftp_policy.PolicyError as exc:
+            raise BoundaryError("ssh-policy-attestation", str(exc)) from None
+        except (ValueError, TypeError, RecursionError):
+            raise BoundaryError("ssh-policy-attestation", "SSH_POLICY_PROOF_INVALID") from None
+        return baseline, data, challenge
+
+    def verify_subsystem(self):
+        baseline, data, challenge = self.fresh_policy()
+        try:
+            # The fixed mapping comes from a validated, nonce-bound LIVE server proof.
+            exact = self.sftp_exchange(command=baseline["subsystem_command"])
+            sftp_policy.checked_exchange(exact)
+            actual = self.sftp_exchange()
+            verdict = sftp_policy.correlate(exact, actual)
+            sftp_policy.verify_proof(self.manifest, data["ssh_policy"], challenge)
+            self.fresh_policy()  # New nonce + live recollection catches drift during either probe.
+            self.sftp_verdict = verdict
+            self.sftp_evidence = actual
+        except sftp_policy.PolicyError as exc:
+            raise BoundaryError("sftp-subsystem-denial", str(exc)) from None
 
     def verify(self):
         stage = "controller-attestation"
@@ -101,7 +156,7 @@ class Verifier:
                                ("newline-denial", "diagnose\nstatus")]:
             self.deny_command(stage, [self.destination, command])
         self.deny_command("shell-request-denial", [self.destination])
-        self.deny_command("sftp-subsystem-denial", ["-s", self.destination, "sftp"])
+        self.verify_subsystem()
 
         # -W requests the same direct-tcpip channel used by local (-L) forwarding.
         # Port 1 is a non-business loopback target; no application request is sent.
@@ -116,6 +171,7 @@ class Verifier:
                                    "127.0.0.1:0:127.0.0.1:1", self.destination])
         if result.returncode != 255 or result.stdout or b"remote port forwarding failed" not in result.stderr.lower():
             raise BoundaryError(stage, "EXPECTED_FORWARDING_DENIAL_MISSING")
+        self.fresh_policy()  # Revalidate after forwarding; never reuse a cached proof.
 
 
 def main():
