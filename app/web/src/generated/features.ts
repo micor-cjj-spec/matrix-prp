@@ -109,6 +109,16 @@ export const features = [
     "webRoute": "/practice",
     "visibility": "authenticated",
     "visibleInNav": true
+  },
+  {
+    "code": "vocal",
+    "name": "声乐训练中心",
+    "sortOrder": 63,
+    "enabled": true,
+    "status": "implemented",
+    "webRoute": "/vocal",
+    "visibility": "authenticated",
+    "visibleInNav": true
   }
 ] as const
 export const domains = [

@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: matrix-prp-backend
+  servlet:
+    multipart:
+      max-file-size: 13MB
+      max-request-size: 14MB
   datasource:
     url: ${MATRIX_PRP_DB_URL:jdbc:mysql://localhost:3306/matrix_prp?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${MATRIX_PRP_DB_USER:matrix_prp}
@@ -40,6 +44,8 @@ springdoc:
 matrix-prp:
   knowledge:
     root: ../../knowledge
+  vocal:
+    storage-root: ${MATRIX_PRP_VOCAL_ROOT:./data/vocal}
   video:
     storage-root: ${MATRIX_PRP_VIDEO_ROOT:./data/videos}
     delivery: ${MATRIX_PRP_VIDEO_DELIVERY:java}

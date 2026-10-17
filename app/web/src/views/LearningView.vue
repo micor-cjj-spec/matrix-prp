@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
-import { ArrowRight, Collection, Document, Notebook, Reading, VideoCamera } from '@element-plus/icons-vue'
+import { ArrowRight, Collection, Document, Notebook, Reading, VideoCamera, Headset } from '@element-plus/icons-vue'
 
 const auth = useAuthStore()
 const canOpenKnowledge = computed(() => Boolean(auth.user?.administrator))
@@ -31,6 +31,10 @@ const canOpenKnowledge = computed(() => Boolean(auth.user?.administrator))
         <RouterLink class="domain-tool-card" to="/practice">
           <span class="tool-icon tool-violet"><el-icon><Collection /></el-icon></span>
           <div><h3>智能刷题</h3><p>多学科题库、题库导入、错题练习与 AI 辅助解答</p><span class="tool-action">进入智能刷题 <el-icon><ArrowRight /></el-icon></span></div>
+        </RouterLink>
+        <RouterLink class="domain-tool-card" to="/vocal">
+          <span class="tool-icon tool-blue"><el-icon><Headset /></el-icon></span>
+          <div><h3>声乐训练</h3><p>录音练声、音高观察、AI 教练与练习历史</p><span class="tool-action">进入声乐训练 <el-icon><ArrowRight /></el-icon></span></div>
         </RouterLink>
         <RouterLink class="domain-tool-card" to="/records">
           <span class="tool-icon tool-amber"><el-icon><Document /></el-icon></span>

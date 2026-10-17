@@ -16,7 +16,7 @@ public class AiNavigationResolver {
     private static final Map<String, String> ROUTES = Map.of(
         "tasks", "/tasks", "wellness", "/wellness", "finance", "/finance",
         "practice", "/practice", "records", "/records", "videos", "/videos",
-        "knowledge", "/knowledge", "apps", "/apps");
+        "knowledge", "/knowledge", "apps", "/apps", "vocal", "/vocal");
     private final TaskService tasks;
     public AiNavigationResolver(TaskService tasks) { this.tasks = tasks; }
 
@@ -50,6 +50,6 @@ public class AiNavigationResolver {
     private static final Map<String, String> LABELS = Map.of(
         "tasks", "打开任务", "wellness", "打开健康", "finance", "打开财务",
         "practice", "打开刷题", "records", "打开笔记", "videos", "打开视频学习",
-        "knowledge", "打开知识库", "apps", "打开应用中心");
+        "knowledge", "打开知识库", "apps", "打开应用中心", "vocal", "打开声乐训练");
     public Set<String> modules() { return ROUTES.keySet(); }
 }
