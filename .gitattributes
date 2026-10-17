@@ -1,1 +1,4 @@
 *.docx filter=lfs diff=lfs merge=lfs -text
+
+# Audited byte-for-byte controller fixture must have the same digest on all hosts.
+app/deploy/approved/prp-release.py text eol=lf
