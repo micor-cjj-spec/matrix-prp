@@ -31,9 +31,11 @@ reviewed. Missing permissions must be reported precisely, never worked around.
 The installed controller and legacy repository `server-release.py` differ.
 `approved/prp-release.py` records exact reviewed production bytes for tests;
 it does not deploy itself. CI checks its hash against the approved manifest,
-pins reviewed V20/V21 SQL (canonical LF), rejects duplicate versions and rejects
-migrations beyond `migration_compatibility.reviewed_through_version`. The manifest's
-`candidate_controller` is CI-only and does not attest the installed controller.
+pins reviewed V20/V21 SQL (canonical LF), rejects duplicate versions and requires
+exact create-empty contracts for V22 and later. The legacy ceiling does not need
+to change for each ordinary new table. A `candidate_controller` is CI-only, cannot
+attest the installed controller, and cannot pass publication readiness without
+an explicit publication hold. See the versioned migration policy for details.
 
 V21 controller compatibility has been installed after an administrator-authorized,
 exact one-line review and restored-copy rehearsal. It permits exactly three
@@ -108,14 +110,15 @@ Review files, original controller and receipt are root-only under
 (on one command line). This never restores SQL. Independently remeasure and
 review the SSH inventory after any controller replacement, including rollback.
 
-A controller-only operation must leave the approval PR unmerged when application
-publication is not authorized: merging it to main triggers the existing automatic
-release. Until that approval is merged, main's old controller/policy hashes must
-continue failing closed. Complete fresh restricted-identity acceptance using the
-existing main-only production environment after approval; never expand its branch
-policy to obtain an earlier test. Installed compatibility, manifest approval and
-application publication are separate recorded stages.
+A controller-only approval PR may merge without publishing an application only
+when the explicit publication hold gate is present, tested and enforced. Without
+that hold, keep it unmerged until application publication is requested. Main's
+controller/policy hashes must match independent installed measurements before
+real restricted-identity acceptance. Preserve the existing main-only production
+environment branch policy; never expand it for earlier tests. Installed capability,
+manifest approval, live SSH acceptance and application publication are separate
+recorded stages.
 
 ## Versioned migration contracts
 
-The controller is being upgraded to stable, bounded create-empty contracts for V22 onward. See [versioned migration policy](versioned-migration-policy.md) for the supported SQL subset, exact contract format, trust model, administrator installer/rollback and one-time publication hold. This replaces per-table controller edits for ordinary additive empty tables; unsupported transformations remain fail-closed.
+The controller supports stable, bounded create-empty contracts for V22 onward. See [versioned migration policy](versioned-migration-policy.md) for the supported SQL subset, exact contract format, trust model, administrator installer/rollback and one-time publication hold. This replaces per-table controller edits for ordinary additive empty tables; unsupported transformations remain fail-closed.

@@ -2,9 +2,9 @@
   "schema_version": 1,
   "approved_controller": {
     "path": "/usr/local/sbin/prp-release",
-    "sha256": "ae01801d85b01a6f978f0d030aad052b72e778f3e50185daf33445c2d32d7f7a",
+    "sha256": "c329836ed2f48296e5ab505451aab3c59b33db7f7c20aba5ae7c2b1ec80622e2",
     "approval_date": "2026-10-17",
-    "provenance": "Explicit administrator request: upgrade deployment controller compatibility only. Exact one-line patch against installed bafcd9d7d79d478cf0751db9c49d2456f92a82cf6c051a4876d38fedaa7c566b permits only three initially-empty V21 finance tables. 129 deployment tests and actual restored-copy V20-to-V21 rehearsal passed. Atomic root:root 0755 install, full historical fingerprints, unchanged live V20 schema/release/service and independent root inventory comparison verified. Backup/receipt: /root/prp-v21-review/controller-backup. No application publication authorized in this stage.",
+    "provenance": "Explicit administrator authorization to upgrade stable controller capabilities. Installed exact reviewed self-contained versioned create-empty policy validator from V21 controller ae01801d85b01a6f978f0d030aad052b72e778f3e50185daf33445c2d32d7f7a. Restored-copy legacy V20-to-V21 and synthetic V20-to-V22 otherwise-unlisted-table rehearsals passed, including final rejection of callback/repeatable/Java/nested migration resources. Only reviewed preservation/snapshot/unpack/rehearsal/cutover functions and bounded validator changed; migration/recovery/gateway permissions retained. Independent root inventory and all 46 live-table fingerprints unchanged except controller record. Atomic root:root 0755; application remains V20, no restart/live migration. Root backup/review: /root/prp-contract-review and /root/prp-contract-guard-review.",
     "production_release": "r39000630835-1",
     "application_commit": "86b1ec3ce9b97d54e084db8040464ff2b5b28a70"
   },
@@ -12,7 +12,7 @@
     "gateway_sha256": "d4743a9b7df77e10968bc8e5a94f2676e2c362a50d55ca0203ed88d85708b10b",
     "authorized_keys_sha256": "2110ec415e1b5f9cdf35c78c3e87ae2041173855d6ba1b517d7669abe38ef8aa",
     "effective_sshd_sha256": "251897dfd75f68eba241ed7f541d0ef145345b840c97caf97ec009cc3f3cffc4",
-    "policy_files_sha256": "6f15a8ac36c595039ad6ba93d7c73524237a7fa51ba8ca613386438c967decd2",
+    "policy_files_sha256": "e4bac392b25fa7513ba9c19e70603a89bcb2c78bb5e82ba2ae43b0cda5209fe3",
     "attestor_sha256": "9070861e69b3ec2a0106f3e6c9992f3344397eecccd9cc80e42370392517121f",
     "deployment_key_fingerprint": "SHA256:JXTbCNVoO05558wEnplfeX5bQani4nwqwui/KfSdfSo",
     "subsystem_command": "/usr/lib/openssh/sftp-server",
@@ -21,7 +21,7 @@
   },
   "ssh_policy_review": {
     "review_date": "2026-10-17",
-    "provenance": "Independent administrator inventory before install matched prior approved 70ed5bf1c5ccbd4061b7f03e6fece3707a9948ca97fd9b64f5304defaca7c167. Post-install inventory has identical keys and records except the controller; owner/mode/parent trust unchanged. New digest independently measured after exact reviewed one-line V21 controller installation; not copied from a live candidate. Restricted-identity nonce/SFTP/forwarding acceptance remains pending approval of this manifest on main. Environment branch policy is unchanged and only permits main.",
+    "provenance": "Independently remeasured root inventory before/after capability upgrade: only /usr/local/sbin/prp-release record changed, keys and every other record identical; controller owner/group/mode/parent trust retained. New policy digest is from administrator filesystem measurements, not self-approval of a candidate. Actual main-only restricted-identity nonce/SSH/SFTP/forwarding acceptance will run after approval merge under the explicit publication hold.",
     "source_review": "OpenSSH portable V_10_0_P2 session.c: do_exec lines 636-648 retains external subsystem state for a forced key command; do_exec_no_pty lines 511-522 passes is_subsystem as ignore_fderr; session_set_fds lines 2105-2108 ignores subsystem extended stderr. Real exact-command INIT refusal and subsystem INIT remain independently mandatory."
   },
   "migration_compatibility": {
@@ -49,11 +49,5 @@
       "mode": "create-empty",
       "first_version": 22
     }
-  },
-  "candidate_controller": {
-    "path": "/usr/local/sbin/prp-release",
-    "sha256": "c329836ed2f48296e5ab505451aab3c59b33db7f7c20aba5ae7c2b1ec80622e2",
-    "status": "under-review-not-installed",
-    "provenance": "Bounded create-empty migration contracts, exact JAR/commit/digest binding and historical DDL/full-row preservation."
   }
 }

@@ -4,12 +4,15 @@ import json
 from pathlib import Path
 import re
 from migration_policy import migration_policy_load, migration_policy_validate
+from release_control import publication_allowed
 
 
 def verify(root):
     deploy = root / 'app/deploy'
     manifest = json.loads((deploy / 'controller-manifest.json').read_text())
     source = deploy / 'approved/prp-release.py'
+    if 'candidate_controller' in manifest and publication_allowed(root):
+        raise ValueError('Uninstalled controller candidate cannot publish; explicit hold required')
     candidate = manifest.get('candidate_controller', manifest['approved_controller'])
     if candidate.get('path') != manifest['approved_controller']['path']:
         raise ValueError('Candidate controller path differs from the approved production path')

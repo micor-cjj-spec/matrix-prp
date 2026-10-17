@@ -18,8 +18,8 @@ class ControllerCompatibilityTests(unittest.TestCase):
         import shutil
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);deploy=root/'app/deploy';(deploy/'approved').mkdir(parents=True)
-            for name in ('controller-manifest.json','approved/prp-release.py','migration_policy.py'):
-                (deploy/name).write_bytes((ROOT/'app/deploy'/name).read_bytes())
+            for name in ('controller-manifest.json','approved/prp-release.py','migration_policy.py','publication-hold.json'):
+                if (ROOT/'app/deploy'/name).exists(): (deploy/name).write_bytes((ROOT/'app/deploy'/name).read_bytes())
             migrations=root/'app/backend/src/main/resources/db/migration'
             shutil.copytree(ROOT/'app/backend/src/main/resources/db/migration',migrations)
             sql=b'CREATE TABLE prp_next_feature (id BIGINT PRIMARY KEY) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;'
@@ -27,6 +27,17 @@ class ControllerCompatibilityTests(unittest.TestCase):
             policy={'schema_version':1,'rules':[{'version':22,'file':'V22__next_feature.sql','sha256':hashlib.sha256(sql).hexdigest(),'mode':'create-empty','tables':['prp_next_feature']}]}
             (deploy/'migration-policy.json').write_text(json.dumps(policy))
             module.verify(root)
+            manifest_path=deploy/'controller-manifest.json'
+            original_manifest=manifest_path.read_bytes()
+            candidate_manifest=json.loads(original_manifest)
+            candidate_manifest['candidate_controller']={'path':'/usr/local/sbin/prp-release','sha256':hashlib.sha256((deploy/'approved/prp-release.py').read_bytes()).hexdigest()}
+            manifest_path.write_text(json.dumps(candidate_manifest))
+            hold=deploy/'publication-hold.json'
+            saved_hold=hold.read_bytes() if hold.exists() else None
+            hold.unlink(missing_ok=True)
+            with self.assertRaisesRegex(ValueError,'Uninstalled controller candidate cannot publish'):module.verify(root)
+            manifest_path.write_bytes(original_manifest)
+            if saved_hold is not None:hold.write_bytes(saved_hold)
             policy['rules'][0]['tables']=['prp_unrelated']
             (deploy/'migration-policy.json').write_text(json.dumps(policy))
             with self.assertRaises(ValueError):module.verify(root)
@@ -37,8 +48,8 @@ class ControllerCompatibilityTests(unittest.TestCase):
                 root=Path(tmp)
                 deploy=root/'app/deploy'
                 (deploy/'approved').mkdir(parents=True)
-                for name in ('controller-manifest.json','approved/prp-release.py','migration_policy.py','migration-policy.json'):
-                    (deploy/name).write_bytes((ROOT/'app/deploy'/name).read_bytes())
+                for name in ('controller-manifest.json','approved/prp-release.py','migration_policy.py','migration-policy.json','publication-hold.json'):
+                    if (ROOT/'app/deploy'/name).exists(): (deploy/name).write_bytes((ROOT/'app/deploy'/name).read_bytes())
                 migrations=root/'app/backend/src/main/resources/db/migration'
                 migrations.mkdir(parents=True)
                 source_dir=ROOT/'app/backend/src/main/resources/db/migration'

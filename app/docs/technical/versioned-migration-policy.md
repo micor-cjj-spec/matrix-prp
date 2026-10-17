@@ -32,6 +32,8 @@ post-V21 migration must have exactly one rule; unlisted SQL or tables fail close
 Limits are intentionally bounded (128 rules, 64 tables per migration, 1 MiB SQL,
 256 KiB contract). Unsupported schemas/modes never fall back to permissive rules.
 
+CI forbids a pending controller candidate from publication without an explicit
+hold, preventing candidate-only green CI from being treated as live readiness.
 CI checks source/contract consistency and exercises the exact reviewed controller.
 Packaging puts a contract in the archive with the exact release commit, includes
 its digest in release metadata, and compares it with actual migration bytes in
