@@ -120,7 +120,9 @@ class FlywayMigrationIT {
         assertThat(count(url,"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()"
                 +" AND table_name='prp_ai_conversations'")).isEqualTo(5);
         Flyway migration = flyway(url);
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(4);
+        int pending = migration.info().pending().length;
+        assertThat(pending).isGreaterThanOrEqualTo(4);
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(pending);
         assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(count(url,"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()"
                 +" AND table_name='prp_ai_conversations'")).isEqualTo(5);
@@ -148,8 +150,8 @@ class FlywayMigrationIT {
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(21);
-        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(10);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(17 + pending);
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('prp_ai_conversations','prp_ai_messages','prp_ai_usage','prp_ai_preferences','prp_ai_provider_credentials','prp_ai_agent_tasks','prp_ai_codex_jobs','prp_ai_message_blocks','prp_ai_tool_audit','prp_ai_conversation_meta')")).isEqualTo(10);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() " +
                 "AND table_name='prp_ai_conversations' AND column_name IN ('deleted_at','is_pinned','title_source')"))
             .as("Existing conversation table must never be ALTERed by V18").isZero();
@@ -191,7 +193,9 @@ class FlywayMigrationIT {
         Flyway migration = flyway(url);
         assertThat(migration.baseline().successfullyBaselined).isTrue();
         // V8-V21 are pending after V7 baseline, preserving historical data.
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(14);
+        int pending = migration.info().pending().length;
+        assertThat(pending).isGreaterThanOrEqualTo(14);
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(pending);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'")).isEqualTo(before);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isGreaterThanOrEqualTo(seedRows + 140);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_finance_transactions WHERE note='legacy preserved'"))
@@ -200,7 +204,7 @@ class FlywayMigrationIT {
                 + "JOIN prp_finance_accounts a ON a.id=t.account_id AND a.user_id=t.user_id "
                 + "WHERE t.note='legacy preserved' AND t.amount=25.00 "
                 + "AND a.name='LEGACY_FINANCE_WALLET' AND a.opening_balance=0.00")).isEqualTo(1);
-        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'prp_ai_%'")).isEqualTo(10);
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('prp_ai_conversations','prp_ai_messages','prp_ai_usage','prp_ai_preferences','prp_ai_provider_credentials','prp_ai_agent_tasks','prp_ai_codex_jobs','prp_ai_message_blocks','prp_ai_tool_audit','prp_ai_conversation_meta')")).isEqualTo(10);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='prp_vocal_takes'")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('prp_finance_import_batches','prp_finance_import_rows','prp_finance_source_links')")).isEqualTo(3);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() " +
@@ -227,6 +231,6 @@ class FlywayMigrationIT {
                 + "WHERE note='MIGRATION_TEXT_SENTINEL'")).isEqualTo(1);
         assertThat(migration.migrate().migrationsExecuted).isZero();
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(15);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(1 + pending);
     }
 }

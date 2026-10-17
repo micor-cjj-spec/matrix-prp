@@ -185,7 +185,7 @@ def sql_identifier(name):
  if not re.fullmatch(r'[A-Za-z0-9_]+',name):raise ValueError('Unexpected SQL identifier')
  return '`'+name+'`'
 
-def snapshot(db='matrix_prp'):
+def snapshot(db='matrix_prp',schema_evidence=False):
  tables=sql('SHOW TABLES;',db).splitlines()
  counts={};integrity={}
  for table in tables:
@@ -224,15 +224,23 @@ def snapshot(db='matrix_prp'):
   backfill={'expected_count':len(expected),'actual_count':len(actual),
             'expected_sha256':digest(expected),'actual_sha256':digest(actual)}
  videos=sql('SELECT id,user_id,folder_id,storage_key,size_bytes,HEX(title) FROM prp_video_assets ORDER BY id;',db)
- return {'counts':counts,'videos':hashlib.sha256(videos.encode()).hexdigest(),
+ result={'counts':counts,'videos':hashlib.sha256(videos.encode()).hexdigest(),
          'row_sha256':integrity,'public_food_signature':foods,'public_food_identity':identities,'v19_backfill':backfill}
+ if schema_evidence:
+  result['table_definitions']={t:hashlib.sha256(re.sub(r' AUTO_INCREMENT=\d+','',sql('SHOW CREATE TABLE `'+t+'`;',db)).encode()).hexdigest() for t in result['counts']}
+ return result
 
 def schema_fingerprint(db='matrix_prp'):
  definitions=[]
  for table in sql('SHOW TABLES;',db).splitlines():
   if table!='flyway_schema_history':definitions.append(re.sub(r' AUTO_INCREMENT=\d+','',sql('SHOW CREATE TABLE `'+table+'`;',db)))
  return hashlib.sha256('\n'.join(definitions).encode()).hexdigest()
-def assert_preserved(before,after):
+def assert_preserved(before,after,new_empty_tables=()):
+ if new_empty_tables:
+  assert set(before.get('table_definitions',{}))==set(before['counts']),'Missing original DDL evidence'
+  assert set(after.get('table_definitions',{}))==set(after['counts']),'Missing current DDL evidence'
+  for table in before['counts']:
+   assert before['table_definitions'][table]==after['table_definitions'][table],('Historical table structure changed',table)
  for table,count in before['counts'].items():
   actual=after['counts'].get(table,-1)
   if table=='prp_wellness_foods':assert actual>=count,(table,count,actual)
@@ -258,7 +266,8 @@ def assert_preserved(before,after):
     seen.add(signature);seen_ids.add(new_ids[pk])
  # V16 only adds an initially empty per-user AI draft table; reject unreviewed objects.
  added_tables=set(after['counts'])-set(before['counts'])
- assert added_tables<= {'prp_wellness_ai_drafts','prp_wellness_dish_templates','prp_ai_conversation_meta','prp_wellness_ai_action_targets','prp_vocal_takes','prp_finance_import_batches','prp_finance_import_rows','prp_finance_source_links'},'Unexpected new business table'
+ assert added_tables<= {'prp_wellness_ai_drafts','prp_wellness_dish_templates','prp_ai_conversation_meta','prp_wellness_ai_action_targets','prp_vocal_takes','prp_finance_import_batches','prp_finance_import_rows','prp_finance_source_links'} | set(new_empty_tables),'Unexpected new business table'
+ assert set(new_empty_tables)<=added_tables,'Declared new table already existed or was not created'
  for table in added_tables:
   if table=='prp_wellness_ai_action_targets':
    proof=after.get('v19_backfill')
@@ -267,6 +276,159 @@ def assert_preserved(before,after):
    assert proof['actual_sha256']==proof['expected_sha256'],'Unexpected V19 backfill content or ownership'
   else:assert after['counts'][table]==0,('Unexpected records in new table',table)
  assert before['videos']==after['videos'],'Video ownership or records changed'
+
+# BEGIN VERSIONED MIGRATION POLICY
+"""Bounded additive-empty-table contracts; also embedded in the root controller.
+
+Trust remains the existing authorized publisher and protected-main workflow.
+Hashes bind the reviewed contract to SQL/commit; they are not human signatures.
+Unsupported SQL, modes, versions or evidence fail closed.
+"""
+import hashlib
+import json
+import re
+import zipfile
+from pathlib import Path
+
+MIGRATION_POLICY_BASE = 21
+MIGRATION_POLICY_LIMIT = 262144
+
+
+def migration_policy_unique(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result: raise ValueError('Duplicate migration policy key')
+        result[key] = value
+    return result
+
+
+def migration_policy_load(data):
+    if len(data) > MIGRATION_POLICY_LIMIT: raise ValueError('Migration policy too large')
+    return json.loads(data, object_pairs_hook=migration_policy_unique)
+
+
+def migration_policy_sql_tables(data):
+    """Conservative lexical reader, deliberately narrower than MySQL DDL."""
+    text = data.decode('utf-8')
+    if '\\' in text or '/*' in text or '*/' in text:
+        raise ValueError('SQL escapes/block comments require specialist review')
+    tokens = []
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if char == '#' or (text.startswith('--', i) and (i+2 == len(text) or text[i+2].isspace())):
+            end = text.find('\n', i)
+            i = len(text) if end < 0 else end+1
+            tokens.append(' ')
+        elif char in "'\"`":
+            quote = char
+            start = i
+            i += 1
+            while i < len(text):
+                if text[i] == quote:
+                    if i+1 < len(text) and text[i+1] == quote:
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                i += 1
+            else: raise ValueError('Unclosed SQL quote')
+            # Backticks are identifiers; quoted strings are not SQL keywords.
+            tokens.append(text[start:i] if quote == '`' else "'literal'")
+        else:
+            tokens.append(char)
+            i += 1
+    clean = ''.join(tokens)
+    statements = clean.split(';')
+    if statements[-1].strip(): raise ValueError('Terminated CREATE TABLE statements required')
+    tables = []
+    for statement in statements[:-1]:
+        statement = statement.strip()
+        match = re.match(r'CREATE\s+TABLE\s+`?(prp_[a-z][a-z0-9_]{0,58})`?\s*\(', statement, re.I)
+        if not match: raise ValueError('Only explicit CREATE TABLE prp_* is supported')
+        table = match[1]
+        if table != table.lower() or table in tables: raise ValueError('Duplicate/noncanonical new table')
+        body_start = match.end()
+        depth = 1
+        pos = body_start
+        quoted_identifier = False
+        while pos < len(statement) and depth:
+            char = statement[pos]
+            if char == '`': quoted_identifier = not quoted_identifier
+            if not quoted_identifier:
+                if char == '(': depth += 1
+                if char == ')': depth -= 1
+            pos += 1
+        if depth: raise ValueError('Unbalanced CREATE TABLE')
+        body = statement[body_start:pos-1]
+        if re.search(r'[A-Za-z_`]\w*`?\s*\.\s*`?[A-Za-z_]',body):
+            raise ValueError('Cross-schema identifiers require specialist review')
+        if re.search(r'\b(CHECK|GENERATED|VIRTUAL|STORED|PARTITION|TABLESPACE|SELECT|OUTFILE|INFILE|CALL)\b', body, re.I):
+            raise ValueError('Advanced DDL requires specialist review')
+        if re.search(r'\bDEFAULT\s*\(', body, re.I):
+            raise ValueError('Expression defaults require specialist review')
+        tail = statement[pos:].strip()
+        if not re.fullmatch(r'ENGINE\s*=\s*InnoDB\s+(?:DEFAULT\s+)?CHARSET\s*=\s*utf8mb4(?:\s+COLLATE\s*=\s*utf8mb4_[a-z0-9_]+)?', tail, re.I):
+            raise ValueError('Only InnoDB utf8mb4 tables with bounded options are supported')
+        if not re.search(r'\bPRIMARY\s+KEY\b', body, re.I): raise ValueError('Primary key required')
+        tables.append(table)
+    if not tables or len(tables) > 64: raise ValueError('Bounded nonempty table list required')
+    return tables
+
+
+def migration_policy_validate(policy, migrations, commit=None):
+    expected = {'schema_version', 'rules'} | ({'commit'} if commit is not None else set())
+    if not isinstance(policy, dict) or set(policy) != expected or type(policy['schema_version']) is not int or policy['schema_version'] != 1:
+        raise ValueError('Unsupported migration policy schema')
+    if commit is not None and (not re.fullmatch('[a-f0-9]{40}', commit) or policy['commit'] != commit):
+        raise ValueError('Migration policy commit mismatch')
+    if not isinstance(policy['rules'], list) or len(policy['rules']) > 128: raise ValueError('Invalid migration rules')
+    rules = {}
+    seen_tables = set()
+    for rule in policy['rules']:
+        if not isinstance(rule, dict) or set(rule) != {'version','file','sha256','mode','tables'}:
+            raise ValueError('Invalid migration rule fields')
+        version = rule['version']
+        if type(version) is not int or not MIGRATION_POLICY_BASE < version <= 1000 or version in rules:
+            raise ValueError('Invalid/duplicate migration rule version')
+        if rule['mode'] != 'create-empty': raise ValueError('Unsupported migration preservation mode')
+        if version not in migrations: raise ValueError('Policy references missing SQL')
+        name, data = migrations[version]
+        if rule['file'] != name or hashlib.sha256(data).hexdigest() != rule['sha256']:
+            raise ValueError('Policy SQL filename/digest mismatch')
+        tables = migration_policy_sql_tables(data)
+        if rule['tables'] != tables or seen_tables.intersection(tables): raise ValueError('Policy table declaration mismatch')
+        seen_tables.update(tables)
+        rules[version] = tables
+    if set(rules) != {v for v in migrations if v > MIGRATION_POLICY_BASE}:
+        raise ValueError('Every future migration requires an exact preservation rule')
+    return rules
+
+
+def migration_policy_for_release(release, meta, from_version):
+    path = release / 'migration-policy.json'
+    if not path.exists():
+        if meta['schema_version'] > MIGRATION_POLICY_BASE: raise ValueError('Missing migration policy')
+        return set()  # Legacy <=V21 artifacts retain all original hardcoded guards.
+    if not path.is_file() or path.is_symlink() or path.stat().st_size > MIGRATION_POLICY_LIMIT: raise ValueError('Invalid migration policy file')
+    if hashlib.sha256(path.read_bytes()).hexdigest() != meta['files'].get('migration-policy.json'):
+        raise ValueError('Migration policy artifact digest mismatch')
+    migrations = {}
+    with zipfile.ZipFile(release/'backend.jar') as jar:
+        for info in jar.infolist():
+            match = re.fullmatch(r'BOOT-INF/classes/db/migration/(V(\d+)__[^/]+\.sql)', info.filename)
+            if not match:
+                if info.filename.startswith('BOOT-INF/classes/db/migration/') and not info.is_dir():
+                    raise ValueError('Only declared versioned SQL resources are supported; Java/callback/repeatable migrations require specialist review')
+                continue
+            version = int(match[2])
+            if version in migrations or info.file_size > 1048576: raise ValueError('Duplicate/oversize JAR migration')
+            migrations[version] = (match[1], jar.read(info))
+    if not migrations or max(migrations) != meta['schema_version']: raise ValueError('Policy/JAR schema mismatch')
+    rules = migration_policy_validate(migration_policy_load(path.read_bytes()), migrations, meta['commit'])
+    return {table for version, tables in rules.items() if from_version < version <= meta['schema_version'] for table in tables}
+
+# END VERSIONED MIGRATION POLICY
 
 def valid_release_id(value):return bool(re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}',value))
 def unpack(archive,dest):
@@ -278,7 +440,7 @@ def unpack(archive,dest):
    path=Path(m.name)
    if path.is_absolute() or '..' in path.parts or not (m.isfile() or m.isdir()) or m.name in names:raise ValueError('Unsafe archive member')
    names.add(m.name)
-   if path.parts[0] not in {'backend.jar','web','release.json'}:raise ValueError('Unexpected artifact member')
+   if path.parts[0] not in {'backend.jar','web','release.json','migration-policy.json'}:raise ValueError('Unexpected artifact member')
   tar.extractall(dest,filter='data')
  meta=json.loads((dest/'release.json').read_text())
  if not valid_release_id(meta['id']) or not re.fullmatch('[0-9a-f]{40}',meta['commit']):raise ValueError('Invalid release metadata')
@@ -469,15 +631,16 @@ def rehearse(release,meta,backup):
  if sql("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='matrix_prp' AND table_type='BASE TABLE' AND engine<>'InnoDB';")!='0':
   raise ValueError('Online rehearsal requires transactional InnoDB tables')
  initial=database_state()
+ new_tables=migration_policy_for_release(release,meta,initial['version'])
  dump(backup/'preflight.sql')
  db='prp_verify_'+str(time.time_ns())
  sql('CREATE DATABASE `'+db+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;')
  try:
   checkpoint(backup,'online-rehearsal')
   restore(backup/'preflight.sql',db)
-  before=snapshot(db)
+  before=snapshot(db,schema_evidence=bool(new_tables))
   migrate(release,db)
-  assert_preserved(before,snapshot(db))
+  assert_preserved(before,snapshot(db,schema_evidence=bool(new_tables)),new_empty_tables=new_tables)
   if schema_version(db)!=meta['schema_version']:raise ValueError('Rehearsal schema version mismatch')
  finally:drop_test_db(db)
  if database_state()!=initial:raise ValueError('Production schema/history changed during rehearsal')
@@ -510,6 +673,7 @@ def deploy_backend(release,previous,meta,backup):
  except Exception:
   checkpoint(backup,'preflight-failed-production-untouched')
   raise
+ new_tables=migration_policy_for_release(release,meta,initial['version'])
  pending=meta['schema_version']>initial['version']
  stopped_at=None;attempted=False;completed=False;content=None;before=None
  try:
@@ -521,12 +685,12 @@ def deploy_backend(release,previous,meta,backup):
   if pending:
    checkpoint(backup,'final-backup')
    dump(backup/'database.sql')
-   rows=snapshot();content=business_fingerprint()
+   rows=snapshot(schema_evidence=bool(new_tables));content=business_fingerprint()
    (backup/'snapshot.json').write_text(json.dumps(rows))
    checkpoint(backup,'migrating')
    attempted=True
    migrate_with_retry(release,before,content)
-   assert_preserved(rows,snapshot())
+   assert_preserved(rows,snapshot(schema_evidence=bool(new_tables)),new_empty_tables=new_tables)
    if schema_version()!=meta['schema_version']:raise ValueError('Production schema version mismatch')
   completed=True
   checkpoint(backup,'starting')

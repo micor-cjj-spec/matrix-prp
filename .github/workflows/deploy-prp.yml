@@ -28,6 +28,18 @@ concurrency:
   group: prp-production
   cancel-in-progress: false
 jobs:
+  release_control:
+    runs-on: ubuntu-latest
+    outputs:
+      publish_allowed: ${{ steps.control.outputs.publish_allowed }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check explicit publication hold
+        id: control
+        run: python3 app/deploy/release_control.py
   build:
     # workflows triggered by PR CI, fork CI, failed CI or branch CI never build.
     if: >-
@@ -143,11 +155,14 @@ jobs:
             echo 'If production requires reviewers, GitHub will still hold the job for approval.'
           } >> "$GITHUB_STEP_SUMMARY"
   publish:
-    needs: build
+    needs: [build, release_control]
     # Automatic publication is limited to successful push CI from this repository's main.
     # Production environment protections and every artifact/SSH/controller/data gate remain mandatory.
     if: >-
       always() && github.ref == 'refs/heads/main' &&
+      needs.release_control.result == 'success' &&
+      (needs.release_control.outputs.publish_allowed == 'true' ||
+       (github.event_name == 'workflow_dispatch' && inputs.action == 'check')) &&
       ((github.event_name == 'workflow_run' && needs.build.result == 'success' &&
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push' &&

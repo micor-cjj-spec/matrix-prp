@@ -47,6 +47,8 @@ jobs:
       - name: Typecheck and build Web
         working-directory: app/web
         run: npm run build
+      - name: Verify future migration registry contracts
+        run: node --test app/scripts/migration-policy-contract.test.mjs
       - name: Check source text encoding
         run: node app/scripts/check-text-encoding.mjs
       - name: Audit manual Codex Worker boundaries

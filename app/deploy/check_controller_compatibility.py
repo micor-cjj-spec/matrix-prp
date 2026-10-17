@@ -3,12 +3,16 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from migration_policy import migration_policy_load, migration_policy_validate
+from release_control import publication_allowed
 
 
 def verify(root):
     deploy = root / 'app/deploy'
     manifest = json.loads((deploy / 'controller-manifest.json').read_text())
     source = deploy / 'approved/prp-release.py'
+    if 'candidate_controller' in manifest and publication_allowed(root):
+        raise ValueError('Uninstalled controller candidate cannot publish; explicit hold required')
     candidate = manifest.get('candidate_controller', manifest['approved_controller'])
     if candidate.get('path') != manifest['approved_controller']['path']:
         raise ValueError('Candidate controller path differs from the approved production path')
@@ -16,12 +20,28 @@ def verify(root):
         raise ValueError('Reviewed controller candidate source does not match its approved digest')
     capability = manifest['migration_compatibility']
     migrations = {}
-    for path in (root / 'app/backend/src/main/resources/db/migration').glob('V*__*.sql'):
+    migration_root=root / 'app/backend/src/main/resources/db/migration'
+    for path in migration_root.rglob('*'):
+        if path.is_dir(): continue
+        if path.parent!=migration_root or re.fullmatch(r'V(\d+)__.+\.sql',path.name) is None:
+            raise ValueError('Nonversioned, nested or callback SQL requires specialist review')
         version = int(re.fullmatch(r'V(\d+)__.+\.sql', path.name)[1])
         if version in migrations: raise ValueError('Duplicate migration version')
         migrations[version] = path
-    if max(migrations) > capability['reviewed_through_version']:
+    validator = deploy/'migration_policy.py'
+    if not validator.is_file(): raise ValueError('Missing CI migration policy validator')
+    embedded = source.read_text(encoding='utf-8').split('# BEGIN VERSIONED MIGRATION POLICY\n')
+    if len(embedded)!=2 or embedded[1].split('\n# END VERSIONED MIGRATION POLICY')[0]!=validator.read_text(encoding='utf-8'):
+        raise ValueError('CI/runtime migration policy validator drift')
+    generic = capability.get('generic_policy')
+    if generic is not None and generic!={'schema_version':1,'mode':'create-empty','first_version':22}:
+        raise ValueError('Unknown generic migration capability')
+    if generic != {'schema_version':1,'mode':'create-empty','first_version':22} and max(migrations) > capability['reviewed_through_version']:
         raise ValueError('New migration requires production controller compatibility review before merge')
+    policy_file=deploy/'migration-policy.json'
+    policy=migration_policy_load(policy_file.read_bytes()) if policy_file.exists() else {'schema_version':1,'rules':[]}
+    sql_files={v:(p.name,p.read_bytes().replace(b'\r\n',b'\n')) for v,p in migrations.items()}
+    migration_policy_validate(policy,sql_files)
     for version, record in capability['pinned_migrations'].items():
         if int(version) not in migrations:
             raise ValueError('Reviewed migration is missing from repository')
