@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import {
   Bell, Collection, CollectionTag, Document, EditPen, Food,
-  Grid, House, Money, Notebook, Reading, Search, Star, Tickets, VideoCamera,
+  Grid, House, Money, Notebook, Reading, Search, Star, Tickets, VideoCamera, Headset,
 } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -23,7 +23,7 @@ const favoriteApps = computed(() => entries.value.filter(item => favorites.value
 const categories = computed(() => groupOrder.filter(group => entries.value.some(item => item.group === group)))
 const icons: Record<string, Component> = {
   learning: Reading, wellness: Food, life: House, finance: Money,
-  videos: VideoCamera, practice: Collection, knowledge: Notebook,
+  videos: VideoCamera, practice: Collection, knowledge: Notebook, vocal: Headset,
   tasks: Tickets, records: Document, reviews: EditPen, tags: CollectionTag,
   notifications: Bell,
 }

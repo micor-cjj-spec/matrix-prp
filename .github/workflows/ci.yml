@@ -7,6 +7,15 @@ on:
     branches: [main]
 
 jobs:
+  controller-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify reviewed production controller migration compatibility
+        run: python3 app/deploy/check_controller_compatibility.py
+      - name: Exercise exact reviewed production preservation guards
+        run: python3 -m unittest discover -s app/deploy -p test_approved_controller.py
+
   backend-tests:
     runs-on: ubuntu-latest
     steps:
@@ -179,3 +188,16 @@ jobs:
         run: |
           chmod +x mvnw
           ./mvnw -B -Dtest=FlywayMigrationIT test
+
+  safe-deployment-diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate diagnostic syntax and permission boundaries
+        run: |
+          python3 -m venv /tmp/prp-diagnostic-tests
+          /tmp/prp-diagnostic-tests/bin/pip install PyYAML==6.0.3
+          /tmp/prp-diagnostic-tests/bin/python -m unittest discover -s app/deploy -v
+          bash -n app/deploy/admin_install_diagnostic.sh
+          sh -n app/deploy/ssh-gateway.sh
+          node --test app/scripts/deploy-workflow-contract.test.mjs

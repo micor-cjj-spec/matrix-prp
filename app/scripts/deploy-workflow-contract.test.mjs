@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const workflow = readFileSync(new URL('../../.github/workflows/deploy-prp.yml', import.meta.url), 'utf8')
+const workflow = readFileSync(new URL('../../.github/workflows/deploy-prp.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const [header, rest] = workflow.split('\n  build:\n')
 assert.ok(rest, 'The workflow must have a dedicated build job')
 const [build, publish] = rest.split('\n  publish:\n')
@@ -17,18 +17,22 @@ test('release candidates originate only from successful main push CI', () => {
   assert.match(build, /persist-credentials: false/)
 })
 
-test('successful main CI can publish automatically, but other events cannot', () => {
-  assert.match(publish, /github\.event_name == 'workflow_run'/)
-  assert.match(publish, /needs\.build\.result == 'success'/)
-  assert.match(publish, /github\.event\.workflow_run\.conclusion == 'success'/)
-  assert.match(publish, /github\.event\.workflow_run\.event == 'push'/)
-  assert.match(publish, /github\.event\.workflow_run\.head_branch == 'main'/)
-  assert.match(publish, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/)
+test('publishing requires trusted successful main push CI or explicit manual dispatch', () => {
+  const condition = publish.split('    environment:')[0]
+  assert.match(condition, /github\.event_name == 'workflow_dispatch'/)
+  assert.match(condition, /github\.event_name == 'workflow_run'/)
+  assert.match(condition, /needs\.build\.result == 'success'/)
+  assert.match(condition, /github\.event\.workflow_run\.conclusion == 'success'/)
+  assert.match(condition, /github\.event\.workflow_run\.event == 'push'/)
+  assert.match(condition, /github\.event\.workflow_run\.head_branch == 'main'/)
+  assert.match(condition, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/)
+  assert.match(condition, /github\.ref == 'refs\/heads\/main'/)
+  assert.match(condition, /needs\.build\.result == 'success'/)
   assert.match(publish, /environment:\s*\n\s*name: production/)
-  assert.match(header, /options: \[promote, deploy, check, rollback, build\]/)
+  assert.match(header, /default: build/)
 })
 
-test('automatic deployment rejects stale or mismatched release artifacts', () => {
+test('production deployment rejects stale or mismatched release artifacts', () => {
   assert.match(publish, /Reject stale main revision/)
   assert.match(publish, /RELEASE_SHA:/)
   assert.match(publish, /test "\$latest" = "\$RELEASE_SHA"/)

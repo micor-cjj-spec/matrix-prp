@@ -16,7 +16,7 @@ export const groupOrder: AppGroup[] = ['learning', 'health', 'life', 'finance', 
 // This mapping only classifies existing modules. New registered features still appear
 // automatically under "更多工具" if no classification has been assigned yet.
 const groups: Record<string, AppGroup> = {
-  learning: 'learning', videos: 'learning', practice: 'learning', knowledge: 'learning',
+  learning: 'learning', videos: 'learning', practice: 'learning', knowledge: 'learning', vocal: 'learning',
   wellness: 'health',
   life: 'life', tasks: 'life', records: 'life', reviews: 'life', tags: 'life',
   finance: 'finance',

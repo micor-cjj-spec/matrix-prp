@@ -1,0 +1,81 @@
+name: PRP read-only SSH acceptance
+run-name: PRP read-only SSH acceptance at ${{ github.sha }}
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: prp-production
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Configure existing restricted deployment identity
+        env:
+          SSH_KEY: ${{ secrets.PRP_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.PRP_DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/prp_deploy"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/prp_deploy"
+          test -s "$HOME/.ssh/known_hosts"
+      - name: Collect only whitelisted protocol evidence
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 app/deploy/probe_ssh_boundary.py \
+            --host "$DEPLOY_HOST" --identity "$HOME/.ssh/prp_deploy" \
+            --manifest app/deploy/controller-manifest.json \
+            --output "$RUNNER_TEMP/prp-ssh-protocol.json"
+      - name: Collect unapproved policy baseline candidate
+        if: always()
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 app/deploy/collect_policy_candidate.py \
+            --host "$DEPLOY_HOST" --identity "$HOME/.ssh/prp_deploy" \
+            --manifest app/deploy/controller-manifest.json \
+            --output "$RUNNER_TEMP/prp-policy-candidate.json"
+      - name: Publish safe evidence summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -s "$RUNNER_TEMP/prp-ssh-protocol.json"; then
+            {
+              echo '## Read-only SSH protocol evidence'
+              echo 'This action cannot run backups, migrations, application switches or deployments.'
+              echo '```json'
+              cat "$RUNNER_TEMP/prp-ssh-protocol.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: prp-readonly-ssh-evidence
+          path: |
+            ${{ runner.temp }}/prp-ssh-protocol.json
+            ${{ runner.temp }}/prp-policy-candidate.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Remove ephemeral credentials
+        if: always()
+        shell: bash
+        run: rm -f -- "$HOME/.ssh/prp_deploy" "$HOME/.ssh/known_hosts"

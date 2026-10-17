@@ -18,6 +18,7 @@
 | `videos` | 视频学习库 | `/videos` | `pages/video/index` | 登录用户 | `video` |
 | `notifications` | 消息与提醒 | `/notifications` | `—` | 登录用户 | `notification` |
 | `practice` | 智能刷题中心 | `/practice` | `—` | 登录用户 | `practice` |
+| `vocal` | 声乐训练中心 | `/vocal` | `—` | 登录用户 | `vocal` |
 
 ## 业务资源域（部分为聚合入口，其余仅分类）
 

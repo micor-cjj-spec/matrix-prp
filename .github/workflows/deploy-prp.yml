@@ -12,7 +12,7 @@ on:
         description: Deploy main, check production, or roll back an application release
         type: choice
         options: [promote, deploy, check, rollback, build]
-        default: promote
+        default: build
       release_id:
         description: Existing release ID (required for rollback; schema version must match)
         type: string
@@ -128,36 +128,34 @@ jobs:
           path: release.tar.gz
           if-no-files-found: error
           retention-days: 14
-      - name: Summarize automatic deployment candidate
+      - name: Summarize tested release candidate
         if: github.event_name == 'workflow_run'
         env:
           RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
           {
-            echo '## Verified release candidate — automatic deployment'
+            echo '## Verified release candidate'
             echo ''
             echo "Commit: \`$RELEASE_COMMIT\`"
             echo "Candidate Actions run ID: \`$GITHUB_RUN_ID\`"
             echo ''
-            echo 'The production publish job will run automatically after successful CI and build.'
+            echo 'Successful main push CI may publish this candidate only through the production environment and all SSH, controller, backup and migration gates.'
             echo 'If production requires reviewers, GitHub will still hold the job for approval.'
           } >> "$GITHUB_STEP_SUMMARY"
   publish:
     needs: build
-    # No PR / fork / failed CI can publish. Environment controls still apply.
+    # Automatic publication is limited to successful push CI from this repository's main.
+    # Production environment protections and every artifact/SSH/controller/data gate remain mandatory.
     if: >-
       always() && github.ref == 'refs/heads/main' &&
-      (
-        (github.event_name == 'workflow_run' &&
-         needs.build.result == 'success' &&
-         github.event.workflow_run.conclusion == 'success' &&
-         github.event.workflow_run.event == 'push' &&
-         github.event.workflow_run.head_branch == 'main' &&
-         github.event.workflow_run.head_repository.full_name == github.repository) ||
-        (github.event_name == 'workflow_dispatch' &&
-         ((inputs.action == 'deploy' && needs.build.result == 'success') ||
-          ((inputs.action == 'promote' || inputs.action == 'check' || inputs.action == 'rollback') && needs.build.result == 'skipped')))
-      )
+      ((github.event_name == 'workflow_run' && needs.build.result == 'success' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository) ||
+       (github.event_name == 'workflow_dispatch' &&
+        ((inputs.action == 'deploy' && needs.build.result == 'success') ||
+         ((inputs.action == 'promote' || inputs.action == 'check' || inputs.action == 'rollback') && needs.build.result == 'skipped'))))
     environment:
       name: production
       url: https://micor.top/prp/
@@ -241,6 +239,18 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           test -s ~/.ssh/prp_deploy
           test -s ~/.ssh/known_hosts
+      - name: Verify restricted SSH boundary before production operation
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
+        timeout-minutes: 3
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 app/deploy/verify_ssh_boundary.py \
+            --host "$DEPLOY_HOST" \
+            --identity "$HOME/.ssh/prp_deploy" \
+            --manifest app/deploy/controller-manifest.json
       - name: Verify approved production controller before deploying
         if: github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote'
         env:
@@ -254,6 +264,7 @@ jobs:
           ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" controller-sha256 > "$RUNNER_TEMP/prp-controller-sha256.txt"
           python3 app/deploy/verify_controller.py --manifest app/deploy/controller-manifest.json --response "$RUNNER_TEMP/prp-controller-sha256.txt"
       - name: Deploy or operate production
+        id: production_operation
         env:
           DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
           ACTION: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}
@@ -261,6 +272,8 @@ jobs:
         run: |
           set -euo pipefail
           ssh_args=(-i ~/.ssh/prp_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          # Correlate the root-only diagnostic to this exact publish attempt.
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > "$RUNNER_TEMP/prp-publish-start-utc.txt"
           case "$ACTION" in
             deploy|promote)
               # Never invoke the production controller without a local release archive.
@@ -275,6 +288,44 @@ jobs:
             *) exit 2 ;;
           esac
           ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" status
+      # Failure-only and read-only. This step cannot undo/override a failed
+      # deploy, and it never uploads raw SSH stdout or root-only logs.
+      - name: Collect sanitized diagnosis on publish failure
+        continue-on-error: true
+        timeout-minutes: 1
+        if: failure() && steps.production_operation.outcome == 'failure' && (github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote')
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+          RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_args=(-i ~/.ssh/prp_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          diagnosis="$RUNNER_TEMP/prp-remote-diagnosis-untrusted.json"
+          status="$RUNNER_TEMP/prp-remote-status-untrusted.json"
+          # 'diagnose' must be independently approved and installed.
+          # NEVER probe 'status' following a failed deploy: the installed
+          # controller may overwrite last-error.log if status itself fails.
+          if ! (ulimit -f 16; timeout 20s ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" diagnose > "$diagnosis" 2>/dev/null); then
+            : > "$diagnosis"
+          fi
+          : > "$status"
+          python3 app/deploy/render_safe_diagnostic.py \
+            --diagnostic "$diagnosis" \
+            --status "$status" \
+            --target-sha "$RELEASE_SHA" \
+            --attempt-start "$RUNNER_TEMP/prp-publish-start-utc.txt" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --json-output "$RUNNER_TEMP/prp-safe-diagnostic.json"
+      - name: Upload sanitized deployment diagnosis
+        continue-on-error: true
+        if: failure() && steps.production_operation.outcome == 'failure' && (github.event_name == 'workflow_run' || inputs.action == 'deploy' || inputs.action == 'promote')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: prp-safe-deployment-diagnosis
+          path: ${{ runner.temp }}/prp-safe-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Write deployment summary
         if: success()
         env:

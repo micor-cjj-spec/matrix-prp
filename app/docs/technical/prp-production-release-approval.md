@@ -1,47 +1,37 @@
-# PRP 无人值守自动部署（公开仓库）
+# PRP 受保护自动发布与生产验收
 
-## 发布模式
+在真实 V19 发布、无损数据和 SSH/SFTP 门禁验收通过后恢复 main 自动发布。
+只有本仓库 main push 的完整 CI 成功、候选 build 成功，才允许 workflow_run
+进入 production 发布任务。PR、fork、其他分支、失败/取消/未知 CI 和 build
+失败都拒绝。保留手动 build/promote/deploy/check/rollback；手动默认 build。
 
-管理员明确选择 **CI 成功后自动发布生产环境**：不再要求每个版本点击 `Approve and deploy`。
+## 保持的保护
 
-```
-开发分支 → PR → 必需 CI 全绿 → Squash 合并 main
-→ main CI 成功 → Deploy PRP（workflow_run）
-→ 重新构建+独立 MySQL 集成验证
-→ 校验源 SHA 与 main 一致 → 受限 SSH 发布
-→ 自动备份/迁移检查 → 按需重启 matrix-prp.service → 健康检查
-```
+- production 环境原有分支限制、审批及 secrets 不变；只允许 main。
+- 源 CI、候选、受测提交、最新 main 必须一致；过期提交拒绝。
+- SSH 私钥只在环境任务中短暂使用，固定 known_hosts、专用 prp-deploy 身份。
+- 每次正式发布重新验证实时 nonce 策略、精确 SFTP INIT 拒绝、实际 subsystem INIT、shell/注入及双向转发拒绝；控制器 SHA 必须匹配清单。
+- 既有数据库备份、隔离恢复迁移、完整历史内容指纹、切换前备份、Flyway validate、健康及认证业务检查全部保留。
+- 只读验收工作流保持 main-only、只读权限和固定探测，不调用发布入口；与发布共享 prp-production 并发锁。
+- 原始 SQL、配置、token、密钥和 root 日志不上传 artifact；失败仅上传脱敏诊断。
 
-现有 `.github/workflows/deploy-prp.yml` 仍支持手动 `deploy`、`check`、`rollback`、`build`，以及旧版候选包 `promote`。发布作业继续使用 `production` 环境 Secrets 和唯一的 `prp-production` 并发锁，不使用通用 SSH shell 或 root Token。
+SSH helper 升级或策略基线变化需要独立安全审查，禁止从候选 JSON 自动批准。
+用户在 2026-10-17 明确授权本次后续备份、预检、V19 发布、验收和自动发布恢复。
+此授权不代表未来可以放宽现有 production 环境和权限保护。
 
-### 唯一需要由管理员执行的设置
+## 失败恢复边界
 
-进入 **Settings → Environments → production**：
+在线预检失败时不切换应用或修改生产 schema。切换前停止写入并再做完整备份和
+历史指纹快照。生产 schema 已变化时不得自动恢复旧 SQL 或回退旧应用；既有
+控制器会拒绝跨 schema 自动回滚并保留备份，管理员需按实际阶段审查，避免覆盖
+用户新数据。相同 schema 的应用回退继续使用受限 rollback。
 
-1. **取消勾选 Required reviewers，保存保护规则。** 不取消就仍然会停在 `Approve and deploy`，这是 GitHub 的保护行为，工作流不会绕过它。
-2. 保持 Deployment branches and tags = **Selected branches and tags**，**只允许 main**。
-3. `PRP_DEPLOY_HOST`、`PRP_DEPLOY_KNOWN_HOSTS`、`PRP_DEPLOY_SSH_KEY` 均保留为 `production` Environment secrets；勿将真实值粘贴到 Issue、工作流 YAML、聊天或 PR。
-4. **main Ruleset `protect-main` 必须保持 Active**，要求通过 PR、6 项 CI 全绿、禁止 force push 和删除分支，并且 Bypass list 为空。
+## 验证自动发布
 
-关闭生产部署审批意味着：只要有权提交经允许的 PR 并满足主分支规则，就能导致生产自动部署。若以后多人参与，建议恢复生产审批，或采用仅对数据库/鉴权/部署基础设施变更要求人工审核的策略。
+恢复补丁的 PR 完整 CI 通过后，先确认 V19 手动正式发布及业务验收成功，再合并。
+随后必须观察这次 main push → CI → 自动 build → publish → 实际健康验收成功，
+并核对 current/release.json commit 与合并 main 一致，不能只凭配置或绿色 CI 宣布恢复。
+自动发布守卫测试直接评估实际 job 条件，覆盖可信 main、PR、fork、分支、失败/未知
+CI、build 失败和手动动作矩阵；正式验收仍以真实运行结果为准。
 
-## 自动发布的安全前置条件
-
-- `workflow_run` 仅接受 **本仓库主分支 push** 触发的 **CI 成功**；PR、fork 或失败的 CI 不得发布。
-- 构建独立完成后才允许 `publish`，而且 `publish` 限定 main。
-- 自动发布获取的构建包 `release.tar.gz` 内的 commit 必须与通过 CI 的 `main` 提交一致，发布前再次查询 main 最新 SHA；旧提交不能覆盖新版本。
-- `production` 下的专用密钥只在 `publish` 使用；服务器受限 SSH gateway 仅支持 deploy/check/rollback/status。
-- `app/deploy/server-release.py` 保留数据库完整备份、恢复验证、Flyway 迁移预演、数据行数及私有视频校验，非兼容数据库版本**不自动回滚**，由运维审查后处理。
-- 服务器备份位于本地磁盘，无法替代异地备份；请配置加密异地备份以免单盘故障导致数据丢失。
-
-## 验收步骤
-
-1. 合并工作流 PR 后，在 Actions 页面观察 `CI` main 检查全部绿色。
-2. GitHub 自动新增一次 **Deploy PRP · auto-deploy** 运行，先执行 build，成功后自动执行 publish；无需再输入候选 run ID。
-3. `publish` 完成后检查其 summary、服务器 release SHA、HTTPS `/prp/`、登录、AI 对话、PWA、视频和数据是否正常。
-4. 如果仍显示 `Waiting for review`，检查 `production` 是否遗留 Required reviewers；不要通过绕过保护按钮规避。
-5. 如 Actions 报错、服务器停止或数据库已迁移，**不要反复触发部署或恢复旧数据**，先查看 CI/运维日志并确认兼容性。
-
-GitHub 环境参考：
-- https://docs.github.com/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
-- https://docs.github.com/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments
+数据库 SQL/配置备份仅保存在 root-only 目录；这不替代独立视频备份和异地灾备。

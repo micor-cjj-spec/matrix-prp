@@ -380,6 +380,31 @@
       "backendPackage": null,
       "visibility": "authenticated",
       "visibleInNav": false
+    },
+    {
+      "code": "vocal",
+      "name": "声乐训练中心",
+      "description": "手机练声、私有录音、音高估算与 AI 教练复盘",
+      "type": "feature",
+      "sortOrder": 63,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/vocal",
+      "mobileRoute": null,
+      "backendPackage": "vocal",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/vocal"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/vocal/VocalAnalysisTests.java"
+        ],
+        "docs": [
+          "app/docs/technical/vocal-training-p0.md"
+        ]
+      }
     }
   ]
 }
