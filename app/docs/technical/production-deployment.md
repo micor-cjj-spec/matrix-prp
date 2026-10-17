@@ -31,16 +31,11 @@ reviewed. Missing permissions must be reported precisely, never worked around.
 The installed controller and legacy repository `server-release.py` differ.
 `approved/prp-release.py` records exact reviewed production bytes for tests;
 it does not deploy itself. CI checks its hash against the approved manifest,
-pins reviewed V20 SQL (canonical LF), rejects duplicate versions and rejects
-migrations beyond `migration_compatibility.reviewed_through_version`.
+pins reviewed V20/V21 SQL (canonical LF), rejects duplicate versions and rejects
+migrations beyond `migration_compatibility.reviewed_through_version`. The manifest's
+`candidate_controller` is CI-only and does not attest the installed controller.
 
-Before adding V21 or later, review migration semantics and the installed
-preservation function together. For an additive empty table, approve that exact
-table and keep its initial row count zero. Backfills require independent expected
-content/ownership evidence, as V19 does. Historical rows must remain identical.
-Do not increase the version ceiling without review and restored-copy rehearsal.
-The draft finance import previously used V20; vocal owns V20 now, so that draft
-must be rebased and renumbered before merge.
+V21 is the reviewed finance-import candidate: it creates exactly three staging/source-link tables, and the candidate preservation function permits only those exact tables when initially empty. Existing V20 vocal and V19 backfill checks remain pinned. The production controller is still the installed V20 digest until a separate administrator-only V21 upgrade is rehearsed and installed; CI candidate approval is not live approval. Before adding V22 or later, repeat this review and restored-copy rehearsal. Do not increase the version ceiling without review.
 
 For a necessary root-owned controller change: independently measure installed
 bytes, prepare the smallest exact diff, test preservation guards, back up the

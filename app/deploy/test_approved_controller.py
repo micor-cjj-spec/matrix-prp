@@ -25,10 +25,13 @@ class ApprovedControllerTests(unittest.TestCase):
         self.after = copy.deepcopy(self.before)
         self.after['counts']['prp_vocal_takes'] = 0
         self.after['row_sha256']['prp_vocal_takes'] = {}
+        for table in ('prp_finance_import_batches','prp_finance_import_rows','prp_finance_source_links'):
+            self.after['counts'][table] = 0
+            self.after['row_sha256'][table] = {}
 
     def test_reviewed_source_matches_manifest(self):
         manifest = json.loads((ROOT / 'controller-manifest.json').read_text())
-        self.assertEqual(hashlib.sha256(SOURCE.read_bytes()).hexdigest(), manifest['approved_controller']['sha256'])
+        self.assertEqual(hashlib.sha256(SOURCE.read_bytes()).hexdigest(), manifest.get('candidate_controller', manifest['approved_controller'])['sha256'])
 
     def test_v20_initially_empty_table(self):
         self.check(self.before, self.after)
@@ -37,6 +40,25 @@ class ApprovedControllerTests(unittest.TestCase):
         self.after['counts']['prp_vocal_takes'] = 1
         self.after['row_sha256']['prp_vocal_takes'] = {'3': 'new'}
         with self.assertRaises(AssertionError): self.check(self.before, self.after)
+
+    def test_v21_initially_empty_finance_tables(self):
+        self.check(self.before, self.after)
+
+    def test_v21_unexpected_finance_rows_rejected(self):
+        for table in ('prp_finance_import_batches','prp_finance_import_rows','prp_finance_source_links'):
+            after = copy.deepcopy(self.after)
+            after['counts'][table] = 1
+            after['row_sha256'][table] = {'3': 'new'}
+            with self.subTest(table=table), self.assertRaises(AssertionError): self.check(self.before, after)
+
+    def test_existing_finance_import_rows_are_protected(self):
+        before = copy.deepcopy(self.after)
+        before['counts']['prp_finance_import_batches'] = 1
+        before['row_sha256']['prp_finance_import_batches'] = {'1': 'original'}
+        self.check(before, copy.deepcopy(before))
+        after = copy.deepcopy(before)
+        after['row_sha256']['prp_finance_import_batches']['1'] = 'changed'
+        with self.assertRaises(AssertionError): self.check(before, after)
 
     def test_unknown_table_rejected_even_empty(self):
         self.after['counts']['prp_unreviewed'] = 0

@@ -32,6 +32,7 @@ import {
   type FinanceTransactionItem,
 } from '@/api/finance'
 import AppLayout from '@/layouts/AppLayout.vue'
+import FinanceImportPanel from '@/components/finance/FinanceImportPanel.vue'
 import { accountTypeLabel, financeTypeLabel } from '@/utils/labels'
 
 const route = useRoute()
@@ -369,6 +370,8 @@ watch(() => route.query.month, month => {
         </span>
       </div>
     </header>
+
+    <FinanceImportPanel :accounts="accounts" @imported="loadFinance" />
 
     <section class="metric-grid">
       <article v-for="metric in metrics" :key="metric.label" class="metric-card">

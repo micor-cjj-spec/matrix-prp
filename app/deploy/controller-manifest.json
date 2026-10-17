@@ -25,7 +25,7 @@
     "source_review": "OpenSSH portable V_10_0_P2 session.c: do_exec lines 636-648 retains external subsystem state for a forced key command; do_exec_no_pty lines 511-522 passes is_subsystem as ignore_fderr; session_set_fds lines 2105-2108 ignores subsystem extended stderr. Real exact-command INIT refusal and subsystem INIT remain independently mandatory."
   },
   "migration_compatibility": {
-    "reviewed_through_version": 20,
+    "reviewed_through_version": 21,
     "pinned_migrations": {
       "20": {
         "file": "V20__vocal_training.sql",
@@ -33,7 +33,23 @@
         "initially_empty_tables": [
           "prp_vocal_takes"
         ]
+      },
+      "21": {
+        "file": "V21__finance_bill_import.sql",
+        "sha256": "5e484eb382be09596d41ff1e96f86ed17dc02f42d876aa2d730e9a1176b2bb39",
+        "initially_empty_tables": [
+          "prp_finance_import_batches",
+          "prp_finance_import_rows",
+          "prp_finance_source_links"
+        ]
       }
     }
+  },
+  "candidate_controller": {
+    "path": "/usr/local/sbin/prp-release",
+    "sha256": "ae01801d85b01a6f978f0d030aad052b72e778f3e50185daf33445c2d32d7f7a",
+    "approval_date": "2026-10-17",
+    "status": "reviewed-candidate-not-installed",
+    "provenance": "Reviewed V21 candidate adds only prp_finance_import_batches, prp_finance_import_rows and prp_finance_source_links to the existing initially-empty-table allowlist. Historical full-row, ownership, V19 backfill, private-video and unknown-table protections remain unchanged. Current production still runs the approved V20 controller; candidate must be independently rehearsed and installed by the administrator before V21 can be deployed."
   }
 }

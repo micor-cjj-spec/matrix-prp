@@ -23,9 +23,11 @@ class ControllerCompatibilityTests(unittest.TestCase):
                     (deploy/name).write_bytes((ROOT/'app/deploy'/name).read_bytes())
                 migrations=root/'app/backend/src/main/resources/db/migration'
                 migrations.mkdir(parents=True)
-                source=next((ROOT/'app/backend/src/main/resources/db/migration').glob('V20__*.sql'))
-                (migrations/source.name).write_bytes(source.read_bytes())
-                if mutation=='future': (migrations/'V21__unreviewed.sql').write_text('CREATE TABLE unknown_table(id BIGINT);')
+                source_dir=ROOT/'app/backend/src/main/resources/db/migration'
+                for source in source_dir.glob('V*__*.sql'):
+                    (migrations/source.name).write_bytes(source.read_bytes())
+                source=migrations/'V20__vocal_training.sql'
+                if mutation=='future': (migrations/'V22__unreviewed.sql').write_text('CREATE TABLE unknown_table(id BIGINT);')
                 if mutation=='duplicate': (migrations/'V20__duplicate.sql').write_text('SELECT 1;')
                 if mutation=='modified': (migrations/source.name).write_text('DROP TABLE prp_users;')
                 if mutation=='controller': (deploy/'approved/prp-release.py').write_text('pass')

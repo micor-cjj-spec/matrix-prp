@@ -9,8 +9,11 @@ def verify(root):
     deploy = root / 'app/deploy'
     manifest = json.loads((deploy / 'controller-manifest.json').read_text())
     source = deploy / 'approved/prp-release.py'
-    if hashlib.sha256(source.read_bytes()).hexdigest() != manifest['approved_controller']['sha256']:
-        raise ValueError('Reviewed production controller source does not match approved digest')
+    candidate = manifest.get('candidate_controller', manifest['approved_controller'])
+    if candidate.get('path') != manifest['approved_controller']['path']:
+        raise ValueError('Candidate controller path differs from the approved production path')
+    if hashlib.sha256(source.read_bytes()).hexdigest() != candidate['sha256']:
+        raise ValueError('Reviewed controller candidate source does not match its approved digest')
     capability = manifest['migration_compatibility']
     migrations = {}
     for path in (root / 'app/backend/src/main/resources/db/migration').glob('V*__*.sql'):
@@ -20,6 +23,8 @@ def verify(root):
     if max(migrations) > capability['reviewed_through_version']:
         raise ValueError('New migration requires production controller compatibility review before merge')
     for version, record in capability['pinned_migrations'].items():
+        if int(version) not in migrations:
+            raise ValueError('Reviewed migration is missing from repository')
         path = migrations[int(version)]
         if path.name != record['file'] or hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest() != record['sha256']:
             raise ValueError('Reviewed migration changed; independent compatibility review required')
@@ -27,4 +32,4 @@ def verify(root):
 
 if __name__ == '__main__':
     verify(Path(__file__).resolve().parents[2])
-    print('Reviewed controller/migration compatibility passed; live attestation remains mandatory')
+    print('Reviewed controller candidate/migration compatibility passed; live attestation remains mandatory')
