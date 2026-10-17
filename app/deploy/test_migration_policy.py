@@ -80,6 +80,18 @@ class MigrationPolicyTests(unittest.TestCase):
                 jar.writestr('BOOT-INF/classes/db/migration/V22__future_notes.sql',SQL+b'-- changed')
             with self.assertRaises(ValueError): policy.migration_policy_for_release(root,meta,21)
 
+    def test_jar_callback_repeatable_and_nested_sql_are_rejected(self):
+        for unexpected in ('beforeMigrate.sql','R__unreviewed.sql','nested/V23__hidden.sql'):
+            with self.subTest(path=unexpected),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp)
+                with zipfile.ZipFile(root/'backend.jar','w') as jar:
+                    jar.writestr('BOOT-INF/classes/db/migration/V22__future_notes.sql',SQL)
+                    jar.writestr('BOOT-INF/classes/db/migration/'+unexpected,b'SELECT 1;')
+                data=contract();data['commit']=COMMIT;raw=json.dumps(data).encode()
+                (root/'migration-policy.json').write_bytes(raw)
+                meta={'commit':COMMIT,'schema_version':22,'files':{'migration-policy.json':hashlib.sha256(raw).hexdigest()}}
+                with self.assertRaises(ValueError):policy.migration_policy_for_release(root,meta,21)
+
     def test_no_policy_cannot_authorize_future_migration(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(policy.migration_policy_for_release(Path(tmp),{'schema_version':21},20),set())

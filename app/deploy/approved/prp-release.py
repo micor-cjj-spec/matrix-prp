@@ -417,7 +417,10 @@ def migration_policy_for_release(release, meta, from_version):
     with zipfile.ZipFile(release/'backend.jar') as jar:
         for info in jar.infolist():
             match = re.fullmatch(r'BOOT-INF/classes/db/migration/(V(\d+)__[^/]+\.sql)', info.filename)
-            if not match: continue
+            if not match:
+                if info.filename.startswith('BOOT-INF/classes/db/migration/') and info.filename.lower().endswith('.sql'):
+                    raise ValueError('Unversioned, repeatable, nested or callback SQL is unsupported')
+                continue
             version = int(match[2])
             if version in migrations or info.file_size > 1048576: raise ValueError('Duplicate/oversize JAR migration')
             migrations[version] = (match[1], jar.read(info))

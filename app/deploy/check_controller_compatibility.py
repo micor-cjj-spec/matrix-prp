@@ -17,7 +17,10 @@ def verify(root):
         raise ValueError('Reviewed controller candidate source does not match its approved digest')
     capability = manifest['migration_compatibility']
     migrations = {}
-    for path in (root / 'app/backend/src/main/resources/db/migration').glob('V*__*.sql'):
+    migration_root=root / 'app/backend/src/main/resources/db/migration'
+    for path in migration_root.rglob('*.sql'):
+        if path.parent!=migration_root or re.fullmatch(r'V(\d+)__.+\.sql',path.name) is None:
+            raise ValueError('Nonversioned, nested or callback SQL requires specialist review')
         version = int(re.fullmatch(r'V(\d+)__.+\.sql', path.name)[1])
         if version in migrations: raise ValueError('Duplicate migration version')
         migrations[version] = path

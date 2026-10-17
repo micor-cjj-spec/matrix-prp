@@ -21,7 +21,7 @@ import zipfile
 
 TARGET = Path('/usr/local/sbin/prp-release')
 OLD = 'ae01801d85b01a6f978f0d030aad052b72e778f3e50185daf33445c2d32d7f7a'
-NEW = '5c8fe728a287d0d8e456cfa03a5a6d83525609fcbc0ad19764b337b8afc970b0'
+NEW = 'adb484f2fb4def6a56ac647c58104969002182794a05500a1475c4228741682d'
 COMMIT = '4ba1cce1521329fce302c30dc2bfbd5a3339b7bd'
 REVIEW = Path('/root/prp-contract-review')
 BACKUP = REVIEW / 'controller-backup'
