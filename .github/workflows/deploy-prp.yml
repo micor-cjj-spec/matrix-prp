@@ -128,29 +128,34 @@ jobs:
           path: release.tar.gz
           if-no-files-found: error
           retention-days: 14
-      - name: Summarize automatic deployment candidate
+      - name: Summarize tested release candidate
         if: github.event_name == 'workflow_run'
         env:
           RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
           {
-            echo '## Verified release candidate — build only'
+            echo '## Verified release candidate'
             echo ''
             echo "Commit: \`$RELEASE_COMMIT\`"
             echo "Candidate Actions run ID: \`$GITHUB_RUN_ID\`"
             echo ''
-            echo 'Automatic CI creates a candidate only. Production operations require a separately authorized manual dispatch.'
+            echo 'Successful main push CI may publish this candidate only through the production environment and all SSH, controller, backup and migration gates.'
             echo 'If production requires reviewers, GitHub will still hold the job for approval.'
           } >> "$GITHUB_STEP_SUMMARY"
   publish:
     needs: build
-    # Main CI builds a candidate only. Production operations require an explicit dispatch.
-    # Merging read-only diagnostics must never start a database migration.
+    # Automatic publication is limited to successful push CI from this repository's main.
+    # Production environment protections and every artifact/SSH/controller/data gate remain mandatory.
     if: >-
       always() && github.ref == 'refs/heads/main' &&
-      github.event_name == 'workflow_dispatch' &&
-      ((inputs.action == 'deploy' && needs.build.result == 'success') ||
-       ((inputs.action == 'promote' || inputs.action == 'check' || inputs.action == 'rollback') && needs.build.result == 'skipped'))
+      ((github.event_name == 'workflow_run' && needs.build.result == 'success' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository) ||
+       (github.event_name == 'workflow_dispatch' &&
+        ((inputs.action == 'deploy' && needs.build.result == 'success') ||
+         ((inputs.action == 'promote' || inputs.action == 'check' || inputs.action == 'rollback') && needs.build.result == 'skipped'))))
     environment:
       name: production
       url: https://micor.top/prp/
