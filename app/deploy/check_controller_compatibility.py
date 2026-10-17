@@ -18,7 +18,8 @@ def verify(root):
     capability = manifest['migration_compatibility']
     migrations = {}
     migration_root=root / 'app/backend/src/main/resources/db/migration'
-    for path in migration_root.rglob('*.sql'):
+    for path in migration_root.rglob('*'):
+        if path.is_dir(): continue
         if path.parent!=migration_root or re.fullmatch(r'V(\d+)__.+\.sql',path.name) is None:
             raise ValueError('Nonversioned, nested or callback SQL requires specialist review')
         version = int(re.fullmatch(r'V(\d+)__.+\.sql', path.name)[1])

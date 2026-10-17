@@ -81,7 +81,7 @@ class MigrationPolicyTests(unittest.TestCase):
             with self.assertRaises(ValueError): policy.migration_policy_for_release(root,meta,21)
 
     def test_jar_callback_repeatable_and_nested_sql_are_rejected(self):
-        for unexpected in ('beforeMigrate.sql','R__unreviewed.sql','nested/V23__hidden.sql'):
+        for unexpected in ('beforeMigrate.sql','R__unreviewed.sql','nested/V23__hidden.sql','V23__unreviewed.class','beforeMigrate.class'):
             with self.subTest(path=unexpected),tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp)
                 with zipfile.ZipFile(root/'backend.jar','w') as jar:

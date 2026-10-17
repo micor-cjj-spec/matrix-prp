@@ -52,7 +52,7 @@
   },
   "candidate_controller": {
     "path": "/usr/local/sbin/prp-release",
-    "sha256": "adb484f2fb4def6a56ac647c58104969002182794a05500a1475c4228741682d",
+    "sha256": "c329836ed2f48296e5ab505451aab3c59b33db7f7c20aba5ae7c2b1ec80622e2",
     "status": "under-review-not-installed",
     "provenance": "Bounded create-empty migration contracts, exact JAR/commit/digest binding and historical DDL/full-row preservation."
   }

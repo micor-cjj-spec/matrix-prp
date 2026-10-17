@@ -27,7 +27,7 @@ lowercase `prp_*` names, with primary keys and InnoDB/utf8mb4. The table list mu
 match SQL order exactly. Ordinary columns, indexes and foreign keys are supported;
 expression defaults, CHECK/generated columns, cross-schema references, temporary
 tables, CREATE-AS/LIKE, advanced table options, executable/block comments and SQL
-escapes require specialist review. Statements must end with semicolons. Every
+escapes require specialist review. Statements must end with semicolons. Java migrations, callbacks, repeatables and nested migration resources are also rejected. Every
 post-V21 migration must have exactly one rule; unlisted SQL or tables fail closed.
 Limits are intentionally bounded (128 rules, 64 tables per migration, 1 MiB SQL,
 256 KiB contract). Unsupported schemas/modes never fall back to permissive rules.
