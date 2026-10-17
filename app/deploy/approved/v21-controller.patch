@@ -1,0 +1,11 @@
+--- installed.before
++++ reviewed.after
+@@ -258,7 +258,7 @@
+     seen.add(signature);seen_ids.add(new_ids[pk])
+  # V16 only adds an initially empty per-user AI draft table; reject unreviewed objects.
+  added_tables=set(after['counts'])-set(before['counts'])
+- assert added_tables<= {'prp_wellness_ai_drafts','prp_wellness_dish_templates','prp_ai_conversation_meta','prp_wellness_ai_action_targets','prp_vocal_takes'},'Unexpected new business table'
++ assert added_tables<= {'prp_wellness_ai_drafts','prp_wellness_dish_templates','prp_ai_conversation_meta','prp_wellness_ai_action_targets','prp_vocal_takes','prp_finance_import_batches','prp_finance_import_rows','prp_finance_source_links'},'Unexpected new business table'
+  for table in added_tables:
+   if table=='prp_wellness_ai_action_targets':
+    proof=after.get('v19_backfill')

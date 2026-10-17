@@ -35,7 +35,15 @@ pins reviewed V20/V21 SQL (canonical LF), rejects duplicate versions and rejects
 migrations beyond `migration_compatibility.reviewed_through_version`. The manifest's
 `candidate_controller` is CI-only and does not attest the installed controller.
 
-V21 is the reviewed finance-import candidate: it creates exactly three staging/source-link tables, and the candidate preservation function permits only those exact tables when initially empty. Existing V20 vocal and V19 backfill checks remain pinned. The production controller is still the installed V20 digest until a separate administrator-only V21 upgrade is rehearsed and installed; CI candidate approval is not live approval. Before adding V22 or later, repeat this review and restored-copy rehearsal. Do not increase the version ceiling without review.
+V21 controller compatibility has been installed after an administrator-authorized,
+exact one-line review and restored-copy rehearsal. It permits exactly three
+initially-empty finance staging/source-link tables, retaining V20 vocal and V19
+backfill checks. The production application/database remain V20 until a separate
+application publication is authorized. Main's manifest must be approved in sync
+with the installed controller and independently measured SSH inventory before
+publication; candidate CI success never grants live approval. Before V22 or later,
+repeat compatibility review and restored-copy rehearsal; never raise the version
+ceiling merely to make CI pass.
 
 For a necessary root-owned controller change: independently measure installed
 bytes, prepare the smallest exact diff, test preservation guards, back up the
@@ -73,3 +81,37 @@ cutover whose database changed requires controlled forward recovery and review.
 
 Raw SQL backups, credentials, row contents, SSH logs and configuration secrets
 stay root-only on the server; Actions exports only the existing sanitized schema.
+
+
+## V21 controller-only upgrade
+
+The exact reviewed one-line upgrade permits the initially-empty tables
+`prp_finance_import_batches`, `prp_finance_import_rows`, and
+`prp_finance_source_links`. It preserves all historical full-row, V19 backfill,
+video ownership, nonempty-new-table and unknown-table guards.
+
+The administrator-only `admin_upgrade_v21_controller.py` requires installed
+controller SHA256
+`bafcd9d7d79d478cf0751db9c49d2456f92a82cf6c051a4876d38fedaa7c566b`
+and exact reviewed candidate SHA256
+`ae01801d85b01a6f978f0d030aad052b72e778f3e50185daf33445c2d32d7f7a`.
+It validates the cached trusted-main V21 artifact, backs up the controller/config
+and full database, restores/migrates only a unique scratch database, checks
+historical integrity, cleans up its scratch grants, and requires unchanged live
+V20 data/service before atomically changing the controller. It does not deploy
+an application, migrate the production database, or restart any service.
+
+Review files, original controller and receipt are root-only under
+`/root/prp-v21-review/controller-backup`. Controller-byte rollback is
+`python3 -I /root/prp-v21-review/admin_upgrade_v21_controller.py rollback
+--approved-sha256 bafcd9d7d79d478cf0751db9c49d2456f92a82cf6c051a4876d38fedaa7c566b`
+(on one command line). This never restores SQL. Independently remeasure and
+review the SSH inventory after any controller replacement, including rollback.
+
+A controller-only operation must leave the approval PR unmerged when application
+publication is not authorized: merging it to main triggers the existing automatic
+release. Until that approval is merged, main's old controller/policy hashes must
+continue failing closed. Complete fresh restricted-identity acceptance using the
+existing main-only production environment after approval; never expand its branch
+policy to obtain an earlier test. Installed compatibility, manifest approval and
+application publication are separate recorded stages.
