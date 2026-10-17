@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const workflow = readFileSync(new URL('../../.github/workflows/deploy-prp.yml', import.meta.url), 'utf8')
+const workflow = readFileSync(new URL('../../.github/workflows/deploy-prp.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const [header, rest] = workflow.split('\n  build:\n')
 assert.ok(rest, 'The workflow must have a dedicated build job')
 const [build, publish] = rest.split('\n  publish:\n')
@@ -17,7 +17,7 @@ test('release candidates originate only from successful main push CI', () => {
   assert.match(build, /persist-credentials: false/)
 })
 
-test('main CI only builds candidates; publishing requires explicit manual dispatch', () => {
+test('publishing requires trusted successful main push CI or explicit manual dispatch', () => {
   const condition = publish.split('    environment:')[0]
   assert.match(condition, /github\.event_name == 'workflow_dispatch'/)
   assert.match(condition, /github\.event_name == 'workflow_run'/)
