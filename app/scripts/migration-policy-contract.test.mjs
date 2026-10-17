@@ -21,17 +21,18 @@ test('future declared SQL registers without changing the legacy manifest; tamper
     const verifier = join(scratch, 'app/scripts/verify-db-migrations.mjs')
     writeFileSync(verifier, readFileSync(join(root, 'app/scripts/verify-db-migrations.mjs')))
     const sql = 'CREATE TABLE prp_next_notes (id BIGINT PRIMARY KEY) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;'
-    writeFileSync(join(migrations, 'V22__next_notes.sql'), sql)
-    const policy = { schema_version: 1, rules: [{ version: 22, file: 'V22__next_notes.sql',
-      sha256: createHash('sha256').update(sql).digest('hex'), mode: 'create-empty', tables: ['prp_next_notes'] }] }
+    writeFileSync(join(migrations, 'V23__next_notes.sql'), sql)
+    const policy = JSON.parse(readFileSync(join(root, 'app/deploy/migration-policy.json'), 'utf8'))
+    policy.rules.push({ version: 23, file: 'V23__next_notes.sql',
+      sha256: createHash('sha256').update(sql).digest('hex'), mode: 'create-empty', tables: ['prp_next_notes'] })
     writeFileSync(join(scratch, 'app/deploy/migration-policy.json'), JSON.stringify(policy))
     const run = () => spawnSync(process.execPath, [verifier], { encoding: 'utf8' })
     const valid = run()
     assert.equal(valid.status, 0, valid.stderr)
-    writeFileSync(join(migrations, 'V22__next_notes.sql'), sql + '\nDROP TABLE prp_users;')
+    writeFileSync(join(migrations, 'V23__next_notes.sql'), sql + '\nDROP TABLE prp_users;')
     assert.notEqual(run().status, 0, 'Changed SQL must fail its declared digest')
-    writeFileSync(join(migrations, 'V22__next_notes.sql'), sql)
-    writeFileSync(join(migrations, 'V23__unlisted.sql'), sql.replace('prp_next_notes', 'prp_unlisted'))
+    writeFileSync(join(migrations, 'V23__next_notes.sql'), sql)
+    writeFileSync(join(migrations, 'V24__unlisted.sql'), sql.replace('prp_next_notes', 'prp_unlisted'))
     assert.notEqual(run().status, 0, 'Unlisted migration must fail the registered inventory')
   } finally {
     assert.equal(dirname(scratch), parent)

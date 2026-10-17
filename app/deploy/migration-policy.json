@@ -1,4 +1,14 @@
 {
   "schema_version": 1,
-  "rules": []
+  "rules": [
+    {
+      "version": 22,
+      "file": "V22__http_request_activity_audit.sql",
+      "sha256": "f5d0d7dee1e6a526d44abd510e40fc106d153db59420e43c7fc927e13a3ef2c4",
+      "mode": "create-empty",
+      "tables": [
+        "prp_api_request_log"
+      ]
+    }
+  ]
 }
