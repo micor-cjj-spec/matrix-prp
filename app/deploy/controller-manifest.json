@@ -43,6 +43,17 @@
           "prp_finance_source_links"
         ]
       }
+    },
+    "generic_policy": {
+      "schema_version": 1,
+      "mode": "create-empty",
+      "first_version": 22
     }
+  },
+  "candidate_controller": {
+    "path": "/usr/local/sbin/prp-release",
+    "sha256": "5c8fe728a287d0d8e456cfa03a5a6d83525609fcbc0ad19764b337b8afc970b0",
+    "status": "under-review-not-installed",
+    "provenance": "Bounded create-empty migration contracts, exact JAR/commit/digest binding and historical DDL/full-row preservation."
   }
 }

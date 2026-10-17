@@ -24,3 +24,5 @@ On a request to deploy, inspect latest main and failed Actions, repair reviewed
 code, run tests, and use the existing workflows. Report success only with actual
 production commit/schema/health and data-integrity evidence. A green CI, merged
 PR, skipped publish or empty SFTP response is not successful publication.
+
+For V22 and later, follow `app/docs/technical/versioned-migration-policy.md`. Ordinary new empty tables use reviewed create-empty rules; do not change the root controller or raise the legacy ceiling for each table. Validator changes and unsupported DDL/backfills still require controller/preservation review. Publication hold presence is restrictive and must not be bypassed.

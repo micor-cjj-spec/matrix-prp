@@ -115,3 +115,7 @@ continue failing closed. Complete fresh restricted-identity acceptance using the
 existing main-only production environment after approval; never expand its branch
 policy to obtain an earlier test. Installed compatibility, manifest approval and
 application publication are separate recorded stages.
+
+## Versioned migration contracts
+
+The controller is being upgraded to stable, bounded create-empty contracts for V22 onward. See [versioned migration policy](versioned-migration-policy.md) for the supported SQL subset, exact contract format, trust model, administrator installer/rollback and one-time publication hold. This replaces per-table controller edits for ordinary additive empty tables; unsupported transformations remain fail-closed.

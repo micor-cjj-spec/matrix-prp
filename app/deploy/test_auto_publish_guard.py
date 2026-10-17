@@ -32,12 +32,12 @@ class AutoPublishGuardTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         self.workflow = yaml.safe_load((root/'.github/workflows/deploy-prp.yml').read_text())
         self.publish = self.workflow['jobs']['publish']
-        self.expression = ast.parse(self.publish['if'].replace('&&', ' and ').replace('||', ' or ').strip(), mode='eval')
+        self.expression = ast.parse('(' + self.publish['if'].replace('&&', ' and ').replace('||', ' or ').strip() + ')', mode='eval')
         self.context = {'github': {'ref': 'refs/heads/main', 'event_name': 'workflow_run',
             'repository': 'owner/repository', 'event': {'workflow_run': {
                 'conclusion': 'success', 'event': 'push', 'head_branch': 'main',
                 'head_repository': {'full_name': 'owner/repository'}}}},
-            'needs': {'build': {'result': 'success'}}, 'inputs': {}}
+            'needs': {'build': {'result': 'success'},'release_control': {'result':'success','outputs':{'publish_allowed':'true'}}}, 'inputs': {}}
 
     def allowed(self, context):
         return bool(expression_value(self.expression, context))
@@ -68,6 +68,21 @@ class AutoPublishGuardTests(unittest.TestCase):
         context['github']['event_name'] = 'pull_request'
         self.assertFalse(self.allowed(context))
 
+    def test_publication_hold_blocks_auto_and_all_mutating_manual_actions(self):
+        context=copy.deepcopy(self.context)
+        context['needs']['release_control']['outputs']['publish_allowed']='false'
+        self.assertFalse(self.allowed(context))
+        for action in ('deploy','promote','rollback','build','unknown'):
+            c=copy.deepcopy(context);c['github']['event_name']='workflow_dispatch'
+            c['inputs']['action']=action;c['needs']['build']['result']='success' if action in ('deploy','build') else 'skipped'
+            with self.subTest(action=action):self.assertFalse(self.allowed(c))
+        c=copy.deepcopy(context);c['github']['event_name']='workflow_dispatch'
+        c['inputs']['action']='check';c['needs']['build']['result']='skipped'
+        self.assertTrue(self.allowed(c))
+        for state in ('failure','cancelled','skipped',None):
+            c['needs']['release_control']['result']=state
+            with self.subTest(state=state):self.assertFalse(self.allowed(c))
+
     def test_publish_still_requires_protected_environment_and_all_preoperation_gates(self):
         self.assertEqual(self.publish['environment']['name'], 'production')
         self.assertEqual(self.workflow['concurrency'], {'group':'prp-production', 'cancel-in-progress':False})
@@ -77,7 +92,7 @@ class AutoPublishGuardTests(unittest.TestCase):
                      'Verify restricted SSH boundary before production operation',
                      'Verify approved production controller before deploying']:
             self.assertLess(names.index(gate), operation)
-        self.assertEqual(self.publish['needs'], 'build')
+        self.assertEqual(self.publish['needs'], ['build','release_control'])
 
 
 if __name__ == '__main__': unittest.main()
