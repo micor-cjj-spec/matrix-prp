@@ -58,6 +58,13 @@ class CorrelatedProductionGateTests(unittest.TestCase):
     def test_reviewed_production_baseline_does_not_accept_fixture_or_replace_live_proof(self):
         manifest = Path(__file__).with_name("controller-manifest.json")
         self.v.manifest = json.loads(manifest.read_text(encoding="utf-8"))
+        original = self.v.runner
+        def run(args, **kwargs):
+            if args[-1] == 'controller-sha256':
+                sha = self.v.manifest['approved_controller']['sha256']
+                return fixtures.response(out=(sha + '  /usr/local/sbin/prp-release\n').encode())
+            return original(args, **kwargs)
+        self.v.runner = run
         self.assert_blocked("SSH_POLICY_DRIFT")
         self.assertFalse(any("-s" in args for args, _ in self.fixture.calls))
 

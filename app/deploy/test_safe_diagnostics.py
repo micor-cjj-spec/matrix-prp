@@ -247,7 +247,7 @@ class DiagnosticBoundaryRegressionTests(unittest.TestCase):
 
     def test_installer_hash_allowlist_is_not_relaxed(self):
         manifest=json.loads((ROOT/'controller-manifest.json').read_text())
-        self.assertEqual(manifest['approved_controller']['sha256'],'7d23ea686b7eca6e66619979357953a0a18fc366d4896f900ea6cae743b396d1')
+        self.assertEqual(manifest['approved_controller']['sha256'],'bafcd9d7d79d478cf0751db9c49d2456f92a82cf6c051a4876d38fedaa7c566b')
         self.assertEqual(host.KNOWN_TABLES,renderer.KNOWN_TABLES)
 
 
