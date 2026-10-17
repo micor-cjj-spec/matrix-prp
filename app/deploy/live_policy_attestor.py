@@ -31,6 +31,7 @@ SSHD = "/usr/sbin/sshd"
 KEYFILE = "/home/prp-deploy/.ssh/authorized_keys"
 SUBSYSTEM = "/usr/lib/openssh/sftp-server"
 SAFE_FAILURES={'SSH_LOADED_POLICY_UNPROVEN','SSH_AUTHENTICATION_UNPROVEN','SSH_IDENTITY_UNPROVEN',
+               'SSH_JOURNAL_GENERATION_UNPROVEN',
                'SSH_POLICY_CHANGED_DURING_PROOF','SSH_MATCH_POLICY_UNSUPPORTED','SSH_CLOCK_GENERATION_UNPROVEN',
                'SSH_DAEMON_OPTIONS_UNSUPPORTED','SSH_BINARY_DRIFT','SSH_VERSION_UNREVIEWED',
                'SSH_EFFECTIVE_POLICY_UNSUPPORTED','POLICY_PATH_UNTRUSTED','POLICY_FILE_UNTRUSTED',
@@ -189,7 +190,25 @@ def deployment_key(data):
     return 'SHA256:'+base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip('=')
 
 
-def journal_binds(entries,chain,endpoint,fingerprint,boot_id,now):
+def journal_generation(entries,master,invocation):
+    """Anchor journal boot identity to the live daemon's kernel birth and invocation."""
+    require(re.fullmatch(r'[0-9a-f]{32}',invocation) is not None,'SSH_JOURNAL_GENERATION_UNPROVEN')
+    boots=set();birth=master['start_ticks']/os.sysconf('SC_CLK_TCK')
+    for entry in entries:
+        if not isinstance(entry,dict):continue
+        if (entry.get('_UID')!='0' or entry.get('_EXE')!=SSHD or entry.get('_PID')!=str(master['pid'])
+                or entry.get('_SYSTEMD_UNIT')!='ssh.service' or entry.get('_SYSTEMD_INVOCATION_ID')!=invocation):continue
+        try:
+            boot=entry['_BOOT_ID'];stamp=int(entry['__MONOTONIC_TIMESTAMP'])/1e6
+            if (isinstance(boot,str) and re.fullmatch(r'[0-9a-f]{32}',boot)
+                    and isinstance(entry.get('MESSAGE'),str) and entry['MESSAGE'].startswith('Server listening on ')
+                    and birth<=stamp<=birth+2):boots.add(boot)
+        except (KeyError,ValueError,TypeError):continue
+    require(len(boots)==1,'SSH_JOURNAL_GENERATION_UNPROVEN')
+    return next(iter(boots))
+
+
+def journal_binds(entries,chain,endpoint,fingerprint,boot_id,now,invocation,monotonic_now):
     by_pid = {p['pid']:p for p in chain if p['exe']==SESSION}
     accepted = []
     pattern = r'Accepted publickey for prp-deploy from (\S+) port (\d+) ssh2: ED25519 (SHA256:[A-Za-z0-9+/]{43})'
@@ -197,12 +216,15 @@ def journal_binds(entries,chain,endpoint,fingerprint,boot_id,now):
         if not isinstance(entry,dict):continue
         if entry.get('_UID')!='0' or entry.get('_EXE')!=SESSION or entry.get('_BOOT_ID')!=boot_id:continue
         if entry.get('_SYSTEMD_UNIT')!='ssh.service':continue
+        if entry.get('_SYSTEMD_INVOCATION_ID')!=invocation:continue
         try:
             pid = int(entry['_PID']);stamp = int(entry['__REALTIME_TIMESTAMP'])/1e6
             match = re.fullmatch(pattern,entry.get('MESSAGE',''))
             if pid not in by_pid or not match:continue
             if (str(ipaddress.ip_address(match[1])),int(match[2])) != endpoint[2:]:continue
             if match[3]!=fingerprint or not process_birth(by_pid[pid])-1 <= stamp <= now+1:continue
+            mono=int(entry['__MONOTONIC_TIMESTAMP'])/1e6
+            if not by_pid[pid]['start_ticks']/os.sysconf('SC_CLK_TCK')<=mono<=monotonic_now:continue
             accepted.append(pid)
         except (ValueError,KeyError,TypeError):continue
     require(len(set(accepted))==1,"SSH_AUTHENTICATION_UNPROVEN")
@@ -273,11 +295,16 @@ def collect_policy(challenge):
     key_record=record(KEYFILE);fingerprint=deployment_key(bounded_file(KEYFILE,16384))
     alternate=record('/home/prp-deploy/.ssh/authorized_keys2',missing=True)
     require(alternate.get('missing') is True,"SSH_AUTHORIZATION_SOURCE_UNSUPPORTED")
-    boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    kernel_boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    invocation=bounded_command(['/usr/bin/systemctl','show','ssh.service','-p','InvocationID','--value']).decode().strip()
+    startup=bounded_command(['/usr/bin/journalctl','-u','ssh.service','_PID='+str(master_pid),
+                             '_SYSTEMD_INVOCATION_ID='+invocation,'--grep=^Server listening on ',
+                             '-n','4','-o','json','--no-pager'])
+    boot_id=journal_generation([json.loads(line) for line in startup.splitlines()],master,invocation)
     journal=bounded_command(['/usr/bin/journalctl','-u','ssh.service','-n','96','-o','json','--no-pager',
-                             '--output-fields=_UID,_EXE,_PID,_BOOT_ID,_SYSTEMD_UNIT,__REALTIME_TIMESTAMP,MESSAGE'])
+                             '--output-fields=_UID,_EXE,_PID,_BOOT_ID,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP,__MONOTONIC_TIMESTAMP,MESSAGE'])
     entries=[json.loads(line) for line in journal.splitlines()]
-    auth=journal_binds(entries,chain,endpoint,fingerprint,boot_id,time.time())
+    auth=journal_binds(entries,chain,endpoint,fingerprint,boot_id,time.time(),invocation,time.clock_gettime(time.CLOCK_BOOTTIME))
     require(key_record['ctime']/1e9 < process_birth(auth),"SSH_KEY_CHANGED_AFTER_AUTHENTICATION")
     files,directories=configuration_files()
     config_records=[record(str(p)) for p in [*files,*directories]]
@@ -307,6 +334,8 @@ def collect_policy(challenge):
         require(trusted_record(path,missing=value.get('missing',False))==value,"SSH_POLICY_CHANGED_DURING_PROOF")
     require(process_info(master_pid)==master and process_info(auth['pid'])==auth,"SSH_DAEMON_GENERATION_CHANGED")
     require(int(bounded_command(['/usr/bin/systemctl','show','ssh.service','-p','MainPID','--value']).strip())==master_pid,'SSH_DAEMON_GENERATION_CHANGED')
+    require(bounded_command(['/usr/bin/systemctl','show','ssh.service','-p','InvocationID','--value']).decode().strip()==invocation
+            and Path('/proc/sys/kernel/random/boot_id').read_text().strip()==kernel_boot_id,'SSH_JOURNAL_GENERATION_UNPROVEN')
     require(time.monotonic()-started<7,"POLICY_TOTAL_TIMEOUT")
     return {'schema_version':1,'challenge':challenge.hex(),'observed_utc':datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),
             'baseline':{'gateway_sha256':records[GATEWAY]['sha256'],'authorized_keys_sha256':key_record['sha256'],

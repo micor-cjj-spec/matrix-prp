@@ -43,26 +43,42 @@ class LivePolicyAttestorTests(unittest.TestCase):
         endpoint=('192.0.2.1',22,'198.51.100.2',40000)
         key='SHA256:'+'A'*43
         record={'_PID':'12','_UID':'0','_EXE':policy.SESSION,'_BOOT_ID':'boot','_SYSTEMD_UNIT':'ssh.service',
-                '__REALTIME_TIMESTAMP':'150000000','MESSAGE':'Accepted publickey for prp-deploy from 198.51.100.2 port 40000 ssh2: ED25519 '+key}
+                '_SYSTEMD_INVOCATION_ID':'a'*32,'__MONOTONIC_TIMESTAMP':'1500000','__REALTIME_TIMESTAMP':'150000000','MESSAGE':'Accepted publickey for prp-deploy from 198.51.100.2 port 40000 ssh2: ED25519 '+key}
         return chain,endpoint,key,record
 
     def test_authentication_is_bound_to_kernel_ancestor_and_socket_and_trusted_journal(self):
         chain,endpoint,key,record=self.fixture()
         with patch.object(policy,'process_birth',return_value=100):
-            self.assertEqual(policy.journal_binds([record],chain,endpoint,key,'boot',200),chain[0])
+            self.assertEqual(policy.journal_binds([record],chain,endpoint,key,'boot',200,'a'*32,200),chain[0])
             mutations={'_PID':'99','_UID':'1001','_EXE':'/usr/bin/logger','_BOOT_ID':'other',
-                       '_SYSTEMD_UNIT':'other.service','__REALTIME_TIMESTAMP':'1',
+                       '_SYSTEMD_UNIT':'other.service','_SYSTEMD_INVOCATION_ID':'b'*32,'__MONOTONIC_TIMESTAMP':'0','__REALTIME_TIMESTAMP':'1',
                        'MESSAGE':record['MESSAGE'].replace('40000','40001')}
             for field,value in mutations.items():
                 candidate={**record,field:value}
-                with self.subTest(field=field),self.assertRaises(policy.CollectionError):policy.journal_binds([candidate],chain,endpoint,key,'boot',200)
-            with self.assertRaises(policy.CollectionError):policy.journal_binds([],chain,endpoint,key,'boot',200)
-            with self.assertRaises(policy.CollectionError):policy.journal_binds([record],chain,endpoint,key+'B','boot',200)
+                with self.subTest(field=field),self.assertRaises(policy.CollectionError):policy.journal_binds([candidate],chain,endpoint,key,'boot',200,'a'*32,200)
+            with self.assertRaises(policy.CollectionError):policy.journal_binds([],chain,endpoint,key,'boot',200,'a'*32,200)
+            with self.assertRaises(policy.CollectionError):policy.journal_binds([record],chain,endpoint,key+'B','boot',200,'a'*32,200)
 
     def test_loaded_configuration_requires_file_and_glob_directory_ctime_before_daemon(self):
         self.assertTrue(policy.loaded_configuration([{'ctime':1_000_000_000},{'ctime':2_000_000_000}],3))
         for records in [[],[{'ctime':4_000_000_000}],[{'missing':True}],[{}],[{'ctime':2_990_000_000}]]:
             with self.subTest(records=records),self.assertRaises(policy.CollectionError):policy.loaded_configuration(records,3)
+
+    def test_journal_boot_generation_requires_current_master_invocation_and_kernel_birth(self):
+        master={'pid':721,'start_ticks':100}
+        birth=100/os.sysconf('SC_CLK_TCK')
+        entry={'_UID':'0','_EXE':policy.SSHD,'_PID':'721','_SYSTEMD_UNIT':'ssh.service',
+               '_SYSTEMD_INVOCATION_ID':'a'*32,'_BOOT_ID':'b'*32,
+               '__MONOTONIC_TIMESTAMP':str(int((birth+.1)*1e6)),'MESSAGE':'Server listening on 192.0.2.1 port 22.'}
+        self.assertEqual(policy.journal_generation([entry],master,'a'*32),'b'*32)
+        mutations={'_UID':'1001','_EXE':'/usr/bin/logger','_PID':'722','_SYSTEMD_UNIT':'other.service',
+                   '_SYSTEMD_INVOCATION_ID':'c'*32,'_BOOT_ID':'bad','__MONOTONIC_TIMESTAMP':'0',
+                   'MESSAGE':'Untrusted result'}
+        for key,value in mutations.items():
+            with self.subTest(key=key),self.assertRaises(policy.CollectionError):
+                policy.journal_generation([{**entry,key:value}],master,'a'*32)
+        for entries in [[],[entry,{**entry,'_BOOT_ID':'c'*32}],[{**entry,'__MONOTONIC_TIMESTAMP':str(int((birth+20)*1e6))}]]:
+            with self.assertRaises(policy.CollectionError):policy.journal_generation(entries,master,'a'*32)
 
     def test_saved_daemon_birth_rejects_unknown_clock_generation(self):
         with patch.object(policy,'bounded_command',return_value=b't 100000000'),patch.object(policy,'process_birth',return_value=100.01):
