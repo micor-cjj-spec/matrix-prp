@@ -7,5 +7,22 @@
     "provenance": "Explicit administrator approval on 2026-10-16. Installed atomically from attested controller d3e5113cd8d37daabc179a2503dc36d42d1596db822239839b535525e3da75c6; exact reviewed diff SHA256 25a26aab7b982a8fe27ef08b98728280fc9770cc019ffff187b81b3b02963b4d changes snapshot/assert_preserved only. V18 empty metadata and exact V19 same-owner durable-key backfill verified on restored isolated data. Post-install hash, mode and unchanged V17 data attested.",
     "production_release": "r38606951415-1",
     "application_commit": "79f569e7e668b200a0fa34aa8302cc8db281dea9"
+  },
+  "approved_ssh_policy": {
+    "gateway_sha256": "d4743a9b7df77e10968bc8e5a94f2676e2c362a50d55ca0203ed88d85708b10b",
+    "authorized_keys_sha256": "2110ec415e1b5f9cdf35c78c3e87ae2041173855d6ba1b517d7669abe38ef8aa",
+    "effective_sshd_sha256": "251897dfd75f68eba241ed7f541d0ef145345b840c97caf97ec009cc3f3cffc4",
+    "policy_files_sha256": "ec2cbee00fc965f084060faf632f0b43e40dd283b523d72eea1cfc434ef728b5",
+    "attestor_sha256": "9070861e69b3ec2a0106f3e6c9992f3344397eecccd9cc80e42370392517121f",
+    "deployment_key_fingerprint": "SHA256:JXTbCNVoO05558wEnplfeX5bQani4nwqwui/KfSdfSo",
+    "subsystem_command": "/usr/lib/openssh/sftp-server",
+    "forced_command": "/usr/local/bin/prp-deploy-gateway",
+    "behavior": "openssh-10.0-subsystem-stderr-ignore"
+  },
+  "ssh_policy_review": {
+    "review_date": "2026-10-17",
+    "provenance": "Helper installed after explicit administrator authorization of exact SHA256 in PR #71; backup 20261017T013412Z. Fresh restricted-identity nonce proof from read-only run 38991432699 matched separately obtained administrator read-only measurements of all nine baseline fields. Public key fingerprint independently checked with ssh-keygen. Global-only configuration checked before comparing context-invariant sshd -T output. Approved root-path inventory remeasured from filesystem, not copied from candidate JSON. Controller SHA256 unchanged. This baseline does not approve application publication.",
+    "source_review": "OpenSSH portable V_10_0_P2 session.c: do_exec lines 636-648 retains external subsystem state for a forced key command; do_exec_no_pty lines 511-522 passes is_subsystem as ignore_fderr; session_set_fds lines 2105-2108 ignores subsystem extended stderr. Real exact-command INIT refusal and subsystem INIT remain independently mandatory.",
+    "read_only_evidence_run": "38991432699"
   }
 }

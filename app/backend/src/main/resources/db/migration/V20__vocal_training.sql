@@ -1,4 +1,4 @@
--- Independent additive migration; V20 remains reserved for draft finance import.
+-- Independent additive migration; V20 is assigned to vocal training; pending finance import must be renumbered V21.
 -- Never mutate historical records or existing tables.
 CREATE TABLE prp_vocal_takes (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,

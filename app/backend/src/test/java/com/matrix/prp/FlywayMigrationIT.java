@@ -104,7 +104,7 @@ class FlywayMigrationIT {
     @Test
     void newSchemaMigratesTwiceWithoutChangingExistingRows() throws SQLException {
         String url = System.getenv("MATRIX_PRP_FLYWAY_FRESH_URL");
-        // Recreate production's V17 -> V21 upgrade, with an existing historical
+        // Recreate production's V17 -> V20 upgrade, with an existing historical
         // conversation. Adding any columns would break the SELECT * fingerprint.
         Flyway old=Flyway.configure().dataSource(url,user(),password())
                 .locations("classpath:db/migration")
@@ -189,7 +189,7 @@ class FlywayMigrationIT {
         long seedRows = count(url, "SELECT COUNT(*) FROM prp_wellness_foods");
         Flyway migration = flyway(url);
         assertThat(migration.baseline().successfullyBaselined).isTrue();
-        // V8-V19 and additive V21 are pending after V7 baseline, preserving historical data.
+        // V8-V20 are pending after V7 baseline, preserving historical data.
         assertThat(migration.migrate().migrationsExecuted).isEqualTo(13);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'")).isEqualTo(before);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_foods")).isGreaterThanOrEqualTo(seedRows + 140);

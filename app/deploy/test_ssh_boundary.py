@@ -5,15 +5,23 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import yaml
 import verify_ssh_boundary as gate
+import probe_sftp_init
 
 ROOT = Path(__file__).resolve().parent
 SHA = "7d23ea686b7eca6e66619979357953a0a18fc366d4896f900ea6cae743b396d1"
 MANIFEST = {"schema_version": 1, "approved_controller": {
     "path": "/usr/local/sbin/prp-release", "sha256": SHA}}
+POLICY = {name: "a"*64 for name in ["gateway_sha256", "authorized_keys_sha256", "effective_sshd_sha256", "policy_files_sha256", "attestor_sha256"]}
+POLICY.update(deployment_key_fingerprint="SHA256:"+"A"*43,
+              subsystem_command="/usr/lib/openssh/sftp-server",
+              forced_command="/usr/local/bin/prp-deploy-gateway",
+              behavior="openssh-10.0-subsystem-stderr-ignore")
+MANIFEST["approved_ssh_policy"] = POLICY
 STALE = {"schema_version": 1, "state": "stale", "code": "STALE_DIAGNOSTIC",
          "stage": "unknown", "table": None, "exception": None, "timestamp_utc": None}
 
@@ -22,13 +30,32 @@ def response(code=0, out=b"", err=b""):
     return subprocess.CompletedProcess([], code, out, err)
 
 
+def policy_response(challenge):
+    return {**STALE, "ssh_policy": {"schema_version": 1, "challenge": challenge.hex(),
+            "observed_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "baseline": dict(POLICY), "connection_bound": True,
+            "loaded_policy_verified": True, "trusted_paths": True}}
+
+
+def mock_exchange(verifier, command=None):
+    args = verifier.base + (["-vv", verifier.destination, command] if command else ["-vv", "-s", verifier.destination, "sftp"])
+    try:
+        result = verifier.runner(args, input=probe_sftp_init.INIT, capture_output=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return probe_sftp_init.classify(b"", b"", None, timed_out=True)
+    debug = b'\nAuthenticated to example.invalid using "publickey".\n'
+    if command is None:
+        debug += b'debug2: subsystem request accepted on channel 0\n'
+    return probe_sftp_init.classify(result.stdout, result.stderr+debug, result.returncode, init_sent=True)
+
+
 class SSHBoundaryTests(unittest.TestCase):
     def runner(self, args, **kwargs):
         self.calls.append((args, kwargs))
         if args[-1] == "controller-sha256":
             return response(out=(SHA + "  /usr/local/sbin/prp-release\n").encode())
         if args[-1] == "diagnose":
-            return response(out=json.dumps(STALE).encode())
+            return response(out=json.dumps(policy_response(kwargs['input']) if 'input' in kwargs else STALE).encode())
         if "-W" in args:
             return response(255, err=b"channel 0: open failed: administratively prohibited: open failed\nstdio forwarding failed\n")
         if "-R" in args:
@@ -39,15 +66,20 @@ class SSHBoundaryTests(unittest.TestCase):
         self.calls = []
 
     def verifier(self, runner=None):
-        return gate.Verifier("example.invalid", Path("/tmp/test-identity"), MANIFEST, runner or self.runner)
+        v = gate.Verifier("example.invalid", Path("/tmp/test-identity"), MANIFEST, runner or self.runner)
+        v.sftp_exchange = lambda command=None: mock_exchange(v, command)
+        return v
 
     def test_complete_gate_and_timeouts_without_shell_execution(self):
         self.verifier().verify()
-        self.assertEqual(len(self.calls), 11)
+        self.assertEqual(len(self.calls), 15)  # Includes independent post-SFTP and post-forwarding proofs.
         self.assertEqual(self.calls[0][0][-1], "controller-sha256")
         for args, kwargs in self.calls:
             self.assertEqual(kwargs["timeout"], 20)
-            self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+            if "input" in kwargs:
+                self.assertIn(len(kwargs["input"]), [9, 32])
+            else:
+                self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
             self.assertNotIn("shell", kwargs)
             self.assertIn("StrictHostKeyChecking=yes", args)
             self.assertIn("BatchMode=yes", args)
@@ -91,10 +123,12 @@ class SSHBoundaryTests(unittest.TestCase):
             if "-s" in args:
                 return response(255, err=b"subsystem request failed on channel 0\n")
             return self.runner(args, **kwargs)
+        verifier = self.verifier(run)
+        verifier.manifest = {k: v for k, v in MANIFEST.items() if k != "approved_ssh_policy"}
         with self.assertRaises(gate.BoundaryError) as raised:
-            self.verifier(run).verify()
-        self.assertEqual(raised.exception.stage, "sftp-subsystem-denial")
-        self.assertEqual(raised.exception.code, "EXPECTED_GATEWAY_DENIAL_MISSING")
+            verifier.verify()
+        self.assertEqual(raised.exception.stage, "ssh-policy-attestation")
+        self.assertEqual(raised.exception.code, "SSH_POLICY_BASELINE_MISSING")
 
     def test_accepted_shell_and_sftp_fail_closed(self):
         for index in ["sh", "-s"]:

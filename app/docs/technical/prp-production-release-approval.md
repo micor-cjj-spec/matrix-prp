@@ -1,27 +1,37 @@
-# PRP 候选构建、只读验收与手动生产发布
+# PRP 受保护自动发布与生产验收
 
-main CI 成功仅自动构建候选包，**不会自动执行 publish、数据库迁移或应用切换**。即使运行名称含 auto-deploy 且结果绿色，也不能当作生产部署成功。
+在真实 V19 发布、无损数据和 SSH/SFTP 门禁验收通过后恢复 main 自动发布。
+只有本仓库 main push 的完整 CI 成功、候选 build 成功，才允许 workflow_run
+进入 production 发布任务。PR、fork、其他分支、失败/取消/未知 CI 和 build
+失败都拒绝。保留手动 build/promote/deploy/check/rollback；手动默认 build。
 
-## 环境和权限
+## 保持的保护
 
-保留现有 production 环境保护规则及审批设置，不为诊断取消审批或增加分支权限。部署分支仅允许 main。PRP_DEPLOY_HOST、PRP_DEPLOY_KNOWN_HOSTS、PRP_DEPLOY_SSH_KEY 仍使用现有 production Environment secrets，不复制或公开其值。主分支规则、必需 CI、禁止强推及禁止绕过保护均保留。
+- production 环境原有分支限制、审批及 secrets 不变；只允许 main。
+- 源 CI、候选、受测提交、最新 main 必须一致；过期提交拒绝。
+- SSH 私钥只在环境任务中短暂使用，固定 known_hosts、专用 prp-deploy 身份。
+- 每次正式发布重新验证实时 nonce 策略、精确 SFTP INIT 拒绝、实际 subsystem INIT、shell/注入及双向转发拒绝；控制器 SHA 必须匹配清单。
+- 既有数据库备份、隔离恢复迁移、完整历史内容指纹、切换前备份、Flyway validate、健康及认证业务检查全部保留。
+- 只读验收工作流保持 main-only、只读权限和固定探测，不调用发布入口；与发布共享 prp-production 并发锁。
+- 原始 SQL、配置、token、密钥和 root 日志不上传 artifact；失败仅上传脱敏诊断。
 
-发布和只读验收共用 prp-production 并发锁。专用密钥只调用受限网关，不得授予通用 shell、SFTP、转发或任意 sudo。原控制器数据保护不可关闭。
+SSH helper 升级或策略基线变化需要独立安全审查，禁止从候选 JSON 自动批准。
+用户在 2026-10-17 明确授权本次后续备份、预检、V19 发布、验收和自动发布恢复。
+此授权不代表未来可以放宽现有 production 环境和权限保护。
 
-## 本次只读验收
+## 失败恢复边界
 
-1. 合并后等待 main CI 全绿，确认自动候选工作流的 publish 为 skipped。
-2. 仅在已获授权时手动运行 PRP read-only SSH acceptance，分支选择 main。
-3. 查看 Step Summary 和 prp-readonly-ssh-evidence artifact。该动作不备份、迁移或切换应用。
-4. 认证、host key、网络、超时、未知错误或请求成功均不能作为拒绝通过证据。
-5. 本次授权到只读验收结束，数据库须保持 V17；正式 V19 发布另行批准。
+在线预检失败时不切换应用或修改生产 schema。切换前停止写入并再做完整备份和
+历史指纹快照。生产 schema 已变化时不得自动恢复旧 SQL 或回退旧应用；既有
+控制器会拒绝跨 schema 自动回滚并保留备份，管理员需按实际阶段审查，避免覆盖
+用户新数据。相同 schema 的应用回退继续使用受限 rollback。
 
-## 正式发布（需要后续单独授权）
+## 验证自动发布
 
-Deploy PRP 的手动默认动作是 build，不是生产发布。只有获得正式发布授权后，才可选择 deploy（重新构建并发布），或 promote（使用同一 main SHA 的成功候选 run ID）。build 或只读检查成功不代表获准发布。
+恢复补丁的 PR 完整 CI 通过后，先确认 V19 手动正式发布及业务验收成功，再合并。
+随后必须观察这次 main push → CI → 自动 build → publish → 实际健康验收成功，
+并核对 current/release.json commit 与合并 main 一致，不能只凭配置或绿色 CI 宣布恢复。
+自动发布守卫测试直接评估实际 job 条件，覆盖可信 main、PR、fork、分支、失败/未知
+CI、build 失败和手动动作矩阵；正式验收仍以真实运行结果为准。
 
-publish 必须仅由 main 上的 workflow_dispatch 触发。源提交、发布包和 main 最新 SHA 一致，控制器 SHA 与清单一致，真实 SSH 门禁全通过，才能进入既有备份、恢复预演、数据完整性校验、迁移和切换流程。
-
-完成后须独立核对生产提交、Flyway 成功版本、历史数据保护、systemd、HTTPS 和核心接口。门禁失败必须停止，不得跳过、反复触发部署、强制修改 Flyway 或恢复旧数据。跨数据库版本不自动回滚，由运维根据实际阶段审查处理。
-
-生产 SQL 备份保存在服务器本地，不能替代独立备份及恢复演练；本次不备份视频文件。
+数据库 SQL/配置备份仅保存在 root-only 目录；这不替代独立视频备份和异地灾备。

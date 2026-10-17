@@ -22,6 +22,9 @@ class ProtocolEvidenceTests(unittest.TestCase):
             "category": "GATEWAY_REJECTED", "sftp_accessible": False})
         self.init_probe.start()
         self.addCleanup(self.init_probe.stop)
+        self.exchange = patch.object(probe.gate.Verifier, "sftp_exchange", new=fixtures.mock_exchange)
+        self.exchange.start()
+        self.addCleanup(self.exchange.stop)
 
     def collect(self, sftp):
         def runner(args, **kwargs):
@@ -42,18 +45,35 @@ class ProtocolEvidenceTests(unittest.TestCase):
         self.assertFalse(sftp["gateway_denial"])
         self.assertTrue(sftp["subsystem_request_failed"])
         self.assertEqual(sftp["verification"], "FAIL")
-        self.assertEqual([c["verification"] for c in report["checks"][-2:]], ["PASS", "PASS"])
+        self.assertEqual([c["verification"] for c in report["checks"] if c['stage'] in ['local-forwarding-denial','remote-forwarding-denial']], ["PASS", "PASS"])
 
     def test_explicit_gateway_rejection_passes_existing_rule(self):
         report = self.collect(response(2, err=probe.gate.GATEWAY_DENIAL))
         self.assertTrue(report["production_gate_passed"])
 
     def test_successful_init_overrides_legacy_denial_and_blocks(self):
+        original = fixtures.mock_exchange
+        def accessible(v, command=None):
+            result = original(v, command)
+            if command is None:
+                result.update(category="SFTP_ACCESSIBLE", version_response=True, sftp_accessible=True)
+            return result
         with patch.object(probe.probe_sftp_init, "probe", return_value={
-            "category": "SFTP_ACCESSIBLE", "sftp_accessible": True}):
+            "category": "SFTP_ACCESSIBLE", "sftp_accessible": True}), \
+             patch.object(probe.gate.Verifier, "sftp_exchange", new=accessible):
             report = self.collect(response(2, err=probe.gate.GATEWAY_DENIAL))
         self.assertFalse(report["production_gate_passed"])
         self.assertTrue(report["sftp_init_probe"]["sftp_accessible"])
+
+    def test_readonly_summary_uses_actual_correlated_production_path(self):
+        original = self.fixture.runner
+        def runner(args, **kwargs):
+            if "-s" in args:
+                return response(2)
+            return original(args, **kwargs)
+        report = probe.Probe("example.invalid", Path("test"), MANIFEST, runner).collect()
+        self.assertTrue(report["production_gate_passed"])
+        self.assertEqual(report["sftp_init_probe"]["category"], "SUBSYSTEM_EXITED_WITHOUT_VERSION")
 
     def test_sftp_success_or_payload_never_passes(self):
         for result in [response(), response(2, out=b"SFTP", err=probe.gate.GATEWAY_DENIAL),
@@ -62,14 +82,14 @@ class ProtocolEvidenceTests(unittest.TestCase):
                 self.assertFalse(self.collect(result)["production_gate_passed"])
 
     def test_transport_failures_are_reported_not_accepted(self):
-        for error, expected in [(b"Permission denied (publickey).", "AUTHENTICATION_FAILED"),
-                                (b"Host key verification failed.", "HOST_KEY_FAILED"),
-                                (b"Connection refused", "CONNECTION_FAILED")]:
+        for error, expected in [(b"Permission denied (publickey).", "SFTP_AUTHENTICATION_ERROR"),
+                                (b"Host key verification failed.", "SFTP_HOST_KEY_ERROR"),
+                                (b"Connection refused", "SFTP_NETWORK_ERROR")]:
             report = self.collect(response(255, err=error+b" subsystem request failed on channel 0"))
             self.assertFalse(report["production_gate_passed"])
             self.assertEqual(report["checks"][8]["exception_category"], expected)
         report = self.collect(subprocess.TimeoutExpired("ssh", 20, stderr=b"SECRET"))
-        self.assertEqual(report["checks"][8]["exception_category"], "TIMEOUT")
+        self.assertEqual(report["checks"][8]["exception_category"], "SFTP_TIMED_OUT")
         self.assertFalse(report["production_gate_passed"])
 
     def test_attestation_failure_never_runs_further_probes(self):
@@ -103,7 +123,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
                 self.assertNotIn("traceback", text.lower())
             self.assertEqual(json.loads(output.read_text())["checks"][8]["stdout_bytes"], len(secret))
 
-    def test_readonly_workflow_has_no_production_operation_and_main_ci_cannot_publish(self):
+    def test_readonly_workflow_has_no_production_operation(self):
         root = Path(__file__).resolve().parents[2]
         wf = yaml.safe_load((root/".github/workflows/ssh-readonly-acceptance.yml").read_text())
         job = wf["jobs"]["probe"]
@@ -116,7 +136,6 @@ class ProtocolEvidenceTests(unittest.TestCase):
         self.assertIn("probe_ssh_boundary.py", script)
         publish = yaml.safe_load((root/".github/workflows/deploy-prp.yml").read_text())["jobs"]["publish"]
         self.assertIn("github.event_name == 'workflow_dispatch'", publish["if"])
-        self.assertNotIn("workflow_run", publish["if"])
 
 
 if __name__ == "__main__":

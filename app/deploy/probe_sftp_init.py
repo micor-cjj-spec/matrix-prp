@@ -140,6 +140,8 @@ def classify(out, err, code, *, timed_out=False, limited=False, stdout_eof=False
     return {"category": category, "exit_code": code, "stdout_bytes": len(out),
             "stdout_empty": not out, "stderr_bytes": len(err), "stderr_empty": not err,
             "gateway_denial": gateway, "subsystem_request_failed": rejected,
+            "authenticated_publickey": bool(re.search(
+                rb'(?m)^(?:debug1: )?Authenticated to [^\r\n]+ using "publickey"\.\r?$', err)),
             "subsystem_request_accepted": accepted, "version_response": version is not None,
             "sftp_version": version, "authentication_error": transport == "AUTHENTICATION_ERROR",
             "host_key_error": transport == "HOST_KEY_ERROR", "network_error": transport == "NETWORK_ERROR",
@@ -150,10 +152,11 @@ def classify(out, err, code, *, timed_out=False, limited=False, stdout_eof=False
             "sftp_accessible": version is not None}
 
 
-def probe(base, destination):
+def probe(base, destination, command=None):
     try:
         # -vv debug output is parsed in memory and NEVER printed or written to disk.
-        return exchange(base + ["-vv", "-s", destination, "sftp"])
+        request = ["-s", destination, "sftp"] if command is None else [destination, command]
+        return exchange(base + ["-vv"] + request)
     except Exception:
         return {"category": "PROBE_CLIENT_ERROR", "sftp_accessible": False,
                 "version_response": False, "exit_code": None}
