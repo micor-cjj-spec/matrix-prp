@@ -30,6 +30,14 @@ class PolicyCandidateTests(unittest.TestCase):
     def test_duplicate_remote_json_is_not_accepted(self):
         with self.assertRaises(ValueError):json.loads('{"key":1,"key":2}',object_pairs_hook=collector.unique)
 
+    def test_only_allowlisted_policy_failure_is_exported(self):
+        self.assertEqual(collector.policy_failure({'schema_version':1,'policy_error':'SSH_AUTHENTICATION_UNPROVEN'}),'SSH_AUTHENTICATION_UNPROVEN')
+        for body in [{'schema_version':1,'policy_error':'SECRET /private/path'},
+                     {'schema_version':True,'policy_error':'SSH_AUTHENTICATION_UNPROVEN'},
+                     {'schema_version':1,'policy_error':'SSH_AUTHENTICATION_UNPROVEN','raw':'SECRET'},
+                     {'schema_version':1,'policy_error':['SECRET']}]:
+            self.assertEqual(collector.policy_failure(body),'SSH_POLICY_CANDIDATE_UNAVAILABLE')
+
     def test_installer_atomic_replacement_only_changes_selected_helper(self):
         with tempfile.TemporaryDirectory() as tmp:
             target=Path(tmp)/'helper';target.write_text('print("old")\n');target.chmod(0o750)

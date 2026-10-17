@@ -3,6 +3,7 @@ import argparse,json,re,secrets,subprocess
 from datetime import datetime,timezone
 from pathlib import Path
 import ssh_policy_contract as sftp_policy
+from live_policy_attestor import SAFE_FAILURES
 from verify_controller import verify_response
 from verify_ssh_boundary import Verifier
 
@@ -31,6 +32,16 @@ def unique(pairs):
         data[k]=v
     return data
 
+
+def policy_failure(body):
+    """Export only reviewed fixed error identifiers, never arbitrary remote text."""
+    if (isinstance(body,dict) and set(body)=={'schema_version','policy_error'}
+            and type(body['schema_version']) is int and body['schema_version']==1
+            and isinstance(body['policy_error'],str)
+            and body['policy_error'] in SAFE_FAILURES | {'SSH_POLICY_UNVERIFIED'}):
+        return body['policy_error']
+    return 'SSH_POLICY_CANDIDATE_UNAVAILABLE'
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--host',required=True);parser.add_argument('--identity',type=Path,required=True)
     parser.add_argument('--manifest',type=Path,required=True);parser.add_argument('--output',type=Path,required=True);args=parser.parse_args()
@@ -45,6 +56,8 @@ def main():
         response=subprocess.run(v.base+[v.destination,'diagnose'],input=nonce,capture_output=True,timeout=20)
         if len(response.stdout)>8192 or len(response.stderr)>8192:raise ValueError()
         body=json.loads(response.stdout,object_pairs_hook=unique)
+        if response.returncode!=0:
+            result['code']=policy_failure(body)
         if response.returncode!=0 or not isinstance(body,dict) or set(body)!={'schema_version','state','code','stage','table','exception','timestamp_utc','ssh_policy'}:raise ValueError()
         result=candidate(body['ssh_policy'],nonce);code=0
     except Exception:pass
