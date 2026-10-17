@@ -6,7 +6,7 @@ from pathlib import Path
 TARGET=Path('/usr/local/sbin/prp-diagnose')
 CONTROLLER=Path('/usr/local/sbin/prp-release')
 BASE=Path('/var/backups/prp-policy-attestor')
-OLD='bc4ba21b4efaa40efe149f9a36a553af462bb860d1dbe6b53d03abb5b735588c'
+OLD='8c2f3dc6f3fbe765e106f7e8ce3c1650d453200893b2b0e693e367d6353d8e14'
 CONTROLLER_SHA='7d23ea686b7eca6e66619979357953a0a18fc366d4896f900ea6cae743b396d1'
 
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()

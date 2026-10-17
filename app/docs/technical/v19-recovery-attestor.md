@@ -109,3 +109,38 @@ Risks: unsupported policy/layout or clock generation can block deployment;
 bounded read-only proof collection adds authentication/journal I/O. No application
 traffic interruption, database mutation or permission expansion is designed.
 Current production success has **not** been claimed.
+
+## Production boot-identity incompatibility (follow-up)
+
+The approved first helper was installed as SHA256
+`8c2f3dc6f3fbe765e106f7e8ce3c1650d453200893b2b0e693e367d6353d8e14`,
+with verified rollback backup `/var/backups/prp-policy-attestor/20261017T002707Z`.
+Read-only run 38986811841 fails with `SSH_AUTHENTICATION_UNPROVEN`.
+Root read-only checks independently show: recent authentication journal boot IDs
+are stable but differ from current procfs boot ID; the current administrator SSH
+connection shows the same discrepancy. The precise reason for that environment
+inconsistency is not established. No reboot or journal restart is proposed.
+
+This follow-up retains a strict journal boot-ID check, anchoring its expected
+value to the **current master daemon's trusted startup record**, rather than
+assuming that journal and procfs have the same cached boot identity. That record
+must have root UID, sshd executable, the live master PID, ssh.service, the current
+systemd InvocationID, a valid boot ID, and monotonic timestamp within two seconds
+of kernel process birth. Conflicting boot identities or missing startup records
+fail closed. Production has two such startup records within 60ms of master birth;
+recent auth records carry the same current InvocationID.
+
+Authentication still requires exact ancestor PID, root UID/executable/unit,
+peer endpoint, public-key fingerprint, realtime bounds and the anchored boot ID.
+It now additionally requires current InvocationID and a monotonic timestamp after
+that ancestor's birth and before collection. Master PID, InvocationID and current
+kernel boot identity are rechecked at the end. Loaded-policy/clock checks remain.
+Old, missing, conflicting or cross-service-generation records never pass.
+The full cause of kernel/journal boot-ID discrepancy remains an operational risk;
+this mechanism explicitly proves the live daemon generation without guessing.
+
+No new helper installation is performed by this follow-up PR. A changed helper
+hash requires fresh explicit approval; the administrator installer expects the
+currently installed first helper and backs it up for one-file rollback. The old
+installer and original backup remain available for reverting all the way to the
+legacy diagnostic. No SSH, sudoers, controller, database or service change.
