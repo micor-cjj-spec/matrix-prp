@@ -20,7 +20,12 @@ test('release candidates originate only from successful main push CI', () => {
 test('main CI only builds candidates; publishing requires explicit manual dispatch', () => {
   const condition = publish.split('    environment:')[0]
   assert.match(condition, /github\.event_name == 'workflow_dispatch'/)
-  assert.doesNotMatch(condition, /workflow_run/)
+  assert.match(condition, /github\.event_name == 'workflow_run'/)
+  assert.match(condition, /needs\.build\.result == 'success'/)
+  assert.match(condition, /github\.event\.workflow_run\.conclusion == 'success'/)
+  assert.match(condition, /github\.event\.workflow_run\.event == 'push'/)
+  assert.match(condition, /github\.event\.workflow_run\.head_branch == 'main'/)
+  assert.match(condition, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/)
   assert.match(condition, /github\.ref == 'refs\/heads\/main'/)
   assert.match(condition, /needs\.build\.result == 'success'/)
   assert.match(publish, /environment:\s*\n\s*name: production/)
