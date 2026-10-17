@@ -20,7 +20,12 @@ const mappings = reactive<Record<string, number | undefined>>({})
 const paymentMethods = computed(() =>
   [...new Set(batch.value?.rows.filter(r => r.rowStatus === 'READY').map(r => r.paymentMethod) ?? [])],
 )
-const missingMappings = computed(() => paymentMethods.value.filter(method => !mappings[method]))
+// The backend explicitly supports partial account mappings. Never force a user to
+// post bank-funded rows just to import independently verified wallet expenses.
+const mappedReadyCount = computed(() => batch.value?.rows.filter(
+  row => row.rowStatus === 'READY' && Number.isInteger(mappings[row.paymentMethod]),
+).length ?? 0)
+const deferredReadyCount = computed(() => Math.max(0, (batch.value?.ready ?? 0) - mappedReadyCount.value))
 const money = (v: number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(v)
 const rowStatusText: Record<string,string> = {
   READY: '可入账', REVIEW: '待人工复核', DUPLICATE: '已去重', POSTED: '已入账',
@@ -45,8 +50,11 @@ async function uploadPreview() {
     for (const key of Object.keys(mappings)) delete mappings[key]
     const candidates = props.accounts.filter(a => a.currency === 'CNY')
     for (const method of paymentMethods.value) {
-      const exact = candidates.find(a => a.name === method || a.name === '微信' + method || a.name === '微信零钱')
-      if (exact && (method === '零钱' || exact.name !== '微信零钱')) mappings[method] = exact.id
+      // Wallet may be matched by its exact name; bank cards always require an
+      // explicit choice to prevent accidental cross-platform double counting.
+      if (method !== '零钱') continue
+      const wallet = candidates.find(a => a.name === '零钱' || a.name === '微信零钱')
+      if (wallet) mappings[method] = wallet.id
     }
     await reloadHistory()
     ElMessage.success('已完成安全解析，尚未计入账户余额')
@@ -55,18 +63,22 @@ async function uploadPreview() {
   } finally { uploading.value = false }
 }
 async function openBatch(id: number) {
-  try { batch.value = await getFinanceImport(id) }
-  catch { ElMessage.error('导入批次读取失败') }
+  try {
+    const next = await getFinanceImport(id)
+    // Mappings are session-local decisions, not persisted to a different batch.
+    for (const key of Object.keys(mappings)) delete mappings[key]
+    batch.value = next
+  } catch { ElMessage.error('导入批次读取失败') }
 }
 async function confirmPost() {
   const b = batch.value
   if (!b || b.ready === 0) return
-  if (missingMappings.value.length) {
-    return ElMessage.warning('请先为所有可入账交易的支付方式选择真实资金账户')
+  if (mappedReadyCount.value === 0) {
+    return ElMessage.warning('请至少为一种可入账支付方式选择真实资金账户')
   }
   try {
     await ElMessageBox.confirm(
-      `仅将 ${b.ready} 笔正常消费入账；${b.review} 笔退款、转账或其他不确定交易不入账，${b.duplicate} 笔重复交易跳过。确认吗？`,
+      `本次仅将已映射账户的 ${mappedReadyCount.value} 笔正常消费入账；${deferredReadyCount.value} 笔未映射消费保留待处理，${b.review} 笔需复核交易不入账，${b.duplicate} 笔重复交易跳过。确认吗？`,
       '确认导入微信账单',
       { type: 'warning', confirmButtonText: '确认入账', cancelButtonText: '返回检查' },
     )
@@ -122,7 +134,8 @@ onMounted(() => { void reloadHistory() })
               :key="account.id" :value="account.id" :label="account.name + ' / ' + account.currency" />
           </el-select>
         </div>
-        <p class="import-hint">例如微信零钱消费应映射到零钱账户，微信通过银行卡消费应映射到对应银行卡，以防将渠道当作资金账户。</p>
+        <p class="import-hint">微信零钱消费应映射到零钱账户；银行卡扣款须核对对应银行卡，避免跨平台重复记账。银行卡不会自动绑定。</p>
+        <p v-if="deferredReadyCount > 0" class="import-hint">当前还有 {{ deferredReadyCount }} 笔未映射的正常消费，本次不会入账，可稍后重新打开该批次继续确认。</p>
       </div>
       <div class="preview-scroll">
         <el-table :data="batch.rows" size="small" max-height="390" stripe style="min-width:760px">
@@ -144,8 +157,8 @@ onMounted(() => { void reloadHistory() })
       </div>
       <div class="import-footer">
         <span class="import-hint">不会覆盖已有流水；同一来源交易单号只允许入账一次。</span>
-        <el-button type="primary" :loading="committing" :disabled="batch.ready === 0" @click="confirmPost">
-          确认入账正常消费（{{ batch.ready }} 笔）
+        <el-button type="primary" :loading="committing" :disabled="mappedReadyCount === 0" @click="confirmPost">
+          确认入账已映射消费（{{ mappedReadyCount }} 笔）
         </el-button>
       </div>
     </template>
