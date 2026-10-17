@@ -2,6 +2,7 @@ package com.matrix.prp.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.matrix.prp.auth.security.CurrentUser;
+import com.matrix.prp.activity.ActivityLogStore;
 import com.matrix.prp.finance.model.FinanceTransactionFilter;
 import com.matrix.prp.finance.service.FinanceService;
 import com.matrix.prp.practice.PracticeService;
@@ -30,12 +31,19 @@ public class AiToolRegistry {
     private final ObjectProvider<WellnessService> wellness;
     private final FinanceService finance;
     private final AiNavigationResolver navigation;
+    private final ActivityLogStore activity;
 
-    public AiToolRegistry(TaskService tasks, ObjectProvider<PracticeService> practice,
-                          ObjectProvider<WellnessService> wellness, FinanceService finance,
+    public AiToolRegistry(TaskService tasks,ObjectProvider<PracticeService> practice,
+                          ObjectProvider<WellnessService> wellness,FinanceService finance,
                           AiNavigationResolver navigation) {
-        this.tasks = tasks; this.practice = practice; this.wellness = wellness;
-        this.finance = finance; this.navigation = navigation;
+        this(tasks,practice,wellness,finance,navigation,null);
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    public AiToolRegistry(TaskService tasks,ObjectProvider<PracticeService> practice,
+                          ObjectProvider<WellnessService> wellness,FinanceService finance,
+                          AiNavigationResolver navigation,ActivityLogStore activity) {
+        this.tasks=tasks; this.practice=practice; this.wellness=wellness;
+        this.finance=finance; this.navigation=navigation; this.activity=activity;
     }
     private static Map<String,Object> schema(Map<String,Object> properties) {
         return Map.of("type","object", "properties", properties, "additionalProperties",false);
@@ -66,6 +74,9 @@ public class AiToolRegistry {
         if (scopes.contains("finance")) result.add(new Definition("finance_monthly","finance",
             "获取当前用户某个月的收支汇总、分类及最多10条账目，不包含备注",
             schema(Map.of("month",field("string","yyyy-MM；缺省为当前月")))));
+        if (scopes.contains("activity_logs")) result.add(new Definition("activity_recent","activity_logs",
+            "查询当前用户最近1/7/30天的HTTP访问与AI工具调用元数据（最多20条、含响应耗时），无请求正文、密钥或跨用户数据",
+            schema(Map.of("days",field("integer","1、7或30，默认7")))));
         result.add(new Definition("navigation_open","", "提供 PRP 应用内的可点击入口，不直接控制浏览器",
             schema(Map.of("module",Map.of("type","string","enum",navigation.modules().stream().sorted().toList()),
                 "recordId",field("integer","仅任务模块可选，必须是当前用户拥有的任务编号"),
@@ -80,6 +91,7 @@ public class AiToolRegistry {
             case "wellness_daily", "wellness_trends", "wellness_meal_coverage" -> "wellness";
             case "wellness_body_trends" -> "wellness_body";
             case "finance_monthly" -> "finance";
+            case "activity_recent" -> "activity_logs";
             case "navigation_open" -> "";
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown AI tool");
         };
@@ -169,6 +181,12 @@ public class AiToolRegistry {
                     "categories",categories,"transactions",transactions,"limit",10),
                     navigation.resolve("finance",null));
             }
+            case "activity_recent" -> {
+                if(activity==null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Activity audit unavailable");
+                int days=activityDays(args);
+                var entries=activity.recent(CurrentUser.id(),days,20);
+                yield new Result(Map.of("days",days,"limit",20,"entries",entries),null);
+            }
             case "navigation_open" -> {
                 String module=optional(args,"module");
                 if (module==null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Module required");
@@ -177,6 +195,13 @@ public class AiToolRegistry {
             }
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unknown AI tool");
         };
+    }
+    static int activityDays(JsonNode args) {
+        if(!args.has("days") || args.get("days").isNull()) return 7;
+        JsonNode value=args.get("days");
+        if(!value.isIntegralNumber() || !Set.of(1,7,30).contains(value.asInt()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"days must be 1, 7 or 30");
+        return value.asInt();
     }
     private static int daysArg(JsonNode args) {
         if(!args.has("days") || args.get("days").isNull()) return 7;

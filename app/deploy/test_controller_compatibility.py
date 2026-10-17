@@ -23,8 +23,9 @@ class ControllerCompatibilityTests(unittest.TestCase):
             migrations=root/'app/backend/src/main/resources/db/migration'
             shutil.copytree(ROOT/'app/backend/src/main/resources/db/migration',migrations)
             sql=b'CREATE TABLE prp_next_feature (id BIGINT PRIMARY KEY) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;'
-            (migrations/'V22__next_feature.sql').write_bytes(sql)
-            policy={'schema_version':1,'rules':[{'version':22,'file':'V22__next_feature.sql','sha256':hashlib.sha256(sql).hexdigest(),'mode':'create-empty','tables':['prp_next_feature']}]}
+            (migrations/'V23__next_feature.sql').write_bytes(sql)
+            policy=json.loads((ROOT/'app/deploy/migration-policy.json').read_text())
+            policy['rules'].append({'version':23,'file':'V23__next_feature.sql','sha256':hashlib.sha256(sql).hexdigest(),'mode':'create-empty','tables':['prp_next_feature']})
             (deploy/'migration-policy.json').write_text(json.dumps(policy))
             module.verify(root)
             manifest_path=deploy/'controller-manifest.json'
@@ -38,7 +39,7 @@ class ControllerCompatibilityTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'Uninstalled controller candidate cannot publish'):module.verify(root)
             manifest_path.write_bytes(original_manifest)
             if saved_hold is not None:hold.write_bytes(saved_hold)
-            policy['rules'][0]['tables']=['prp_unrelated']
+            policy['rules'][-1]['tables']=['prp_unrelated']
             (deploy/'migration-policy.json').write_text(json.dumps(policy))
             with self.assertRaises(ValueError):module.verify(root)
 
@@ -56,7 +57,7 @@ class ControllerCompatibilityTests(unittest.TestCase):
                 for source in source_dir.glob('V*__*.sql'):
                     (migrations/source.name).write_bytes(source.read_bytes())
                 source=migrations/'V20__vocal_training.sql'
-                if mutation=='future': (migrations/'V22__unreviewed.sql').write_text('CREATE TABLE unknown_table(id BIGINT);')
+                if mutation=='future': (migrations/'V23__unreviewed.sql').write_text('CREATE TABLE unknown_table(id BIGINT);')
                 if mutation=='duplicate': (migrations/'V20__duplicate.sql').write_text('SELECT 1;')
                 if mutation=='modified': (migrations/source.name).write_text('DROP TABLE prp_users;')
                 if mutation=='controller': (deploy/'approved/prp-release.py').write_text('pass')
