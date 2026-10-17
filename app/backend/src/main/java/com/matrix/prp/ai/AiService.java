@@ -204,7 +204,10 @@ public class AiService {
                         Set<String> approved = Set.copyOf(selectedScopes);
                         // A missing-meal query always reads the authorised owner-scoped records;
                         // do not depend on an upstream model deciding to call the function.
-                        List<AiToolPlanner.Call> calls = approved.contains("wellness") && mealCoverageIntent(content)
+                        List<AiToolPlanner.Call> calls = approved.contains("activity_logs") && activityIntent(content)
+                            ? List.of(new AiToolPlanner.Call("activity_recent",
+                                json.createObjectNode().put("days", activityDays(content))))
+                            : approved.contains("wellness") && mealCoverageIntent(content)
                             ? List.of(new AiToolPlanner.Call("wellness_meal_coverage",
                                 json.createObjectNode().put("days", coverageDays(content))))
                             : planner.plan(legacy ? settings.resolve(user) : provider,
@@ -277,6 +280,14 @@ public class AiService {
         return emitter;
     }
 
+    static boolean activityIntent(String text) {
+        return text!=null && text.matches("(?s).*(操作日志|访问日志|调用日志|调用记录|接口耗时|接口响应|响应时间|请求耗时|工具执行).*");
+    }
+    static int activityDays(String text) {
+        if(text.matches("(?s).*(30天|三十天|一个月|近一月|近1个月).*")) return 30;
+        if(text.matches("(?s).*(今天|24小时|一天|1天).*")) return 1;
+        return 7;
+    }
     static boolean mealCoverageIntent(String text) {
         if (text == null) return false;
         boolean aboutMeals = text.matches("(?s).*(用餐|饮食|吃饭|早餐|午餐|晚餐|餐次|三餐|吃的饭).*");
