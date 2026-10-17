@@ -5,11 +5,11 @@
 ## 日常发布
 
 1. 合并代码到 `main`。
-2. GitHub 仓库 → **Actions → Deploy PRP → Run workflow**。
-3. 分支选 `main`，`action` 选 `deploy`，点击运行。
-4. 查看绿色结果、发布摘要、版本 ID 和服务地址。
+2. 等待同仓库 `main` push 的完整 CI 成功，随后自动构建并进入受保护的生产发布任务。
+3. 保留 `production` 环境现有审批要求；有审批时等待批准。SSH/控制器/产物/数据门禁必须全部通过。
+4. 查看 publish 实际成功、发布摘要、版本 ID 和生产运行提交；CI 或 build 绿色不能代替上线验收。
 
-默认没有 push 自动发布。`check` 只检查生产；`build` 只测试、构建并保存产物；`rollback` 需要输入服务器已有的 release ID。
+PR、fork、分支 CI、失败/取消的 CI 不会自动发布。手动入口仍默认 `build`；`promote` 使用同一最新 main SHA 的成功候选 run ID，`deploy` 重新构建并发布，`check` 只检查生产，`rollback` 需要服务器已有且数据库版本一致的 release ID。自动发布失败后先查脱敏诊断，不得跳过门禁。
 
 ## 发布流程
 
