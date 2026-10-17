@@ -55,10 +55,10 @@ class CorrelatedProductionGateTests(unittest.TestCase):
         self.v.verify()
         self.assertEqual(self.v.sftp_verdict, "SFTP_DENIED_BY_FORCED_GATEWAY")
 
-    def test_actual_production_manifest_is_intentionally_not_a_live_proof(self):
+    def test_reviewed_production_baseline_does_not_accept_fixture_or_replace_live_proof(self):
         manifest = Path(__file__).with_name("controller-manifest.json")
         self.v.manifest = json.loads(manifest.read_text(encoding="utf-8"))
-        self.assert_blocked("SSH_POLICY_BASELINE_MISSING")
+        self.assert_blocked("SSH_POLICY_DRIFT")
         self.assertFalse(any("-s" in args for args, _ in self.fixture.calls))
 
     def test_existing_server_diagnostic_without_policy_is_rejected(self):
@@ -69,6 +69,11 @@ class CorrelatedProductionGateTests(unittest.TestCase):
             return original(args, **kwargs)
         self.v.runner = run
         self.assert_blocked("SSH_POLICY_PROOF_UNAVAILABLE")
+
+    def test_missing_approved_baseline_blocks_before_any_subsystem_probe(self):
+        self.v.manifest.pop('approved_ssh_policy')
+        self.assert_blocked('SSH_POLICY_BASELINE_MISSING')
+        self.assertFalse(any('-s' in args for args,_ in self.fixture.calls))
 
     def test_each_gateway_key_configuration_binary_or_mapping_drift_blocks(self):
         for field in fixtures.POLICY:

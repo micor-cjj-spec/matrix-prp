@@ -92,17 +92,33 @@ Normal diagnostic response gains exactly one `ssh_policy` property in proof mode
 
 The `baseline` is computed from live state; it must NOT be copied from a previously
 saved JSON file. The client compares it to separately reviewed immutable values.
-Proof age at the beginning and end must be between -5 and 30 seconds. Changing the
-root helper still requires explicit administrator approval and an exact backup,
-diff/hash/mode review even though it uses the existing sudo boundary. This task
-explicitly prohibits that production-file change, so it has NOT been performed.
+Proof age at the beginning and end must be between -5 and 30 seconds.
+Changing the root helper requires explicit administrator authorization and exact
+backup/hash/mode review. PRs #69 and #71 implemented this prerequisite; the
+administrator explicitly authorized both exact helper hashes before installation.
+The final installed helper is `9070861e69b3ec2a0106f3e6c9992f3344397eecccd9cc80e42370392517121f`.
 
-No root helper implementation or broad read API is supplied here: loaded-policy
-and session binding must be implemented and reviewed against the real server,
-not replaced by constant true flags. Until then, leave the PR unmerged, keep FAIL
-and retain the running V17 service. Formal V19 publishing requires separate approval.
+Read-only run 38991432699 obtained a fresh deployment-identity proof. A separate
+administrator SSH measurement recomputed all nine baseline fields from live
+files/effective configuration, including ssh-keygen fingerprint verification;
+all matched. This PR records those reviewed immutable values. The root-owned
+helper derives each new proof from live state and never reads this manifest.
+See `v19-recovery-attestor.md` for journal/kernel boot-identity divergence and the
+current master startup/InvocationID/monotonic-time association. No SSH permissions,
+controller or database were modified for this prerequisite.
+
+OpenSSH source reviewed: https://raw.githubusercontent.com/openssh/openssh-portable/V_10_0_P2/session.c
+The forced key command preserves external subsystem state (636-648), and
+non-PTY session setup passes that state as ignore_fderr (511-522); extended stderr
+is then ignored (2105-2108). This explains why the same gateway can emit an exact
+exec rejection while subsystem stderr is absent. This source review does not
+replace real INIT and exact-command probes or the fresh policy proof.
+
+Formal V19 publishing still requires separate authorization. Recording this
+baseline alone never constitutes production SSH acceptance or application release.
+
 
 
 ## Recovery hardening
 
-The verifier now recollects independent nonce-bound proofs after the two SFTP probes and again after forwarding checks. This detects filesystem/policy drift during testing and prevents replaying the pre-probe proof as a post-probe observation. Fixture tests exercise both drift and replay rejection. Production baseline and helper authorization are still prerequisites; no policy values are auto-approved.
+The verifier now recollects independent nonce-bound proofs after the two SFTP probes and again after forwarding checks. This detects filesystem/policy drift during testing and prevents replaying the pre-probe proof as a post-probe observation. Fixture tests exercise both drift and replay rejection. The approved installed helper and independently reviewed baseline are now present. No policy values are auto-approved; missing or changed observations still fail closed.
