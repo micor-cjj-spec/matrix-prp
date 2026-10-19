@@ -208,20 +208,44 @@ public class WellnessAiDraftService {
             .orElseThrow(()->new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                 "当前会话中没有足够的餐食信息，请补充日期、餐次和吃了什么，再生成卡片"));
         long user=CurrentUser.id();
-        Map<String,Object> item=new LinkedHashMap<>();
-        item.put("foodId",0);
-        item.put("name",candidate.foodName());
-        item.put("grams",BigDecimal.ZERO);
-        item.put("mode","manual");
-        item.put("manualCalories",candidate.calories());
-        item.put("calories",candidate.calories());
-        item.put("sourceType",candidate.sourceType());
-        item.put("sourceNote","本次会话的粗略热量估算，请用户确认");
+        var listed=WellnessChatMealContext.listedFoods(candidate.sourceText());
+        if(listed.size()>30)throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+            "原始餐次超过30项，请分组整理后重新生成卡片，不能悄悄省略食材");
+        List<Map<String,Object>> items=new ArrayList<>();
+        if(listed.isEmpty()) {
+            // Preserve the old composite-estimate flow only for non-enumerated meals.
+            Map<String,Object> item=new LinkedHashMap<>();
+            item.put("foodId",0);
+            item.put("name",candidate.foodName());
+            item.put("grams",BigDecimal.ZERO);
+            item.put("mode","manual");
+            item.put("manualCalories",candidate.calories());
+            item.put("calories",candidate.calories());
+            item.put("sourceType",candidate.sourceType());
+            item.put("sourceNote","本次会话的粗略热量估算，请用户确认");
+            items.add(item);
+        } else {
+            // Do not redistribute a total estimate among ingredients or manufacture weights.
+            for(var ingredient:listed) {
+                Map<String,Object> item=new LinkedHashMap<>();
+                item.put("foodId",0);
+                item.put("name",ingredient.name());
+                item.put("grams",ingredient.grams());
+                item.put("mode","catalog");
+                item.put("manualCalories",null);
+                item.put("calories",null);
+                items.add(item);
+            }
+        }
         Map<String,Object> payload=new LinkedHashMap<>();
         payload.put("date",candidate.date().toString());
         payload.put("mealType",candidate.mealType());
-        payload.put("items",List.of(item));
-        payload.put("note",candidate.note());
+        payload.put("items",items);
+        String note=candidate.note()+(listed.isEmpty()
+            ?"未明确逐项列举的餐食暂作为综合项；请在卡片中补充遗漏食材。"
+            :"已从本人聊天描述提取"+listed.size()+"项食物，请逐项检查、补充重量或热量；整餐估算热量不会擅自拆分。"
+                +(candidate.calories()==null?"":" 整餐原估算约"+candidate.calories()+"kcal。"));
+        payload.put("note",note.length()>300?note.substring(0,300):note);
         String id=UUID.randomUUID().toString();
         LocalDateTime expiry=LocalDateTime.now().plusMinutes(15);
         db.update("INSERT INTO prp_wellness_ai_drafts " +
