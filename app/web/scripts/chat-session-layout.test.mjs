@@ -335,3 +335,17 @@ test('conversation management handles reset, cursor paging, rename and confirmed
   assert.match(chat, /chatPhoto\.value = null/)
   assert.match(chat, /\+\+activeSelectionRequest/)
 })
+
+test('AI and manual meal editors support thirty items and pending card additions', () => {
+  const card = readFileSync(new URL('../src/components/ai/WellnessChatCard.vue', import.meta.url), 'utf8')
+  const dialog = readFileSync(new URL('../src/components/ai/AiActionDialog.vue', import.meta.url), 'utf8')
+  const wellness = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  assert.match(card, /meal\.items\.length <= 30/)
+  assert.match(card, /function addFoodItem\(/)
+  assert.match(card, /function removeFoodItem\(/)
+  assert.match(card, /@click="addFoodItem"/)
+  assert.match(card, /@click="removeFoodItem\(i\)"/)
+  assert.match(card, /items\.length \}\} \/ 30/)
+  assert.match(dialog, /meal\.items\.length < 30/)
+  assert.match(wellness, /draftItems\.value\.length > 30/)
+})
