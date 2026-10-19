@@ -238,4 +238,25 @@ class WellnessMealBatchFlowTests {
             .hasMessageContaining("超过30项");
     }
 
+
+    @Test void modelOmittedHotpotFoodsAreRestoredAsUnconfirmedCatalogEntries() {
+        Map<String,Object> parsed=new java.util.LinkedHashMap<>();
+        parsed.put("items",List.of(new java.util.LinkedHashMap<String,Object>(
+            Map.of("name","火锅","foodId",0,"grams",new BigDecimal("0"),"mode","catalog"))));
+        parsed.put("note","");
+        WellnessAiDraftService.reconcileExplicitIngredients(parsed,
+            "晚餐吃了火锅：肥牛150g、毛肚、豆腐100克");
+        var foods=(List<?>)parsed.get("items");
+        assertThat(foods).hasSize(3);
+        assertThat(foods.toString()).contains("肥牛","毛肚","豆腐")
+            .doesNotContain("name=火锅");
+        assertThat(parsed.get("note").toString()).contains("AI漏识别3项");
+        String overflow=java.util.stream.IntStream.rangeClosed(1,31)
+            .mapToObj(i->"食材"+i).collect(java.util.stream.Collectors.joining("、"));
+        assertThatThrownBy(()->WellnessAiDraftService.reconcileExplicitIngredients(parsed,
+            "晚餐吃了火锅："+overflow))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("超过30项");
+    }
+
 }
