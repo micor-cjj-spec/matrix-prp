@@ -330,7 +330,7 @@ public class WellnessService {
 
     private void validateAiMealInput(LocalDate date,String type,String note,List<AiMealItem> items) {
         if(date==null || !Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) ||
-            items==null || items.isEmpty() || items.size()>8 ||
+            items==null || items.isEmpty() || items.size()>30 ||
             note!=null && note.length()>500)
             throw new IllegalArgumentException("Invalid AI meal");
         for(AiMealItem item:items) {
