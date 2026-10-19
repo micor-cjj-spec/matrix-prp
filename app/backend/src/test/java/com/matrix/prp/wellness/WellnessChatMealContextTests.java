@@ -193,4 +193,29 @@ class WellnessChatMealContextTests {
         assertThat(draft.sourceType()).isEqualTo("USER_ESTIMATE");
         assertThat(draft.calories()).isEqualByComparingTo("700");
     }
+
+    @Test void enumeratedHotpotIngredientsArePreservedWithKnownGramWeights() {
+        var listed=WellnessChatMealContext.listedFoods(
+            "2026-10-14 晚餐吃了火锅：牛肉200g、毛肚100克、豆腐、菠菜、香油蘸料；鸡蛋面没吃");
+        assertThat(listed).extracting(WellnessChatMealContext.ListedFood::name)
+            .containsExactly("牛肉","毛肚","豆腐","菠菜","香油蘸料");
+        assertThat(listed.getFirst().grams()).isEqualByComparingTo("200");
+        assertThat(listed.get(1).grams()).isEqualByComparingTo("100");
+        assertThat(listed.get(2).grams()).isEqualByComparingTo("0");
+    }
+
+    @Test void compositeMealsWithoutExplicitIngredientEnumerationStayAsOneEstimate() {
+        assertThat(WellnessChatMealContext.listedFoods("今晚吃了炒菜+米饭，饭多菜少")).isEmpty();
+        assertThat(WellnessChatMealContext.listedFoods("今天午餐吃了海味馄饨大碗16个")).isEmpty();
+    }
+
+    @Test void listedFoodsNeverTruncateAtEightAndPreserveBoundaryOfThirtyOne() {
+        for(int count:new int[]{9,30,31}) {
+            String foods=java.util.stream.IntStream.rangeClosed(1,count)
+                .mapToObj(i->"食材"+i).collect(java.util.stream.Collectors.joining("、"));
+            assertThat(WellnessChatMealContext.listedFoods("今天晚餐吃了火锅："+foods))
+                .hasSize(count);
+        }
+    }
+
 }
