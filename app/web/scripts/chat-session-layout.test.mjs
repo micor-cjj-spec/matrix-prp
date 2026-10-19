@@ -345,6 +345,7 @@ test('AI and manual meal editors support thirty items and pending card additions
   assert.match(card, /function removeFoodItem\(/)
   assert.match(card, /@click="addFoodItem"/)
   assert.match(card, /@click="removeFoodItem\(i\)"/)
+  assert.match(card, /foodLoadingErrors, suggestedDishes, originalCalories/)
   assert.match(card, /items\.length \}\} \/ 30/)
   assert.match(dialog, /meal\.items\.length < 30/)
   assert.match(wellness, /draftItems\.value\.length > 30/)
