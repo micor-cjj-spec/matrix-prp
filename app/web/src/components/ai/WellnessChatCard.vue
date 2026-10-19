@@ -373,6 +373,7 @@ onMounted(() => { void load() })
         </button>
       </template>
       <template v-else-if="draft.action === 'meal.create'">
+        <p v-if="values.note" class="health-chat-note">{{ values.note }}</p>
         <div class="health-chat-row">
           <label>日期 <input v-model="values.date" type="date" :disabled="saving" /></label>
           <label>餐次 <select v-model="values.mealType" :disabled="saving">
