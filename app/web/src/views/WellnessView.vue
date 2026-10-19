@@ -124,7 +124,7 @@ async function searchFoods(q: string) {
   } catch { ElMessage.error('食物搜索失败') }
 }
 async function saveMeal() {
-  if (!draftItems.value.length || draftItems.value.length > 8 ||
+  if (!draftItems.value.length || draftItems.value.length > 30 ||
       draftItems.value.some(item => item.manual
         ? !item.customName.trim() || item.customName.length > 120 ||
           !Number.isFinite(Number(item.customCalories)) || item.customCalories <= 0 ||
