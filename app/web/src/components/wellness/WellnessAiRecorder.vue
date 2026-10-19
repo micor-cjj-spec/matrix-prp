@@ -90,10 +90,22 @@ function correction(): Record<string, unknown> {
   }
   return v
 }
+function addIngredient() {
+  if (!draft.value || draft.value.action !== 'meal.create' || confirming.value) return
+  const current = values.value.items ?? []
+  if (current.length >= 30) return
+  values.value.items = [...current, { foodId: 0, name: '', grams: 0, calories: null }]
+}
+function removeIngredient(index: number) {
+  const current = values.value.items ?? []
+  if (confirming.value || current.length <= 1) return
+  values.value.items = current.filter((_, i) => i !== index)
+}
 async function save() {
   if (!draft.value || confirming.value) return
   if (draft.value.action === 'meal.create' &&
-      values.value.items?.some(item => !item.foodId || !Number(item.grams) || Number(item.grams) <= 0)) {
+      (!values.value.items?.length || values.value.items.length > 30 ||
+       values.value.items.some(item => !item.foodId || !Number(item.grams) || Number(item.grams) <= 0))) {
     ElMessage.warning('请为每种食物选择食品库条目并填写有效克数')
     return
   }
@@ -157,6 +169,13 @@ async function save() {
             </select>
           </label>
           <label>可食部分量（g）<input v-model.number="item.grams" type="number" inputmode="decimal" min="0.1" max="3000" step="0.1" /></label>
+          <button v-if="(values.items?.length ?? 0) > 1" type="button" class="outline"
+            :disabled="confirming" @click="removeIngredient(index)">移除食物</button>
+        </div>
+        <div class="capture-actions">
+          <small>食物明细 {{ values.items?.length ?? 0 }} / 30，确认所有食材均已录入。</small>
+          <button type="button" class="outline" :disabled="confirming || (values.items?.length ?? 0) >= 30"
+            @click="addIngredient">+ 补充食物</button>
         </div>
         <label>备注 <input v-model="values.note" maxlength="300" /></label>
         <p class="capture-note">未找到的菜品可先前往健康中心的食品库自建，或查询 USDA 后再返回本草稿选择。</p>

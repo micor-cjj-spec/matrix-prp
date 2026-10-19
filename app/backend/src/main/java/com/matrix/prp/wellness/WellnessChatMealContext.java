@@ -13,7 +13,8 @@ import java.util.regex.Pattern;
  */
 final class WellnessChatMealContext {
     record Candidate(LocalDate date, String mealType, String foodName,
-                     BigDecimal calories, String sourceType, String note) {}
+                     BigDecimal calories, String sourceType, String note, String sourceText) {}
+    record ListedFood(String name, BigDecimal grams) {}
     private static final Pattern ENERGY=Pattern.compile(
         "(?iu)(?:建议记|建议记录|建议录入|推荐记录|估算热量|热量)\\s*[:：]?\\s*(?:约|大约)?\\s*(\\d{1,4}(?:\\.\\d{1,2})?)\\s*(?:kcal|千卡|大卡)");
     private static final Pattern ISO=Pattern.compile("(?<!\\d)(20\\d{2}-\\d{2}-\\d{2})(?!\\d)");
@@ -108,9 +109,62 @@ final class WellnessChatMealContext {
             if(detail.indexOf("两荤两素")>=0) note+="5人合点两荤两素。";
             if(detail.indexOf("饭比较多")>=0 || detail.indexOf("饭多菜少")>=0)
                 note+="米饭偏多、炒菜偏少。";
-            return Optional.of(new Candidate(date,type,name,kcal,sourceType,note));
+            return Optional.of(new Candidate(date,type,name,kcal,sourceType,note,detail.toString()));
         }
         return Optional.empty();
+    }
+
+    /**
+     * Preserve an explicitly enumerated ingredient list from the user's own message.
+     * Never split an ambiguous composite dish such as "炒菜+米饭", never use
+     * assistant text as ingredients, and never invent kcal for individual foods.
+     */
+    static List<ListedFood> listedFoods(String source) {
+        if(source==null || source.isBlank())return List.of();
+        String text=source.replace('\r','\n');
+        int hotpot=text.indexOf("火锅");
+        if(hotpot>=0) {
+            text=text.substring(hotpot+"火锅".length());
+            text=text.replaceFirst("^[的里：:、，,\\s]+","");
+        } else {
+            var prefix=Pattern.compile("吃了|吃的是|点了").matcher(text);
+            if(!prefix.find())return List.of();
+            text=text.substring(prefix.end());
+        }
+        text=text.split("[。！？]",2)[0];
+        if(hotpot<0 && (text.contains("+") || text.contains("＋")))return List.of();
+        if(!text.matches("(?s).*[、，,；;\\n].*"))return List.of();
+        List<ListedFood> result=new java.util.ArrayList<>();
+        for(String segment:text.split("[、，,；;\\n]")) {
+            String value=segment.strip().replaceFirst("^(?:[-*•]\\s*|\\d+[.、]\\s*)","");
+            if(value.isBlank() || value.contains("没吃") || value.contains("不吃") ||
+                value.matches("(?s).*(?:饭多菜少|饭比较多|炒菜比较少|两荤两素|[0-9]+人合点).*"))
+                continue;
+            // Read explicitly entered weights BEFORE removing parenthesized qualifiers.
+            var parentWeight=Pattern.compile(
+                "[（(]\\s*(\\d+(?:\\.\\d+)?)\\s*(?:g|克)\\s*[）)]",
+                Pattern.CASE_INSENSITIVE).matcher(value);
+            BigDecimal grams=parentWeight.find()
+                ?new BigDecimal(parentWeight.group(1)):BigDecimal.ZERO;
+            value=value.replaceAll("[（(][^）)]*[）)]","");
+            value=value.replaceFirst("^(?:还|又)?(?:吃了|点了|加了|还有|以及)\\s*","");
+            value=value.strip();
+            var prefix=Pattern.compile("^(\\d+(?:\\.\\d+)?)\\s*(?:g|克)\\s*(.+)$",Pattern.CASE_INSENSITIVE).matcher(value);
+            var suffix=Pattern.compile("^(.+?)\\s*(\\d+(?:\\.\\d+)?)\\s*(?:g|克)(?:\\s.*)?$",Pattern.CASE_INSENSITIVE).matcher(value);
+            if(prefix.matches()) {
+                grams=new BigDecimal(prefix.group(1));
+                value=prefix.group(2).strip();
+            } else if(suffix.matches()) {
+                grams=new BigDecimal(suffix.group(2));
+                value=suffix.group(1).strip();
+            }
+            value=value.replaceFirst("(?i)[:：]\\s*(?:约)?\\d+(?:\\.\\d+)?\\s*(?:kcal|千卡|大卡).*","");
+            value=value.strip();
+            if(value.isBlank() || value.matches("(?s).*(?:总计|总热量|合计|记录|帮我录入|帮我保存).*"))continue;
+            if(value.length()>120)return List.of();
+            result.add(new ListedFood(value,grams));
+        }
+        return result.size()>=2 ? List.copyOf(result) : List.of();
     }
 
     private static BigDecimal repeatedIdenticalCalories(String text) {

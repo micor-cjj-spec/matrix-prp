@@ -77,7 +77,7 @@ public class WellnessAiDraftService {
         if(candidates.stream().filter(meal->meal.mealDate().equals(source.mealDate())).count()>1)
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                 "来源日期有多条同类餐次，请明确选择要复制的那一条");
-        if(source.items().isEmpty() || source.items().size()>8 ||
+        if(source.items().isEmpty() || source.items().size()>30 ||
             source.items().stream().anyMatch(item->item.grams()==null ||
                 item.grams().signum()<0 || item.grams().compareTo(BigDecimal.valueOf(3000))>0 ||
                 (item.foodId()>0 && item.grams().signum()==0) ||
@@ -208,20 +208,44 @@ public class WellnessAiDraftService {
             .orElseThrow(()->new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                 "当前会话中没有足够的餐食信息，请补充日期、餐次和吃了什么，再生成卡片"));
         long user=CurrentUser.id();
-        Map<String,Object> item=new LinkedHashMap<>();
-        item.put("foodId",0);
-        item.put("name",candidate.foodName());
-        item.put("grams",BigDecimal.ZERO);
-        item.put("mode","manual");
-        item.put("manualCalories",candidate.calories());
-        item.put("calories",candidate.calories());
-        item.put("sourceType",candidate.sourceType());
-        item.put("sourceNote","本次会话的粗略热量估算，请用户确认");
+        var listed=WellnessChatMealContext.listedFoods(candidate.sourceText());
+        if(listed.size()>30)throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+            "原始餐次超过30项，请分组整理后重新生成卡片，不能悄悄省略食材");
+        List<Map<String,Object>> items=new ArrayList<>();
+        if(listed.isEmpty()) {
+            // Preserve the old composite-estimate flow only for non-enumerated meals.
+            Map<String,Object> item=new LinkedHashMap<>();
+            item.put("foodId",0);
+            item.put("name",candidate.foodName());
+            item.put("grams",BigDecimal.ZERO);
+            item.put("mode","manual");
+            item.put("manualCalories",candidate.calories());
+            item.put("calories",candidate.calories());
+            item.put("sourceType",candidate.sourceType());
+            item.put("sourceNote","本次会话的粗略热量估算，请用户确认");
+            items.add(item);
+        } else {
+            // Do not redistribute a total estimate among ingredients or manufacture weights.
+            for(var ingredient:listed) {
+                Map<String,Object> item=new LinkedHashMap<>();
+                item.put("foodId",0);
+                item.put("name",ingredient.name());
+                item.put("grams",ingredient.grams());
+                item.put("mode","catalog");
+                item.put("manualCalories",null);
+                item.put("calories",null);
+                items.add(item);
+            }
+        }
         Map<String,Object> payload=new LinkedHashMap<>();
         payload.put("date",candidate.date().toString());
         payload.put("mealType",candidate.mealType());
-        payload.put("items",List.of(item));
-        payload.put("note",candidate.note());
+        payload.put("items",items);
+        String note=candidate.note()+(listed.isEmpty()
+            ?"未明确逐项列举的餐食暂作为综合项；请在卡片中补充遗漏食材。"
+            :"已从本人聊天描述提取"+listed.size()+"项食物，请逐项检查、补充重量或热量；整餐估算热量不会擅自拆分。"
+                +(candidate.calories()==null?"":" 整餐原估算约"+candidate.calories()+"kcal。"));
+        payload.put("note",note.length()>300?note.substring(0,300):note);
         String id=UUID.randomUUID().toString();
         LocalDateTime expiry=LocalDateTime.now().plusMinutes(15);
         db.update("INSERT INTO prp_wellness_ai_drafts " +
@@ -259,14 +283,17 @@ public class WellnessAiDraftService {
                 "Selected model cannot accept pictures. Choose DeepSeek, OpenAI GPT-4.1 or Kimi K2.5.");
         }
         String month=YearMonth.now(ZoneOffset.UTC).toString();
-        long reserved=bytes==null?2200:4800;
+        long reserved=bytes==null?4500:6500;
         usage.reserve(user,month,reserved,userRequests,userTokens,globalRequests,globalTokens);
         JsonNode root=request(config,model,input,bytes,mime);
         JsonNode output=parseJson(root.path("choices").path(0).path("message").path("content").asText(""));
         Map<String,Object> verified=verify(output);
         String action=output.path("action").asText();
         // Explicit calories originate only in the authenticated user's message, never the model JSON.
-        if("meal.create".equals(action)) applyUserCalorieEstimate(verified,input);
+        if("meal.create".equals(action)) {
+            reconcileExplicitIngredients(verified,input);
+            applyUserCalorieEstimate(verified,input);
+        }
         String description=description(action,verified);
         String id=UUID.randomUUID().toString();
         LocalDateTime expiry=LocalDateTime.now().plusMinutes(15);
@@ -362,7 +389,7 @@ public class WellnessAiDraftService {
     private JsonNode request(AiSettingsService.Runtime config,String model,String prompt,byte[] image,String mime){
         try{
             Map<String,Object> payload=new LinkedHashMap<>();
-            payload.put("model",model);payload.put("stream",false);payload.put("max_tokens",700);
+            payload.put("model",model);payload.put("stream",false);payload.put("max_tokens",2500);
             String rules="你是PRP健康数据录入解析器。只输出一个JSON对象，没有Markdown。"+
                 "只能创建三种记录: meal.create、exercise.create、metric.create。"+
                 "JSON meal.create: {action, date:yyyy-MM-dd, mealType:BREAKFAST/LUNCH/DINNER/SNACK, "+
@@ -370,11 +397,11 @@ public class WellnessAiDraftService {
                 "exercise.create: {action,date,name,durationMinutes,estimatedKcal,note}；"+
                 "metric.create: {action,date,weightKg,bodyFatPct,waistCm}。"+
                 "若日期未指定用"+today()+"。餐次类型按时间与语义判断；文字只有数量时，只有常见明确份量可保守换算：鸡蛋可食部约50g/个、全麦面包约30g/片、牛奶约1g/ml；请在note明确写估算及份量，其他未知克重输出0不可伪造；照片可粗略估量分量（克）但务必提示用户核对，"+
-                "图片无法精确估计油量或分量，请提醒用户核对；每个图片不超过8种食物。"+
+                "图片无法精确估计油量或分量，请提醒用户核对；单餐最多30项，每种明确列出的食物都应单独输出，禁止省略、截取或合并为综合菜品；超过30项请告知用户拆分或精简，不得暗中舍弃；未知克重用0且不得猜测热量。"+
                 "仅根据用户提供的信息填写，不能读取历史数据，也不得执行修改或删除。";
             if(config.provider().anthropic()){
                 if(image!=null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Vision not available for this provider");
-                payload.put("system",rules);payload.put("max_tokens",700);
+                payload.put("system",rules);payload.put("max_tokens",2500);
                 payload.put("messages",List.of(Map.of("role","user","content",prompt)));
                 payload.remove("stream");
             } else {
@@ -410,7 +437,7 @@ public class WellnessAiDraftService {
          catch(Exception ex){throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"AI record parsing failed");}
     }
     private JsonNode parseJson(String s){
-        if(s.length()>6000) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,"AI draft too large");
+        if(s.length()>12000) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,"AI draft too large");
         int start=s.indexOf('{'),end=s.lastIndexOf('}');
         if(start<0||end<=start) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
             "AI did not return a valid record; use the manual form");
@@ -449,6 +476,45 @@ public class WellnessAiDraftService {
         return found!=null && found.signum()>0 &&
             found.compareTo(new BigDecimal("20000"))<=0 ? found : null;
     }
+    /**
+     * Fail closed on >30 user-listed foods and preserve any source ingredients the
+     * model omitted. These pending records require human catalog/energy confirmation.
+     */
+    @SuppressWarnings("unchecked")
+    static void reconcileExplicitIngredients(Map<String,Object> values,String source) {
+        var listed=WellnessChatMealContext.listedFoods(source);
+        if(listed.isEmpty()) return;
+        if(listed.size()>30)throw invalid("原始餐次超过30项，不能省略食物");
+        var existing=(List<Map<String,Object>>)values.get("items");
+        if(existing==null || existing.isEmpty())throw invalid("AI没有输出有效食物明细");
+        List<Map<String,Object>> items=new ArrayList<>(existing);
+        if(items.size()==1) {
+            String title=String.valueOf(items.getFirst().get("name")).strip();
+            if(Set.of("火锅","一顿火锅","火锅晚餐","火锅午餐").contains(title))items.clear();
+        }
+        List<String> missing=new ArrayList<>();
+        for(var item:listed) {
+            String target=normalize(item.name());
+            if(items.stream().anyMatch(row->target.equals(normalize(String.valueOf(row.get("name"))))))
+                continue;
+            Map<String,Object> restored=new LinkedHashMap<>();
+            restored.put("foodId",0);
+            restored.put("mode","catalog");
+            restored.put("name",item.name());
+            restored.put("grams",item.grams());
+            restored.put("manualCalories",null);
+            restored.put("calories",null);
+            items.add(restored);
+            missing.add(item.name());
+        }
+        if(items.size()>30)throw invalid("AI识别与用户食材清单合并后超过30项，需人工核对");
+        values.put("items",items);
+        if(!missing.isEmpty()) {
+            String note=String.valueOf(values.getOrDefault("note",""));
+            String additions=" 原文中AI漏识别"+missing.size()+"项，已作为待确认食物补入："+String.join("、",missing)+"。";
+            values.put("note",(note+additions).substring(0,Math.min(300,(note+additions).length())));
+        }
+    }
     @SuppressWarnings("unchecked")
     static void applyUserCalorieEstimate(Map<String,Object> values,String source) {
         BigDecimal energy=userProvidedCalories(source);
@@ -483,7 +549,7 @@ public class WellnessAiDraftService {
                 String type=node.path("mealType").asText("");
                 if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type))throw invalid("Unknown meal type");
                 JsonNode items=node.path("items");
-                if(!items.isArray()||items.isEmpty()||items.size()>8) throw invalid("未识别到有效食物明细，请补充吃了什么，或使用上下文健康记录卡片");
+                if(!items.isArray()||items.isEmpty()||items.size()>30) throw invalid("未识别到有效食物明细，请补充吃了什么，或使用上下文健康记录卡片");
                 List<Map<String,Object>> parsed=new ArrayList<>();
                 for(JsonNode item:items){
                     String name=item.path("name").asText("").trim();
@@ -668,7 +734,7 @@ public class WellnessAiDraftService {
                         if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) || !types.add(type))
                             throw invalid("Duplicate/invalid meal type");
                         var foods=group.path("items");
-                        if(!foods.isArray() || foods.isEmpty() || foods.size()>8)
+                        if(!foods.isArray() || foods.isEmpty() || foods.size()>30)
                             throw invalid("Invalid meal items");
                         BigDecimal sum=BigDecimal.ZERO;
                         for(var item:foods){
@@ -721,7 +787,7 @@ public class WellnessAiDraftService {
                             "来源餐次发生变化，请重新创建批量草稿");
                     var snapshot=data.path("items");
                     if(!snapshot.isArray() || snapshot.size()!=source.items().size() ||
-                        snapshot.isEmpty() || snapshot.size()>8)
+                        snapshot.isEmpty() || snapshot.size()>30)
                         throw new ResponseStatusException(HttpStatus.CONFLICT,
                             "来源食物与草稿不一致，请重新创建");
                     List<ItemInput> copied=new ArrayList<>();

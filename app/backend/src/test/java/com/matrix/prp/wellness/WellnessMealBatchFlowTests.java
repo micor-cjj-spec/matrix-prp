@@ -193,4 +193,70 @@ class WellnessMealBatchFlowTests {
         assertThat(noPending.status()).isEqualTo("NO_PENDING");
         verify(service,times(1)).confirm(id);
     }
+
+    @Test void structuredMealAcceptsThirtyItemsAndRejectsThirtyOne() {
+        asOwner();
+        var db=mock(JdbcTemplate.class);
+        var wellness=mock(WellnessService.class);
+        var service=service(db,wellness);
+        for(int count:new int[]{8,30}) {
+            StringBuilder input=new StringBuilder(day+"\n晚餐\n");
+            for(int i=1;i<=count;i++)input.append("食材").append(i).append("：10 kcal\n");
+            var draft=service.prepareBatch(input.toString());
+            var groups=(List<?>)draft.values().get("meals");
+            assertThat(groups.toString()).contains("食材"+count);
+        }
+        StringBuilder tooMany=new StringBuilder(day+"\n晚餐\n");
+        for(int i=1;i<=31;i++)tooMany.append("食材").append(i).append("：10 kcal\n");
+        assertThatThrownBy(()->service.prepareBatch(tooMany.toString()))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("最多30项");
+    }
+
+    @Test void chatContextCreatesOneCardItemPerExplicitFoodWithoutInventingCalories() {
+        asOwner();
+        var db=mock(JdbcTemplate.class);
+        var wellness=mock(WellnessService.class);
+        var service=service(db,wellness);
+        String ingredients=java.util.stream.IntStream.rangeClosed(1,30)
+            .mapToObj(i->"食材"+i).collect(java.util.stream.Collectors.joining("、"));
+        var message=new AiStore.Message(1,"user",day+" 晚餐吃了火锅："+ingredients,
+            LocalDateTime.now().minusDays(1));
+        var preview=service.prepareConversationMeal(List.of(message),"帮我生成昨天晚餐卡片");
+        var items=(List<?>)preview.values().get("items");
+        assertThat(items).hasSize(30);
+        assertThat(items.toString()).contains("食材1","食材30","catalog")
+            .doesNotContain("manualCalories=650");
+        assertThat(preview.values().get("note").toString()).contains("逐项检查");
+        verify(wellness,never()).addAiMeal(any(),anyString(),anyString(),anyList(),anyString());
+        String tooMany=java.util.stream.IntStream.rangeClosed(1,31)
+            .mapToObj(i->"食材"+i).collect(java.util.stream.Collectors.joining("、"));
+        var overflow=new AiStore.Message(2,"user",day+" 晚餐吃了火锅："+tooMany,
+            LocalDateTime.now().minusDays(1));
+        assertThatThrownBy(()->service.prepareConversationMeal(List.of(overflow),"帮我生成昨天晚餐卡片"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("超过30项");
+    }
+
+
+    @Test void modelOmittedHotpotFoodsAreRestoredAsUnconfirmedCatalogEntries() {
+        Map<String,Object> parsed=new java.util.LinkedHashMap<>();
+        parsed.put("items",List.of(new java.util.LinkedHashMap<String,Object>(
+            Map.of("name","火锅","foodId",0,"grams",new BigDecimal("0"),"mode","catalog"))));
+        parsed.put("note","");
+        WellnessAiDraftService.reconcileExplicitIngredients(parsed,
+            "晚餐吃了火锅：肥牛150g、毛肚、豆腐100克");
+        var foods=(List<?>)parsed.get("items");
+        assertThat(foods).hasSize(3);
+        assertThat(foods.toString()).contains("肥牛","毛肚","豆腐")
+            .doesNotContain("name=火锅");
+        assertThat(parsed.get("note").toString()).contains("AI漏识别3项");
+        String overflow=java.util.stream.IntStream.rangeClosed(1,31)
+            .mapToObj(i->"食材"+i).collect(java.util.stream.Collectors.joining("、"));
+        assertThatThrownBy(()->WellnessAiDraftService.reconcileExplicitIngredients(parsed,
+            "晚餐吃了火锅："+overflow))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("超过30项");
+    }
+
 }

@@ -164,7 +164,7 @@ async function updateMetric(item: MetricEdit) {
               <button v-if="meal.items.length > 1" type="button" class="ai-action-secondary"
                 :disabled="saving" @click="meal.items.splice(i, 1)">移除这项食物</button>
             </div>
-            <button v-if="meal.items.length < 8" type="button" class="ai-action-secondary"
+            <button v-if="meal.items.length < 30" type="button" class="ai-action-secondary"
               :disabled="saving" @click="meal.items.push({ foodId: null, name: '', grams: 0, calories: null })">+ 添加自定义食物</button>
             <label>备注<textarea v-model="meal.note" maxlength="500" rows="2" :disabled="saving" /></label>
             <p class="ai-action-hint">食品库模式由服务器按实际重量重新计算热量；自定义热量保留本次快照。</p>

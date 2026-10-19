@@ -125,8 +125,8 @@ final class WellnessMealBatchIntent {
     }
 
     private static Meal finish(String type,BigDecimal declared,List<Food> raw){
-        if(raw.isEmpty() || raw.size()>8)
-            throw new IllegalArgumentException("餐次中缺少可确认的食物明细（最多8项）");
+        if(raw.isEmpty() || raw.size()>30)
+            throw new IllegalArgumentException("餐次中缺少可确认的食物明细（最多30项）");
         List<Food> foods=new ArrayList<>();
         for(Food food:raw){
             BigDecimal kcal=food.calories();
