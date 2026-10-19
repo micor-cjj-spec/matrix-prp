@@ -49,6 +49,11 @@ class ReadOnlyInspectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.validate(obj)
 
+    def test_duplicate_json_fields_are_not_accepted(self):
+        raw = '{"schema_version":1,"schema_version":2}'
+        with self.assertRaises(ValueError):
+            json.loads(raw, object_pairs_hook=client.unique_pairs)
+
     def test_rejects_forged_types_and_digest(self):
         obj = sample()
         obj["components"]["controller"]["sha256"] = "../../etc/shadow"
