@@ -89,7 +89,7 @@ function validManualCalories(item: Item) {
 }
 const canConfirm = computed(() => !loading.value && !saving.value && !saveOutcomeUnknown.value &&
   status.value === 'PENDING' && draft.value?.action === 'meal.create' &&
-  items.value.length > 0 && items.value.every((item, i) =>
+  items.value.length > 0 && items.value.length <= 30 && items.value.every((item, i) =>
     isManual(item) ? validManualCalories(item) :
       !resolving.value && Number(item.grams) > 0 && (Number(item.foodId) > 0
         ? Number.isFinite(calorieDensity[i])
@@ -101,7 +101,7 @@ const multiCalories = computed(() => multiMeals.value.reduce((sum, meal) => sum 
 const canConfirmMulti = computed(() => !loading.value && !saving.value && !saveOutcomeUnknown.value &&
   status.value === 'PENDING' && draft.value?.action === 'meal.create_batch' &&
   multiMeals.value.length > 0 && multiMeals.value.length <= 4 &&
-  multiMeals.value.every(meal => meal.items.length > 0 && meal.items.length <= 8 &&
+  multiMeals.value.every(meal => meal.items.length > 0 && meal.items.length <= 30 &&
     meal.items.every(item => Number(item.manualCalories) > 0)))
 const canConfirmBatch = computed(() => !loading.value && !saving.value && !saveOutcomeUnknown.value &&
   status.value === 'PENDING' && draft.value?.action === 'meal.copy_batch' &&
@@ -177,6 +177,18 @@ async function load() {
     }
   } catch { error.value = '读取记录草稿失败或无权访问'; }
   finally { loading.value = false }
+}
+function addFoodItem() {
+  if (status.value !== 'PENDING' || items.value.length >= 30 || saving.value) return
+  values.value.items = [...items.value, { foodId: 0, name: '', grams: 0, calories: null,
+    mode: 'manual', manualCalories: 0 }]
+}
+function removeFoodItem(index: number) {
+  if (status.value !== 'PENDING' || items.value.length <= 1 || saving.value) return
+  values.value.items = items.value.filter((_, i) => i !== index)
+  calorieDensity.splice(index, 1)
+  delete matches[index]
+  delete chosen[index]
 }
 function markSaved() {
   status.value = 'CONSUMED'
@@ -452,6 +464,10 @@ onMounted(() => { void load() })
           <p v-if="foodLoadingErrors[i] && item.foodId" class="health-chat-alert">{{ foodLoadingErrors[i] }}</p>
           </template>
           <p v-if="isManual(item) && !validManualCalories(item)" class="health-chat-alert">请输入有效的食物名称和本次总热量（0～20000 kcal）</p>
+        </div>
+        <div class="health-chat-food-controls">
+          <span>食物明细 {{ items.length }} / 30 项；请对照原始描述检查遗漏，尤其是火锅配菜、蘸料和食用油。</span>
+          <button type="button" class="health-chat-recheck" :disabled="items.length >= 30 || saving" @click="addFoodItem">+ 补充食物</button>
         </div>
         <div class="health-chat-total"><span>预计总摄入</span><b>{{ total.toFixed(0) }} kcal</b></div>
         <p class="health-chat-note">食品库模式由服务器复算；自定义模式使用你填的本次总热量，不写入食品库，未知营养素不做推断。</p>
