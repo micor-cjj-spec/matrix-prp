@@ -1,0 +1,75 @@
+name: PRP independent read-only inspection
+run-name: PRP inspect production at ${{ github.sha }}
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: prp-readonly-inspection
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: production-inspect
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Configure separate read-only identity
+        env:
+          INSPECT_KEY: ${{ secrets.PRP_INSPECT_SSH_KEY }}
+          INSPECT_KNOWN_HOSTS: ${{ secrets.PRP_INSPECT_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$INSPECT_KEY" > "$HOME/.ssh/prp_inspect"
+          printf '%s\n' "$INSPECT_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/prp_inspect"
+          test -s "$HOME/.ssh/known_hosts"
+      - name: Request fixed read-only report
+        env:
+          INSPECT_HOST: ${{ secrets.PRP_INSPECT_HOST }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          # Untrusted raw SSH stdout/stderr must NEVER reach logs, summary or artifacts.
+          if (ulimit -f 16; timeout 30s ssh -i "$HOME/.ssh/prp_inspect" \
+              -T -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+              -o ConnectionAttempts=1 -o ForwardAgent=no \
+              "prp-inspect@$INSPECT_HOST" report \
+              > "$RUNNER_TEMP/prp-inspection-untrusted.json" 2>/dev/null); then
+            :
+          else
+            : > "$RUNNER_TEMP/prp-inspection-untrusted.json"
+          fi
+      - name: Strictly validate and publish sanitized metadata
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 app/deploy/validate_inspection.py \
+            --input "$RUNNER_TEMP/prp-inspection-untrusted.json" \
+            --output "$RUNNER_TEMP/prp-inspection-safe.json" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --manifest app/deploy/controller-manifest.json
+      - name: Upload ONLY validated report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: prp-readonly-inspection-safe
+          path: ${{ runner.temp }}/prp-inspection-safe.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Remove temporary SSH identity and raw response
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$HOME/.ssh/prp_inspect" "$HOME/.ssh/known_hosts" \
+            "$RUNNER_TEMP/prp-inspection-untrusted.json"
