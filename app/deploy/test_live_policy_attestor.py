@@ -80,11 +80,47 @@ class LivePolicyAttestorTests(unittest.TestCase):
         for entries in [[],[entry,{**entry,'_BOOT_ID':'c'*32}],[{**entry,'__MONOTONIC_TIMESTAMP':str(int((birth+20)*1e6))}]]:
             with self.assertRaises(policy.CollectionError):policy.journal_generation(entries,master,'a'*32)
 
-    def test_saved_daemon_birth_rejects_unknown_clock_generation(self):
-        with patch.object(policy,'bounded_command',return_value=b't 100000000'),patch.object(policy,'process_birth',return_value=100.01):
-            self.assertAlmostEqual(policy.daemon_birth({}),99.98)
-        with patch.object(policy,'bounded_command',return_value=b't 100000000'),patch.object(policy,'process_birth',return_value=110):
-            with self.assertRaisesRegex(policy.CollectionError,'SSH_CLOCK_GENERATION_UNPROVEN'):policy.daemon_birth({})
+    def daemon_fixture(self, drift=0, uptime=128800, kernel_birth=10, saved_mono=10,
+                       domain_offset=0, saved=b't 100000000', mono_raw=None):
+        def command(args):
+            if args[-1]=='ExecMainStartTimestamp':return saved
+            return mono_raw if mono_raw is not None else ('t '+str(int(saved_mono*1e6))).encode()
+        def clock(which):
+            return 10+uptime+(domain_offset if which==time.CLOCK_BOOTTIME else 0)
+        with patch.object(policy,'bounded_command',side_effect=command), \
+             patch.object(policy.time,'clock_gettime',side_effect=clock), \
+             patch.object(policy.time,'time',return_value=100+uptime+drift), \
+             patch.object(policy.os,'sysconf',return_value=100):
+            return policy.daemon_birth({'start_ticks':int(kernel_birth*100)})
+
+    def test_saved_daemon_birth_accepts_observed_ntp_slew_without_moving_boundary(self):
+        self.assertAlmostEqual(self.daemon_fixture(drift=.519239),99.98)
+        self.assertAlmostEqual(self.daemon_fixture(drift=-.519239),99.460761)
+        self.assertAlmostEqual(self.daemon_fixture(),99.98)
+
+    def test_wrong_monotonic_generation_still_fails_even_when_wall_time_matches(self):
+        for values in [{'kernel_birth':11},{'saved_mono':11},{'saved_mono':0}]:
+            with self.subTest(values=values),self.assertRaises(policy.CollectionError):self.daemon_fixture(**values)
+
+    def test_large_wall_discontinuities_and_suspend_clock_domains_fail_closed(self):
+        for values in [{'drift':1000},{'drift':-1000},{'drift':1,'uptime':10},
+                       {'domain_offset':10},{'domain_offset':-10}]:
+            with self.subTest(values=values),self.assertRaisesRegex(policy.CollectionError,'SSH_CLOCK_GENERATION_UNPROVEN'):
+                self.daemon_fixture(**values)
+
+    def test_missing_malformed_or_zero_systemd_start_properties_fail_closed(self):
+        for raw in [b'',b't 0',b's 100',b't nan',b't -1',b't 100\nt 200',b't '+b'9'*21]:
+            for argument in ['saved','mono_raw']:
+                with self.subTest(raw=raw,argument=argument),self.assertRaises(policy.CollectionError):
+                    self.daemon_fixture(**{argument:raw})
+
+    def test_loaded_policy_still_rejects_post_start_config_after_clock_fix(self):
+        boundary=self.daemon_fixture(drift=.519239)
+        self.assertTrue(policy.loaded_configuration([{'ctime':50_000_000_000}],boundary))
+        for records in [[{'ctime':100_000_000_000}],[{'ctime':101_000_000_000}],
+                        [{'ctime':99_970_000_000}],[],[{'missing':True}]]:
+            with self.subTest(records=records),self.assertRaisesRegex(policy.CollectionError,'SSH_LOADED_POLICY_UNPROVEN'):
+                policy.loaded_configuration(records,boundary)
 
     def test_real_linux_interpreter_symlink_is_read_only_and_root_controlled(self):
         if not Path('/usr/bin/python3').exists():self.skipTest('Linux interpreter fixture absent')

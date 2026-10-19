@@ -1,0 +1,4 @@
+{
+  "schema_version": 1,
+  "reason": "Clock-proof helper repair only. Hold application publication pending reviewed helper installation, independent SSH baseline measurement and real read-only acceptance."
+}
