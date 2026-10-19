@@ -22,6 +22,16 @@ def strict_obj(obj, fields):
         raise ValueError("INVALID_REPORT")
 
 
+def unique_pairs(pairs):
+    # Duplicate JSON keys must never silently override untrusted SSH fields.
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("INVALID_REPORT")
+        obj[key] = value
+    return obj
+
+
 def validate(obj):
     strict_obj(obj, {"schema_version", "observed_utc", "service",
                      "components", "deployment_diagnostic", "journal"})
@@ -121,7 +131,7 @@ def main():
     try:
         if not a.input.is_file() or not 0 < a.input.stat().st_size <= 8192:
             raise ValueError("INVALID_REPORT")
-        obj = validate(json.loads(a.input.read_text(encoding="utf-8")))
+        obj = validate(json.loads(a.input.read_text(encoding="utf-8"), object_pairs_hook=unique_pairs))
         manifest = json.loads(a.manifest.read_text(encoding="utf-8"))
         final = output_report(obj, manifest)
     except (OSError, ValueError, UnicodeError, KeyError, TypeError, RecursionError):
