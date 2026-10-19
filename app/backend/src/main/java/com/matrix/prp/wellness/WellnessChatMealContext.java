@@ -139,7 +139,7 @@ final class WellnessChatMealContext {
             if(value.isBlank() || value.contains("没吃") || value.contains("不吃"))continue;
             value=value.replaceAll("[（(][^）)]*[）)]","");
             value=value.replaceFirst("^(?:还|又)?(?:吃了|点了|加了|还有|以及)\\s*","");
-            value=value.replaceFirst("^(?:蘸料|锅底)[:：]\\s*","$0").strip();
+            value=value.strip();
             BigDecimal grams=BigDecimal.ZERO;
             var prefix=Pattern.compile("^(\\d+(?:\\.\\d+)?)\\s*(?:g|克)\\s*(.+)$",Pattern.CASE_INSENSITIVE).matcher(value);
             var suffix=Pattern.compile("^(.+?)\\s*(\\d+(?:\\.\\d+)?)\\s*(?:g|克)(?:\\s.*)?$",Pattern.CASE_INSENSITIVE).matcher(value);
