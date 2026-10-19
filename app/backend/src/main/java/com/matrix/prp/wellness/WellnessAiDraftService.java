@@ -77,7 +77,7 @@ public class WellnessAiDraftService {
         if(candidates.stream().filter(meal->meal.mealDate().equals(source.mealDate())).count()>1)
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                 "来源日期有多条同类餐次，请明确选择要复制的那一条");
-        if(source.items().isEmpty() || source.items().size()>8 ||
+        if(source.items().isEmpty() || source.items().size()>30 ||
             source.items().stream().anyMatch(item->item.grams()==null ||
                 item.grams().signum()<0 || item.grams().compareTo(BigDecimal.valueOf(3000))>0 ||
                 (item.foodId()>0 && item.grams().signum()==0) ||
@@ -362,7 +362,7 @@ public class WellnessAiDraftService {
     private JsonNode request(AiSettingsService.Runtime config,String model,String prompt,byte[] image,String mime){
         try{
             Map<String,Object> payload=new LinkedHashMap<>();
-            payload.put("model",model);payload.put("stream",false);payload.put("max_tokens",700);
+            payload.put("model",model);payload.put("stream",false);payload.put("max_tokens",2500);
             String rules="你是PRP健康数据录入解析器。只输出一个JSON对象，没有Markdown。"+
                 "只能创建三种记录: meal.create、exercise.create、metric.create。"+
                 "JSON meal.create: {action, date:yyyy-MM-dd, mealType:BREAKFAST/LUNCH/DINNER/SNACK, "+
@@ -370,11 +370,11 @@ public class WellnessAiDraftService {
                 "exercise.create: {action,date,name,durationMinutes,estimatedKcal,note}；"+
                 "metric.create: {action,date,weightKg,bodyFatPct,waistCm}。"+
                 "若日期未指定用"+today()+"。餐次类型按时间与语义判断；文字只有数量时，只有常见明确份量可保守换算：鸡蛋可食部约50g/个、全麦面包约30g/片、牛奶约1g/ml；请在note明确写估算及份量，其他未知克重输出0不可伪造；照片可粗略估量分量（克）但务必提示用户核对，"+
-                "图片无法精确估计油量或分量，请提醒用户核对；每个图片不超过8种食物。"+
+                "图片无法精确估计油量或分量，请提醒用户核对；单餐最多30项，每种明确列出的食物都应单独输出，禁止省略、截取或合并为综合菜品；超过30项请告知用户拆分或精简，不得暗中舍弃；未知克重用0且不得猜测热量。"+
                 "仅根据用户提供的信息填写，不能读取历史数据，也不得执行修改或删除。";
             if(config.provider().anthropic()){
                 if(image!=null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Vision not available for this provider");
-                payload.put("system",rules);payload.put("max_tokens",700);
+                payload.put("system",rules);payload.put("max_tokens",2500);
                 payload.put("messages",List.of(Map.of("role","user","content",prompt)));
                 payload.remove("stream");
             } else {
@@ -483,7 +483,7 @@ public class WellnessAiDraftService {
                 String type=node.path("mealType").asText("");
                 if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type))throw invalid("Unknown meal type");
                 JsonNode items=node.path("items");
-                if(!items.isArray()||items.isEmpty()||items.size()>8) throw invalid("未识别到有效食物明细，请补充吃了什么，或使用上下文健康记录卡片");
+                if(!items.isArray()||items.isEmpty()||items.size()>30) throw invalid("未识别到有效食物明细，请补充吃了什么，或使用上下文健康记录卡片");
                 List<Map<String,Object>> parsed=new ArrayList<>();
                 for(JsonNode item:items){
                     String name=item.path("name").asText("").trim();
@@ -668,7 +668,7 @@ public class WellnessAiDraftService {
                         if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) || !types.add(type))
                             throw invalid("Duplicate/invalid meal type");
                         var foods=group.path("items");
-                        if(!foods.isArray() || foods.isEmpty() || foods.size()>8)
+                        if(!foods.isArray() || foods.isEmpty() || foods.size()>30)
                             throw invalid("Invalid meal items");
                         BigDecimal sum=BigDecimal.ZERO;
                         for(var item:foods){
@@ -721,7 +721,7 @@ public class WellnessAiDraftService {
                             "来源餐次发生变化，请重新创建批量草稿");
                     var snapshot=data.path("items");
                     if(!snapshot.isArray() || snapshot.size()!=source.items().size() ||
-                        snapshot.isEmpty() || snapshot.size()>8)
+                        snapshot.isEmpty() || snapshot.size()>30)
                         throw new ResponseStatusException(HttpStatus.CONFLICT,
                             "来源食物与草稿不一致，请重新创建");
                     List<ItemInput> copied=new ArrayList<>();
