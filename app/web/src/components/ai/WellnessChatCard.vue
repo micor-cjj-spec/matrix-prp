@@ -186,7 +186,7 @@ function addFoodItem() {
 function removeFoodItem(index: number) {
   if (status.value !== 'PENDING' || items.value.length <= 1 || saving.value) return
   values.value.items = items.value.filter((_, i) => i !== index)
-  for (const lookup of [calorieDensity, matches, chosen, foodLoadingErrors]) {
+  for (const lookup of [calorieDensity, matches, chosen, foodLoadingErrors, suggestedDishes, originalCalories]) {
     const previous = { ...lookup }
     for (const key of Object.keys(lookup)) delete lookup[Number(key)]
     for (const [key, value] of Object.entries(previous)) {
