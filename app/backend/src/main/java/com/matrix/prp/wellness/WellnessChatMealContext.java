@@ -132,6 +132,7 @@ final class WellnessChatMealContext {
             text=text.substring(prefix.end());
         }
         text=text.split("[。！？]",2)[0];
+        if(hotpot<0 && (text.contains("+") || text.contains("＋")))return List.of();
         if(!text.matches("(?s).*[、，,；;\\n].*"))return List.of();
         List<ListedFood> result=new java.util.ArrayList<>();
         for(String segment:text.split("[、，,；;\\n]")) {
