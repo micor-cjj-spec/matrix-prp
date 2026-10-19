@@ -218,4 +218,21 @@ class WellnessChatMealContextTests {
         }
     }
 
+
+    @Test void parenthesizedWeightsAreKeptBeforeCleaningQualifiers() {
+        var listed=WellnessChatMealContext.listedFoods(
+            "今天晚餐火锅：牛肉（200g）、毛肚(100克)、豆腐");
+        assertThat(listed).extracting(WellnessChatMealContext.ListedFood::name)
+            .containsExactly("牛肉","毛肚","豆腐");
+        assertThat(listed).extracting(WellnessChatMealContext.ListedFood::grams)
+            .containsExactly(new BigDecimal("200"),new BigDecimal("100"),BigDecimal.ZERO);
+    }
+
+    @Test void conversationClarificationsNeverBecomeFoodItems() {
+        var listed=WellnessChatMealContext.listedFoods(
+            "今天晚餐吃了火锅：牛肉、菠菜；5人合点两荤两素；饭多菜少；饭比较多");
+        assertThat(listed).extracting(WellnessChatMealContext.ListedFood::name)
+            .containsExactly("牛肉","菠菜");
+    }
+
 }
