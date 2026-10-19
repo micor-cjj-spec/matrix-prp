@@ -186,9 +186,14 @@ function addFoodItem() {
 function removeFoodItem(index: number) {
   if (status.value !== 'PENDING' || items.value.length <= 1 || saving.value) return
   values.value.items = items.value.filter((_, i) => i !== index)
-  calorieDensity.splice(index, 1)
-  delete matches[index]
-  delete chosen[index]
+  for (const lookup of [calorieDensity, matches, chosen, foodLoadingErrors]) {
+    const previous = { ...lookup }
+    for (const key of Object.keys(lookup)) delete lookup[Number(key)]
+    for (const [key, value] of Object.entries(previous)) {
+      const oldIndex = Number(key)
+      if (oldIndex !== index) (lookup as Record<number, any>)[oldIndex > index ? oldIndex - 1 : oldIndex] = value
+    }
+  }
 }
 function markSaved() {
   status.value = 'CONSUMED'
@@ -464,6 +469,8 @@ onMounted(() => { void load() })
           <p v-if="foodLoadingErrors[i] && item.foodId" class="health-chat-alert">{{ foodLoadingErrors[i] }}</p>
           </template>
           <p v-if="isManual(item) && !validManualCalories(item)" class="health-chat-alert">请输入有效的食物名称和本次总热量（0～20000 kcal）</p>
+          <button v-if="items.length > 1" type="button" class="health-chat-recheck"
+            :disabled="saving" @click="removeFoodItem(i)">移除这项食物</button>
         </div>
         <div class="health-chat-food-controls">
           <span>食物明细 {{ items.length }} / 30 项；请对照原始描述检查遗漏，尤其是火锅配菜、蘸料和食用油。</span>
