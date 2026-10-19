@@ -137,11 +137,18 @@ final class WellnessChatMealContext {
         List<ListedFood> result=new java.util.ArrayList<>();
         for(String segment:text.split("[、，,；;\\n]")) {
             String value=segment.strip().replaceFirst("^(?:[-*•]\\s*|\\d+[.、]\\s*)","");
-            if(value.isBlank() || value.contains("没吃") || value.contains("不吃"))continue;
+            if(value.isBlank() || value.contains("没吃") || value.contains("不吃") ||
+                value.matches("(?s).*(?:饭多菜少|饭比较多|炒菜比较少|两荤两素|[0-9]+人合点).*"))
+                continue;
+            // Read explicitly entered weights BEFORE removing parenthesized qualifiers.
+            var parentWeight=Pattern.compile(
+                "[（(]\\s*(\\d+(?:\\.\\d+)?)\\s*(?:g|克)\\s*[）)]",
+                Pattern.CASE_INSENSITIVE).matcher(value);
+            BigDecimal grams=parentWeight.find()
+                ?new BigDecimal(parentWeight.group(1)):BigDecimal.ZERO;
             value=value.replaceAll("[（(][^）)]*[）)]","");
             value=value.replaceFirst("^(?:还|又)?(?:吃了|点了|加了|还有|以及)\\s*","");
             value=value.strip();
-            BigDecimal grams=BigDecimal.ZERO;
             var prefix=Pattern.compile("^(\\d+(?:\\.\\d+)?)\\s*(?:g|克)\\s*(.+)$",Pattern.CASE_INSENSITIVE).matcher(value);
             var suffix=Pattern.compile("^(.+?)\\s*(\\d+(?:\\.\\d+)?)\\s*(?:g|克)(?:\\s.*)?$",Pattern.CASE_INSENSITIVE).matcher(value);
             if(prefix.matches()) {
