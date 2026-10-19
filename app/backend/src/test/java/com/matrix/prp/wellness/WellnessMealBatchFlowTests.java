@@ -200,14 +200,14 @@ class WellnessMealBatchFlowTests {
         var wellness=mock(WellnessService.class);
         var service=service(db,wellness);
         for(int count:new int[]{8,30}) {
-            StringBuilder input=new StringBuilder(day+"\\n晚餐\\n");
-            for(int i=1;i<=count;i++)input.append("食材").append(i).append("：10 kcal\\n");
+            StringBuilder input=new StringBuilder(day+"\n晚餐\n");
+            for(int i=1;i<=count;i++)input.append("食材").append(i).append("：10 kcal\n");
             var draft=service.prepareBatch(input.toString());
             var groups=(List<?>)draft.values().get("meals");
             assertThat(groups.toString()).contains("食材"+count);
         }
-        StringBuilder tooMany=new StringBuilder(day+"\\n晚餐\\n");
-        for(int i=1;i<=31;i++)tooMany.append("食材").append(i).append("：10 kcal\\n");
+        StringBuilder tooMany=new StringBuilder(day+"\n晚餐\n");
+        for(int i=1;i<=31;i++)tooMany.append("食材").append(i).append("：10 kcal\n");
         assertThatThrownBy(()->service.prepareBatch(tooMany.toString()))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("最多30项");
