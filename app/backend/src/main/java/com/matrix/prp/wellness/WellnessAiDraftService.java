@@ -283,14 +283,17 @@ public class WellnessAiDraftService {
                 "Selected model cannot accept pictures. Choose DeepSeek, OpenAI GPT-4.1 or Kimi K2.5.");
         }
         String month=YearMonth.now(ZoneOffset.UTC).toString();
-        long reserved=bytes==null?2200:4800;
+        long reserved=bytes==null?4500:6500;
         usage.reserve(user,month,reserved,userRequests,userTokens,globalRequests,globalTokens);
         JsonNode root=request(config,model,input,bytes,mime);
         JsonNode output=parseJson(root.path("choices").path(0).path("message").path("content").asText(""));
         Map<String,Object> verified=verify(output);
         String action=output.path("action").asText();
         // Explicit calories originate only in the authenticated user's message, never the model JSON.
-        if("meal.create".equals(action)) applyUserCalorieEstimate(verified,input);
+        if("meal.create".equals(action)) {
+            reconcileExplicitIngredients(verified,input);
+            applyUserCalorieEstimate(verified,input);
+        }
         String description=description(action,verified);
         String id=UUID.randomUUID().toString();
         LocalDateTime expiry=LocalDateTime.now().plusMinutes(15);
@@ -434,7 +437,7 @@ public class WellnessAiDraftService {
          catch(Exception ex){throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"AI record parsing failed");}
     }
     private JsonNode parseJson(String s){
-        if(s.length()>6000) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,"AI draft too large");
+        if(s.length()>12000) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,"AI draft too large");
         int start=s.indexOf('{'),end=s.lastIndexOf('}');
         if(start<0||end<=start) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
             "AI did not return a valid record; use the manual form");
@@ -472,6 +475,45 @@ public class WellnessAiDraftService {
         }
         return found!=null && found.signum()>0 &&
             found.compareTo(new BigDecimal("20000"))<=0 ? found : null;
+    }
+    /**
+     * Fail closed on >30 user-listed foods and preserve any source ingredients the
+     * model omitted. These pending records require human catalog/energy confirmation.
+     */
+    @SuppressWarnings("unchecked")
+    static void reconcileExplicitIngredients(Map<String,Object> values,String source) {
+        var listed=WellnessChatMealContext.listedFoods(source);
+        if(listed.isEmpty()) return;
+        if(listed.size()>30)throw invalid("原始餐次超过30项，不能省略食物");
+        var existing=(List<Map<String,Object>>)values.get("items");
+        if(existing==null || existing.isEmpty())throw invalid("AI没有输出有效食物明细");
+        List<Map<String,Object>> items=new ArrayList<>(existing);
+        if(items.size()==1) {
+            String title=String.valueOf(items.getFirst().get("name")).strip();
+            if(Set.of("火锅","一顿火锅","火锅晚餐","火锅午餐").contains(title))items.clear();
+        }
+        List<String> missing=new ArrayList<>();
+        for(var item:listed) {
+            String target=normalize(item.name());
+            if(items.stream().anyMatch(row->target.equals(normalize(String.valueOf(row.get("name"))))))
+                continue;
+            Map<String,Object> restored=new LinkedHashMap<>();
+            restored.put("foodId",0);
+            restored.put("mode","catalog");
+            restored.put("name",item.name());
+            restored.put("grams",item.grams());
+            restored.put("manualCalories",null);
+            restored.put("calories",null);
+            items.add(restored);
+            missing.add(item.name());
+        }
+        if(items.size()>30)throw invalid("AI识别与用户食材清单合并后超过30项，需人工核对");
+        values.put("items",items);
+        if(!missing.isEmpty()) {
+            String note=String.valueOf(values.getOrDefault("note",""));
+            String additions=" 原文中AI漏识别"+missing.size()+"项，已作为待确认食物补入："+String.join("、",missing)+"。";
+            values.put("note",(note+additions).substring(0,Math.min(300,(note+additions).length())));
+        }
     }
     @SuppressWarnings("unchecked")
     static void applyUserCalorieEstimate(Map<String,Object> values,String source) {
