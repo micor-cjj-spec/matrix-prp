@@ -140,14 +140,36 @@ def process_birth(process):
 
 
 def daemon_birth(process):
-    # Use systemd's saved realtime timestamp, not only today's wall/boot offset.
-    # A clock discontinuity cannot silently make a newer config look pre-start.
-    raw=bounded_command(['/usr/bin/busctl','get-property','org.freedesktop.systemd1',
-                         '/org/freedesktop/systemd1/unit/ssh_2eservice',
-                         'org.freedesktop.systemd1.Service','ExecMainStartTimestamp']).decode().strip()
-    require(re.fullmatch(r't [0-9]+',raw) is not None,'SSH_START_TIME_UNPROVEN')
-    saved=int(raw.split()[1])/1e6;estimated=process_birth(process)
-    require(abs(saved-estimated)<.1,'SSH_CLOCK_GENERATION_UNPROVEN')
+    # Compare process generations in the monotonic domain, not against today's
+    # realtime/boot offset: ordinary NTP slewing changes that offset over uptime.
+    def timestamp(name):
+        raw=bounded_command(['/usr/bin/busctl','get-property','org.freedesktop.systemd1',
+                             '/org/freedesktop/systemd1/unit/ssh_2eservice',
+                             'org.freedesktop.systemd1.Service',name]).decode().strip()
+        require(re.fullmatch(r't [0-9]{1,20}',raw) is not None,'SSH_START_TIME_UNPROVEN')
+        value=int(raw.split()[1])/1e6
+        require(value>0,'SSH_START_TIME_UNPROVEN')
+        return value
+    saved=timestamp('ExecMainStartTimestamp')
+    saved_mono=timestamp('ExecMainStartTimestampMonotonic')
+    kernel_birth=process['start_ticks']/os.sysconf('SC_CLK_TCK')
+    left=time.clock_gettime(time.CLOCK_MONOTONIC)
+    boot=time.clock_gettime(time.CLOCK_BOOTTIME)
+    now=time.time()
+    right=time.clock_gettime(time.CLOCK_MONOTONIC)
+    # /proc start_ticks uses boot time. Suspend/namespace offsets must not be
+    # silently equated to systemd's monotonic timestamps. Unknown domains fail.
+    require(0<=right-left<.02 and left-.02<=boot<=right+.02,
+            'SSH_CLOCK_GENERATION_UNPROVEN')
+    require(0<kernel_birth<=boot and saved_mono<=left and abs(saved_mono-kernel_birth)<.1,
+            'SSH_CLOCK_GENERATION_UNPROVEN')
+    elapsed=(left+right)/2-saved_mono
+    estimated=now-elapsed
+    # Bound accumulated ordinary Linux NTP frequency correction (500 ppm),
+    # plus timestamp/tick sampling allowance. Large discontinuities still fail.
+    require(abs(saved-estimated)<.1+elapsed*.0005,'SSH_CLOCK_GENERATION_UNPROVEN')
+    # Never move the loaded-config ctime boundary forward due to clock slewing.
+    # Keep BOTH the saved realtime boundary and today's conservative estimate.
     return min(saved,estimated)-.02
 
 

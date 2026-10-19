@@ -6,10 +6,20 @@ from pathlib import Path
 TARGET=Path('/usr/local/sbin/prp-diagnose')
 CONTROLLER=Path('/usr/local/sbin/prp-release')
 BASE=Path('/var/backups/prp-policy-attestor')
-OLD='8c2f3dc6f3fbe765e106f7e8ce3c1650d453200893b2b0e693e367d6353d8e14'
-CONTROLLER_SHA='7d23ea686b7eca6e66619979357953a0a18fc366d4896f900ea6cae743b396d1'
+OLD='9070861e69b3ec2a0106f3e6c9992f3344397eecccd9cc80e42370392517121f'
+CONTROLLER_SHA='c329836ed2f48296e5ab505451aab3c59b33db7f7c20aba5ae7c2b1ec80622e2'
 
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+def require_clock_only_change(before,after):
+    old=ast.parse(before).body;new=ast.parse(after).body
+    if len(old)!=len(new):raise ValueError('Only the reviewed daemon_birth function may change')
+    changed=[]
+    for a,b in zip(old,new):
+        if ast.dump(a,include_attributes=False)==ast.dump(b,include_attributes=False):continue
+        if not isinstance(a,ast.FunctionDef) or not isinstance(b,ast.FunctionDef) or a.name!=b.name:
+            raise ValueError('Unexpected helper change')
+        changed.append(a.name)
+    if changed!=['daemon_birth']:raise ValueError('Only daemon_birth may change')
 def state():
     files=[CONTROLLER,Path('/usr/local/bin/prp-deploy-gateway'),Path('/home/prp-deploy/.ssh/authorized_keys'),Path('/etc/ssh/sshd_config')]
     files+=sorted(Path('/etc/ssh/sshd_config.d').glob('*'))+sorted(Path('/etc/sudoers.d').glob('*'))
@@ -21,7 +31,11 @@ def replace(source):
     try:
         subprocess.run(['cp','--preserve=all','--',str(TARGET),str(temp)],check=True)
         temp.write_bytes(source);ast.parse(source)
+        with temp.open('rb') as file:os.fsync(file.fileno())
         os.replace(temp,TARGET)
+        directory=os.open(TARGET.parent,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(directory)
+        finally:os.close(directory)
     finally:
         if temp.exists():temp.unlink()
 def main():
@@ -44,6 +58,7 @@ def main():
         if a.candidate is None or a.candidate.is_symlink():raise SystemExit('Candidate regular file required')
         data=a.candidate.read_bytes();ast.parse(data);sha=hashlib.sha256(data).hexdigest()
         if digest(TARGET)!=OLD:raise SystemExit('STOP: unknown installed helper; do not overwrite')
+        require_clock_only_change(TARGET.read_bytes(),data)
         print('old_sha256='+OLD);print('candidate_sha256='+sha)
         if a.action=='check':
             print('CHECK ONLY: no production file modified');return
@@ -52,6 +67,7 @@ def main():
         if BASE.is_symlink() or BASE.stat().st_uid!=0 or stat.S_IMODE(BASE.stat().st_mode)!=0o700:raise SystemExit('STOP: untrusted backup directory')
         backup=BASE/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ');backup.mkdir(mode=0o700)
         shutil.copy2(TARGET,backup/'helper.before')
+        if digest(backup/'helper.before')!=OLD:raise SystemExit('STOP: backup verification failed')
         receipt={'old_sha256':OLD,'new_sha256':sha,'protected_before':before}
         (backup/'receipt.json').write_text(json.dumps(receipt,indent=2))
         try:
