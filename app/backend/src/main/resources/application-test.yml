@@ -8,3 +8,8 @@ matrix-prp:
   security:
     login-rate-limit-enabled: false
     jwt-secret: test-only-jwt-key-do-not-use-in-prod-012345678901
+  ai:
+    # Existing controller tests mock native provider HTTP; the dedicated
+    # Spring AI adapter and gateway integration tests explicitly enable it.
+    spring-ai:
+      enabled: false
