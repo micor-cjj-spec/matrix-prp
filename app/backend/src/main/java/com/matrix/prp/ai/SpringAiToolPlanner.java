@@ -179,10 +179,20 @@ public class SpringAiToolPlanner {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                 "AI provider tool selection unavailable");
         }
-        if (response == null || response.getResult() == null ||
-                response.getResult().getOutput() == null)
+        if (response == null || response.getResults() == null ||
+                response.getResults().isEmpty())
             throw new IllegalStateException("AI provider returned no tool-plan response");
-        return validateProposals(response.getResult().getOutput().getToolCalls(), allowed);
+        // Anthropic 1.1 creates separate generations for text/thinking and
+        // for tool_use. getResult() returns only the first (possibly text-only)
+        // generation; collect approved proposals from ALL generations.
+        List<AssistantMessage.ToolCall> proposals = new ArrayList<>();
+        for (var generation : response.getResults()) {
+            if (generation.getOutput() != null && generation.getOutput().getToolCalls() != null)
+                proposals.addAll(generation.getOutput().getToolCalls());
+            if (proposals.size() > MAX_CALLS)
+                throw new IllegalArgumentException("Too many proposed tool calls");
+        }
+        return validateProposals(proposals, allowed);
     }
 
     List<AiToolPlanner.Call> validateProposals(
