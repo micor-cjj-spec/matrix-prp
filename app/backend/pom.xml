@@ -32,8 +32,25 @@
 		<springdoc.version>2.8.9</springdoc.version>
 		<auto-table.version>1.9.8</auto-table.version>
 		<jjwt.version>0.12.6</jjwt.version>
+        <spring-ai.version>1.1.8</spring-ai.version>
 	</properties>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 	<dependencies>
+        <!-- Only the Spring AI DeepSeek model library, NEVER the auto-config starter. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-deepseek</artifactId>
+        </dependency>
 		<dependency>
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi-ooxml</artifactId>
