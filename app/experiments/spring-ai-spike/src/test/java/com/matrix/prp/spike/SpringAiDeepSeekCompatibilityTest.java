@@ -34,7 +34,7 @@ import org.springframework.test.context.DynamicPropertySource;
         "spring.main.web-application-type=none",
         "spring.ai.model.chat=deepseek",
         "spring.ai.deepseek.api-key=offline-test-key",
-        "spring.ai.deepseek.chat.model=deepseek-chat",
+        "spring.ai.deepseek.chat.options.model=deepseek-reasoner",
         "spring.ai.retry.max-attempts=1"
     })
 class SpringAiDeepSeekCompatibilityTest {
@@ -72,11 +72,11 @@ class SpringAiDeepSeekCompatibilityTest {
             String body;
             if (request.path("stream").asBoolean(false)) {
                 body = """
-                    data: {"id":"chatcmpl-offline","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"role":"assistant","content":"hel"},"finish_reason":null}]}
+                    data: {"id":"chatcmpl-offline","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-reasoner","choices":[{"index":0,"delta":{"role":"assistant","content":"hel"},"finish_reason":null}]}
 
-                    data: {"id":"chatcmpl-offline","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":null}]}
+                    data: {"id":"chatcmpl-offline","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":null}]}
 
-                    data: {"id":"chatcmpl-offline","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+                    data: {"id":"chatcmpl-offline","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-reasoner","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
 
                     data: [DONE]
 
@@ -85,7 +85,7 @@ class SpringAiDeepSeekCompatibilityTest {
             } else {
                 body = """
                     {"id":"chatcmpl-offline","object":"chat.completion","created":1730000000,
-                     "model":"deepseek-chat","choices":[{"index":0,"message":{"role":"assistant",
+                     "model":"deepseek-reasoner","choices":[{"index":0,"message":{"role":"assistant",
                      "content":"pong"},"finish_reason":"stop"}],
                      "usage":{"prompt_tokens":6,"completion_tokens":2,"total_tokens":8}}
                     """;
@@ -107,7 +107,7 @@ class SpringAiDeepSeekCompatibilityTest {
         var response = model.call(new Prompt(new UserMessage("ping")));
         assertThat(response.getResult().getOutput().getText()).isEqualTo("pong");
         assertThat(LAST_AUTHORIZATION.get()).isEqualTo("Bearer offline-test-key");
-        assertThat(LAST_REQUEST.get().path("model").asText()).isEqualTo("deepseek-chat");
+        assertThat(LAST_REQUEST.get().path("model").asText()).isEqualTo("deepseek-reasoner");
         assertThat(LAST_REQUEST.get().path("stream").asBoolean()).isFalse();
     }
 
