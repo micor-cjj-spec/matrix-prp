@@ -33,6 +33,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.retry.policy.NeverRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
@@ -50,6 +51,7 @@ public class SpringAiToolPlanner {
     private final ObjectMapper mapper;
     private final Map<String, URI> testEndpoints;
 
+    @Autowired
     public SpringAiToolPlanner(ObjectMapper mapper) { this(mapper, Map.of()); }
 
     /** Test-only endpoint substitutions, rejected for non-loopback hosts. */
