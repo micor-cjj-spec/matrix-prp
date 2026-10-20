@@ -113,9 +113,11 @@ class SpringAiDeepSeekCompatibilityTest {
 
     @Test void streamingChatProducesAssistantDeltas() {
         List<String> deltas = model.stream(new Prompt(new UserMessage("hello")))
-            .filter(r -> r.getResult() != null && r.getResult().getOutput() != null)
+            .filter(r -> r.getResult() != null
+                && r.getResult().getOutput() != null
+                && r.getResult().getOutput().getText() != null
+                && !r.getResult().getOutput().getText().isEmpty())
             .map(r -> r.getResult().getOutput().getText())
-            .filter(part -> part != null && !part.isEmpty())
             .collectList().block(Duration.ofSeconds(15));
         assertThat(deltas).isNotEmpty();
         assertThat(String.join("", deltas)).isEqualTo("hello");
