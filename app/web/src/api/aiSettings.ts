@@ -31,3 +31,33 @@ export async function testAiProvider(provider: string, model: string): Promise<v
   await apiClient.post(`/ai/settings/providers/${encodeURIComponent(provider)}/test`,
     { provider, model }, { timeout: 30000 })
 }
+
+export interface AiInvocationDetail {
+  provider: string
+  model: string
+  credentialSource: string
+  status: 'SUCCESS' | 'FAILURE'
+  failureCategory: string | null
+  elapsedMs: number
+  firstTokenMs: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  occurredAt: string
+}
+export interface AiTelemetry {
+  summary: {
+    totalRequests: number
+    successfulRequests: number
+    failedRequests: number
+    averageElapsedMs: number | null
+    averageFirstTokenMs: number | null
+    inputTokens: number
+    outputTokens: number
+    unreportedUsageRequests: number
+  }
+  recent: AiInvocationDetail[]
+  costStatus: string
+}
+export async function fetchAiTelemetry(days: 1 | 7 | 30 = 7): Promise<AiTelemetry> {
+  return (await apiClient.get<ApiResponse<AiTelemetry>>('/ai/telemetry', { params: { days, limit: 20 } })).data.data
+}

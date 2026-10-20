@@ -23,9 +23,11 @@ class ControllerCompatibilityTests(unittest.TestCase):
             migrations=root/'app/backend/src/main/resources/db/migration'
             shutil.copytree(ROOT/'app/backend/src/main/resources/db/migration',migrations)
             sql=b'CREATE TABLE prp_next_feature (id BIGINT PRIMARY KEY) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;'
-            (migrations/'V23__next_feature.sql').write_bytes(sql)
             policy=json.loads((ROOT/'app/deploy/migration-policy.json').read_text())
-            policy['rules'].append({'version':23,'file':'V23__next_feature.sql','sha256':hashlib.sha256(sql).hexdigest(),'mode':'create-empty','tables':['prp_next_feature']})
+            next_version=max([21]+[rule['version'] for rule in policy['rules']])+1
+            fixture=f'V{next_version}__next_feature.sql'
+            (migrations/fixture).write_bytes(sql)
+            policy['rules'].append({'version':next_version,'file':fixture,'sha256':hashlib.sha256(sql).hexdigest(),'mode':'create-empty','tables':['prp_next_feature']})
             (deploy/'migration-policy.json').write_text(json.dumps(policy))
             module.verify(root)
             manifest_path=deploy/'controller-manifest.json'
@@ -57,7 +59,9 @@ class ControllerCompatibilityTests(unittest.TestCase):
                 for source in source_dir.glob('V*__*.sql'):
                     (migrations/source.name).write_bytes(source.read_bytes())
                 source=migrations/'V20__vocal_training.sql'
-                if mutation=='future': (migrations/'V23__unreviewed.sql').write_text('CREATE TABLE unknown_table(id BIGINT);')
+                if mutation=='future':
+                    next_version=max(int(p.name.split('__',1)[0][1:]) for p in migrations.glob('V*__*.sql'))+1
+                    (migrations/f'V{next_version}__unreviewed.sql').write_text('CREATE TABLE unknown_table(id BIGINT);')
                 if mutation=='duplicate': (migrations/'V20__duplicate.sql').write_text('SELECT 1;')
                 if mutation=='modified': (migrations/source.name).write_text('DROP TABLE prp_users;')
                 if mutation=='controller': (deploy/'approved/prp-release.py').write_text('pass')
