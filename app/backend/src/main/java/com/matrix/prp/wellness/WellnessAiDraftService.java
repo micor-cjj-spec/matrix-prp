@@ -420,14 +420,27 @@ public class WellnessAiDraftService {
                 "若日期未指定用"+today()+"。餐次类型按时间与语义判断；文字只有数量时，只有常见明确份量可保守换算：鸡蛋可食部约50g/个、全麦面包约30g/片、牛奶约1g/ml；请在note明确写估算及份量，其他未知克重输出0不可伪造；照片可粗略估量分量（克）但务必提示用户核对，"+
                 "图片无法精确估计油量或分量，请提醒用户核对；单餐最多30项，每种明确列出的食物都应单独输出，禁止省略、截取或合并为综合菜品；超过30项请告知用户拆分或精简，不得暗中舍弃；未知克重用0且不得猜测热量。"+
                 "仅根据用户提供的信息填写，不能读取历史数据，也不得执行修改或删除。";
-            if(image==null && springAiStructuredEnabled){
-                var completion=structuredModel.complete(config,List.of(
-                    new DeepSeekClient.ChatMessage("system",rules),
-                    new DeepSeekClient.ChatMessage("user",prompt)),2500);
+            if ((image==null && springAiStructuredEnabled) ||
+                    (image!=null && springAiVisionEnabled)) {
+                String answer;
+                long inputTokens, outputTokens;
+                if (image != null) {
+                    var completion=visionModel.complete(config,model,rules,prompt,image,mime);
+                    answer=completion.answer();
+                    inputTokens=completion.inputTokens();
+                    outputTokens=completion.outputTokens();
+                } else {
+                    var completion=structuredModel.complete(config,List.of(
+                        new DeepSeekClient.ChatMessage("system",rules),
+                        new DeepSeekClient.ChatMessage("user",prompt)),2500);
+                    answer=completion.answer();
+                    inputTokens=completion.inputTokens();
+                    outputTokens=completion.outputTokens();
+                }
                 var root=json.createObjectNode();
-                root.putArray("choices").addObject().putObject("message").put("content",completion.answer());
-                root.putObject("usage").put("prompt_tokens",completion.inputTokens())
-                    .put("completion_tokens",completion.outputTokens());
+                root.putArray("choices").addObject().putObject("message").put("content",answer);
+                root.putObject("usage").put("prompt_tokens",inputTokens)
+                    .put("completion_tokens",outputTokens);
                 return root;
             }
             if(config.provider().anthropic()){
