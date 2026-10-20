@@ -58,6 +58,12 @@ public class PracticeAiService {
         if (changed != 1) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "AI daily limit reached (20 calls)");
     }
     private String chat(String system, String user, boolean structured) {
+        // A valid stored question can include 5k stem, 8k options and 20k explanation.
+        // Reject an oversized assembled prompt before consuming the daily AI quota.
+        if (system == null || user == null
+                || system.length() > SpringAiStructuredModelClient.MAX_MESSAGE_CHARS
+                || user.length() > SpringAiStructuredModelClient.MAX_MESSAGE_CHARS)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "AI prompt exceeds limit");
         String secret = System.getenv("MATRIX_PRP_DEEPSEEK_API_KEY");
         if (secret == null || secret.isBlank())
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "DeepSeek API key not configured");
@@ -67,7 +73,7 @@ public class PracticeAiService {
                 "deepseek-chat", secret, true);
             return structuredModel.complete(runtime,List.of(
                 new com.matrix.prp.ai.DeepSeekClient.ChatMessage("system",system),
-                new com.matrix.prp.ai.DeepSeekClient.ChatMessage("user",user)),2200).answer();
+                new com.matrix.prp.ai.DeepSeekClient.ChatMessage("user",user)),2200,structured).answer();
         }
         try {
             var body = new java.util.LinkedHashMap<String,Object>();
