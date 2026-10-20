@@ -62,6 +62,8 @@ matrix-prp:
     # Positive canary-user-id is an optional narrowing override (0 = all users).
     spring-ai:
       enabled: ${MATRIX_PRP_AI_SPRING_AI_ENABLED:true}
+      # Only the model proposes tool calls. Execution requires PRP consent and allowlist.
+      tools-enabled: ${MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED:true}
       canary-user-id: ${MATRIX_PRP_AI_SPRING_AI_CANARY_USER_ID:0}
     # P4: privileged actions token is server-only. Codex executes exclusively in ephemeral GitHub Actions.
     codex:

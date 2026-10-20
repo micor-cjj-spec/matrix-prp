@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.server.ResponseStatusException;
 
 /** One bounded provider-native function-calling turn; no tool execution occurs in this component. */
@@ -20,12 +22,28 @@ import org.springframework.web.server.ResponseStatusException;
 public class AiToolPlanner {
     public record Call(String name, JsonNode arguments) {}
     private final ObjectMapper mapper;
+    private final SpringAiToolPlanner springAi;
+    private final boolean springAiEnabled;
     private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
         .followRedirects(HttpClient.Redirect.NEVER).build();
-    public AiToolPlanner(ObjectMapper mapper) { this.mapper=mapper; }
+    /** Tests and emergency legacy path keep the previous constructor. */
+    public AiToolPlanner(ObjectMapper mapper) { this(mapper,null,false); }
+    @Autowired
+    public AiToolPlanner(ObjectMapper mapper, SpringAiToolPlanner springAi,
+            @Value("${matrix-prp.ai.spring-ai.tools-enabled:true}") boolean enabled) {
+        this.mapper=mapper;
+        this.springAi=springAi;
+        this.springAiEnabled=enabled;
+    }
     public List<Call> plan(AiSettingsService.Runtime config, List<DeepSeekClient.ChatMessage> messages,
                            List<AiToolRegistry.Definition> definitions) throws Exception {
         if (definitions.isEmpty()) return List.of();
+        // This only selects tool *proposals*. Execution, scopes and audit
+        // still belong solely to AiToolRegistry / AiService after consent.
+        if (springAiEnabled) {
+            if (springAi == null) throw new IllegalStateException("Spring AI tool planner unavailable");
+            return springAi.plan(config,messages,definitions);
+        }
         var provider=config.provider();
         Map<String,Object> payload=new LinkedHashMap<>();
         payload.put("model",config.model()); payload.put("stream",false); payload.put("max_tokens",768);

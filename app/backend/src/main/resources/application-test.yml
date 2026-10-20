@@ -13,3 +13,4 @@ matrix-prp:
     # Spring AI adapter and gateway integration tests explicitly enable it.
     spring-ai:
       enabled: false
+      tools-enabled: false
