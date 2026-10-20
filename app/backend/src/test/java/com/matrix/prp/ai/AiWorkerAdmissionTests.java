@@ -28,13 +28,13 @@ class AiWorkerAdmissionTests {
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(profile, null, List.of()));
         AiStore store = mock(AiStore.class);
-        DeepSeekClient deepSeek = mock(DeepSeekClient.class);
+        AiModelGateway gateway = mock(AiModelGateway.class);
         AiSettingsService settings = mock(AiSettingsService.class);
-        when(deepSeek.model()).thenReturn("deepseek-chat");
+        when(gateway.legacyModel()).thenReturn("deepseek-chat");
         when(settings.selection(userId)).thenReturn(
             new AiSettingsStore.Selection("deepseek", "deepseek-chat"));
         TaskExecutor rejecting = task -> { throw new TaskRejectedException("worker queue full"); };
-        AiService service = new AiService(store, deepSeek, settings, mock(AiProviderClient.class),
+        AiService service = new AiService(store, gateway, settings,
             mock(AiContextConsentService.class), mock(AiToolPlanner.class),
             mock(AiToolRegistry.class), mock(AiToolAudit.class),
             new com.fasterxml.jackson.databind.ObjectMapper(),

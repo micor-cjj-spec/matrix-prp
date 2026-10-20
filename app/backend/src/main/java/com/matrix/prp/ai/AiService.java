@@ -29,9 +29,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class AiService {
     private final AiStore store;
-    private final DeepSeekClient deepSeek;
+    private final AiModelGateway gateway;
     private final AiSettingsService settings;
-    private final AiProviderClient providerClient;
     private final AiContextConsentService consents;
     private final AiToolPlanner planner;
     private final AiToolRegistry tools;
@@ -42,8 +41,8 @@ public class AiService {
     private final int outputLimit, perUserRequests, globalRequests;
     private final long perUserTokens, globalTokens;
 
-    public AiService(AiStore store, DeepSeekClient deepSeek, AiSettingsService settings,
-                     AiProviderClient providerClient, AiContextConsentService consents,
+    public AiService(AiStore store, AiModelGateway gateway, AiSettingsService settings,
+                     AiContextConsentService consents,
                      AiToolPlanner planner, AiToolRegistry tools, AiToolAudit audit,
                      ObjectMapper json, Environment environment,
                      @Qualifier("aiExecutor") TaskExecutor executor,
@@ -53,9 +52,8 @@ public class AiService {
                      @Value("${matrix-prp.ai.user-monthly-reserved-tokens:12000000}") long perUserTokens,
                      @Value("${matrix-prp.ai.global-monthly-reserved-tokens:60000000}") long globalTokens) {
         this.store = store;
-        this.deepSeek = deepSeek;
+        this.gateway = gateway;
         this.settings = settings;
-        this.providerClient = providerClient;
         this.consents = consents;
         this.planner = planner;
         this.tools = tools;
@@ -160,10 +158,10 @@ public class AiService {
         String providerPrompt = snapshot == null ? content : consents.augment(content, snapshot);
         AiSettingsStore.Selection selected = settings.selection(user);
         boolean legacy = selected.provider().equals("deepseek")
-            && selected.model().equals(deepSeek.model())
+            && selected.model().equals(gateway.legacyModel())
             && !settings.hasPersonalKey(user, "deepseek");
         AiSettingsService.Runtime provider = legacy ? null : settings.resolve(user);
-        if (legacy) deepSeek.requireConfigured();
+        if (legacy) gateway.requireLegacyConfigured();
         List<DeepSeekClient.ChatMessage> history = new ArrayList<>();
         history.add(new DeepSeekClient.ChatMessage("system", AiPersona.SYSTEM_PROMPT));
         if (id != null && !id.isBlank()) {
@@ -246,9 +244,9 @@ public class AiService {
                                 evidence + "\n[/PRP_REFERENCE_DATA]"));
                         }
                     }
-                    DeepSeekClient.Result result = legacy
-                        ? deepSeek.stream(history, outputLimit, part -> send(emitter, "delta", Map.of("text", part)))
-                        : providerClient.stream(provider, history, outputLimit, part -> send(emitter, "delta", Map.of("text", part)));
+                    DeepSeekClient.Result result = gateway.stream(
+                        legacy ? AiModelGateway.Target.legacyDeepSeek() : AiModelGateway.Target.configured(provider),
+                        history, outputLimit, part -> send(emitter, "delta", Map.of("text", part)));
                     long assistantMessageId = store.append(user, conversationId, "assistant", result.answer());
                     if (!cards.isEmpty()) store.saveBlocks(user, conversationId, assistantMessageId, cards);
                     store.completed(user, month, result.inputTokens(), result.outputTokens());
