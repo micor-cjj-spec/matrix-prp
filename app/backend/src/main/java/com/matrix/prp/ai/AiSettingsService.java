@@ -19,21 +19,21 @@ public class AiSettingsService {
     public record Runtime(AiProviderCatalog.Provider provider, String model, String apiKey, boolean legacy) {}
     private final AiSettingsStore store;
     private final AiKeyCipher cipher;
-    private final AiProviderClient client;
+    private final AiModelGateway gateway;
     private final AiStore usage;
     private final String legacyDeepSeekKey;
     private final String legacyModel;
     private final int userRequests, globalRequests;
     private final long userTokens, globalTokens;
 
-    public AiSettingsService(AiSettingsStore store, AiKeyCipher cipher, AiProviderClient client, AiStore usage,
+    public AiSettingsService(AiSettingsStore store, AiKeyCipher cipher, AiModelGateway gateway, AiStore usage,
         @Value("${matrix-prp.ai.deepseek.api-key:}") String legacyDeepSeekKey,
         @Value("${matrix-prp.ai.deepseek.model:deepseek-chat}") String legacyModel,
         @Value("${matrix-prp.ai.user-monthly-requests:200}") int userRequests,
         @Value("${matrix-prp.ai.global-monthly-requests:1000}") int globalRequests,
         @Value("${matrix-prp.ai.user-monthly-reserved-tokens:250000}") long userTokens,
         @Value("${matrix-prp.ai.global-monthly-reserved-tokens:1000000}") long globalTokens) {
-        this.store = store; this.cipher = cipher; this.client = client; this.usage = usage;
+        this.store = store; this.cipher = cipher; this.gateway = gateway; this.usage = usage;
         this.legacyDeepSeekKey = legacyDeepSeekKey; this.legacyModel = legacyModel;
         this.userRequests = userRequests; this.globalRequests = globalRequests;
         this.userTokens = userTokens; this.globalTokens = globalTokens;
@@ -96,7 +96,7 @@ public class AiSettingsService {
         String month = YearMonth.now(ZoneOffset.UTC).toString();
         usage.reserve(user, month, 2048, userRequests, userTokens, globalRequests, globalTokens);
         try {
-            DeepSeekClient.Result result = client.stream(config,
+            DeepSeekClient.Result result = gateway.stream(AiModelGateway.Target.configured(config),
                 List.of(new DeepSeekClient.ChatMessage("user", "Reply with OK.")), 16, s -> {});
             usage.completed(user, month, result.inputTokens(), result.outputTokens());
             return Map.of("connected", true, "provider", provider, "model", model);
