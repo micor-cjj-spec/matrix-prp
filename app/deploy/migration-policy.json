@@ -9,6 +9,15 @@
       "tables": [
         "prp_api_request_log"
       ]
+    },
+    {
+      "version": 23,
+      "file": "V23__ai_model_invocation_telemetry.sql",
+      "sha256": "32f22e2e8aa5de85df15ded099e13f9596d1dbd065e4e861b22c3e756f618f7b",
+      "mode": "create-empty",
+      "tables": [
+        "prp_ai_invocation_log"
+      ]
     }
   ]
 }
