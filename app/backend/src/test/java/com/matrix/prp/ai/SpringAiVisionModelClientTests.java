@@ -27,6 +27,12 @@ class SpringAiVisionModelClientTests {
          "finish_reason":"stop"}],
          "usage":{"prompt_tokens":25,"completion_tokens":11,"total_tokens":36}}
         """;
+    private static final String EMPTY_RESPONSE = """
+        {"id":"vision-local","object":"chat.completion","created":1730000000,
+         "model":"gpt-4.1-mini","choices":[{"index":0,
+         "message":{"role":"assistant","content":""},"finish_reason":"stop"}],
+         "usage":{"prompt_tokens":25,"completion_tokens":0,"total_tokens":25}}
+        """;
 
     @Test void allowedProvidersSendActualInlineImageAndCorrectModel() throws Exception {
         for(String id:List.of("deepseek","openai","kimi","kimi-global"))
@@ -79,8 +85,8 @@ class SpringAiVisionModelClientTests {
                 calls.incrementAndGet();
                 auth.set(exchange.getRequestHeaders().getFirst("Authorization"));
                 sent.set(JSON.readTree(exchange.getRequestBody().readAllBytes()));
-                String response=status!=200 ? "{\\"private\\":\\"secret upstream payload\\"}" :
-                    empty ? RESPONSE.replace("{\\\\\\"action\\\\\\":\\\\\\"meal.create\\\\\\"}", "") : RESPONSE;
+                String response=status!=200 ? "{\"error\":\"private upstream payload\"}" :
+                    empty ? EMPTY_RESPONSE : RESPONSE;
                 byte[] bytes=response.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type","application/json");
                 exchange.sendResponseHeaders(status,bytes.length);
