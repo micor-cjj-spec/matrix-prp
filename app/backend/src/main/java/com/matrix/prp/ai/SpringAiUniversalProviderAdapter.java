@@ -87,8 +87,20 @@ public class SpringAiUniversalProviderAdapter {
         DeepSeekStreamCompletionProbe completion = new DeepSeekStreamCompletionProbe(
             anthropic ? "event: message_stop" : "data: [DONE]");
         WebClient.Builder webClient = WebClient.builder().filter((request, next) ->
-            next.exchange(request).map(response -> response.mutate()
-                .body(body -> body.doOnNext(completion::inspect)).build()));
+            next.exchange(request).flatMap(response -> {
+                // Some provider SDKs embed the entire upstream error body in
+                // unchecked exceptions. Reject error responses at the transport
+                // boundary before the SDK reads or logs that body.
+                if (!response.statusCode().is2xxSuccessful()) {
+                    int code = response.statusCode().value();
+                    HttpStatus status = code == 429 ? HttpStatus.TOO_MANY_REQUESTS :
+                        code == 503 ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_GATEWAY;
+                    return reactor.core.publisher.Mono.error(
+                        new ResponseStatusException(status, "AI provider request failed"));
+                }
+                return reactor.core.publisher.Mono.just(response.mutate()
+                    .body(body -> body.doOnNext(completion::inspect)).build());
+            }));
 
         RetryTemplate singleAttempt = new RetryTemplate();
         singleAttempt.setRetryPolicy(new NeverRetryPolicy());
