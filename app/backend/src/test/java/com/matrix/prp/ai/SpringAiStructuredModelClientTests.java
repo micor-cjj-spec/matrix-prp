@@ -43,7 +43,30 @@ class SpringAiStructuredModelClientTests {
         simulate(AiProviderCatalog.require("claude"),429,false);
     }
 
+    @Test void practiceJsonModeSendsProviderResponseFormat() throws Exception {
+        simulate(AiProviderCatalog.require("deepseek"),200,false,true,"Generate JSON questions");
+    }
+
+    @Test void acceptsMaximumValidPracticeExplanationPrompt() throws Exception {
+        simulate(AiProviderCatalog.require("deepseek"),200,false,false,"x".repeat(35_000));
+    }
+
+    @Test void rejectsOversizedPromptBeforeNetworkAccess() {
+        var client=new SpringAiStructuredModelClient();
+        var provider=AiProviderCatalog.require("deepseek");
+        var config=new AiSettingsService.Runtime(provider,provider.defaultModel(),"test-key",true);
+        assertThatThrownBy(()->client.complete(config,List.of(
+            new DeepSeekClient.ChatMessage("user","x".repeat(SpringAiStructuredModelClient.MAX_MESSAGE_CHARS+1))),100))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("limit");
+    }
+
     void simulate(AiProviderCatalog.Provider provider,int code,boolean empty) throws Exception {
+        simulate(provider,code,empty,false,"Lunch calories");
+    }
+
+    void simulate(AiProviderCatalog.Provider provider,int code,boolean empty,
+                  boolean jsonObject,String userText) throws Exception {
         AtomicInteger calls=new AtomicInteger();
         AtomicReference<JsonNode> sent=new AtomicReference<>();
         AtomicReference<String> key=new AtomicReference<>();
@@ -72,9 +95,9 @@ class SpringAiStructuredModelClientTests {
             var config=new AiSettingsService.Runtime(provider,provider.defaultModel(),
                 "test-secret-"+provider.id(),false);
             var prompt=List.of(new DeepSeekClient.ChatMessage("system","Return JSON"),
-                new DeepSeekClient.ChatMessage("user","Lunch calories"));
+                new DeepSeekClient.ChatMessage("user",userText));
             if(code==429){
-                assertThatThrownBy(()->client.complete(config,prompt,2500))
+                assertThatThrownBy(()->client.complete(config,prompt,2500,jsonObject))
                     .isInstanceOf(ResponseStatusException.class)
                     .hasMessageContaining("429")
                     .hasNoCause()
@@ -92,6 +115,10 @@ class SpringAiStructuredModelClientTests {
             }
             assertThat(calls.get()).as(provider.id()).isEqualTo(1);
             assertThat(sent.get().path("model").asText()).isEqualTo(provider.defaultModel());
+            if (provider.id().equals("deepseek")) {
+                assertThat(sent.get().path("response_format").path("type").asText())
+                    .isEqualTo(jsonObject ? "json_object" : "");
+            }
             assertThat(key.get()).isEqualTo(provider.anthropic()
                 ?"test-secret-"+provider.id():"Bearer test-secret-"+provider.id());
             assertThat(sent.get().toString()).doesNotContain("test-secret-"+provider.id());
