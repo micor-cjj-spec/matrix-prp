@@ -1,7 +1,7 @@
 # PRP-AI-03 · Spring AI compatibility spike (no production adoption)
 
 ## Goal
-Prove whether Spring AI **1.1.9** works with PRP's frozen **Spring Boot 3.5.3 / Java 21**
+Prove whether Spring AI **1.1.8** works with PRP's frozen **Spring Boot 3.5.3 / Java 21**
 baseline before touching the live `AiModelGateway`. Spring AI's 1.1 release line
 targets Boot 3.5; the spike must expose binary/runtime incompatibilities rather
 than silently upgrade the application.
@@ -44,4 +44,4 @@ regression and deployment tests.
 
 References:
 - https://docs.spring.io/spring-ai/reference/1.1/api/chat/deepseek-chat.html
-- https://enterprise.spring.io/projects/spring-ai/1.1.9/
+- https://enterprise.spring.io/projects/spring-ai/1.1.8/
