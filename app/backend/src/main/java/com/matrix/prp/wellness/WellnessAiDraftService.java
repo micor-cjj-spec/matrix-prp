@@ -6,6 +6,7 @@ import com.matrix.prp.ai.AiProviderCatalog;
 import com.matrix.prp.ai.AiSettingsService;
 import com.matrix.prp.ai.AiStore;
 import com.matrix.prp.ai.SpringAiStructuredModelClient;
+import com.matrix.prp.ai.SpringAiVisionModelClient;
 import com.matrix.prp.ai.DeepSeekClient;
 import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.wellness.WellnessModels.*;
@@ -48,6 +49,8 @@ public class WellnessAiDraftService {
     private final ObjectMapper json;
     private final SpringAiStructuredModelClient structuredModel;
     private final boolean springAiStructuredEnabled;
+    private final SpringAiVisionModelClient visionModel;
+    private final boolean springAiVisionEnabled;
     private final int userRequests, globalRequests;
     private final long userTokens, globalTokens;
     private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(6))
@@ -57,19 +60,22 @@ public class WellnessAiDraftService {
     public WellnessAiDraftService(JdbcTemplate db, WellnessService wellness, AiSettingsService settings,
         AiStore usage, ObjectMapper json,
         int userRequests, int globalRequests, long userTokens, long globalTokens) {
-        this(db,wellness,settings,usage,json,null,false,userRequests,globalRequests,userTokens,globalTokens);
+        this(db,wellness,settings,usage,json,null,false,null,false,userRequests,globalRequests,userTokens,globalTokens);
     }
 
     @Autowired
     public WellnessAiDraftService(JdbcTemplate db, WellnessService wellness, AiSettingsService settings,
         AiStore usage, ObjectMapper json, SpringAiStructuredModelClient structuredModel,
         @Value("${matrix-prp.ai.spring-ai.structured-enabled:true}") boolean structuredEnabled,
+        SpringAiVisionModelClient visionModel,
+        @Value("${matrix-prp.ai.spring-ai.vision-enabled:false}") boolean visionEnabled,
         @Value("${matrix-prp.ai.user-monthly-requests:2000}") int userRequests,
         @Value("${matrix-prp.ai.global-monthly-requests:10000}") int globalRequests,
         @Value("${matrix-prp.ai.user-monthly-reserved-tokens:12000000}") long userTokens,
         @Value("${matrix-prp.ai.global-monthly-reserved-tokens:60000000}") long globalTokens) {
         this.db=db; this.wellness=wellness; this.settings=settings; this.usage=usage; this.json=json;
         this.structuredModel=structuredModel; this.springAiStructuredEnabled=structuredEnabled;
+        this.visionModel=visionModel; this.springAiVisionEnabled=visionEnabled;
         this.userRequests=userRequests;this.globalRequests=globalRequests;
         this.userTokens=userTokens;this.globalTokens=globalTokens;
     }
