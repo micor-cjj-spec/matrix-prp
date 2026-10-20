@@ -73,7 +73,8 @@ class AiToolExecutionTests {
         when(planner.plan(any(),anyList(),anyList())).thenReturn(List.of(
             new AiToolPlanner.Call("tasks_list",json.readTree("{}"))));
         AiToolAudit audit=mock(AiToolAudit.class);
-        var service=new AiService(store,model,settings,mock(AiProviderClient.class),consent,
+        AiModelGateway gateway=new DefaultAiModelGateway(model,mock(AiProviderClient.class));
+        var service=new AiService(store,gateway,settings,consent,
             planner,tools,audit,json,new MockEnvironment(),Runnable::run,
             1024,200,1000,250000L,1000000L);
 
