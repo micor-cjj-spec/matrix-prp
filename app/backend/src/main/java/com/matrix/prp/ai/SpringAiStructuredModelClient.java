@@ -35,6 +35,7 @@ import org.springframework.web.server.ResponseStatusException;
 /** Isolated one-shot text-only Spring AI model calls for validated PRP drafts and practice. */
 @Component
 public class SpringAiStructuredModelClient {
+    public static final int MAX_MESSAGE_CHARS = 40_000;
     public record Completion(String answer, long inputTokens, long outputTokens) {}
     private final Map<String, URI> testEndpoints;
 
@@ -53,17 +54,25 @@ public class SpringAiStructuredModelClient {
 
     public Completion complete(AiSettingsService.Runtime config,
             List<DeepSeekClient.ChatMessage> messages, int outputLimit) {
+        return complete(config, messages, outputLimit, false);
+    }
+
+    /** JSON mode is opt-in for DeepSeek practice generation, not explanations. */
+    public Completion complete(AiSettingsService.Runtime config,
+            List<DeepSeekClient.ChatMessage> messages, int outputLimit, boolean jsonObject) {
         Objects.requireNonNull(config);
         Objects.requireNonNull(messages);
         var provider = AiProviderCatalog.require(config.provider().id());
         if (!provider.models().contains(config.model()) || config.apiKey() == null
                 || config.apiKey().isBlank() || outputLimit < 1 || outputLimit > 8192)
             throw new IllegalArgumentException("Invalid model request");
+        if (jsonObject && !"deepseek".equals(provider.id()))
+            throw new IllegalArgumentException("JSON response mode is only supported for DeepSeek");
         if (messages.isEmpty() || messages.size() > 24)
             throw new IllegalArgumentException("Invalid message count");
         List<Message> promptMessages = new ArrayList<>(messages.size());
         for (var m : messages) {
-            if (m.content() == null || m.content().length() > 16000)
+            if (m.content() == null || m.content().length() > MAX_MESSAGE_CHARS)
                 throw new IllegalArgumentException("Model message exceeds limit");
             switch (m.role()) {
                 case "system" -> promptMessages.add(new SystemMessage(m.content()));
@@ -94,8 +103,13 @@ public class SpringAiStructuredModelClient {
             var api = DeepSeekApi.builder().baseUrl(origin)
                 .completionsPath(endpoint.getRawPath()).apiKey(config.apiKey())
                 .restClientBuilder(http).build();
-            var options = DeepSeekChatOptions.builder().model(config.model())
-                .maxTokens(outputLimit).build();
+            var optionsBuilder = DeepSeekChatOptions.builder().model(config.model())
+                .maxTokens(outputLimit);
+            if (jsonObject) {
+                optionsBuilder.responseFormat(org.springframework.ai.deepseek.api.ResponseFormat
+                    .builder().type(org.springframework.ai.deepseek.api.ResponseFormat.Type.JSON_OBJECT).build());
+            }
+            var options = optionsBuilder.build();
             model = DeepSeekChatModel.builder().deepSeekApi(api)
                 .defaultOptions(options).retryTemplate(oneAttempt).build();
             prompt = new Prompt(promptMessages, options);
