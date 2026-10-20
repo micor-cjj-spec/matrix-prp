@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.matrix.prp.ai.AiProviderCatalog;
 import com.matrix.prp.ai.AiSettingsService;
 import com.matrix.prp.ai.AiStore;
+import com.matrix.prp.ai.SpringAiStructuredModelClient;
+import com.matrix.prp.ai.DeepSeekClient;
 import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.wellness.WellnessModels.*;
 import java.math.BigDecimal;
@@ -20,6 +22,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -43,18 +46,30 @@ public class WellnessAiDraftService {
     private final AiSettingsService settings;
     private final AiStore usage;
     private final ObjectMapper json;
+    private final SpringAiStructuredModelClient structuredModel;
+    private final boolean springAiStructuredEnabled;
     private final int userRequests, globalRequests;
     private final long userTokens, globalTokens;
     private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(6))
         .followRedirects(HttpClient.Redirect.NEVER).build();
 
+    /** Preserve direct-construction API for validation-only tests. */
     public WellnessAiDraftService(JdbcTemplate db, WellnessService wellness, AiSettingsService settings,
         AiStore usage, ObjectMapper json,
+        int userRequests, int globalRequests, long userTokens, long globalTokens) {
+        this(db,wellness,settings,usage,json,null,false,userRequests,globalRequests,userTokens,globalTokens);
+    }
+
+    @Autowired
+    public WellnessAiDraftService(JdbcTemplate db, WellnessService wellness, AiSettingsService settings,
+        AiStore usage, ObjectMapper json, SpringAiStructuredModelClient structuredModel,
+        @Value("${matrix-prp.ai.spring-ai.structured-enabled:true}") boolean structuredEnabled,
         @Value("${matrix-prp.ai.user-monthly-requests:2000}") int userRequests,
         @Value("${matrix-prp.ai.global-monthly-requests:10000}") int globalRequests,
         @Value("${matrix-prp.ai.user-monthly-reserved-tokens:12000000}") long userTokens,
         @Value("${matrix-prp.ai.global-monthly-reserved-tokens:60000000}") long globalTokens) {
         this.db=db; this.wellness=wellness; this.settings=settings; this.usage=usage; this.json=json;
+        this.structuredModel=structuredModel; this.springAiStructuredEnabled=structuredEnabled;
         this.userRequests=userRequests;this.globalRequests=globalRequests;
         this.userTokens=userTokens;this.globalTokens=globalTokens;
     }
@@ -399,6 +414,16 @@ public class WellnessAiDraftService {
                 "若日期未指定用"+today()+"。餐次类型按时间与语义判断；文字只有数量时，只有常见明确份量可保守换算：鸡蛋可食部约50g/个、全麦面包约30g/片、牛奶约1g/ml；请在note明确写估算及份量，其他未知克重输出0不可伪造；照片可粗略估量分量（克）但务必提示用户核对，"+
                 "图片无法精确估计油量或分量，请提醒用户核对；单餐最多30项，每种明确列出的食物都应单独输出，禁止省略、截取或合并为综合菜品；超过30项请告知用户拆分或精简，不得暗中舍弃；未知克重用0且不得猜测热量。"+
                 "仅根据用户提供的信息填写，不能读取历史数据，也不得执行修改或删除。";
+            if(image==null && springAiStructuredEnabled){
+                var completion=structuredModel.complete(config,List.of(
+                    new DeepSeekClient.ChatMessage("system",rules),
+                    new DeepSeekClient.ChatMessage("user",prompt)),2500);
+                var root=json.createObjectNode();
+                root.putArray("choices").addObject().putObject("message").put("content",completion.answer());
+                root.putObject("usage").put("prompt_tokens",completion.inputTokens())
+                    .put("completion_tokens",completion.outputTokens());
+                return root;
+            }
             if(config.provider().anthropic()){
                 if(image!=null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Vision not available for this provider");
                 payload.put("system",rules);payload.put("max_tokens",2500);

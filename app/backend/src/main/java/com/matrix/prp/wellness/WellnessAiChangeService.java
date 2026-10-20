@@ -7,6 +7,7 @@ import com.matrix.prp.ai.AiProviderClient;
 import com.matrix.prp.ai.AiSettingsService;
 import com.matrix.prp.ai.AiStore;
 import com.matrix.prp.ai.DeepSeekClient;
+import com.matrix.prp.ai.SpringAiStructuredModelClient;
 import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.wellness.WellnessModels.*;
 import java.math.BigDecimal;
@@ -17,6 +18,7 @@ import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -37,16 +39,31 @@ public class WellnessAiChangeService {
     private final ObjectMapper json;
     private final AiSettingsService settings;
     private final AiProviderClient model;
+    private final SpringAiStructuredModelClient structuredModel;
+    private final boolean springAiStructuredEnabled;
     private final AiStore usage;
     private final int maxUserReq,maxGlobalReq;
     private final long maxUserTokens,maxGlobalTokens;
 
+    /** Preserve the original constructor for validation-only unit tests. */
     public WellnessAiChangeService(JdbcTemplate db,WellnessService wellness,ObjectMapper json,
         AiSettingsService settings,AiProviderClient model,AiStore usage,
+        int maxUserReq,int maxGlobalReq,long maxUserTokens,long maxGlobalTokens) {
+        this(db,wellness,json,settings,model,usage,null,false,
+            maxUserReq,maxGlobalReq,maxUserTokens,maxGlobalTokens);
+    }
+
+    @Autowired
+    public WellnessAiChangeService(JdbcTemplate db,WellnessService wellness,ObjectMapper json,
+        AiSettingsService settings,AiProviderClient model,AiStore usage,
+        SpringAiStructuredModelClient structuredModel,
+        @Value("${matrix-prp.ai.spring-ai.structured-enabled:true}") boolean structuredEnabled,
         @Value("${matrix-prp.ai.user-monthly-requests:200}") int maxUserReq, @Value("${matrix-prp.ai.global-monthly-requests:1000}") int maxGlobalReq,
         @Value("${matrix-prp.ai.user-monthly-reserved-tokens:250000}") long maxUserTokens,@Value("${matrix-prp.ai.global-monthly-reserved-tokens:1000000}") long maxGlobalTokens) {
         this.db=db;this.wellness=wellness;this.json=json;this.settings=settings;
-        this.model=model;this.usage=usage;this.maxUserReq=maxUserReq;
+        this.model=model;this.structuredModel=structuredModel;
+        this.springAiStructuredEnabled=structuredEnabled;
+        this.usage=usage;this.maxUserReq=maxUserReq;
         this.maxGlobalReq=maxGlobalReq;this.maxUserTokens=maxUserTokens;
         this.maxGlobalTokens=maxGlobalTokens;
     }
@@ -175,12 +192,20 @@ public class WellnessAiChangeService {
             "metric为date,weightKg,bodyFatPct,waistCm。meal.items如修改，必须输出完整原有列表，"+
             "保持每个原foodId不变，仅修改grams。禁止添加/删除条目、用户ID、记录ID，数据不确定则输出{}。";
         try{
-            var answer=model.stream(runtime,List.of(
+            var prompt=List.of(
                 new DeepSeekClient.ChatMessage("system",system),
                 new DeepSeekClient.ChatMessage("user","记录类型："+kind+"；原记录："+json.writeValueAsString(original)+
-                    "；请按要求修改："+instruction)),700,x->{});
-            usage.completed(user,month,answer.inputTokens(),answer.outputTokens());
-            String s=answer.answer();
+                    "；请按要求修改："+instruction));
+            String s;
+            long inputTokens,outputTokens;
+            if(springAiStructuredEnabled) {
+                var answer=structuredModel.complete(runtime,prompt,700);
+                s=answer.answer();inputTokens=answer.inputTokens();outputTokens=answer.outputTokens();
+            } else {
+                var answer=model.stream(runtime,prompt,700,x->{});
+                s=answer.answer();inputTokens=answer.inputTokens();outputTokens=answer.outputTokens();
+            }
+            usage.completed(user,month,inputTokens,outputTokens);
             int left=s.indexOf('{'),right=s.lastIndexOf('}');
             if(s.length()>4000||left<0||right<left)throw invalid("AI returned invalid draft");
             JsonNode patch=json.readTree(s.substring(left,right+1));
