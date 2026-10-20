@@ -3,6 +3,9 @@ package com.matrix.prp.practice;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.matrix.prp.auth.security.CurrentUser;
+import com.matrix.prp.ai.SpringAiStructuredModelClient;
+import com.matrix.prp.ai.AiProviderCatalog;
+import com.matrix.prp.ai.AiSettingsService;
 import com.matrix.prp.practice.PracticeController.*;
 import com.matrix.prp.practice.PracticeModels.*;
 import java.net.URI;
@@ -13,6 +16,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.springframework.context.annotation.Profile;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -26,13 +30,19 @@ public class PracticeAiService {
     private final PracticeService practice;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final SpringAiStructuredModelClient structuredModel;
+    private final boolean springAiStructuredEnabled;
     private final HttpClient client = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8)).build();
 
-    public PracticeAiService(PracticeService practice, JdbcTemplate jdbc, ObjectMapper mapper) {
+    public PracticeAiService(PracticeService practice, JdbcTemplate jdbc, ObjectMapper mapper,
+            SpringAiStructuredModelClient structuredModel,
+            @Value("${matrix-prp.ai.spring-ai.structured-enabled:true}") boolean structuredEnabled) {
         this.practice = practice;
         this.jdbc = jdbc;
         this.mapper = mapper;
+        this.structuredModel = structuredModel;
+        this.springAiStructuredEnabled = structuredEnabled;
     }
     private String bounded(String input, int max, String name) {
         if (input == null || input.isBlank() || input.length() > max)
@@ -52,6 +62,13 @@ public class PracticeAiService {
         if (secret == null || secret.isBlank())
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "DeepSeek API key not configured");
         reserveQuota();
+        if (springAiStructuredEnabled) {
+            var runtime = new AiSettingsService.Runtime(AiProviderCatalog.require("deepseek"),
+                "deepseek-chat", secret, true);
+            return structuredModel.complete(runtime,List.of(
+                new com.matrix.prp.ai.DeepSeekClient.ChatMessage("system",system),
+                new com.matrix.prp.ai.DeepSeekClient.ChatMessage("user",user)),2200).answer();
+        }
         try {
             var body = new java.util.LinkedHashMap<String,Object>();
             body.put("model", "deepseek-chat");

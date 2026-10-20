@@ -14,3 +14,4 @@ matrix-prp:
     spring-ai:
       enabled: false
       tools-enabled: false
+      structured-enabled: false

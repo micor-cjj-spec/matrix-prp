@@ -64,6 +64,9 @@ matrix-prp:
       enabled: ${MATRIX_PRP_AI_SPRING_AI_ENABLED:true}
       # Only the model proposes tool calls. Execution requires PRP consent and allowlist.
       tools-enabled: ${MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED:true}
+      # Text-only practice generation and wellness draft/change parsing.
+      # Image/vision remains native until its multimodal adapter is validated.
+      structured-enabled: ${MATRIX_PRP_AI_SPRING_AI_STRUCTURED_ENABLED:true}
       canary-user-id: ${MATRIX_PRP_AI_SPRING_AI_CANARY_USER_ID:0}
     # P4: privileged actions token is server-only. Codex executes exclusively in ephemeral GitHub Actions.
     codex:
