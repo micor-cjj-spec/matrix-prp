@@ -107,7 +107,7 @@ class SpringAiStructuredModelClientTests {
                     .isInstanceOf(ResponseStatusException.class)
                     .hasMessageContaining("empty response");
             } else {
-                var result=client.complete(config,prompt,2500);
+                var result=client.complete(config,prompt,2500,jsonObject);
                 assertThat(JSON.readTree(result.answer()).path("action").asText())
                     .isEqualTo("meal.create");
                 assertThat(result.inputTokens()).isEqualTo(10);
