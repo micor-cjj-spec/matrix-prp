@@ -81,7 +81,7 @@ class SpringAiToolPlannerTests {
                 new DeepSeekClient.ChatMessage("user","Open my tasks"));
             if(success) {
                 var callsFromModel=planner.plan(config,messages,List.of(NAVIGATION));
-                assertThat(callsFromModel).hasSize(1);
+                assertThat(callsFromModel).as(provider.id()).hasSize(1);
                 assertThat(callsFromModel.getFirst().name()).isEqualTo("navigation_open");
                 assertThat(callsFromModel.getFirst().arguments().path("module").asText()).isEqualTo("tasks");
                 assertThat(request.get().path("tools")).isNotEmpty();
