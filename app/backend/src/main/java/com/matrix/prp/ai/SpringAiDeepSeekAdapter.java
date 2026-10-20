@@ -19,6 +19,7 @@ import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ResponseStatusException;
 
 /** Experimental, owner-scoped DeepSeek transport. Never cache decrypted personal keys. */
@@ -59,9 +60,15 @@ public class SpringAiDeepSeekAdapter {
                 default -> throw new IllegalArgumentException("Unsupported prompt role");
             }
         }
-        // A fresh model on each call prevents any cross-user key caching.
+        // Observe the raw SSE body *on the same request* before Spring AI's
+        // bodyToFlux(String.class) consumes and hides the [DONE] event.
+        // The probe does not consume, copy, buffer or replay DataBuffers.
+        DeepSeekStreamCompletionProbe completion = new DeepSeekStreamCompletionProbe();
+        WebClient.Builder streamingClient = WebClient.builder().filter((request, next) ->
+            next.exchange(request).map(response -> response.mutate()
+                .body(body -> body.doOnNext(completion::inspect)).build()));
         DeepSeekApi api = DeepSeekApi.builder().baseUrl(endpoint)
-            .apiKey(config.apiKey()).build();
+            .apiKey(config.apiKey()).webClientBuilder(streamingClient).build();
         DeepSeekChatOptions options = DeepSeekChatOptions.builder()
             .model(config.model()).maxTokens(outputLimit).build();
         // Spring AI defaults to a retry policy; prevent all implicit replays
@@ -100,6 +107,7 @@ public class SpringAiDeepSeekAdapter {
                 : code == 503 ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_GATEWAY;
             throw new ResponseStatusException(status, "AI provider request failed");
         }
+        completion.requireDone();
         if (answer.isEmpty()) throw new IllegalStateException("AI provider returned an empty response");
         return new DeepSeekClient.Result(answer.toString(), input.get(), output.get());
     }
