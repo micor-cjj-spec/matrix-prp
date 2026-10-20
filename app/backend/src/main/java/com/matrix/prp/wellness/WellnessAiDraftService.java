@@ -22,6 +22,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -52,6 +53,14 @@ public class WellnessAiDraftService {
     private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(6))
         .followRedirects(HttpClient.Redirect.NEVER).build();
 
+    /** Preserve direct-construction API for validation-only tests. */
+    public WellnessAiDraftService(JdbcTemplate db, WellnessService wellness, AiSettingsService settings,
+        AiStore usage, ObjectMapper json,
+        int userRequests, int globalRequests, long userTokens, long globalTokens) {
+        this(db,wellness,settings,usage,json,null,false,userRequests,globalRequests,userTokens,globalTokens);
+    }
+
+    @Autowired
     public WellnessAiDraftService(JdbcTemplate db, WellnessService wellness, AiSettingsService settings,
         AiStore usage, ObjectMapper json, SpringAiStructuredModelClient structuredModel,
         @Value("${matrix-prp.ai.spring-ai.structured-enabled:true}") boolean structuredEnabled,

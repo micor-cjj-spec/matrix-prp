@@ -18,6 +18,7 @@ import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,6 +45,15 @@ public class WellnessAiChangeService {
     private final int maxUserReq,maxGlobalReq;
     private final long maxUserTokens,maxGlobalTokens;
 
+    /** Preserve the original constructor for validation-only unit tests. */
+    public WellnessAiChangeService(JdbcTemplate db,WellnessService wellness,ObjectMapper json,
+        AiSettingsService settings,AiProviderClient model,AiStore usage,
+        int maxUserReq,int maxGlobalReq,long maxUserTokens,long maxGlobalTokens) {
+        this(db,wellness,json,settings,model,usage,null,false,
+            maxUserReq,maxGlobalReq,maxUserTokens,maxGlobalTokens);
+    }
+
+    @Autowired
     public WellnessAiChangeService(JdbcTemplate db,WellnessService wellness,ObjectMapper json,
         AiSettingsService settings,AiProviderClient model,AiStore usage,
         SpringAiStructuredModelClient structuredModel,
