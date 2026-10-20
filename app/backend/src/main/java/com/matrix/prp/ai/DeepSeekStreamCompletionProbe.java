@@ -10,6 +10,13 @@ import org.springframework.core.io.buffer.DataBuffer;
 final class DeepSeekStreamCompletionProbe {
     private static final int MAX_LINE_BYTES = 128;
     private final StringBuilder partialLine = new StringBuilder(MAX_LINE_BYTES);
+    private final String completionLine;
+
+    DeepSeekStreamCompletionProbe() { this("data: [DONE]"); }
+
+    DeepSeekStreamCompletionProbe(String completionLine) {
+        this.completionLine = java.util.Objects.requireNonNull(completionLine);
+    }
     private boolean oversizedLine;
     private boolean sawDone;
 
@@ -20,7 +27,7 @@ final class DeepSeekStreamCompletionProbe {
         for (int pos = offset; pos < end; pos++) {
             byte value = buffer.getByte(pos);
             if (value == '\n') {
-                if (!oversizedLine && partialLine.toString().trim().equals("data: [DONE]"))
+                if (!oversizedLine && partialLine.toString().trim().equals(completionLine))
                     sawDone = true;
                 partialLine.setLength(0);
                 oversizedLine = false;

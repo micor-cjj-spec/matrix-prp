@@ -39,6 +39,8 @@ public class DeepSeekClient {
     }
 
     public String model() { return model; }
+    // Server-only internal Gateway access: never serialize into DTOs or model logs.
+    String serverApiKey() { return apiKey; }
     public void requireConfigured() {
         if (apiKey == null || apiKey.isBlank())
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "DeepSeek is not configured");

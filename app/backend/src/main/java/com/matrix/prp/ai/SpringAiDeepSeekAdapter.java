@@ -42,7 +42,7 @@ public class SpringAiDeepSeekAdapter {
         Objects.requireNonNull(config);
         Objects.requireNonNull(messages);
         Objects.requireNonNull(delta);
-        if (!config.provider().id().equals("deepseek") || config.legacy())
+        if (!config.provider().id().equals("deepseek"))
             throw new IllegalArgumentException("Only personal-key DeepSeek is supported");
         if (!List.of("deepseek-chat", "deepseek-reasoner").contains(config.model()))
             throw new IllegalArgumentException("Unsupported DeepSeek model");

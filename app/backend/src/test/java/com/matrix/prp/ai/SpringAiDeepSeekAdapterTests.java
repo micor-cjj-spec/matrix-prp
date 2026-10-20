@@ -65,16 +65,12 @@ class SpringAiDeepSeekAdapterTests {
         }
     }
 
-    @Test void refusesUnsupportedProviderOrServerKeysBeforeAnyNetworkCall() {
+    @Test void refusesUnsupportedProviderOrInvalidInputsBeforeAnyNetworkCall() {
         var adapter=new SpringAiDeepSeekAdapter();
         var other=new AiSettingsService.Runtime(
             AiProviderCatalog.require("qwen"),"qwen-plus","qwen-key",false);
-        var serverKey=new AiSettingsService.Runtime(
-            AiProviderCatalog.require("deepseek"),"deepseek-chat","server-key",true);
         var empty=List.of(new DeepSeekClient.ChatMessage("user","hi"));
         assertThatThrownBy(()->adapter.stream(other,empty,16,x->{}))
-            .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(()->adapter.stream(serverKey,empty,16,x->{}))
             .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->adapter.stream(target("x"),empty,0,x->{}))
             .isInstanceOf(IllegalArgumentException.class);
