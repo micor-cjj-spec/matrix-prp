@@ -13,6 +13,10 @@ spring:
         tool-callback-converter: false
         stateless:
           mcp-endpoint: /api/mcp
+        # Spring AI 1.1.8 WebMVC transport currently reads the Streamable-HTTP
+        # endpoint property when installing its stateless RouterFunction.
+        streamable-http:
+          mcp-endpoint: /api/mcp
   application:
     name: matrix-prp-backend
   servlet:
