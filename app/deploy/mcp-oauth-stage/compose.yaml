@@ -30,6 +30,7 @@ services:
       KC_HTTP_ENABLED: 'true'
       KC_PROXY_HEADERS: xforwarded
       KC_FEATURES: cimd,resource-indicators
+      KC_CACHE: local
       KC_HTTP_ACCESS_LOG_ENABLED: 'false'
       JAVA_OPTS_KC_HEAP: '-Xms128m -Xmx512m'
     volumes:

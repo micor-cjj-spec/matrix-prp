@@ -13,6 +13,13 @@ sys.path.insert(0, str(HERE.parent / 'mcp-oauth'))
 from build_realm import build_realm
 
 
+def import_directory(path):
+    path.mkdir(mode=0o755)
+    # The private parent/.env stay 0700/0600, but the read-only bind-mounted
+    # import directory must be traversable by Keycloak's unprivileged UID.
+    path.chmod(0o755)
+
+
 def capacity():
     mem = dict(line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())
     available = int(mem['MemAvailable'].split()[0]) * 1024
@@ -29,7 +36,7 @@ def prepare(state):
     state.mkdir(mode=0o700)
     os.umask(0o077)
     (state / 'certs').mkdir()
-    (state / 'realm').mkdir(mode=0o755)
+    import_directory(state / 'realm')
     env = {'OAUTH_STAGE_STATE': str(state), 'OAUTH_DB_PASSWORD': secrets.token_urlsafe(36),
            'OAUTH_ADMIN_PASSWORD': secrets.token_urlsafe(36),
            'OAUTH_USER_PASSWORD': secrets.token_urlsafe(36)}

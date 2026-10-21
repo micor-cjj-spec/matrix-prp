@@ -1,8 +1,23 @@
 from pathlib import Path
 import unittest
+import importlib.util
+import os
+import tempfile
 
 
 class OAuthLabContractTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'posix', 'Linux permission boundary')
+    def test_unprivileged_keycloak_can_traverse_import_under_private_umask(self):
+        script=Path(__file__).resolve().parent.parent/'mcp-oauth-stage/prepare.py'
+        spec=importlib.util.spec_from_file_location('lab_prepare',script)
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as temp:
+            previous=os.umask(0o077)
+            try:
+                path=Path(temp)/'realm';module.import_directory(path)
+                self.assertEqual(path.stat().st_mode & 0o777,0o755)
+            finally:os.umask(previous)
+
     def test_loopback_only_and_separate_persistent_store(self):
         lab = Path(__file__).resolve().parent.parent / 'mcp-oauth-stage'
         compose = (lab / 'compose.yaml').read_text()
