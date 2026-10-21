@@ -60,6 +60,19 @@ python3 public_route_preflight.py \
 
 This validates public protected-resource metadata, exact canonical audience and external issuer, and that an **unauthenticated MCP initialize returns HTTP 401** with the exact `WWW-Authenticate: Bearer resource_metadata="..."` challenge. It explicitly rejects PRP's production `micor.top` host and won't log user data or submit writes. A passing result does **not** prove Keycloak login, approved PRP account linkage or live tool execution; those require the separate PKCE smoke below.
 
+## Actual signed Keycloak access-token compatibility gate
+
+The disposable GitHub CI Keycloak 26.8 test now **issues a genuine OAuth access token**, beyond the previous discovery/realm-only checks. On the disposable runner it registers a short-lived, confidential **service-account test client** (never an actual user's PRP account, and not the public browser PKCE client), requests `scope=prp.tasks.read` and **`resource=https://prp.staging.example.org/api/mcp`**, and validates:
+
+- RS256 RSA signature against the active Keycloak JWKS, verified issuer, subject, `iat` and `exp`.
+- **Exact single `aud` matching the MCP HTTPS resource URI**, *not* the Keycloak internal client ID `matrix-prp-mcp-resource` and not a general API audience.
+- The Keycloak signed `azp` / `client_id` identifies the requesting OAuth client consistently, with the approved `prp.tasks.read` scope.
+- A different unregistered `resource` is rejected (HTTP 400, `invalid_target`), instead of yielding another usable bearer.
+
+This confirms **resource-indicator/JWKS issuance compatibility for a real Keycloak token in CI**. The service-account token is NEVER used to link a PRP owner, access their tasks or perform a write, and its secret and token are not logged. This is **not a substitute for interactive Authorization Code + PKCE** in staging. Keycloak's resource-indicators/CIMD capabilities remain experimental and must be validated on the exact deployed version.
+
+The operator-run `pkce_smoke.py` now fetches the trusted HTTPS JWKS and locally signature-verifies the **actual browser-issued access token** for exact `iss`, `aud`, signed client identity, expiry and task scope *before* submitting an account-link code. It intentionally never prints tokens or decoded claims. The authoritative server-side validation still belongs to PRP's Spring Security/Nimbus resource-server chain.
+
 ## Controlled authorization-code + PKCE + MCP round-trip
 
 This is a **manual workstation test for an isolated staging environment**. It is not run by CI because it requires a human to sign into the external Keycloak account and approve scopes.
