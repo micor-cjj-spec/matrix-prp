@@ -75,6 +75,31 @@ Preserve exact public Host and `X-Forwarded-Proto: https` on **both** origins; r
 
 Only expose these two staging hostnames after HTTPS/cert and restricted admin access have been reviewed. Test data should be fake and safe to discard.
 
+### TLS vhost generator (review only)
+
+From the isolated staging checkout, after generating the private `.env` and **after** creating trusted certificates for both staging names:
+
+```bash
+cd app/deploy/mcp-staging
+python3 check_env.py --env-file .env
+python3 render_tls.py --env-file .env --output .generated/staging-tls.conf
+```
+
+Review `.generated/staging-tls.conf` before any privileged action. It creates precisely two separate HTTPS vhosts:
+
+- `prp-test.micor.top` → **127.0.0.1:18081**, preserving `/prp/`, `/api/` and RFC 9728 discovery paths.
+- `auth-test.micor.top` → **127.0.0.1:18080**, with public `/admin/`, `/realms/master/`, health and metrics paths denied. Authenticate as admin only through a separately secured operator channel such as VPN or an authenticated SSH tunnel.
+
+The generated configuration references **existing** `/etc/letsencrypt/live/<staging-host>/fullchain.pem` and `privkey.pem` files. It does **not** obtain certificates, alter DNS, bind sockets or install into `/etc/nginx`. Do **not** create dummy certs in the real Nginx configuration. Set up staging DNS/TLS using your actual DNS/certificate provider, verify it does not collide with any existing `server_name` or `default_server`, and only then use your normal change-control process to install the reviewed vhost. Before reload:
+
+```bash
+sudo nginx -t
+```
+
+If syntax or host collision validation fails, **do not reload**. Preserve the old config and roll back only the two added staging vhosts. Never overwrite the production `micor.top` vhost or its current certificates.
+
+The GitHub `mcp-staging-tls` CI check tests real Nginx with disposable **self-signed certificates only inside the disposable runner**, two loopback mock backends, correct SNI/Host and `X-Forwarded-Proto`, non-production ports, and denial of public Keycloak admin/master access. It is an acceptance gate for the template, **not** proof that real DNS, production certificates, or an accessible staging host already exist.
+
 ## 5. Enable read-only staging OAuth *after* TLS and Keycloak validation
 
 Edit only `app/deploy/mcp-staging/.env`:
