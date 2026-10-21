@@ -202,8 +202,10 @@ jobs:
         run: |
           MYSQL_PWD=ci-root-password mysql -h 127.0.0.1 -uroot -e "
             CREATE DATABASE matrix_prp_expand_verify CHARACTER SET utf8mb4;
-            GRANT ALL PRIVILEGES ON matrix_prp_expand_verify.* TO 'matrix_prp'@'%';"
-          python3 -m unittest discover -s app/deploy -p test_expand_candidate_mysql.py -v
+            CREATE DATABASE matrix_prp_expand_restore_verify CHARACTER SET utf8mb4;
+            GRANT ALL PRIVILEGES ON matrix_prp_expand_verify.* TO 'matrix_prp'@'%';
+            GRANT ALL PRIVILEGES ON matrix_prp_expand_restore_verify.* TO 'matrix_prp'@'%';"
+          python3 -m unittest discover -s app/deploy -p 'test_expand_*mysql.py' -v
       - name: Verify read-only legacy baseline gate
         env:
           MYSQL_PWD: ci-app-password
