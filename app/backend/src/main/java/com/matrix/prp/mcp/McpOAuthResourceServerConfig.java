@@ -84,7 +84,7 @@ public class McpOAuthResourceServerConfig {
     @Bean
     @Order(1)
     SecurityFilterChain mcpOAuthFilterChain(HttpSecurity http, JwtDecoder mcpJwtDecoder, UserStore users,
-                                              McpClientGrantService grants)
+                                              McpClientGrantService grants, McpIdentityLinkService links)
         throws Exception {
         var metadataUri = McpOAuthMetadataController.metadataUrl(resource);
         return http.securityMatcher("/api/mcp")
@@ -98,12 +98,15 @@ public class McpOAuthResourceServerConfig {
                         "Bearer resource_metadata=\"" + metadataUri + "\"");
                 })
                 .jwt(jwt -> jwt.decoder(mcpJwtDecoder).jwtAuthenticationConverter(token -> {
-                    Object rawId = token.getClaim("prp_user_id");
-                    if (!(rawId instanceof Number number) || number.longValue() <= 0
-                        || number.doubleValue() != number.longValue()) {
-                        throw new BadCredentialsException("Invalid PRP user binding");
+                    if (token.getIssuer() == null || token.getSubject() == null
+                        || token.getSubject().isBlank()) {
+                        throw new BadCredentialsException("OAuth issuer/subject is required");
                     }
-                    UserAccount account = users.findById(number.longValue()).orElse(null);
+                    var linked = links.resolveUserId(token.getIssuer().toString(), token.getSubject());
+                    if (linked.isEmpty()) {
+                        throw new BadCredentialsException("OAuth identity is not linked to PRP");
+                    }
+                    UserAccount account = users.findById(linked.getAsLong()).orElse(null);
                     if (account == null || !account.enabled()) {
                         throw new BadCredentialsException("PRP account not available");
                     }
