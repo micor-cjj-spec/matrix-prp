@@ -31,6 +31,35 @@ MCP CIMD and resource indicators in Keycloak are **experimental**; do not treat 
    The user must **not** send Keycloak credentials, bearer tokens or pairing codes to a general ChatGPT prompt. This is an operator bootstrap route, not a chat tool. It only accepts signed bearer from the configured OAuth issuer and enforces signed `client_id` against the PRP ticket/grant.
 10. After linking, authenticated MCP `initialize → tools/list → tools/call` is expected to work with exactly the intersection of provider-granted scopes and PRP owner-approved scopes; PRP password-based draft review is still required for actual business writes.
 
+## Actual PRP public routing — do not confuse /prp/ with /api/
+
+Existing PRP deployment documentation (`app/docs/technical/prp-subpath-deployment.md`) confirms that:
+- Vue Web/PWA is served under `https://micor.top/prp/`.
+- Spring Boot is accessible through **`/api/**`**, proxying unchanged to the Java service on `127.0.0.1:11000`.
+- Thus a same-host public MCP endpoint is **`https://micor.top/api/mcp`**, not `https://micor.top/prp/api/mcp`; the public RFC 9728 discovery path is `/.well-known/oauth-protected-resource/api/mcp`.
+
+For a separately isolated staging hostname (preferred) generate an **Nginx review snippet** before configuring the actual TLS server block:
+
+```bash
+cd app/deploy/mcp-oauth
+python3 render_nginx.py --host mcp.staging.example.org --output .generated/mcp-routes.conf
+```
+
+Review the generated exact locations for `/api/mcp`, `/api/mcp/link`, and the OAuth discovery URI. Insert them **only in an existing, trusted HTTPS `server_name mcp.staging.example.org` block**, alongside a catch-all default server that rejects unexpected Host values. Set a valid TLS certificate and preserve existing PRP `/api/` routes. Run `sudo nginx -t` before reload. **Do not add `/prp/` to the backend API routes or change production Nginx automatically.**
+
+The snippet pins upstream Host, forwarded host/proto, and disables proxy buffering for the streaming MCP path; the Java backend still authenticates every MCP request independently. Do not forward arbitrary user-supplied `X-Forwarded-Host` values. Rate limits, logging redaction, request body limits, resource exhaustion protection, header policies, and origin controls require operator review at the TLS gateway. The snippet does not create an Nginx server or certificate.
+
+Once the staging MCP feature and OAuth issuer are deliberately enabled, run an **unauthenticated, no-secrets, read-only** public routing test from an external machine:
+
+```bash
+cd app/deploy/mcp-oauth
+python3 public_route_preflight.py \
+  --resource https://mcp.staging.example.org/api/mcp \
+  --issuer https://auth.staging.example.org/realms/prp-mcp
+```
+
+This validates public protected-resource metadata, exact canonical audience and external issuer, and that an **unauthenticated MCP initialize returns HTTP 401** with the exact `WWW-Authenticate: Bearer resource_metadata="..."` challenge. It explicitly rejects PRP's production `micor.top` host and won't log user data or submit writes. A passing result does **not** prove Keycloak login, approved PRP account linkage or live tool execution; those require the separate PKCE smoke below.
+
 ## Controlled authorization-code + PKCE + MCP round-trip
 
 This is a **manual workstation test for an isolated staging environment**. It is not run by CI because it requires a human to sign into the external Keycloak account and approve scopes.
