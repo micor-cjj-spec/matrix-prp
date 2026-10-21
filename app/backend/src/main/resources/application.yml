@@ -11,6 +11,8 @@ spring:
         name: matrix-prp
         version: 1.0.0
         tool-callback-converter: false
+        annotation-scanner:
+          enabled: false
         stateless:
           mcp-endpoint: /api/mcp
         # Spring AI 1.1.8 WebMVC transport currently reads the Streamable-HTTP
