@@ -61,8 +61,10 @@ def check_token(token, jwks, *, issuer, resource, client_id, required_scope="prp
         if not hmac.compare_digest(padded, actual):
             raise ValueError("JWT RS256 signature failed")
 
-        if claims.get("iss") != issuer or not claims.get("sub"):
-            raise ValueError("JWT issuer or subject mismatch")
+        if claims.get("iss") != issuer:
+            raise ValueError("JWT issuer mismatch")
+        if not isinstance(claims.get("sub"), str) or not claims["sub"]:
+            raise ValueError("JWT subject missing")
         aud = claims.get("aud")
         audiences = [aud] if isinstance(aud, str) else aud
         if not isinstance(audiences, list) or audiences != [resource]:
