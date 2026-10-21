@@ -1,0 +1,10 @@
+# Combine with mcp-staging/compose.yaml; original .env stays untouched.
+services:
+  backend:
+    environment:
+      MATRIX_PRP_MCP_ENABLED: 'true'
+      MATRIX_PRP_MCP_OAUTH_ENABLED: 'true'
+      MATRIX_PRP_MCP_WRITE_ENABLED: 'false'
+      JAVA_TOOL_OPTIONS: '-Djavax.net.ssl.trustStore=/opt/prp/stage-ca.jks -Djavax.net.ssl.trustStoreType=JKS'
+    volumes:
+      - ${OAUTH_STAGE_STATE:?}/stage-ca.jks:/opt/prp/stage-ca.jks:ro

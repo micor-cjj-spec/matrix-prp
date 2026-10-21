@@ -40,7 +40,7 @@ class SafeRedirect(HTTPRedirectHandler):
         target = urlsplit(url)
         if url.startswith(CALLBACK + "?"):
             raise CallbackReceived(url)
-        if (target.scheme != "https" or target.hostname != "auth-e2e.localhost"
+        if (target.scheme != "https" or target.hostname != urlsplit(ISSUER).hostname
                 or target.port is not None):
             raise RuntimeError("OAuth attempted an unexpected cross-origin redirect")
         return super().redirect_request(request, fp, code, msg, headers, url)
@@ -160,7 +160,7 @@ def code_pkce(opener, login_user, login_password):
     if not login_form["action"]:
         raise RuntimeError("Keycloak login form action is missing")
     target = urljoin(ISSUER, login_form["action"])
-    if urlsplit(target).hostname != "auth-e2e.localhost":
+    if urlsplit(target).hostname != urlsplit(ISSUER).hostname:
         raise RuntimeError("Untrusted Keycloak login action")
     data = dict(login_form["inputs"])
     data.update({"username": login_user, "password": login_password})
@@ -178,7 +178,7 @@ def code_pkce(opener, login_user, login_password):
                                "kc-consent" not in (f["id"] or "")):
             continue
         action = urljoin(ISSUER, f["action"])
-        if urlsplit(action).hostname != "auth-e2e.localhost":
+        if urlsplit(action).hostname != urlsplit(ISSUER).hostname:
             raise RuntimeError("Untrusted OAuth consent action")
         payload = dict(f["inputs"])
         payload["accept"] = "Yes"
@@ -209,7 +209,7 @@ def code_pkce(opener, login_user, login_password):
 
 def parse_callback(url, state):
     parsed = urlsplit(url)
-    if url[:len(CALLBACK)] != CALLBACK:
+    if parsed._replace(query="").geturl() != CALLBACK:
         raise RuntimeError("Untrusted OAuth callback")
     query = parse_qs(parsed.query)
     if query.get("state") != [state] or len(query.get("code", [])) != 1:

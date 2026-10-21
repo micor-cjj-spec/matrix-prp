@@ -1,0 +1,62 @@
+# Loopback-only persistent OAuth laboratory; never a production release.
+services:
+  auth-db:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak_stage
+      POSTGRES_USER: keycloak_stage
+      POSTGRES_PASSWORD: ${OAUTH_DB_PASSWORD:?}
+    volumes: [oauth_pgdata:/var/lib/postgresql/data]
+    networks: [auth_private]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U keycloak_stage -d keycloak_stage']
+      interval: 5s
+      retries: 30
+    security_opt: [no-new-privileges:true]
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0
+    command: [start, --import-realm]
+    restart: unless-stopped
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://auth-db:5432/keycloak_stage
+      KC_DB_USERNAME: keycloak_stage
+      KC_DB_PASSWORD: ${OAUTH_DB_PASSWORD:?}
+      KC_BOOTSTRAP_ADMIN_USERNAME: stage_oauth_admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${OAUTH_ADMIN_PASSWORD:?}
+      KC_HOSTNAME: https://auth-test.micor.top
+      KC_HTTP_ENABLED: 'true'
+      KC_PROXY_HEADERS: xforwarded
+      KC_FEATURES: cimd,resource-indicators
+      KC_HTTP_ACCESS_LOG_ENABLED: 'false'
+      JAVA_OPTS_KC_HEAP: '-Xms128m -Xmx512m'
+    volumes:
+      - ${OAUTH_STAGE_STATE:?}/realm:/opt/keycloak/data/import:ro
+    depends_on:
+      auth-db: {condition: service_healthy}
+    networks: [auth_private]
+    mem_limit: 1g
+    security_opt: [no-new-privileges:true]
+  tls:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    ports: ['127.0.0.1:18443:443']
+    volumes:
+      - ${OAUTH_STAGE_STATE:?}/tls.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${OAUTH_STAGE_STATE:?}/certs:/etc/nginx/stage-certs:ro
+    networks:
+      auth_private: {}
+      stage_egress:
+        aliases: [auth-test.micor.top, prp-test.micor.top]
+    depends_on: [keycloak]
+    mem_limit: 64m
+    security_opt: [no-new-privileges:true]
+networks:
+  auth_private: {internal: true}
+  stage_egress:
+    external: true
+    name: prp-mcp-stage_stage_egress
+volumes:
+  oauth_pgdata: {}
