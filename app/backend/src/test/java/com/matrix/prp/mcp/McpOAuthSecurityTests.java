@@ -5,6 +5,7 @@ import com.matrix.prp.auth.service.JwtService;
 import com.matrix.prp.wellness.WellnessService;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -43,6 +44,7 @@ class McpOAuthSecurityTests {
     @Autowired UserStore users;
     @Autowired JwtService prpJwt;
     @MockitoBean JdbcTemplate jdbc;
+    @MockitoBean McpClientGrantService clientGrants;
     @MockitoBean WellnessService wellness;
     @MockitoBean(name = "mcpJwtDecoder") JwtDecoder oauthDecoder;
 
@@ -55,6 +57,7 @@ class McpOAuthSecurityTests {
             .issuedAt(Instant.now().minusSeconds(5))
             .expiresAt(Instant.now().plusSeconds(300))
             .claim("prp_user_id", userId)
+            .claim("client_id", "test-client")
             .claim("scope", scopes)
             .build();
     }
@@ -95,6 +98,7 @@ class McpOAuthSecurityTests {
 
     @Test
     void oauthTaskReadDoesNotAuthorizeFinanceOrDraftWrites() throws Exception {
+        when(clientGrants.grantedScopes(1L, "test-client")).thenReturn(Set.of("prp.tasks.read"));
         when(oauthDecoder.decode("read-only")).thenReturn(jwt("read-only", "prp.tasks.read", 1L));
         var list = mvc.perform(mcp("read-only",
             "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/list\",\"params\":{}}"))
@@ -117,6 +121,19 @@ class McpOAuthSecurityTests {
             .andExpect(status().isOk()).andReturn();
         assertThat(write.getResponse().getContentAsString()).contains("\"isError\":true");
         verifyNoInteractions(jdbc);
+    }
+
+    @Test
+    void revokedClientFailsOnNextAuthenticationEvenWithUnexpiredToken() throws Exception {
+        when(oauthDecoder.decode("revoked-token")).thenReturn(jwt("revoked-token", "prp.tasks.read", 1L));
+        when(clientGrants.grantedScopes(1L, "test-client"))
+            .thenReturn(Set.of("prp.tasks.read")).thenReturn(Set.of());
+        mvc.perform(mcp("revoked-token",
+            "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":40,\\"method\\":\\"tools/list\\"}"))
+            .andExpect(status().isOk());
+        mvc.perform(mcp("revoked-token",
+            "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":41,\\"method\\":\\"tools/list\\"}"))
+            .andExpect(status().isUnauthorized());
     }
 
     @Test
