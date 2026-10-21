@@ -67,7 +67,10 @@ class SignedOAuthTokenTests(unittest.TestCase):
         bad_claims = [
             {"iss": "https://evil.example/realms/prp-mcp"},
             {"aud": ["matrix-prp-mcp-resource"]},
-            {"aud": [RESOURCE, "https://another.example/api/mcp"]},
+            {"aud": [RESOURCE, RESOURCE]},
+            {"aud": ["https://another.example/api/mcp"]},
+            {"aud": [RESOURCE, ""]},
+            {"aud": [RESOURCE, 123]},
             {"azp": "different-client"},
             {"client_id": "other-client"},
             {"scope": "openid profile"},
@@ -77,6 +80,13 @@ class SignedOAuthTokenTests(unittest.TestCase):
         for claims in bad_claims:
             with self.subTest(claims=claims), self.assertRaises(ValueError):
                 self.verify(self.token(**claims))
+
+    def test_auth0_style_additional_signed_userinfo_audience_is_allowed(self):
+        jwt = self.token(aud=[RESOURCE, ISSUER + "/userinfo"])
+        result = self.verify(jwt)
+        self.assertEqual(result["audience"], "exact MCP resource")
+        self.assertTrue(result["additional_audiences_present"])
+        self.assertFalse(self.verify(self.token())["additional_audiences_present"])
 
     def test_tampered_payload_or_signature_fails(self):
         token = self.token()
