@@ -18,9 +18,15 @@ class KeycloakResourceRealmTests(unittest.TestCase):
 
     def test_scopes_optional_and_never_granted_without_client_assignment(self):
         realm = build_realm("https://prp.staging.test/api/mcp")
-        self.assertEqual(len(realm["clientScopes"]), 6)
+        self.assertEqual(len(realm["clientScopes"]), 7)
+        basic = [s for s in realm["clientScopes"] if s["name"] == "basic"]
+        self.assertEqual(len(basic), 1)
+        self.assertEqual(basic[0]["protocolMappers"][0]["protocolMapper"], "oidc-sub-mapper")
+        self.assertEqual(basic[0]["protocolMappers"][0]["config"]["access.token.claim"], "true")
+        permissions = [s for s in realm["clientScopes"] if s["name"] != "basic"]
+        self.assertEqual(len(permissions), 6)
         self.assertTrue(all(s["attributes"]["include.in.token.scope"] == "true"
-                            for s in realm["clientScopes"]))
+                            for s in permissions))
         self.assertEqual(len(realm["clients"]), 1)
         self.assertFalse(realm["clients"][0]["standardFlowEnabled"])
 
