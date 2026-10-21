@@ -9,7 +9,8 @@ It reuses owner-scoped PRP services instead of granting the model SQL access or 
 - `prp_finance_month` — summary and maximum 10 transactions for an authenticated user's selected month.
 - `prp_wellness_daily` — authenticated-user daily wellness data.
 - `prp_prepare_task`, `prp_prepare_finance`, `prp_prepare_record` — save an immutable 15-minute draft, **not** business data.
-- `prp_confirm_draft` — with an explicit approval argument, locks an owned draft, creates precisely one business record using the original PRP service, persists its result, and returns the same result on replay. No delete/update tools.
+- `prp_draft_status` — owner-scoped read of current status.
+- `prp_confirm_draft` — only works **after** the PRP site verifies the account password and marks this exact draft `APPROVED`; locks the draft, writes one business record and returns the same saved result on replay. No model-supplied approval flag, delete or update tools.
 
 A model cannot supply user IDs, SQL, file paths, destination URLs, or arbitrary method names. JWT authentication is supplied by the existing servlet security chain; CurrentUser.id() is resolved at execution time and never copied from a tool argument. Cross-user draft IDs return 404.
 
@@ -26,7 +27,7 @@ This **does not** implement third-party OAuth 2.0. Existing PRP JWT authenticati
 
 ## Database & release policy
 
-V24 introduces only an initially-empty `prp_mcp_write_drafts` table. It is registered with a SHA-256 in the reviewed additive migration policy. V1–V23 files remain untouched; deploy **in order** on a reviewed restored copy. Do not baseline or clean the production schema, truncate any user data, bypass snapshot/diff gates, or run Flyway on a populated environment without a reviewed baseline.
+V24 introduces only an initially-empty `prp_mcp_write_drafts` table, including `approval_failures` (five-attempt lockout), `approved_at` and `CONSUMED` replay receipts. It is registered with a SHA-256 in the reviewed additive migration policy. V1–V23 files remain untouched; deploy **in order** on a reviewed restored copy. Do not baseline or clean the production schema, truncate any user data, bypass snapshot/diff gates, or run Flyway on a populated environment without a reviewed baseline.
 
 No production deployment is part of this PR. In particular, the current SSH/SFTP/release-gateway hold must remain in place until separately accepted.
 
@@ -38,10 +39,20 @@ No production deployment is part of this PR. In particular, the current SSH/SFTP
 4. Reads are bounded; writes are disabled by a second independent flag.
 5. Drafts are user-bound, immutable, expire after 15 minutes, and limited to 50 outstanding records per owner.
 6. Confirmation is a row-locked transaction. A replay returns the prior saved record; an expired or foreign-user draft fails.
-7. Tool descriptions tell agents to wait for the human's explicit review/approval, but `userApproved=true` is supplied by the MCP caller and is **not independent cryptographic evidence of human consent**. Until a trusted MCP host approval flow (or a separate PRP authorization event) is integration-tested, keep production write-enabled=false. This is a critical **release blocker**, not an implied security guarantee.
+7. Tools **cannot** approve their own drafts. The user opens PRP `/me/mcp-approve/{draftId}`, reviews the immutable JSON data, enters the PRP password, and receives server-side `APPROVED` (wrong passwords are capped at five attempts per draft). The MCP tool can only confirm `APPROVED` drafts. The UI never sends the password to the MCP tool or AI provider. The user can reject/revoke before consumption. Keep production write-enabled=false until this flow is verified end-to-end with transport identity propagation and request protections.
 8. No direct SQL tool, update/delete business mutation tool, arbitrary SSRF target, or backend API key in a prompt.
 9. For external clients, add OAuth 2.0 authorization-server support (scopes/PKCE, token audience, refresh/revocation, discovery), explicit origin/Host validation and request budgets before opening public access.
 10. Audit actual MCP use and gate sensitive wellness/financial scopes before broad multi-user enablement; avoid recording full tool arguments or secrets.
+
+## Exact approval sequence
+
+1. MCP `prp_prepare_*` returns a 15-minute draft ID and the exact proposed values.
+2. Open `https://micor.top/prp/me/mcp-approve/{draftId}` **in a trusted PRP browser**, not an AI tool. Authenticate to PRP if necessary.
+3. Review exact values, enter the PRP password and click the approval button. Only the PRP server changes `PENDING` to `APPROVED`.
+4. Ask the MCP client to run `prp_confirm_draft({ draftId })` (no approval boolean). A transaction changes `APPROVED` to `CONSUMED` and returns the saved record.
+5. To cancel: reject the pending/approved draft in PRP before confirmation.
+
+Any MCP client with the authenticated bearer alone cannot approve unless the account password is also known. Password reauthentication is a **step-up proof**, not a substitute for implementing OAuth 2.0 and token-bound scopes. Rate limiting and logs must additionally be reviewed before public exposure.
 
 ## Local checks / gate to next milestone
 
@@ -66,4 +77,4 @@ Then, against an isolated migrated test database:
 
 ## Next milestone
 
-Add an independent server-side approval record or trusted host authorization, OAuth 2.0 and per-scope grants, draft/status UI links, observability, and authenticated Streamable HTTP integration tests. Only then consider remotely enabling production MCP writes.
+Finish OAuth 2.0 (authorization-code+PKCE, discovery, client registration policy, resource audience, scopes, refresh/revocation), an independent host/Origin policy, audit/observability, and authenticated **real Streamable HTTP** multi-tenant integration tests. Only then consider remotely enabling production MCP writes.
