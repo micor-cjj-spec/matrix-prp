@@ -2,6 +2,7 @@ package com.matrix.prp.finance.imports;
 
 import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.finance.entity.FinanceAccountEntity;
+import com.matrix.prp.finance.entity.FinanceTransactionEntity;
 import com.matrix.prp.finance.mapper.FinanceAccountMapper;
 import com.matrix.prp.finance.mapper.FinanceTransactionMapper;
 import java.math.BigDecimal;
