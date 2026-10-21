@@ -12,7 +12,10 @@ def https_url(raw, label):
     parsed = urlparse(raw)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
         raise ValueError(f"{label}: explicit HTTPS URL without credentials or fragment required")
-    return raw.rstrip("/")
+    # OAuth issuer identifiers are exact strings. Providers such as Auth0
+    # publish an issuer with a terminal '/', which is part of the signed iss.
+    # Keep it unchanged; trim a delimiter ONLY to form the discovery URL.
+    return raw
 
 
 def validate(issuer, resource, fetch):
@@ -20,7 +23,7 @@ def validate(issuer, resource, fetch):
     https_url(resource, "resource")
     if not urlparse(resource).path:
         raise ValueError("resource: canonical MCP endpoint path required")
-    configuration = fetch(issuer + "/.well-known/openid-configuration")
+    configuration = fetch(issuer.rstrip("/") + "/.well-known/openid-configuration")
     if configuration.get("issuer") != issuer:
         raise ValueError("issuer metadata mismatch")
     for key in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
