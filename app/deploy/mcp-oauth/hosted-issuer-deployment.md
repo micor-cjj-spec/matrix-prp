@@ -91,6 +91,49 @@ Avoid copying outputs containing user- or vendor-specific diagnostic
 extensions into public issue comments. The intended script output
 contains only allowlisted numeric capacities and generic unit state.
 
+
+## ChatGPT client entitlement and device gate (review-only)
+
+As reviewed on 2026-10-21, **do not equate a passing MCP/OAuth CI suite with
+the ability to attach this server to the operator's current ChatGPT account**.
+Check the live official plan/workspace entitlement before spending on hosted
+OAuth, adding public DNS, or enabling production MCP. Current OpenAI help
+documents custom remote MCP server connections for Business and Enterprise/Edu
+workspaces (admins/authorized roles); Pro has limited read/fetch support.
+They do **not** affirm arbitrary Plus user-created remote MCP connections.
+Custom MCP setup is web-only in the documented flow; an iOS ChatGPT session
+is not a substitute for the required web-side creation test.
+
+Reference: https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt
+
+**Blocking acceptance evidence:**
+- On the *intended* ChatGPT plan/workspace and a supported web interface,
+  show that **Add custom MCP server** is permitted for the account/role.
+  A separately connected GitHub plugin or a successful API-level MCP test
+  does not demonstrate this entitlement.
+- Confirm whether this account permits the intended read-only tools, and
+  separately whether any future write tools are permitted. Never infer
+  write entitlement from server capability.
+- Verify that the actual ChatGPT client supports the chosen CIMD/DCR or
+  pre-registered OAuth client mode and its exact redirect URIs.
+- Authenticate with only disposable staging credentials, obtain real
+  JWT evidence, and test PRP-side link, tasks.read, revocation and
+  refresh-token behavior before any production canary.
+- If account eligibility cannot be verified, leave all production MCP and
+  write feature flags **OFF**. Continue isolated GitHub CI only; do not
+  provision an OAuth tenant on speculation or suggest that an account
+  upgrade is required for the PRP application's internal AI features.
+
+The existing `prp-readonly-inspect.yml` / forced `prp-inspect` command
+reports only allowlisted deployment/service metadata; it **does not**
+run `read_only_capacity.py` or collect JVM/host resource headroom.
+This new capacity script is source in the draft PR, not an installed
+production command. A real resource snapshot requires a separately
+authorized **read-only** operator execution in a separate checkout.
+Do not broaden the forced-SSH command, install software, dispatch a
+production deployment, or treat the earlier 1.3 GiB observation as
+a current measurement.
+
 ## Required independent live gates
 
 - Provider admin must enable and verify RFC 8707 resource propagation
