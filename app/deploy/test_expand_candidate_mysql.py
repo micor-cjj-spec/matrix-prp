@@ -14,7 +14,7 @@ _HOST = "127.0.0.1"
 _USER = "matrix_prp"
 _ADD_SQL = (b"ALTER TABLE prp_expand_fixture "
             b"ADD COLUMN source_platform VARCHAR(32) NULL, "
-            b"ALGORITHM=INSTANT, LOCK=NONE;")
+            b"ALGORITHM=INSTANT;")
 
 
 @unittest.skipUnless(os.getenv("PRP_EXPAND_MYSQL_TEST") == "1",
