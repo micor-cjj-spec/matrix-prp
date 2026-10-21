@@ -18,7 +18,7 @@ _TYPE = r"(?:BIGINT|INT|DATE|DATETIME\(6\)|DECIMAL\([0-9]{1,2},[0-9]{1,2}\)|VARC
 _CANDIDATE = re.compile(
     rf"ALTER TABLE (?P<table>{_IDENTIFIER}) "
     rf"ADD COLUMN (?P<column>{_COLUMN}) (?P<column_type>{_TYPE}) NULL, "
-    r"ALGORITHM=INSTANT, LOCK=NONE;"
+    r"ALGORITHM=INSTANT;"
 )
 
 
@@ -40,7 +40,7 @@ class NullableColumnCandidate:
             "column": self.column,
             "type": self.column_type,
             "algorithm": "INSTANT",
-            "lock": "NONE",
+            "lock": "IMPLICIT_DEFAULT",
             "sql_sha256": self.sql_sha256,
         }
 
@@ -58,7 +58,7 @@ def parse_candidate(raw: bytes) -> NullableColumnCandidate:
     sql = " ".join(raw.decode("ascii").split())
     match = _CANDIDATE.fullmatch(sql)
     if match is None:
-        raise ValueError("Only one bounded nullable ADD COLUMN with INSTANT/NONE is reviewable")
+        raise ValueError("Only one bounded nullable ADD COLUMN with INSTANT is reviewable")
     column_type = match.group("column_type")
     if column_type.startswith("VARCHAR"):
         length = int(column_type[8:-1])
