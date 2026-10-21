@@ -11,7 +11,7 @@ from migration_policy import migration_policy_sql_tables, migration_policy_valid
 
 SQL = (b"ALTER TABLE prp_finance_transactions "
        b"ADD COLUMN source_platform VARCHAR(32) NULL, "
-       b"ALGORITHM=INSTANT, LOCK=NONE;")
+       b"ALGORITHM=INSTANT;")
 
 
 class ExpandCandidateTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class ExpandCandidateTests(unittest.TestCase):
         self.assertTrue(report["controller_upgrade_required"])
         self.assertEqual(report["sql_sha256"], hashlib.sha256(SQL).hexdigest())
         self.assertEqual(report["algorithm"], "INSTANT")
-        self.assertEqual(report["lock"], "NONE")
+        self.assertEqual(report["lock"], "IMPLICIT_DEFAULT")
 
     def test_eligible_types_and_whitespace(self):
         for typ in ("BIGINT", "INT", "DATE", "DATETIME(6)", "DECIMAL(18,2)",
@@ -46,8 +46,8 @@ class ExpandCandidateTests(unittest.TestCase):
             SQL.replace(b" NULL,", b" NULL DEFAULT NULL,"),
             SQL.replace(b" NULL,", b" NULL DEFAULT 'x',"),
             SQL.replace(b"ALGORITHM=INSTANT", b"ALGORITHM=COPY"),
-            SQL.replace(b"LOCK=NONE", b"LOCK=SHARED"),
-            SQL.replace(b"LOCK=NONE", b"LOCK=DEFAULT"),
+            SQL.replace(b"ALGORITHM=INSTANT", b"ALGORITHM=INSTANT, LOCK=SHARED"),
+            SQL.replace(b"ALGORITHM=INSTANT", b"ALGORITHM=INSTANT, LOCK=DEFAULT"),
             SQL.replace(b"prp_finance_transactions", b"other_schema.prp_finance_transactions"),
             SQL.replace(b"prp_finance_transactions", b"PRP_finance_transactions"),
             SQL.replace(b"source_platform", b"sourcePlatform"),
