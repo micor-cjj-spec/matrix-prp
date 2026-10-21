@@ -94,6 +94,8 @@ def main():
     env=parse_env((STATE/'.env').read_text())
     base=parse_env((HERE.parent/'mcp-staging/.env').read_text())
     op=opener()
+    flow.wait_ready(op,flow.ISSUER+'/.well-known/openid-configuration',120)
+    flow.wait_ready(op,PRP+'/api/health',60)
     metadata=obj(flow.request(op,flow.ISSUER+'/.well-known/openid-configuration'))
     assert metadata['issuer']==flow.ISSUER and 'S256' in metadata['code_challenge_methods_supported']
     assert metadata.get('authorization_response_iss_parameter_supported') is True

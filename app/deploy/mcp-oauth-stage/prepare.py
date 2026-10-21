@@ -54,13 +54,16 @@ def prepare(state):
         subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     cert = state / 'certs'
     run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','7',
-         '-keyout',str(cert/'ca.key'),'-out',str(cert/'ca.pem'),'-subj','/CN=PRP Private OAuth Stage CA'])
+         '-keyout',str(cert/'ca.key'),'-out',str(cert/'ca.pem'),'-subj','/CN=PRP Private OAuth Stage CA',
+         '-addext','basicConstraints=critical,CA:TRUE',
+         '-addext','keyUsage=critical,keyCertSign,cRLSign'])
     run(['openssl','req','-new','-newkey','rsa:2048','-nodes','-keyout',str(cert/'leaf.key'),
          '-out',str(cert/'leaf.csr'),'-subj','/CN=auth-test.micor.top'])
-    (cert/'leaf.ext').write_text('subjectAltName=DNS:auth-test.micor.top,DNS:prp-test.micor.top\nextendedKeyUsage=serverAuth\n')
+    (cert/'leaf.ext').write_text('subjectAltName=DNS:auth-test.micor.top,DNS:prp-test.micor.top\nextendedKeyUsage=serverAuth\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nauthorityKeyIdentifier=keyid,issuer\nsubjectKeyIdentifier=hash\n')
     run(['openssl','x509','-req','-in',str(cert/'leaf.csr'),'-CA',str(cert/'ca.pem'),
          '-CAkey',str(cert/'ca.key'),'-CAcreateserial','-out',str(cert/'leaf.pem'),
          '-days','7','-extfile',str(cert/'leaf.ext')])
+    run(['openssl','verify','-x509_strict','-CAfile',str(cert/'ca.pem'),str(cert/'leaf.pem')])
     # This truststore contains only a public test CA, no private credentials.
     run(['docker','run','--rm','--network','none','-v',str(state)+':/state',
          'prp-mcp-stage-test-builder','keytool','-importcert','-noprompt',

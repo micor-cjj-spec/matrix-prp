@@ -39,6 +39,8 @@ class OAuthLabContractTests(unittest.TestCase):
         self.assertIn("(state / '.env').open('x')", source)
         self.assertIn('ssl_reject_handshake on', source)
         self.assertIn('access_log off', source)
+        self.assertIn('keyUsage=critical,keyCertSign,cRLSign', source)
+        self.assertIn("'verify','-x509_strict'", source)
         self.assertNotIn('CERT_NONE', source)
         self.assertNotIn('verify=False', source)
 
