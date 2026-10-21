@@ -24,7 +24,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 
 /**
  * Only the MCP protocol endpoint uses third-party OAuth access tokens.
@@ -117,6 +117,7 @@ public class McpOAuthResourceServerConfig {
                     return new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
                         account.profile(), token, authorities);
                 })))
+            .addFilterAfter(new McpVerifiedPrincipalCaptureFilter(), BearerTokenAuthenticationFilter.class)
             .build();
     }
 }
