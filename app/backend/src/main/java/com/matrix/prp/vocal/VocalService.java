@@ -154,7 +154,7 @@ public class VocalService {
                 ps.setString(8,metrics);return ps;
             },holder);
             long id=holder.getKey().longValue();
-            library.attachTake(user, id, songId, sectionId);
+            library.attachTake(id, songId, sectionId);
             return present(jdbc.query(TAKE_SELECT + "WHERE t.id=? AND t.user_id=?",row,id,user).getFirst());
         } catch (Exception ex) {
             Files.deleteIfExists(output);
