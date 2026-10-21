@@ -8,6 +8,9 @@ async function stubBackend(page: Page) {
   await page.route('**/api/**', async route => {
     const request = route.request()
     const pathname = new URL(request.url()).pathname
+    // The route glob also matches Vite source modules such as /src/api/auth.ts.
+    // Mock only actual HTTP API URLs; loading a TS module as JSON blanks the app.
+    if (!pathname.startsWith('/api/')) return route.continue()
     if (pathname === '/api/auth/login' && request.method() === 'POST') {
       return route.fulfill({
         contentType: 'application/json',
