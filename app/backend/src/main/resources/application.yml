@@ -2,6 +2,17 @@ server:
   port: 8080
 
 spring:
+  ai:
+    mcp:
+      server:
+        enabled: ${MATRIX_PRP_MCP_ENABLED:false}
+        protocol: STATELESS
+        type: SYNC
+        name: matrix-prp
+        version: 1.0.0
+        tool-callback-converter: false
+        stateless:
+          mcp-endpoint: /api/mcp
   application:
     name: matrix-prp-backend
   servlet:
@@ -42,6 +53,9 @@ springdoc:
     path: /swagger-ui.html
 
 matrix-prp:
+  mcp:
+    enabled: ${MATRIX_PRP_MCP_ENABLED:false}
+    write-enabled: ${MATRIX_PRP_MCP_WRITE_ENABLED:false}
   knowledge:
     root: ../../knowledge
   vocal:
