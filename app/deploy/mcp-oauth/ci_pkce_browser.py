@@ -214,7 +214,7 @@ def parse_callback(url, state):
     query = parse_qs(parsed.query)
     if query.get("state") != [state] or len(query.get("code", [])) != 1:
         raise RuntimeError("OAuth state/code verification failed")
-    if query.get("iss", [ISSUER]) != [ISSUER]:
+    if query.get("iss") != [ISSUER]:
         raise RuntimeError("OAuth callback issuer mismatch")
     return query["code"][0]
 
