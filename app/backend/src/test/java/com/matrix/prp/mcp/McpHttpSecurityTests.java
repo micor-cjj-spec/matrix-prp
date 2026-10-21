@@ -44,6 +44,29 @@ class McpHttpSecurityTests {
     }
 
     @Test
+    void authenticatedTransportListsOnlyExplicitMcpTools() throws Exception {
+        String loginResponse = mvc.perform(post("/api/auth/login")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\\"username\\":\\"admin\\",\\"password\\":\\"matrix-prp\\"}"))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String token = json.readTree(loginResponse).path("data").path("token").asText();
+        var result = mvc.perform(post("/api/mcp")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM)
+            .content("""
+                {"jsonrpc":"2.0","id":10,"method":"tools/list","params":{}}
+                """)).andReturn();
+        if (result.getRequest().isAsyncStarted()) {
+            result = mvc.perform(asyncDispatch(result)).andReturn();
+        }
+        org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentAsString())
+            .contains("prp_tasks_list", "prp_prepare_task", "prp_confirm_draft")
+            .doesNotContain("exec_sql", "arbitrary_url");
+    }
+
+    @Test
     void authenticatedUserCannotApproveWhenWriteSwitchIsOff() throws Exception {
         String body = mvc.perform(post("/api/auth/login")
             .contentType(MediaType.APPLICATION_JSON)
