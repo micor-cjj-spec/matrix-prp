@@ -14,7 +14,7 @@ A reviewer may check one **proposed**, untracked SQL statement:
 ```sql
 ALTER TABLE prp_finance_transactions
   ADD COLUMN source_platform VARCHAR(32) NULL,
-  ALGORITHM=INSTANT, LOCK=NONE;
+  ALGORITHM=INSTANT;
 ```
 
 ```sh
@@ -26,8 +26,8 @@ The report carries the raw SQL SHA256, table, column and type, plus explicit
 This is **not** a release artifact or a signature. The CLI does not execute SQL.
 
 The classifier recognizes a single explicit `ALTER TABLE prp_* ADD COLUMN`
-statement, a small bounded type allowlist, `NULL`, `ALGORITHM=INSTANT`, and
-`LOCK=NONE`. It rejects multiple statements, changes/removals, updates,
+statement, a small bounded type allowlist, `NULL`, and `ALGORITHM=INSTANT`.
+Explicit `LOCK` modifiers are rejected. It rejects multiple statements, changes/removals, updates,
 non-null columns, defaults, indexes, identifiers outside the canonical subset,
 comments, cross-schema references, executable SQL comments and exotic DDL.
 It does not permit existing SQL migration files or the production controller to
@@ -44,8 +44,9 @@ refuses other hostnames, database names, credentials and non-CI execution.
 
 A passing dry-run only proves the narrow example works on that MySQL 8.4
 environment. Real production tables can have different metadata, indexes,
-size, MySQL versions, traffic and metadata-lock behavior. `LOCK=NONE` cannot
-promise a zero-wait migration. There is **no** authorization to run this ALTER
+size, MySQL versions, traffic and metadata-lock behavior. MySQL 8.4 rejects
+explicit `LOCK=NONE` with `ALGORITHM=INSTANT`; even instant changes may
+briefly need metadata locks and cannot promise a zero-wait migration. There is **no** authorization to run this ALTER
 on existing PRP tables.
 
 ## Required follow-on review before enabling production ALTER
