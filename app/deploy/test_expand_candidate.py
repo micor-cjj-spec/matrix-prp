@@ -32,7 +32,7 @@ class ExpandCandidateTests(unittest.TestCase):
         for typ in ("BIGINT", "INT", "DATE", "DATETIME(6)", "DECIMAL(18,2)",
                     "DECIMAL(2,0)", "VARCHAR(1)", "VARCHAR(1024)"):
             with self.subTest(typ=typ):
-                sql = f"ALTER TABLE prp_people ADD COLUMN review_field {typ} NULL,\n ALGORITHM=INSTANT, LOCK=NONE;".encode("ascii")
+                sql = f"ALTER TABLE prp_people ADD COLUMN review_field {typ} NULL,\n ALGORITHM=INSTANT;".encode("ascii")
                 self.assertEqual(parse_candidate(sql).column_type, typ)
 
     def test_forbidden_operations_modifiers_and_injection_fail_closed(self):
