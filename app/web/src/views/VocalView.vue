@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Calendar, TrendCharts, Timer, ChatLineRound, Check, Headset, Microphone } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { vocalApi, type VocalExercise, type VocalTake, type PitchPoint } from '@/api/vocal'
 import { useVocalRecorder } from '@/composables/useVocalRecorder'
