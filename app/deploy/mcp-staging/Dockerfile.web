@@ -1,16 +1,17 @@
-# Match the monorepo build layout: app/scripts checks feature registry,
-# app/config, Web routes, Mobile routes and backend module directories.
+# Keep the monorepo rooted at /repo because Web build contracts read
+# both /repo/app/scripts and /repo/.github/workflows.
 FROM node:22-alpine AS build
-WORKDIR /app/web
+WORKDIR /repo/app/web
 COPY app/web/package*.json ./
 RUN npm ci
-WORKDIR /app
-COPY app ./
-WORKDIR /app/web
+WORKDIR /repo
+COPY app ./app
+COPY .github ./.github
+WORKDIR /repo/app/web
 ENV VITE_APP_BASE=/prp/
 RUN npm run build && node scripts/verify-deploy-base.mjs /prp/
 
 FROM nginx:1.29-alpine
 COPY app/deploy/mcp-staging/nginx.conf.template /etc/nginx/templates/default.conf.template
-COPY --from=build /app/web/dist /usr/share/nginx/html
+COPY --from=build /repo/app/web/dist /usr/share/nginx/html
 EXPOSE 8080
