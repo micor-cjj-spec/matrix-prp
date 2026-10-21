@@ -6,7 +6,8 @@ import jakarta.validation.constraints.NotBlank;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
@@ -24,8 +25,12 @@ public class McpOAuthLinkController {
 
     @PostMapping("/api/mcp/link")
     public ResponseEntity<ApiResponse<McpIdentityLinkService.Link>> complete(
-            @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CompleteRequest request) {
-        if (jwt == null || jwt.getIssuer() == null || jwt.getSubject() == null)
+            Authentication authentication, @Valid @RequestBody CompleteRequest request) {
+        if (!(authentication instanceof JwtAuthenticationToken bearer))
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.UNAUTHORIZED, "Verified OAuth bearer token required");
+        Jwt jwt = bearer.getToken();
+        if (jwt.getIssuer() == null || jwt.getSubject() == null)
             throw new org.springframework.web.server.ResponseStatusException(
                 org.springframework.http.HttpStatus.UNAUTHORIZED, "Valid OAuth identity is required");
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
