@@ -10,7 +10,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
  * Capture only a Spring-Security-authenticated identity on the HTTP request thread.
@@ -28,7 +27,8 @@ public class McpOAuthTransportConfiguration {
             .jsonMapper(new JacksonMcpJsonMapper(mapper))
             .messageEndpoint("/api/mcp")
             .contextExtractor(request -> {
-                Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+                Object verified = request.servletRequest().getAttribute(VERIFIED_AUTH);
+                Authentication auth = verified instanceof Authentication saved ? saved : null;
                 if (auth == null || !auth.isAuthenticated()) return McpTransportContext.EMPTY;
                 return McpTransportContext.create(Map.of(VERIFIED_AUTH, auth));
             })
