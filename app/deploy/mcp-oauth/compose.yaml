@@ -37,7 +37,7 @@ services:
     ports:
       - "127.0.0.1:18080:8080"
     volumes:
-      - ./realm:/opt/keycloak/data/import:ro
+      - ./.generated/realm:/opt/keycloak/data/import:ro
     depends_on:
       auth-db:
         condition: service_healthy
