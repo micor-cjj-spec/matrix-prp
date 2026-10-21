@@ -37,6 +37,6 @@ public class McpOAuthLinkController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
             .body(ApiResponse.success(links.complete(
                 request.ticket(), jwt.getIssuer().toString(), jwt.getSubject(),
-                jwt.getClaimAsString("client_id"))));
+                McpOAuthClientIdentity.clientId(jwt))));
     }
 }
