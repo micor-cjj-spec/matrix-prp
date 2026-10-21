@@ -109,6 +109,12 @@ const router = createRouter({
       meta: { requiresAuth: true, title: '我的' },
     },
     {
+      path: '/me/mcp-clients',
+      name: 'mcp-client-grants',
+      component: () => import('@/views/McpClientsView.vue'),
+      meta: { requiresAuth: true, title: 'MCP 客户端授权' },
+    },
+    {
       path: '/me/mcp-approve/:draftId',
       name: 'mcp-draft-approval',
       component: () => import('@/views/McpApprovalView.vue'),
