@@ -2,7 +2,7 @@ package com.matrix.prp.mcp;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
-import io.modelcontextprotocol.server.McpTransportContext;
+import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.server.transport.WebMvcStatelessServerTransport;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
