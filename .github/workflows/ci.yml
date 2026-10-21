@@ -153,6 +153,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test production deployment data-preservation rules
         run: python3 -m unittest discover -s app/deploy -p 'test_*.py' -v
+      - name: Validate OAuth authorization metadata preflight fixtures
+        run: python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_*.py' -v
 
   db-migration-integration:
     runs-on: ubuntu-latest
