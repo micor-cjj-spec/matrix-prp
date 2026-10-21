@@ -28,7 +28,8 @@ class FinanceImportPolicyTests {
         assertThat(FinanceImportPolicy.sourceAccountKey(" ", "张三")).isEqualTo("张三");
         assertThat(FinanceImportPolicy.sourceAccountKey("  个人钱包  ", "ignored"))
                 .isEqualTo("个人钱包");
-        assertThat(FinanceImportPolicy.sourceAccountKey("  ", "  ")).isEqualTo("  ");
+        assertThatThrownBy(() -> FinanceImportPolicy.sourceAccountKey("  ", "  "))
+                .isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> FinanceImportPolicy.sourceAccountKey(" ", ""))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Invalid source account key");
