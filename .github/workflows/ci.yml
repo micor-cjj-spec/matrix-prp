@@ -144,7 +144,7 @@ jobs:
           MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
         run: |
           chmod +x mvnw
-          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,McpDatabaseIT test
+          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT test
 
 
   deployment-gate-tests:
