@@ -108,11 +108,15 @@ docker run --rm -d --network host --name prp-ci-real-nginx \
   -v "$tmp/nginx:/etc/nginx/conf.d:ro" -v "$tmp/certs:/etc/nginx/certs:ro" \
   nginx:1.29-alpine >/dev/null
 
-# CI-only CA imported into a PRIVATE Java truststore (no global trust changes).
-cp "$JAVA_HOME/lib/security/cacerts" "$tmp/java-truststore.jks"
-keytool -importcert -noprompt -alias prp-e2e-ci-ca \
-  -file "$tmp/certs/ca.pem" -keystore "$tmp/java-truststore.jks" \
-  -storepass changeit >/dev/null 2>&1
+# Create a CI-only truststore, without copying/editing the system JDK.
+echo "E2E TLS: Nginx container passed syntax and launch checks."
+if ! keytool -importcert -noprompt -alias prp-e2e-ci-ca -storetype PKCS12 \
+  -file "$tmp/certs/ca.pem" -keystore "$tmp/java-truststore.p12" \
+  -storepass ci-e2e-local-truststore > "$tmp/keytool.log" 2>&1; then
+  echo "FAIL E2E: disposable Java TLS truststore creation failed." >&2
+  exit 1
+fi
+echo "E2E TLS: disposable Java certificate trust configured."
 
 (
   cd app/backend
@@ -136,8 +140,9 @@ export MATRIX_PRP_MCP_OAUTH_JWK_SET_URI="https://auth-e2e.localhost/realms/prp-m
 export MATRIX_PRP_MCP_OAUTH_RESOURCE="https://prp-e2e.localhost/api/mcp"
 export MATRIX_PRP_AI_SPRING_AI_ENABLED="false"
 export MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED="false"
-java -Djavax.net.ssl.trustStore="$tmp/java-truststore.jks" \
-  -Djavax.net.ssl.trustStorePassword=changeit \
+java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
+  -Djavax.net.ssl.trustStoreType=PKCS12 \
+  -Djavax.net.ssl.trustStorePassword=ci-e2e-local-truststore \
   -jar app/backend/target/matrix-prp-backend-0.0.1-SNAPSHOT.jar \
   > "$tmp/prp-backend.log" 2>&1 &
 backend_pid="$!"
