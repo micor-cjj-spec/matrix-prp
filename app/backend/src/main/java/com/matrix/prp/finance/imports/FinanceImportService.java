@@ -37,10 +37,13 @@ public class FinanceImportService {
     private final FinanceAccountMapper accounts;
     private final FinanceTransactionMapper transactions;
     private final WeChatBillParser parser;
+    private final FinanceImportSourceLinkRepository sourceLinks;
 
     public FinanceImportService(JdbcTemplate jdbc, FinanceAccountMapper accounts,
-                                FinanceTransactionMapper transactions, WeChatBillParser parser) {
-        this.jdbc=jdbc; this.accounts=accounts; this.transactions=transactions; this.parser=parser;
+                                FinanceTransactionMapper transactions, WeChatBillParser parser,
+                                FinanceImportSourceLinkRepository sourceLinks) {
+        this.jdbc=jdbc; this.accounts=accounts; this.transactions=transactions;
+        this.parser=parser; this.sourceLinks=sourceLinks;
     }
 
     public record RowView(long id,int sourceLine,LocalDateTime transactionAt,String transactionType,
@@ -88,11 +91,14 @@ public class FinanceImportService {
             return ps;
         },key);
         long batch=Objects.requireNonNull(key.getKey()).longValue();
+        // Snapshot-style advisory classification; source-link uniqueness and
+        // the commit-time recheck remain the authoritative posting defenses.
+        Set<String> postedIds=sourceLinks.findPostedPreviewIds(owner,bill.rows());
         Set<String> seen=new HashSet<>();
         for(var row:bill.rows()) {
             String status=FinanceImportPolicy.previewRowStatus(
                 row.reviewState(),row.sourceTransactionId(),seen,
-                ()->sourceAlreadyPosted(owner,source,row.sourceTransactionId()));
+                ()->postedIds.contains(row.sourceTransactionId()));
             jdbc.update("INSERT INTO prp_finance_import_rows "
                 +"(batch_id,user_id,source_line,source_transaction_id,merchant_transaction_id,transaction_at,"
                 +"transaction_type,counterparty,description,direction,amount,payment_method,original_status,note,"
@@ -102,13 +108,6 @@ public class FinanceImportService {
                 row.direction(),row.amount(),row.paymentMethod(),row.originalStatus(),row.note(),status);
         }
         return detail(batch);
-    }
-
-    private boolean sourceAlreadyPosted(long user,String source,String transaction) {
-        Integer n=jdbc.queryForObject("SELECT COUNT(*) FROM prp_finance_source_links "
-            +"WHERE user_id=? AND platform='WECHAT' AND source_transaction_id=?",
-            Integer.class,user,transaction);
-        return n != null && n>0;
     }
 
     /** These are only candidates. REVIEW and DUPLICATE rows cannot reach the ledger. */
@@ -140,7 +139,7 @@ public class FinanceImportService {
         for(var row:candidates) {
             Long accountId=mappings.get(row.paymentMethod());
             if(accountId==null) continue; // Never guess which wallet/bank funded a payment.
-            if(sourceAlreadyPosted(owner,source,row.sourceId())) {
+            if(sourceLinks.alreadyPosted(owner,row.sourceId())) {
                 jdbc.update("UPDATE prp_finance_import_rows SET row_status='DUPLICATE' WHERE id=? AND user_id=?",
                     row.id(),owner);
                 continue;
