@@ -32,20 +32,22 @@ public class PrpMcpTools {
     private final FinanceService finance;
     private final WellnessService wellness;
     private final McpDraftService drafts;
+    private final McpScopeGuard scopes;
 
     public PrpMcpTools(TaskService tasks, FinanceService finance, WellnessService wellness,
-                       McpDraftService drafts) {
+                       McpDraftService drafts, McpScopeGuard scopes) {
         this.tasks = tasks;
         this.finance = finance;
         this.wellness = wellness;
         this.drafts = drafts;
+        this.scopes = scopes;
     }
 
     @McpTool(name = "prp_tasks_list", description = "Read up to 20 tasks of the authenticated PRP user. Never reads other accounts.")
     public Object listTasks(
             @McpToolParam(description = "Optional task status (todo, in_progress, done, canceled)", required = false)
             String status) {
-        CurrentUser.id();
+        scopes.require("prp.tasks.read");
         if (status != null && !List.of("todo", "in_progress", "done", "canceled").contains(status)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid status");
         }
@@ -56,7 +58,7 @@ public class PrpMcpTools {
     public Object financeMonth(
             @McpToolParam(description = "Month in yyyy-MM; optional, defaults to the current month", required = false)
             String month) {
-        CurrentUser.id();
+        scopes.require("prp.finance.read");
         YearMonth selected = month == null || month.isBlank() ? YearMonth.now() : yearMonth(month);
         FinanceTransactionFilter filter = new FinanceTransactionFilter(selected, null, null);
         return Map.of("month", selected.toString(), "summary", finance.monthlySummary(filter),
@@ -67,7 +69,7 @@ public class PrpMcpTools {
     public Object wellnessDaily(
             @McpToolParam(description = "Date yyyy-MM-dd; optional, defaults to today", required = false)
             String date) {
-        CurrentUser.id();
+        scopes.require("prp.wellness.read");
         return wellness.daily(date == null || date.isBlank() ? LocalDate.now() : localDate(date));
     }
 
@@ -78,7 +80,7 @@ public class PrpMcpTools {
             @McpToolParam(description = "Description", required = false) String description,
             @McpToolParam(description = "Priority: low, medium, high", required = false) String priority,
             @McpToolParam(description = "Due date in yyyy-MM-dd", required = false) String dueDate) {
-        CurrentUser.id();
+        scopes.require("prp.write.create");
         return drafts.prepare(McpDraftService.Kind.TASK,
             new CreateTaskRequest(moduleCode, title, description, priority, optionalDate(dueDate)));
     }
@@ -92,7 +94,7 @@ public class PrpMcpTools {
             @McpToolParam(description = "Merchant", required = false) String merchant,
             @McpToolParam(description = "Note", required = false) String note,
             @McpToolParam(description = "Transaction date yyyy-MM-dd", required = false) String date) {
-        CurrentUser.id();
+        scopes.require("prp.write.create");
         BigDecimal value;
         try {
             value = new BigDecimal(amount);
@@ -109,7 +111,7 @@ public class PrpMcpTools {
             @McpToolParam(description = "Record title", required = true) String title,
             @McpToolParam(description = "Record contents", required = false) String content,
             @McpToolParam(description = "Record date yyyy-MM-dd", required = false) String date) {
-        CurrentUser.id();
+        scopes.require("prp.write.create");
         return drafts.prepare(McpDraftService.Kind.RECORD,
             new CreateRecordRequest(moduleCode, title, content, optionalDate(date), List.of()));
     }
@@ -118,7 +120,7 @@ public class PrpMcpTools {
              description = "Check the authenticated user's MCP draft status. Approval is possible only by opening PRP and reentering the account password.")
     public McpDraftService.Review draftStatus(
             @McpToolParam(description = "Exact draftId returned by prp_prepare_*", required = true) String draftId) {
-        CurrentUser.id();
+        scopes.require("prp.write.status");
         return drafts.review(draftId);
     }
 
@@ -126,7 +128,7 @@ public class PrpMcpTools {
              description = "Commit exactly one already APPROVED draft. The user must first open the PRP approval page and reenter their account password. Cannot approve a draft from an MCP tool call. Replays return the saved record.")
     public McpDraftService.Result confirmDraft(
             @McpToolParam(description = "Exact draftId returned by prp_prepare_*", required = true) String draftId) {
-        CurrentUser.id();
+        scopes.require("prp.write.confirm");
         return drafts.confirm(draftId);
     }
 
