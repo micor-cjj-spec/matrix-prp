@@ -57,6 +57,40 @@ Passing discovery means **metadata_only, never production ready**.
 CIMD, DCR and pre-registered OAuth client IDs must match the actual
 ChatGPT connection's registration method and callbacks.
 
+## Read-only PRP server memory check (Codex/operator only)
+
+On the **existing 4C8G production server**, in the separate read-only
+checkout of this review branch, run:
+
+    python3 app/deploy/mcp-oauth/read_only_capacity.py
+
+The command requires no sudo on ordinary systemd/procfs deployments.
+It reads only: allowlisted aggregate /proc/meminfo, /proc/loadavg,
+the root filesystem's free bytes, selected 'systemctl show
+matrix-prp.service' fields, and /proc/<MainPID>/status values limited
+to RSS, peak RSS and thread count. It never reads process command
+lines, environment, secrets, Java heap dump, application data/logs,
+database rows, external OAuth providers or production config. It
+does NOT start, reload or interrupt any service.
+
+The output intentionally hides PID, server identity and paths, and
+always contains 'safe_to_deploy: false'. Treat the initial 1536 MiB
+MemAvailable and 10 GiB free-disk values as conservative **review
+thresholds**, not sizing guarantees. An operator's earlier observation
+of ~1.3 GB available RAM would trigger a low-headroom warning; only
+a fresh measured sample can confirm current pressure.
+
+Collect snapshots at normal and representative peak times, preferably
+on different days. If even one sample is pressured, do not add an
+OAuth service to this host. This check does not measure GC pauses,
+database memory, network latency, heap usage or real peak workloads;
+production deployment still needs independent operator approval and
+the preexisting release/data-preservation gates.
+
+Avoid copying outputs containing user- or vendor-specific diagnostic
+extensions into public issue comments. The intended script output
+contains only allowlisted numeric capacities and generic unit state.
+
 ## Required independent live gates
 
 - Provider admin must enable and verify RFC 8707 resource propagation
