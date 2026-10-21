@@ -78,3 +78,27 @@ Then, against an isolated migrated test database:
 ## Next milestone
 
 Finish OAuth 2.0 (authorization-code+PKCE, discovery, client registration policy, resource audience, scopes, refresh/revocation), an independent host/Origin policy, audit/observability, and authenticated **real Streamable HTTP** multi-tenant integration tests. Only then consider remotely enabling production MCP writes.
+
+
+## OAuth resource-server implementation (opt-in; requires an external authorization server)
+
+The MCP protocol handler has a dedicated Spring Security OAuth2 JWT resource-server chain **only** for `/api/mcp` when `MATRIX_PRP_MCP_OAUTH_ENABLED=true`. Legacy PRP JWT authentication continues to serve the existing application; OAuth MCP requests never fall back to regular PRP JWTs. OAuth access tokens must pass issuer, expiry, signature/JWKS and **exact canonical resource audience** checks. The signed `prp_user_id` claim maps to a currently enabled PRP user. OAuth read/write scopes are enforced **individually at every MCP tool**, not merely on `tools/list`.
+
+```properties
+MATRIX_PRP_MCP_ENABLED=false
+MATRIX_PRP_MCP_WRITE_ENABLED=false
+MATRIX_PRP_MCP_OAUTH_ENABLED=false
+# Configure ONLY with a separately secured, trusted real authorization server:
+MATRIX_PRP_MCP_OAUTH_ISSUER=https://issuer.example.org
+MATRIX_PRP_MCP_OAUTH_JWK_SET_URI=https://issuer.example.org/.well-known/jwks.json
+MATRIX_PRP_MCP_OAUTH_RESOURCE=https://prp.example.org/api/mcp
+```
+
+The advertised RFC 9728 discovery URL is `https://prp.example.org/.well-known/oauth-protected-resource/api/mcp`, which declares the protected resource and external authorization server. Replace placeholders only after confirming the real public reverse-proxy route, issuer policy and tenant isolation. A regular app login/refresh token is **not** a remote MCP OAuth access token.
+
+Defined scopes: `prp.tasks.read`, `prp.finance.read`, `prp.wellness.read`, `prp.write.create`, `prp.write.status`, `prp.write.confirm`. Scope claims are trusted only after OAuth JWT signature+issuer+audience verification. A token must have an issuer-provisioned `prp_user_id` claim with explicit, verified account linking; using model-supplied user IDs is prohibited. No public OAuth authorization endpoint, dynamic client registration, account-linking consent UX, grant/revocation management or self-hosted authorization server is implemented by this PR.
+
+**Request-thread identity:** Spring AI dispatches MCP tool handlers via workers. A Servlet security ThreadLocal may not propagate. The OAuth security chain installs a dedicated verified-principal capture filter after Bearer token validation, binds the identity to the **current servlet request only**, and the MCP transport records this trusted attribute into an immutable request context. Each tool handler validates that identity and temporarily restores the Spring Security context for the business Service invocation, cleaning it up in `finally`. Never infer identity from `_meta`, model arguments, raw client headers or static/global ThreadLocals.
+
+**Production gate:** Do not enable MCP/OAuth until a real external authorization server is configured with authorization-code+PKCE, scopes, trusted PRP account mapping, token lifecycle/revocation policies, public origin/host and reverse-proxy agreement, plus real network integration with a compatible MCP client. Unit tests using a mocked JWT decoder prove Spring authentication and scope wiring, not real issuer signature rotation or full interactive authorization.
+
