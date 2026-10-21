@@ -15,6 +15,7 @@ import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 import { isMealCardRequest } from '@/utils/mealCardIntent'
 import { isWellnessReadQuery } from '@/utils/wellnessReadIntent'
+import { prepareMealPhoto, photoSizeLabel } from '@/utils/mealPhoto'
 
 type ContextOption = { value: string; label: string; hint: string }
 const options: ContextOption[] = [
@@ -79,13 +80,29 @@ const confirming = ref(false)
 const streamError = ref('')
 const chatPhoto = ref<File | null>(null)
 const photoInput = ref<HTMLInputElement | null>(null)
-function photoSelected(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 3_000_000) {
-    ElMessage.warning('仅支持小于3MB的 JPG、PNG 或 WebP 食物照片')
-  } else chatPhoto.value = file
-  if (photoInput.value) photoInput.value.value = ''
+const preparingPhoto = ref(false)
+let photoSelectionVersion = 0
+async function photoSelected(event: Event) {
+  const inputElement = event.target as HTMLInputElement
+  const source = inputElement.files?.[0]
+  inputElement.value = ''
+  if (!source) return
+  const version = ++photoSelectionVersion
+  preparingPhoto.value = true
+  chatPhoto.value = null
+  try {
+    const result = await prepareMealPhoto(source)
+    if (version !== photoSelectionVersion) return
+    chatPhoto.value = result.file
+    if (result.compressed)
+      ElMessage.success('照片已在本机压缩：' + photoSizeLabel(result.originalBytes) +
+        ' → ' + photoSizeLabel(result.file.size))
+  } catch (error) {
+    if (version === photoSelectionVersion)
+      ElMessage.warning(error instanceof Error ? error.message : '照片处理失败，请重新选择')
+  } finally {
+    if (version === photoSelectionVersion) preparingPhoto.value = false
+  }
 }
 async function prepareInlineDiet(content: string) {
   if (sending.value) return
@@ -304,7 +321,9 @@ async function select(id: string, automaticRestore = false) {
     input.value = ''
     selectedScopes.value = []
     preview.value = null
+    ++photoSelectionVersion
     chatPhoto.value = null
+    preparingPhoto.value = false
     mentionOpen.value = false
     hasOlder.value = data.length > HISTORY_PAGE_SIZE
     messages.value = data.slice(-HISTORY_PAGE_SIZE)
@@ -349,7 +368,9 @@ function newChat() {
   input.value = ''
   selectedScopes.value = []
   preview.value = null
+  ++photoSelectionVersion
   chatPhoto.value = null
+  preparingPhoto.value = false
   mentionOpen.value = false
   showJumpToBottom.value = false
   streamError.value = ''
@@ -460,6 +481,7 @@ async function confirmPreviousHealthDraft(content: string) {
   }
 }
 async function send(contextToken?: string) {
+  if (preparingPhoto.value) return
   const content = input.value.trim() || (chatPhoto.value ? '请识别照片中的食物，分析热量并记录这顿饮食' : '')
   if (!content || sending.value || content.length > 4000) return
   const hasHealthCard = Object.values(blocksByMessage.value).some(blocks =>
@@ -674,9 +696,10 @@ onBeforeUnmount(() => controller?.abort())
             <div v-if="filteredOptions.length === 0" class="mention-empty">暂无匹配的可授权应用</div>
             <div class="mention-hint">引用其他应用需要一次性只读授权；饮食记录在聊天卡片中确认后才写入。</div>
           </div>
+          <div v-if="preparingPhoto" class="chat-photo-preview" role="status">正在本机处理照片，请稍候…</div>
           <div v-if="chatPhoto" class="chat-photo-preview">
-            <span>📷 {{ chatPhoto.name }}</span>
-            <button type="button" aria-label="移除照片" @click="chatPhoto = null">移除</button>
+            <span>📷 {{ chatPhoto.name }}（{{ photoSizeLabel(chatPhoto.size) }}）</span>
+            <button type="button" aria-label="移除照片" @click="photoSelectionVersion++; chatPhoto = null; preparingPhoto = false">移除</button>
           </div>
           <div class="chat-composer">
             <el-input v-model="input" type="textarea" class="chat-input" resize="none" :autosize="{ minRows: 1, maxRows: 5 }"
@@ -686,11 +709,11 @@ onBeforeUnmount(() => controller?.abort())
               <div class="chat-compose-left">
                 <button type="button" aria-label="引用 PRP 应用" title="引用应用" @click="mentionOpen = !mentionOpen; mentionQuery = ''"><el-icon><Plus /></el-icon></button>
                 <button type="button" class="chat-at" @click="mentionOpen = !mentionOpen; mentionQuery = ''">@ 应用</button>
-                <input ref="photoInput" type="file" accept="image/jpeg,image/png,image/webp"
+                <input ref="photoInput" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
                   class="chat-photo-input" aria-label="添加食物照片" @change="photoSelected" />
-                <button type="button" class="chat-at" aria-label="添加食物照片" @click="photoInput?.click()">📷 食物照片</button>
+                <button type="button" class="chat-at" aria-label="添加食物照片" :disabled="preparingPhoto || sending" @click="photoInput?.click()">📷 食物照片</button>
               </div>
-              <button type="button" class="chat-send" aria-label="发送消息" :disabled="(!input.trim() && !chatPhoto) || sending || previewing" @click="send()">
+              <button type="button" class="chat-send" aria-label="发送消息" :disabled="(!input.trim() && !chatPhoto) || preparingPhoto || sending || previewing" @click="send()">
                 <el-icon><Promotion /></el-icon>
               </button>
             </div>

@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { apiClient, type ApiResponse } from '@/api/client'
 import { wellnessApi, type Food } from '@/api/wellness'
 import { cloneJson } from '@/utils/cloneJson'
+import { prepareMealPhoto, photoSizeLabel } from '@/utils/mealPhoto'
 import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 type Action = 'meal.create' | 'exercise.create' | 'metric.create'
 type Item = { foodId: number; name: string; grams: number; calories: number | null }
@@ -33,15 +34,29 @@ watch(() => props.initialText, value => {
     if (/(修改|更正|改成|删除|撤销|删掉)/u.test(value)) managing.value = true
   }
 }, { immediate: true })
-function fileChanged(e: Event) {
-  const image = (e.target as HTMLInputElement).files?.[0]
+const preparingPhoto = ref(false)
+let photoSelectionVersion = 0
+async function fileChanged(e: Event) {
+  const inputElement = e.target as HTMLInputElement
+  const source = inputElement.files?.[0]
+  inputElement.value = ''
+  if (!source) return
+  const version = ++photoSelectionVersion
   file.value = null; draft.value = null
-  if (!image) return
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(image.type) || image.size > 3_000_000) {
-    ElMessage.warning('仅支持最大 3MB 的 JPEG、PNG 或 WebP')
-    return
+  preparingPhoto.value = true
+  try {
+    const result = await prepareMealPhoto(source)
+    if (version !== photoSelectionVersion) return
+    file.value = result.file
+    if (result.compressed)
+      ElMessage.success('照片已在本机压缩：' + photoSizeLabel(result.originalBytes) +
+        ' → ' + photoSizeLabel(result.file.size))
+  } catch (error) {
+    if (version === photoSelectionVersion)
+      ElMessage.warning(error instanceof Error ? error.message : '照片处理失败，请重新选择')
+  } finally {
+    if (version === photoSelectionVersion) preparingPhoto.value = false
   }
-  file.value = image
 }
 async function findFoods(query: string) {
   if (!query.trim()) return
@@ -60,7 +75,7 @@ function energy(item: Item): string {
   return (Number(food.calories100g) * grams / 100).toFixed(1) + ' kcal'
 }
 async function plan() {
-  if (busy.value || (!text.value.trim() && !file.value)) return
+  if (busy.value || preparingPhoto.value || (!text.value.trim() && !file.value)) return
   busy.value = true; draft.value = null; error.value = ''; done.value = ''
   const form = new FormData()
   form.append('text', text.value.trim() || '请识别照片里的食物和可食部分量，生成今天的午餐记录草稿')
@@ -136,10 +151,11 @@ async function save() {
     <textarea v-model="text" rows="3" maxlength="1500" :disabled="busy || confirming" aria-label="描述健康记录"
       placeholder="例：今天午餐200g米饭、150g鸡胸肉；跑步30分钟；体重86.5kg" />
     <div class="capture-actions">
-      <label>📷 餐食照片 <input type="file" accept="image/jpeg,image/png,image/webp" @change="fileChanged" /></label>
-      <button :disabled="busy || confirming || (!text.trim() && !file)" @click="plan">{{ busy ? '识别中…' : 'AI 生成草稿' }}</button>
+      <label>📷 餐食照片 <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" @change="fileChanged" /></label>
+      <button :disabled="busy || confirming || preparingPhoto || (!text.trim() && !file)" @click="plan">{{ preparingPhoto ? '照片压缩中…' : busy ? '识别中…' : 'AI 生成草稿' }}</button>
     </div>
-    <small v-if="file">选中图片：{{ file.name }}</small>
+    <small v-if="preparingPhoto" role="status">正在本机处理照片，请稍候…</small>
+    <small v-if="file">选中图片：{{ file.name }}（{{ photoSizeLabel(file.size) }}）</small>
     <p class="capture-note">仅在点击识别后把本次文字和图片发送给所选 AI 服务商；照片不存储在 PRP。菜品热量按你确认的食品库条目和重量计算，图片估重需人工核对。</p>
     <p v-if="error" role="alert" class="capture-error">{{ error }}</p>
     <div v-if="draft" class="capture-draft">
