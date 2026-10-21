@@ -110,7 +110,12 @@ def collect() -> dict:
     jar_arg = os.fsdecode(args[jar_index + 1])
     if not os.path.isabs(jar_arg):
         raise ValueError("Relative runtime JAR is not independently verifiable")
-    if Path(jar_arg).resolve(strict=True) != jar_path.resolve(strict=True):
+    try:
+        resolved_process_jar = Path(jar_arg).resolve(strict=True)
+        resolved_release_jar = jar_path.resolve(strict=True)
+    except OSError as ex:
+        raise ValueError("Running JAR cannot be resolved") from ex
+    if resolved_process_jar != resolved_release_jar:
         raise ValueError("Running process points at a different JAR")
 
     st = CONTROLLER.lstat()
