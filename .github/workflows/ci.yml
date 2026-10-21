@@ -246,6 +246,16 @@ jobs:
             python3 app/deploy/mcp-oauth/keycloak_ephemeral_smoke.py \
               --admin-user prp-smoke-admin
 
+  nginx-oauth-ephemeral:
+    # Runs only for the review branch: isolated HTTPS Nginx and fake backend.
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test actual TLS/Host forwarding and MCP path preservation with Nginx
+        run: bash app/deploy/mcp-oauth/test_nginx_ephemeral.sh
+
   safe-deployment-diagnostics:
     runs-on: ubuntu-latest
     steps:
