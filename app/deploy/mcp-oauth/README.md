@@ -31,6 +31,38 @@ MCP CIMD and resource indicators in Keycloak are **experimental**; do not treat 
    The user must **not** send Keycloak credentials, bearer tokens or pairing codes to a general ChatGPT prompt. This is an operator bootstrap route, not a chat tool. It only accepts signed bearer from the configured OAuth issuer and enforces signed `client_id` against the PRP ticket/grant.
 10. After linking, authenticated MCP `initialize → tools/list → tools/call` is expected to work with exactly the intersection of provider-granted scopes and PRP owner-approved scopes; PRP password-based draft review is still required for actual business writes.
 
+## Controlled authorization-code + PKCE + MCP round-trip
+
+This is a **manual workstation test for an isolated staging environment**. It is not run by CI because it requires a human to sign into the external Keycloak account and approve scopes.
+
+1. Create a private DNS/TLS-backed staging Keycloak and MCP resource. Verify the actual public MCP URL (it may differ from PRP's internal `/api/mcp` route). Register that exact URL using `resource_url`. The staging resource, OAuth audience, PRP `MATRIX_PRP_MCP_OAUTH_RESOURCE` and the OAuth `resource` request parameter must match exactly.
+2. Before the **first Keycloak realm import**, generate one extra **read-only** local-browser PKCE client; for example:
+   ```bash
+   cd app/deploy/mcp-oauth
+   python3 build_realm.py \
+     --resource https://prp.staging.example.org/api/mcp \
+     --staging-client-id prp-pkce-probe \
+     --staging-redirect http://127.0.0.1:8765/callback
+   ```
+   It has exact loopback redirect, explicit S256 PKCE, consent required, a single optional `prp.tasks.read` scope and an MCP Resource Audience mapper. No finance/read or write scopes are granted by default.
+3. Start only the staging Keycloak stack using the reviewed Compose workflow, and create a **test identity** (username/password) in the staging realm using Keycloak Admin. Verify the Keycloak login UI and that Keycloak acknowledges the read-only scope and `resource` parameter. For real ChatGPT clients, registration/CIMD policy and exact ChatGPT callback URIs must be reviewed separately; this local test client is not ChatGPT.
+4. Use the staging PRP `我的 → MCP 客户端授权` interface. Re-enter the PRP password, authorize `prp-pkce-probe` with only `prp.tasks.read`, then issue a one-time OAuth identity-linking code. Do **not** send it through a normal AI chat or commit it to Git.
+5. On your **own local machine with a browser** (not on a remote headless server), execute:
+   ```bash
+   cd app/deploy/mcp-oauth
+   python3 pkce_smoke.py \
+     --issuer https://auth.staging.example.org/realms/prp-mcp \
+     --resource https://prp.staging.example.org/api/mcp \
+     --client-id prp-pkce-probe \
+     --redirect-uri http://127.0.0.1:8765/callback
+   ```
+   Follow the printed authorization URL in your **local browser**. The script checks `state`, optional `iss`, uses `code_verifier` and the identical OAuth `resource` for token exchange, requests the linking code through a hidden terminal prompt, and invokes PRP's bearer-only linking endpoint. It then exercises MCP initialization, tools/list and a **read-only** task tool invocation. Its success output contains no bearer, linkage code or task contents.
+6. If the account was already linked and you are re-testing, add `--already-linked` to skip issuing a new PRP linking code.
+
+Prerequisites: Python 3.11+, ability to open a local browser with loopback redirect, a genuine external OAuth issuer reachable via TLS, and an isolated PRP backend with OAuth enabled and an owner-approved client. **Never run the script with production access tokens or private user data as a first test.** It performs real read-only requests and a one-time account link when requested, not database migrations or deployment.
+
+Read-only automated CI exercises the script's PKCE/state/issuer/audience construction and the fact it does not print tokens or private task contents. Passing these tests does not prove the live Keycloak deployment or ChatGPT connection. A real PKCE sign-in and positive/negative token exchange must be manually verified in the staging environment before deployment.
+
 ## Metadata preflight
 
 From a trusted shell with Python 3.11+, run:
