@@ -6,6 +6,8 @@ CREATE TABLE prp_mcp_write_drafts (
   payload_json TEXT NOT NULL,
   result_json TEXT NULL,
   status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+  approval_failures SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  approved_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   expires_at TIMESTAMP NOT NULL,
   consumed_at TIMESTAMP NULL,
