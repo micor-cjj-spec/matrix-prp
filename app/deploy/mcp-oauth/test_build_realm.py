@@ -37,6 +37,7 @@ class KeycloakResourceRealmTests(unittest.TestCase):
         self.assertTrue(client["consentRequired"])
         self.assertFalse(client["directAccessGrantsEnabled"])
         self.assertEqual(client["optionalClientScopes"], ["prp.tasks.read"])
+        self.assertEqual(client["defaultClientScopes"], ["basic"])  # required signed sub
         self.assertEqual(client["protocolMappers"][0]["config"]["included.client.audience"],
                          "matrix-prp-mcp-resource")
 
