@@ -290,6 +290,17 @@ jobs:
           fi
           echo 'PASS: staging Compose is valid and unsafe enablement is rejected.'
 
+  mcp-staging-runtime:
+    # Build and boot real PRP images with brand-new MySQL on disposable runner.
+    # No server credentials, no PRP production data or environment access.
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real isolated PRP staging build, Flyway V26 and loopback Web/API smoke
+        run: bash app/deploy/mcp-staging/smoke_disposable.sh
+
   safe-deployment-diagnostics:
     runs-on: ubuntu-latest
     steps:
