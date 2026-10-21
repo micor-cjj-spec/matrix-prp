@@ -63,6 +63,13 @@ class McpHttpSecurityTests {
             .content("{\"password\":\"not-the-password\"}"))
             .andExpect(status().isForbidden());
         mvc.perform(post("/api/mcp")
+            .with(request -> {
+                request.setScheme("https");
+                request.setServerName("micor.top");
+                request.setServerPort(443);
+                request.setSecure(true);
+                return request;
+            })
             .header(HttpHeaders.ORIGIN, "https://micor.top")
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"))
