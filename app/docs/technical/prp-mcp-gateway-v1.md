@@ -117,3 +117,23 @@ With OAuth and MCP enabled, an authenticated PRP user can open **我的 → MCP 
 **Important trust boundary:** This per-client permission table is PRP-side *consent enforcement*, not a complete OAuth authorization-code/PKCE grant, identity-provider subject-to-user enrollment, or OpenAI client registration. It still depends on the trusted issuer issuing a correct, signed `prp_user_id` and `client_id` claim. Do not approve an unknown client's ID or enable public MCP while external issuer account linking and token lifecycle remain unverified.
 
 Verification should cover wrong passwords, unsupported/duplicate scopes, cross-user revoke failures, reduction of previously granted scopes, and immediate rejection after revoke on a still-unexpired signed token. User credentials and OAuth token values must never appear in application logs or AI tool arguments.
+
+
+## V26 — Verified OAuth issuer/subject account linking
+
+The MCP resource server no longer trusts an externally signed `prp_user_id` as sufficient proof of PRP account ownership. Instead it maps the **verified OAuth issuer+subject** to a PRP user through a separate, owner-authorized proof-of-control exchange:
+
+1. The PRP owner logs in through the normal app, approves a known OAuth client ID and allowed scopes, then opens `我的 → MCP 客户端授权`.
+2. The owner reenters their PRP password and requests a ten-minute, **single-use, 256-bit** client-bound linking ticket via `POST /api/mcp/identity/tickets`. Only a SHA-256 digest of the ticket is stored; the raw secret is displayed once in PRP and should not be logged or pasted into a normal AI conversation.
+3. The external client separately obtains a signed **access token** through the OAuth issuer's Authorization Code + PKCE flow. To bootstrap, it invokes `POST /api/mcp/link` with Bearer and `{"ticket":"..."}`. The dedicated OAuth SecurityFilterChain verifies the token's signature, issuer, expiration and MCP resource audience, captures the verified JWT in the current Servlet request and passes its signed `issuer`, `sub`, `client_id` to the linking service. It never accepts raw user IDs or subjects from request JSON.
+4. An atomic transaction locks the ticket, verifies its expiry, owner and exact signed client ID, rechecks that the owner's PRP grant is still active, and enforces one external subject per PRP owner per issuer and one owner per issuer/subject. The mapping is stored in the additive V26 `prp_mcp_identity_links` table; the ticket is marked consumed exactly once.
+5. Future OAuth requests resolve the PRP account **only** through this verified mapping, recheck enabled account status, then intersect issuer-signed token scopes with the owner's active V25 client grant. Unlinked, revoked or mismatched identities fail closed.
+6. The owner can view mappings at `GET /api/mcp/identity`, or reauthenticate to unlink through `POST /api/mcp/identity/unlink`. Revoking the client grant also blocks new MCP calls immediately, independently of identity unlinking.
+
+This is an explicit owner-controlled **account-link bootstrap**, not a public OAuth authorization server. It requires an actual external issuer and compatible client to authenticate and submit the code. Public ChatGPT MCP write support depends on ChatGPT plan entitlements; no such access is implied by local PRP implementation.
+
+### Isolated OAuth authorization-server reference
+
+`app/deploy/mcp-oauth/` includes a **staging-only** Keycloak 26.8.0/PostgreSQL Compose example (loopback-only port, private environment secrets), an empty locked-down realm starter, and a read-only issuer metadata + PKCE S256 + public JWKS preflight with offline CI fixtures. Keycloak's client ID metadata document and resource-indicator support are experimental in this version and require explicit operator review. This does not create external users/clients, configure DNS/TLS, add Nginx routes, obtain OAuth tokens, or touch PRP production services.
+
+Remaining release gates: external issuer and client registration/PKCE/consent configuration, live signed token and key rotation tests, exact public Host/path matching, secure user bootstrap UI verification, request audit/throttling, and the existing production preservation controller/SSH release hold.
