@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Headset, List, Calendar, EditPen, Plus, Delete, Check, Collection,
+  Headset, Calendar, EditPen, Plus, Delete, Check, Collection,
 } from '@element-plus/icons-vue'
 import {
   vocalApi,
