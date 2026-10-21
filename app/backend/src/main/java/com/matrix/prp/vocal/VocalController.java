@@ -47,8 +47,9 @@ public class VocalController {
     @PostMapping(value="/takes",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<VocalService.Take> upload(@RequestParam MultipartFile file,
         @RequestParam String exerciseCode,@RequestParam(required=false) String note,
-        @RequestParam int durationSeconds,@RequestParam String samples) throws IOException {
-        return ApiResponse.success(service.upload(exerciseCode,note,durationSeconds,samples,file));
+        @RequestParam int durationSeconds,@RequestParam String samples,
+        @RequestParam(required=false) Long songId,@RequestParam(required=false) Long sectionId) throws IOException {
+        return ApiResponse.success(service.upload(exerciseCode,note,durationSeconds,samples,file,songId,sectionId));
     }
     @GetMapping("/takes/{id}/audio")
     public ResponseEntity<FileSystemResource> audio(@PathVariable long id) throws IOException {
