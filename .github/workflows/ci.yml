@@ -202,6 +202,19 @@ jobs:
           PRP_EXPANDED_APP_TEST: synthetic-only
           MYSQL_PWD: ci-app-password
         run: bash app/scripts/verify-expanded-backend-compatibility.sh
+      - name: Build both executable JARs and probe isolated HTTP services
+        env:
+          PRP_EXPANDED_APP_TEST: synthetic-only
+          MYSQL_PWD: ci-app-password
+        run: bash app/scripts/verify-expanded-jar-http.sh
+      - name: Upload scrubbed CI-only JAR source and SHA256 receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prp-ci-synthetic-jar-http-provenance
+          path: ${{ runner.temp }}/prp-expand-jar-receipts/prp-*-jar-http.json
+          if-no-files-found: warn
+          retention-days: 14
 
   db-migration-integration:
     runs-on: ubuntu-latest
