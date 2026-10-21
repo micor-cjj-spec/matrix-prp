@@ -73,9 +73,50 @@ This confirms **resource-indicator/JWKS issuance compatibility for a real Keyclo
 
 The operator-run `pkce_smoke.py` now fetches the trusted HTTPS JWKS and locally signature-verifies the **actual browser-issued access token** for exact `iss`, `aud`, signed client identity, expiry and task scope *before* submitting an account-link code. It intentionally never prints tokens or decoded claims. The authoritative server-side validation still belongs to PRP's Spring Security/Nimbus resource-server chain.
 
+## Real cross-service OAuth + PRP MCP E2E — disposable GitHub CI
+
+The `mcp-real-pkce-e2e` CI job (`test_full_e2e_ci.sh` and
+`ci_pkce_browser.py`) now runs the **actual Keycloak, MySQL 8.4, PRP Java 21,
+and Nginx** processes together on a throwaway GitHub runner with a freshly
+generated test certificate authority. It uses no production host, DNS, PRP
+data or server credentials. All test accounts, passwords, MySQL rows and TLS
+material are ephemeral.
+
+The test uses an automated HTTP client with a cookie jar to submit the
+**real Keycloak login and consent forms**, then completes authorization code
+exchange with PKCE S256 and the exact resource indicator. It does not run a
+graphical browser or the actual ChatGPT client. The issued *user* JWT is
+verified with Keycloak's real RSA JWKS, including signed issuer, subject,
+client ID, expiry, `prp.tasks.read` and exact resource audience.
+
+The test subsequently exercises the *real PRP owner login* and independent
+password-reauthenticated OAuth client grant; creates a single-use, 10-minute
+link ticket via the owner API; completes `POST /api/mcp/link` using the actual
+external OAuth bearer; rejects ticket replay; performs
+`initialize → tools/list → tools/call(prp_tasks_list)`, rejects ungranted
+finance scope and revokes the OAuth client, confirming immediate 401 denial
+for the existing bearer. **No business write tools are enabled.**
+
+A real Keycloak 25+ interoperability defect was detected and corrected:
+explicit realm `clientScopes` excluded the default `basic` scope containing
+the `Subject (sub)` access-token mapper. The isolated realm generator now
+imports `basic` with `oidc-sub-mapper` and assigns it to the browser PKCE
+client; the PRP server continues to reject OAuth tokens with no signed subject.
+Both realm-generator tests and an actual Keycloak Admin API inspection validate
+this configuration.
+
+The CI driver emits only test milestone names and status codes. It never
+prints tokens, session cookies, tickets, user content, password fields or
+Keycloak login HTML. The full runner is automatically discarded afterward.
+
+This full integration gate **does not prove** external DNS, public HTTPS
+certificates, a user's interactive GUI browser, official ChatGPT connector
+availability, or production capacity on a 4C8G host. Those remain separate
+deployment and operator acceptance requirements.
+
 ## Controlled authorization-code + PKCE + MCP round-trip
 
-This is a **manual workstation test for an isolated staging environment**. It is not run by CI because it requires a human to sign into the external Keycloak account and approve scopes.
+This is an **additional manual GUI/browser workstation test for an isolated staging environment**. The disposable CI runs the actual HTTP authorization-code + PKCE and PRP/MCP account-link flow with an ephemeral test user, but it does not validate a graphical browser, third-party redirect registration or real public network routing.
 
 1. Create a private DNS/TLS-backed staging Keycloak and MCP resource. Verify the actual public MCP URL (it may differ from PRP's internal `/api/mcp` route). Register that exact URL using `resource_url`. The staging resource, OAuth audience, PRP `MATRIX_PRP_MCP_OAUTH_RESOURCE` and the OAuth `resource` request parameter must match exactly.
 2. Before the **first Keycloak realm import**, generate one extra **read-only** local-browser PKCE client; for example:
@@ -103,7 +144,7 @@ This is a **manual workstation test for an isolated staging environment**. It is
 
 Prerequisites: Python 3.11+, ability to open a local browser with loopback redirect, a genuine external OAuth issuer reachable via TLS, and an isolated PRP backend with OAuth enabled and an owner-approved client. **Never run the script with production access tokens or private user data as a first test.** It performs real read-only requests and a one-time account link when requested, not database migrations or deployment.
 
-Read-only automated CI exercises the script's PKCE/state/issuer/audience construction and the fact it does not print tokens or private task contents. Passing these tests does not prove the live Keycloak deployment or ChatGPT connection. A real PKCE sign-in and positive/negative token exchange must be manually verified in the staging environment before deployment.
+Automated CI separately proves a full real Keycloak HTTP login/consent, PKCE token exchange, PRP owner grant/link and MCP read/revocation cycle in disposable infrastructure. Manual GUI/browser testing with a genuinely reachable staging issuer and externally registered client is still required before deployment; a successful CI test does not prove public HTTPS routing or ChatGPT compatibility.
 
 ## Metadata preflight
 
