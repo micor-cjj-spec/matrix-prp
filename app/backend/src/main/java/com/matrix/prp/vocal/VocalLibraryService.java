@@ -215,10 +215,16 @@ public class VocalLibraryService {
     public Assignment updateAssignment(long id, AssignmentRequest request) {
         long user = CurrentUser.id();
         AssignmentFields fields = assignmentFields(request, user);
-        int changed = jdbc.update("UPDATE prp_vocal_assignments SET lesson_id=?,song_id=?,section_id=?,title=?,detail=?,"
-            + "due_date=?,status=?,completed_at=CASE WHEN ?='DONE' THEN COALESCE(completed_at,CURRENT_TIMESTAMP) ELSE NULL END "
-            + "WHERE id=? AND user_id=?", fields.lessonId(), fields.songId(), fields.sectionId(), fields.title(),
-            fields.detail(), fields.dueDate(), fields.status(), fields.status(), id, user);
+        int changed = jdbc.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                "UPDATE prp_vocal_assignments SET lesson_id=?,song_id=?,section_id=?,title=?,detail=?,due_date=?,status=?,"
+                + "completed_at=CASE WHEN ?='DONE' THEN COALESCE(completed_at,CURRENT_TIMESTAMP) ELSE NULL END "
+                + "WHERE id=? AND user_id=?");
+            setLong(ps,1,fields.lessonId()); setLong(ps,2,fields.songId()); setLong(ps,3,fields.sectionId());
+            ps.setString(4,fields.title()); ps.setString(5,fields.detail()); setDate(ps,6,fields.dueDate());
+            ps.setString(7,fields.status()); ps.setString(8,fields.status()); ps.setLong(9,id); ps.setLong(10,user);
+            return ps;
+        });
         requireUpdated(changed, "Assignment not found");
         return assignment(id, user);
     }
