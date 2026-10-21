@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.matrix.prp.auth.security.CurrentUser;
+import com.matrix.prp.auth.repository.UserStore;
+import com.matrix.prp.auth.model.UserAccount;
 import com.matrix.prp.finance.model.CreateFinanceTransactionRequest;
 import com.matrix.prp.finance.service.FinanceService;
 import com.matrix.prp.records.model.CreateRecordRequest;
@@ -20,6 +22,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -35,6 +38,8 @@ public class McpDraftService {
     public record Preview(String draftId, String kind, JsonNode values, String expiresAt,
                           String instruction) {}
     public record Result(String draftId, String kind, JsonNode saved, boolean alreadySaved) {}
+    public record Review(String draftId, String kind, JsonNode values, String status, String expiresAt) {}
+    public record Approval(String status, int remainingAttempts) {}
     private record Stored(String kind, String payload, String result, String status,
                           LocalDateTime expiresAt) {}
 
@@ -45,9 +50,12 @@ public class McpDraftService {
     private final FinanceService finance;
     private final RecordService records;
     private final boolean writeEnabled;
+    private final UserStore users;
+    private final PasswordEncoder passwords;
 
     public McpDraftService(JdbcTemplate db, ObjectMapper json, Validator validator,
                            TaskService tasks, FinanceService finance, RecordService records,
+                           UserStore users, PasswordEncoder passwords,
                            @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled) {
         this.db = db;
         this.json = json;
@@ -56,6 +64,8 @@ public class McpDraftService {
         this.finance = finance;
         this.records = records;
         this.writeEnabled = writeEnabled;
+        this.users = users;
+        this.passwords = passwords;
     }
 
     private void requireWrite() {
@@ -85,20 +95,75 @@ public class McpDraftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft");
         }
         return new Preview(id, kind.name(), json.valueToTree(request), expiry.toString(),
-            "Review these values with the user. Do not call prp_confirm_draft until the user explicitly approves.");
+            "Open PRP /me/mcp-approve/" + id + " in your own browser, review and enter your PRP password. Only then may the MCP client call prp_confirm_draft.");
+    }
+
+    /** The human reviews the exact owner-bound data through PRP, never through a model-controlled approval flag. */
+    public Review review(String draftId) {
+        requireWrite();
+        validId(draftId);
+        List<Review> rows = db.query(
+            "SELECT kind,payload_json,status,expires_at FROM prp_mcp_write_drafts WHERE id=? AND user_id=?",
+            (rs, n) -> new Review(draftId, rs.getString("kind"), readJson(rs.getString("payload_json")),
+                rs.getString("status"), rs.getTimestamp("expires_at").toLocalDateTime().toString()),
+            draftId, CurrentUser.id());
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "MCP draft not found");
+        return rows.getFirst();
+    }
+
+    /**
+     * PRP page step-up authentication. A tool call alone cannot mark the draft approved.
+     * Wrong password attempts are committed, capped at five per draft, without throwing a rollback.
+     */
+    @Transactional
+    public Approval approve(String draftId, String password) {
+        requireWrite();
+        validId(draftId);
+        if (password == null || password.isBlank() || password.length() > 256)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password required");
+        long owner = CurrentUser.id();
+        record Pending(String status, int attempts, LocalDateTime expiresAt) {}
+        List<Pending> rows = db.query(
+            "SELECT status,approval_failures,expires_at FROM prp_mcp_write_drafts WHERE id=? AND user_id=? FOR UPDATE",
+            (rs, n) -> new Pending(rs.getString("status"), rs.getInt("approval_failures"),
+                rs.getTimestamp("expires_at").toLocalDateTime()), draftId, owner);
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "MCP draft not found");
+        Pending row = rows.getFirst();
+        if (!"PENDING".equals(row.status()) || !row.expiresAt().isAfter(LocalDateTime.now()))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "MCP draft not pending");
+        if (row.attempts() >= 5) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Approval locked");
+        UserAccount account = users.findById(owner).orElse(null);
+        if (account == null || !account.enabled() || !passwords.matches(password, account.passwordHash())) {
+            int attempts = row.attempts() + 1;
+            db.update("UPDATE prp_mcp_write_drafts SET approval_failures=?,status=? WHERE id=? AND user_id=?",
+                attempts, attempts >= 5 ? "REJECTED" : "PENDING", draftId, owner);
+            return new Approval(attempts >= 5 ? "LOCKED" : "INVALID_PASSWORD", Math.max(0, 5 - attempts));
+        }
+        db.update("UPDATE prp_mcp_write_drafts SET status='APPROVED',approved_at=CURRENT_TIMESTAMP " +
+            "WHERE id=? AND user_id=? AND status='PENDING'", draftId, owner);
+        return new Approval("APPROVED", 0);
     }
 
     @Transactional
-    public Result confirm(String draftId, boolean userApproved) {
+    public void reject(String draftId) {
         requireWrite();
-        if (!userApproved) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Explicit approval is required");
-        }
+        validId(draftId);
+        db.update("UPDATE prp_mcp_write_drafts SET status='REJECTED' WHERE id=? AND user_id=? " +
+            "AND status IN ('PENDING','APPROVED')", draftId, CurrentUser.id());
+    }
+
+    private static void validId(String draftId) {
         try {
             UUID.fromString(draftId);
         } catch (RuntimeException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft ID");
         }
+    }
+
+    @Transactional
+    public Result confirm(String draftId) {
+        requireWrite();
+        validId(draftId);
         long owner = CurrentUser.id();
         List<Stored> rows = db.query(
             "SELECT kind,payload_json,result_json,status,expires_at FROM prp_mcp_write_drafts " +
@@ -114,7 +179,7 @@ public class McpDraftService {
         if ("CONSUMED".equals(row.status())) {
             return new Result(draftId, row.kind(), readJson(row.result()), true);
         }
-        if (!"PENDING".equals(row.status()) || !row.expiresAt().isAfter(LocalDateTime.now())) {
+        if (!"APPROVED".equals(row.status()) || !row.expiresAt().isAfter(LocalDateTime.now())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "MCP draft expired or invalid");
         }
         JsonNode saved;
@@ -132,7 +197,7 @@ public class McpDraftService {
             };
             saved = json.valueToTree(result);
             if (db.update("UPDATE prp_mcp_write_drafts SET status='CONSUMED', result_json=?, consumed_at=CURRENT_TIMESTAMP " +
-                    "WHERE id=? AND user_id=? AND status='PENDING'",
+                    "WHERE id=? AND user_id=? AND status='APPROVED'",
                     json.writeValueAsString(saved), draftId, owner) != 1) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "MCP draft already consumed");
             }
