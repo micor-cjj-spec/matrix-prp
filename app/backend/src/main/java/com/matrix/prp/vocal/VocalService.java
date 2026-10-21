@@ -32,32 +32,44 @@ public class VocalService {
     private static final long QUOTA_BYTES = 256L * 1024 * 1024;
     public record Take(long id, String exerciseCode, String note, int durationSeconds,
                        long sizeBytes, VocalAnalysis.Summary analysis, String aiFeedback,
-                       String aiStatus, LocalDateTime createdAt) {}
+                       String aiStatus, LocalDateTime createdAt, Long songId, Long sectionId,
+                       String songTitle, String sectionTitle) {}
     public record Audio(Path file, String mimeType, long size) {}
     private record Stored(long id, String exercise, String note, int duration, long size,
-                          String analysis, String feedback, String status, LocalDateTime created) {}
+                          String analysis, String feedback, String status, LocalDateTime created,
+                          Long songId, Long sectionId, String songTitle, String sectionTitle) {}
+    private static final String TAKE_SELECT = "SELECT t.id,t.exercise_code,t.note,t.duration_seconds,t.size_bytes,"
+        + "t.analysis_json,t.ai_feedback,t.ai_status,t.created_at,l.song_id,l.section_id,s.title song_title,sec.title section_title "
+        + "FROM prp_vocal_takes t LEFT JOIN prp_vocal_take_links l ON l.take_id=t.id AND l.user_id=t.user_id "
+        + "LEFT JOIN prp_vocal_songs s ON s.id=l.song_id AND s.user_id=t.user_id "
+        + "LEFT JOIN prp_vocal_song_sections sec ON sec.id=l.section_id AND sec.user_id=t.user_id ";
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final Path root;
+    private final VocalLibraryService library;
     private final RowMapper<Stored> row = (rs,i) -> new Stored(rs.getLong("id"),
         rs.getString("exercise_code"), rs.getString("note"), rs.getInt("duration_seconds"),
         rs.getLong("size_bytes"), rs.getString("analysis_json"), rs.getString("ai_feedback"),
-        rs.getString("ai_status"), rs.getTimestamp("created_at").toLocalDateTime());
+        rs.getString("ai_status"), rs.getTimestamp("created_at").toLocalDateTime(),
+        nullableLong(rs.getObject("song_id")), nullableLong(rs.getObject("section_id")),
+        rs.getString("song_title"), rs.getString("section_title"));
 
     public VocalService(JdbcTemplate jdbc, ObjectMapper json,
-            @Value("${matrix-prp.vocal.storage-root:./data/vocal}") String root) {
+            @Value("${matrix-prp.vocal.storage-root:./data/vocal}") String root,
+            VocalLibraryService library) {
         this.jdbc = jdbc; this.json = json; this.root = Path.of(root).toAbsolutePath().normalize();
+        this.library = library;
     }
     public List<java.util.Map<String,Object>> exercises() { return VocalAnalysis.exercises(); }
     public List<Take> list() {
-        return jdbc.query("SELECT id,exercise_code,note,duration_seconds,size_bytes,analysis_json,ai_feedback,ai_status,created_at "
-            + "FROM prp_vocal_takes WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT 100",
+        return jdbc.query(TAKE_SELECT + "WHERE t.user_id=? ORDER BY t.created_at DESC,t.id DESC LIMIT 100",
             row, CurrentUser.id()).stream().map(this::present).toList();
     }
     private Take present(Stored s) {
         try {
             return new Take(s.id(),s.exercise(),s.note(),s.duration(),s.size(),
-                json.readValue(s.analysis(), VocalAnalysis.Summary.class),s.feedback(),s.status(),s.created());
+                json.readValue(s.analysis(), VocalAnalysis.Summary.class),s.feedback(),s.status(),s.created(),
+                s.songId(),s.sectionId(),s.songTitle(),s.sectionTitle());
         } catch (IOException ex) { throw new IllegalStateException("Invalid stored vocal analysis",ex); }
     }
     private Path path(long user, String key) {
@@ -75,8 +87,13 @@ public class VocalService {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unsupported audio file");
     }
     @Transactional
+    public Take upload(String code, String note, int seconds, String observations, MultipartFile file) throws IOException {
+        return upload(code, note, seconds, observations, file, null, null);
+    }
+
+    @Transactional
     public Take upload(String code, String note, int seconds, String observations,
-                       MultipartFile file) throws IOException {
+                       MultipartFile file, Long songId, Long sectionId) throws IOException {
         long user = CurrentUser.id();
         Double target = VocalAnalysis.targetFor(code);
         if (seconds < 1 || seconds > 600 || note != null && note.length() > 500)
@@ -137,8 +154,8 @@ public class VocalService {
                 ps.setString(8,metrics);return ps;
             },holder);
             long id=holder.getKey().longValue();
-            return present(jdbc.query("SELECT id,exercise_code,note,duration_seconds,size_bytes,analysis_json,ai_feedback,ai_status,created_at "
-                    +"FROM prp_vocal_takes WHERE id=? AND user_id=?",row,id,user).getFirst());
+            library.attachTake(id, songId, sectionId);
+            return present(jdbc.query(TAKE_SELECT + "WHERE t.id=? AND t.user_id=?",row,id,user).getFirst());
         } catch (Exception ex) {
             Files.deleteIfExists(output);
             if (ex instanceof IOException io) throw io;
@@ -172,8 +189,7 @@ public class VocalService {
         });
     }
     public Take get(long id) {
-        var rows=jdbc.query("SELECT id,exercise_code,note,duration_seconds,size_bytes,analysis_json,ai_feedback,ai_status,created_at "
-             +"FROM prp_vocal_takes WHERE id=? AND user_id=?",row,id,CurrentUser.id());
+        var rows=jdbc.query(TAKE_SELECT + "WHERE t.id=? AND t.user_id=?",row,id,CurrentUser.id());
         if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Recording not found");
         return present(rows.getFirst());
     }
@@ -186,5 +202,9 @@ public class VocalService {
     public void finishAnalysis(long id,String feedback,boolean ok) {
         jdbc.update("UPDATE prp_vocal_takes SET ai_status=?,ai_feedback=? WHERE id=? AND user_id=?",
             ok?"DONE":"FAILED",feedback,id,CurrentUser.id());
+    }
+
+    private static Long nullableLong(Object value) {
+        return value == null ? null : ((Number)value).longValue();
     }
 }

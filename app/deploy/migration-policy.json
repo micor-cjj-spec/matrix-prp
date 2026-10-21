@@ -18,6 +18,19 @@
       "tables": [
         "prp_ai_invocation_log"
       ]
+    },
+    {
+      "version": 24,
+      "file": "V24__vocal_song_library_and_assignments.sql",
+      "sha256": "40818afd8a1df3d3440eeeb6e4bc19710b1e187cf3392b1d2eb0aabeb0eaa216",
+      "mode": "create-empty",
+      "tables": [
+        "prp_vocal_songs",
+        "prp_vocal_song_sections",
+        "prp_vocal_lessons",
+        "prp_vocal_assignments",
+        "prp_vocal_take_links"
+      ]
     }
   ]
 }

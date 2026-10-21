@@ -399,10 +399,12 @@
           "/api/vocal"
         ],
         "tests": [
-          "app/backend/src/test/java/com/matrix/prp/vocal/VocalAnalysisTests.java"
+          "app/backend/src/test/java/com/matrix/prp/vocal/VocalAnalysisTests.java",
+          "app/backend/src/test/java/com/matrix/prp/VocalLibraryDatabaseIT.java"
         ],
         "docs": [
-          "app/docs/technical/vocal-training-p0.md"
+          "app/docs/technical/vocal-training-p0.md",
+          "app/docs/technical/vocal-studio-v1.md"
         ]
       }
     }
