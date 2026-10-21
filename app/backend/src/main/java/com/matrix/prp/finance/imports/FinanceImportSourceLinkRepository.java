@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Repository;
  * candidate inside the original FOR UPDATE transaction.
  */
 @Repository
+@Profile("!test")
 public class FinanceImportSourceLinkRepository {
     // Limit derived-table terms and bind parameters independently of file size.
     static final int PREVIEW_CHUNK_SIZE = 250;
