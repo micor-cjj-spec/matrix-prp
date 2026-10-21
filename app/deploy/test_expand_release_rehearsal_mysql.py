@@ -18,7 +18,6 @@ TABLE = "prp_expand_compatibility_fixture"
 ADD = (f"ALTER TABLE {TABLE} ADD COLUMN source_platform VARCHAR(32) NULL, "
        "ALGORITHM=INSTANT;")
 OLD_COLUMNS = "id,owner_user_id,HEX(note)"
-INITIAL_ROWS = "1\t101\t616C706861\n2\t102\t62657461"
 
 
 @unittest.skipUnless(os.environ.get("PRP_EXPAND_MYSQL_TEST") == "1",
