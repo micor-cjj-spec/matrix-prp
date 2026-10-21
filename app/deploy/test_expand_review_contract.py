@@ -167,7 +167,7 @@ class ExpandReviewContractTests(unittest.TestCase):
         contract, before, after = valid_triplet()
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
-            (folder / "candidate.sql").write_bytes(SQL)
+            (folder / "sql.sql").write_bytes(SQL)
             for name, data in (("contract", contract), ("before", before), ("after", after)):
                 (folder / (name + ".json")).write_bytes(canonical(data))
             args = sum(([f"--{name}", str(folder / (name + ext))]
