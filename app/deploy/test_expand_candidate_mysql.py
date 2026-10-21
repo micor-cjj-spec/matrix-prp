@@ -62,7 +62,7 @@ class ExpandCandidateMysqlTests(unittest.TestCase):
             "ORDER BY ORDINAL_POSITION;")
         columns = []
         for line in fields.splitlines():
-            name, column_type, nullable, default, extra, ordinal = line.split("\\t")
+            name, column_type, nullable, default, extra, ordinal = line.split("\t")
             columns.append({
                 "name": name, "type": column_type, "nullable": nullable == "YES",
                 "default": None if default == "<NULL>" else default,
