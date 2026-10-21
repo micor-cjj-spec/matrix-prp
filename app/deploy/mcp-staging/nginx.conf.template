@@ -6,6 +6,8 @@ server {
     if ($host != ${PRP_STAGE_HOST}) { return 421; }
 
     location = /prp { return 301 /prp/; }
+    # Never let an incorrect /prp/api/ path silently fall back to the SPA.
+    location ^~ /prp/api/ { return 404; }
     location = /prp/index.html {
         alias /usr/share/nginx/html/index.html;
         add_header Cache-Control "no-store" always;
