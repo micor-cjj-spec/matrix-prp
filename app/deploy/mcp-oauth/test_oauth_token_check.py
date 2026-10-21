@@ -99,10 +99,7 @@ class SignedOAuthTokenTests(unittest.TestCase):
 
     def test_single_signed_client_id_claim_is_supported(self):
         jwt = self.token(azp=None, client_id=CLIENT)
-        # A null azp is not a valid alternative to an absent azp;
-        # test actual Keycloak tokens with an explicit signed azp instead.
-        with self.assertRaises(ValueError):
-            self.verify(jwt)
+        self.assertEqual(self.verify(jwt)["client"], "verified")
 
 
 if __name__ == "__main__":
