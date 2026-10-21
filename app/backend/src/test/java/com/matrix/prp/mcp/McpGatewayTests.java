@@ -134,6 +134,53 @@ class McpGatewayTests {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void validPasswordApprovesButDoesNotSaveBusinessRecord() throws Exception {
+        String id = "41abc027-d67e-4bdf-8985-e3ec97d23204";
+        when(db.query(startsWith("SELECT status,approval_failures"), any(RowMapper.class), eq(id), eq(501L)))
+            .thenAnswer(invocation -> {
+                RowMapper<Object> mapper = invocation.getArgument(1);
+                ResultSet rs = mock(ResultSet.class);
+                when(rs.getString("status")).thenReturn("PENDING");
+                when(rs.getInt("approval_failures")).thenReturn(0);
+                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                return List.of(mapper.mapRow(rs, 0));
+            });
+        when(users.findById(501L)).thenReturn(java.util.Optional.of(
+            new UserAccount(501L, "mcp-user", "MCP", "hashed-password", false, true)));
+        when(passwords.matches("correct", "hashed-password")).thenReturn(true);
+
+        var outcome = drafts(true).approve(id, "correct");
+        assertThat(outcome.status()).isEqualTo("APPROVED");
+        verify(db).update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED'"),
+            eq(id), eq(501L));
+        verifyNoInteractions(tasks, finance, records);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void pendingDraftCannotConfirmWithoutServerSideApproval() throws Exception {
+        String id = "41abc027-d67e-4bdf-8985-e3ec97d23204";
+        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,expires_at"),
+            any(RowMapper.class), eq(id), eq(501L))).thenAnswer(invocation -> {
+                RowMapper<Object> mapper = invocation.getArgument(1);
+                ResultSet rs = mock(ResultSet.class);
+                when(rs.getString("kind")).thenReturn("TASK");
+                when(rs.getString("payload_json")).thenReturn("{}");
+                when(rs.getString("result_json")).thenReturn(null);
+                when(rs.getString("status")).thenReturn("PENDING");
+                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                return List.of(mapper.mapRow(rs, 0));
+            });
+
+        assertThatThrownBy(() -> drafts(true).confirm(id))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT));
+        verifyNoInteractions(tasks, finance, records);
+    }
+
+    @Test
     void confirmOfUnknownDraftNeverWritesBusinessData() {
         assertThatThrownBy(() -> drafts(true).confirm("41abc027-d67e-4bdf-8985-e3ec97d23204"))
             .isInstanceOf(ResponseStatusException.class);
