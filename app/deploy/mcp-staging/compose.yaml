@@ -51,7 +51,7 @@ services:
     volumes:
       - stage_video:/data/video
       - stage_vocal:/data/vocal
-    networks: [stage_private]
+    networks: [stage_private, stage_egress]
     security_opt:
       - no-new-privileges:true
     mem_limit: 2g
@@ -66,7 +66,7 @@ services:
       PRP_STAGE_HOST: ${PRP_STAGE_PUBLIC_HOST:?}
     ports:
       - "127.0.0.1:18081:8080"
-    networks: [stage_private]
+    networks: [stage_private, stage_egress]
     security_opt:
       - no-new-privileges:true
 
@@ -74,6 +74,9 @@ networks:
   stage_private:
     driver: bridge
     internal: true
+  # Backend must verify HTTPS JWKS from the external Keycloak issuer.
+  stage_egress:
+    driver: bridge
 
 volumes:
   stage_mysql:
