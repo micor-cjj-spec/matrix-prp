@@ -62,6 +62,8 @@ matrix-prp:
   mcp:
     enabled: ${MATRIX_PRP_MCP_ENABLED:false}
     write-enabled: ${MATRIX_PRP_MCP_WRITE_ENABLED:false}
+    # Exact HTTPS browser origins; never use wildcard or suffix matching.
+    allowed-origins: ${MATRIX_PRP_MCP_ALLOWED_ORIGINS:https://micor.top}
   knowledge:
     root: ../../knowledge
   vocal:
