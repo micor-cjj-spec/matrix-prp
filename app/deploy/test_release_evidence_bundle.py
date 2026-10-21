@@ -47,7 +47,7 @@ def fixture_inputs(fixture):
 
 
 def verify_json(items):
-    return verify_bundle(*(json.dumps(x).encode() for x in items))
+    return verify_bundle(*(json.dumps(x, sort_keys=True).encode() for x in items))
 
 
 class ReleaseEvidenceBundleTests(unittest.TestCase):
@@ -111,7 +111,7 @@ class ReleaseEvidenceBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fixture = FakeEvidenceFixture(tmp)
             inputs = fixture_inputs(fixture)
-            raws = [json.dumps(x).encode() for x in inputs]
+            raws = [json.dumps(x, sort_keys=True).encode() for x in inputs]
             for altered_index, data in (
                 (4, b'{"schema_version":1,"schema_version":2}'),
                 (5, b"{" + b" " * 9000 + b"}"),
@@ -139,7 +139,7 @@ class ReleaseEvidenceBundleTests(unittest.TestCase):
             args = []
             for (name, file), data in zip(params, vals):
                 p = folder / file
-                p.write_text(json.dumps(data))
+                p.write_text(json.dumps(data, sort_keys=True))
                 args.extend(("--" + name, str(p)))
             buf = StringIO()
             with redirect_stdout(buf):
