@@ -50,6 +50,26 @@ class McpHttpSecurityTests {
     }
 
     @Test
+    void rejectsForeignBrowserOriginsButPermitsTrustedOriginToReachJwtGate() throws Exception {
+        mvc.perform(post("/api/mcp")
+            .header(HttpHeaders.ORIGIN, "https://attacker.example")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
+            .andExpect(status().isForbidden());
+        String id = "41abc027-d67e-4bdf-8985-e3ec97d23204";
+        mvc.perform(post("/api/mcp/approval/drafts/{id}/approve", id)
+            .header(HttpHeaders.ORIGIN, "https://micor.top.attacker.example")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"password\":\"not-the-password\"}"))
+            .andExpect(status().isForbidden());
+        mvc.perform(post("/api/mcp")
+            .header(HttpHeaders.ORIGIN, "https://micor.top")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void authenticatedTransportListsOnlyExplicitMcpTools() throws Exception {
         String loginResponse = mvc.perform(post("/api/auth/login")
             .contentType(MediaType.APPLICATION_JSON)
