@@ -232,8 +232,11 @@ def main():
     op,tokens,_,_=mint(one['name'],one['password']);bearer=tokens['access_token']
     record('Issuer restart: keys users sessions and PRP links persist',rpc(op,bearer)[0],[200])
     # Rotate to a new signing key while keeping old verification keys enabled.
-    component={'name':'server-lab-rotation-'+suffix,'parentId':'prp-mcp','providerId':'rsa-generated',
-        'providerType':'org.keycloak.keys.KeyProvider','config':{'priority':['200'],
+    realm_id=json.loads(admin_request(op,admin,'')[2])['id']
+    keys=json.loads(admin_request(op,admin,'/keys')[2])
+    priority=max(k.get('providerPriority',0) for k in keys['keys'])+100
+    component={'name':'server-lab-rotation-'+suffix,'parentId':realm_id,'providerId':'rsa-generated',
+        'providerType':'org.keycloak.keys.KeyProvider','config':{'priority':[str(priority)],
         'enabled':['true'],'active':['true'],'keySize':['2048'],'algorithm':['RS256']}}
     record('Create independent rotated signing key',admin_request(op,admin,'/components',component)[0],[201])
     newop,newtokens,_,_=mint(one['name'],one['password']);newbearer=newtokens['access_token']
