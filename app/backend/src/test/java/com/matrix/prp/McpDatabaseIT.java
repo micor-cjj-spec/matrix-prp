@@ -90,7 +90,7 @@ class McpDatabaseIT {
         var replay = drafts.confirm(draft.draftId());
         assertThat(first.alreadySaved()).isFalse();
         assertThat(replay.alreadySaved()).isTrue();
-        assertThat(replay.saved()).isEqualTo(first.saved());
+        assertThat(replay.saved().toString()).isEqualTo(first.saved().toString());
         assertThat(first.saved().path("id").asLong()).isPositive();
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM prp_finance_transactions WHERE user_id=? AND merchant=?",
@@ -128,7 +128,7 @@ class McpDatabaseIT {
             start.countDown();
             var one = first.get(20, TimeUnit.SECONDS);
             var two = second.get(20, TimeUnit.SECONDS);
-            assertThat(one.saved()).isEqualTo(two.saved());
+            assertThat(one.saved().toString()).isEqualTo(two.saved().toString());
             assertThat(one.alreadySaved() != two.alreadySaved()).isTrue();
         }
         assertThat(jdbc.queryForObject(
