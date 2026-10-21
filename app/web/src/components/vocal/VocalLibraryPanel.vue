@@ -60,7 +60,7 @@ function songStatus(status: VocalSong['status']) {
 function assignmentStatus(status: VocalAssignment['status']) {
   return status === 'DONE' ? '已完成' : status === 'IN_PROGRESS' ? '进行中' : '待练习'
 }
-function assignmentTag(status: VocalAssignment['status']) {
+function assignmentTag(status: VocalAssignment['status']): 'success' | 'warning' | 'info' {
   return status === 'DONE' ? 'success' : status === 'IN_PROGRESS' ? 'warning' : 'info'
 }
 async function refreshSongs() {
