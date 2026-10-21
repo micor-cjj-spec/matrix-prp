@@ -203,6 +203,9 @@ def main():
     optional = request_json(clients_uri + "/" + pkce_id + "/optional-client-scopes",
                             bearer=access)
     scopes = {s.get("name") for s in optional}
+    defaults = request_json(clients_uri + "/" + pkce_id + "/default-client-scopes", bearer=access)
+    if "basic" not in {item.get("name") for item in defaults}:
+        raise RuntimeError("PKCE client missing Keycloak 25+ Subject (sub) basic scope")
     validate_keycloak(metadata, jwks, resource_client, pkce_client, scopes)
     verified = verify_real_issued_token(metadata, jwks, access)
     print("PASS: real Keycloak signed", verified["signature"],
