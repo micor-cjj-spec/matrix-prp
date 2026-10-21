@@ -31,7 +31,7 @@ public final class VocalAnalysis {
         if (target != null && (!Double.isFinite(target) || target < 65 || target > 1500))
             throw new IllegalArgumentException("Invalid reference pitch");
         if (frequencies.isEmpty())
-            return new Summary(0, null, null, null, "没有足够的有效有声片段；靠近麦克风，轻声重试。");
+            return new Summary(0, null, null, null, "未检测到稳定的单音或有效音高样本；可能是输入音量低、伴奏、气声或分析器未获取到有效数据。这不等于录音文件没有声音，请先试听录音再决定是否重录。");
         Collections.sort(frequencies);
         double median = frequencies.get(frequencies.size() / 2);
         List<Double> deviations = new ArrayList<>();
