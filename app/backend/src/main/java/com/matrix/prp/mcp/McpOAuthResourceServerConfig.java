@@ -117,7 +117,7 @@ public class McpOAuthResourceServerConfig {
                     if (account == null || !account.enabled()) {
                         throw new BadCredentialsException("PRP account not available");
                     }
-                    String clientId = token.getClaimAsString("client_id");
+                    String clientId = McpOAuthClientIdentity.clientId(token);
                     Set<String> granted = grants.grantedScopes(account.id(), clientId);
                     if (granted.isEmpty()) throw new BadCredentialsException("MCP client not authorized by PRP owner");
                     List<String> scopes = token.getClaimAsStringList("scp");
