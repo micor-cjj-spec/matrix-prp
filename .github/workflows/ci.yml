@@ -297,4 +297,6 @@ jobs:
           bash -n app/deploy/admin_install_diagnostic.sh
           sh -n app/deploy/ssh-gateway.sh
           bash -n app/scripts/verify-expanded-backend-compatibility.sh
+          bash -n app/scripts/verify-expanded-jar-http.sh
+          python3 -m py_compile app/scripts/probe-expanded-jar-http.py
           node --test app/scripts/deploy-workflow-contract.test.mjs
