@@ -74,10 +74,15 @@ class McpOAuthJwtValidationTests {
 
     private static String signedToken(KeyPair signer, String issuer, String audience, Instant expiry)
             throws Exception {
+        return signedToken(signer, issuer, List.of(audience), expiry);
+    }
+
+    private static String signedToken(KeyPair signer, String issuer, List<String> audiences, Instant expiry)
+            throws Exception {
         var claims = new JWTClaimsSet.Builder()
             .issuer(issuer)
             .subject("oauth-user-123")
-            .audience(List.of(audience))
+            .audience(audiences)
             .issueTime(Date.from(Instant.now().minusSeconds(20)))
             .expirationTime(Date.from(expiry))
             .claim("client_id", "trusted-oauth-client")
@@ -94,6 +99,22 @@ class McpOAuthJwtValidationTests {
         var jwt = verifier().decode(signedToken(trusted, ISSUER, RESOURCE, Instant.now().plusSeconds(360)));
         assertThat(jwt.getAudience()).containsExactly(RESOURCE);
         assertThat(jwt.getSubject()).isEqualTo("oauth-user-123");
+    }
+
+    @Test
+    void acceptsAuth0StyleAdditionalUserinfoAudienceWhenExactMcpAudienceIsPresent() throws Exception {
+        var jwt = verifier().decode(signedToken(trusted, ISSUER,
+            List.of(RESOURCE, ISSUER + "/userinfo"), Instant.now().plusSeconds(360)));
+        assertThat(jwt.getAudience()).contains(RESOURCE);
+        assertThat(jwt.getAudience()).contains(ISSUER + "/userinfo");
+    }
+
+    @Test
+    void rejectsOtherApiEvenWhenAdditionalUserinfoAudienceIsPresent() throws Exception {
+        String token = signedToken(trusted, ISSUER,
+            List.of("https://another-api.example.test/api/mcp", ISSUER + "/userinfo"),
+            Instant.now().plusSeconds(360));
+        assertThatThrownBy(() -> verifier().decode(token)).isInstanceOf(JwtException.class);
     }
 
     @Test
