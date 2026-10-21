@@ -19,7 +19,7 @@ export function useVocalRecorder() {
   let audioContext: AudioContext | null = null
   let analyser: AnalyserNode | null = null
   let silentGain: GainNode | null = null
-  let samples: Float32Array<ArrayBuffer> | null = null
+  let samples: Float32Array | null = null
   let timer: ReturnType<typeof setInterval> | null = null
   let started = 0
   let chunks: Blob[] = []
@@ -73,7 +73,7 @@ export function useVocalRecorder() {
           // monitoring the microphone back through the speakers.
           analyser.connect(silentGain)
           silentGain.connect(audioContext.destination)
-          samples = new Float32Array(analyser.fftSize) as Float32Array<ArrayBuffer>
+          samples = new Float32Array(analyser.fftSize)
           analysisAvailable.value = audioContext.state === 'running'
         } catch {
           analyser = null
