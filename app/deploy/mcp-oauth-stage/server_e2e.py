@@ -11,7 +11,7 @@ import ssl
 import subprocess
 import sys
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 from urllib.request import build_opener, HTTPSHandler, HTTPCookieProcessor, ProxyHandler
 
 HERE=Path(__file__).resolve().parent
@@ -67,16 +67,29 @@ def claims(token):
     return json.loads(base64.urlsafe_b64decode(token.split('.')[1]+'=='))
 
 
-def mint(user,password,client=None):
+def mint(user,password,client=None,omit_resource=False):
     original=flow.CLIENT
+    original_request=flow.request
     if client:flow.CLIENT=client
+    if omit_resource:
+        # Negative test: a genuine issuer token not requested for the PRP
+        # resource must still be refused by the PRP resource-server audience gate.
+        def no_resource(op,url,**kwargs):
+            parsed=urlsplit(url)
+            url=urlunsplit(parsed._replace(query=urlencode([(k,v) for k,v in parse_qsl(parsed.query) if k!='resource'])))
+            if isinstance(kwargs.get('data'),dict):
+                kwargs['data']={k:v for k,v in kwargs['data'].items() if k!='resource'}
+            return original_request(op,url,**kwargs)
+        flow.request=no_resource
     try:
         op=opener();code,verifier=flow.code_pkce(op,user,password)
         response=flow.request(op,flow.ISSUER+'/protocol/openid-connect/token',form=True,data={
             'grant_type':'authorization_code','client_id':flow.CLIENT,'redirect_uri':flow.CALLBACK,
             'code':code,'code_verifier':verifier,'resource':flow.RESOURCE})
         return op,obj(response),code,verifier
-    finally:flow.CLIENT=original
+    finally:
+        flow.CLIENT=original
+        flow.request=original_request
 
 
 def rpc(op,token,method='tools/list',params=None):
@@ -198,7 +211,7 @@ def main():
     wrong=copy.deepcopy(clients[0]);wrong.pop('id',None);wrong['clientId']='wrong-audience-'+suffix
     wrong['protocolMappers']=[]
     record('Prepare isolated wrong-audience client',admin_request(op,admin,'/clients',wrong)[0],[201])
-    wrongop,wrongtokens,_,_=mint(one['name'],one['password'],wrong['clientId'])
+    wrongop,wrongtokens,_,_=mint(one['name'],one['password'],wrong['clientId'],omit_resource=True)
     assert flow.RESOURCE not in claims(wrongtokens['access_token']).get('aud',[])
     record('Real signed wrong-audience token',rpc(wrongop,wrongtokens['access_token'])[0],[401])
     # Fresh tokens for bounded cache tests. Only the lab issuer is stopped.
