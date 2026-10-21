@@ -69,16 +69,23 @@ public class McpOAuthResourceServerConfig {
     @Bean("mcpJwtDecoder")
     JwtDecoder mcpJwtDecoder() {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwks).build();
+        decoder.setJwtValidator(jwtValidator(issuer, resource));
+        return decoder;
+    }
+
+    /**
+     * Validator shared by the production JWK-backed decoder and cryptographic
+     * tests: issuer, token timestamps and exact MCP resource audience.
+     */
+    static OAuth2TokenValidator<Jwt> jwtValidator(String issuer, String resource) {
         OAuth2TokenValidator<Jwt> issuerAndLifetime = JwtValidators.createDefaultWithIssuer(issuer);
         OAuth2TokenValidator<Jwt> audience = jwt -> jwt.getAudience().contains(resource)
             ? OAuth2TokenValidatorResult.success()
             : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Wrong MCP token audience", null));
-        decoder.setJwtValidator(jwt -> {
-            var issuerResult = issuerAndLifetime.validate(jwt);
-            if (issuerResult.hasErrors()) return issuerResult;
-            return audience.validate(jwt);
-        });
-        return decoder;
+        return jwt -> {
+            var validated = issuerAndLifetime.validate(jwt);
+            return validated.hasErrors() ? validated : audience.validate(jwt);
+        };
     }
 
     @Bean
