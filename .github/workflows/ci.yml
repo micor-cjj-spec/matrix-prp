@@ -213,6 +213,39 @@ jobs:
           chmod +x mvnw
           ./mvnw -B -Dtest=FlywayMigrationIT test
 
+  keycloak-oauth-ephemeral:
+    # Only PR #95/its feature branch. A disposable GitHub runner, not PRP production.
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate exact Keycloak resource and read-only PKCE client
+        run: |
+          python3 app/deploy/mcp-oauth/build_realm.py \
+            --resource https://prp.staging.example.org/api/mcp \
+            --staging-client-id prp-pkce-probe \
+            --staging-redirect http://127.0.0.1:8765/callback
+      - name: Verify actual Keycloak import and PKCE settings using loopback only
+        shell: bash
+        run: |
+          set -euo pipefail
+          admin_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::${admin_secret}"
+          trap 'docker rm -f prp-mcp-keycloak-ci >/dev/null 2>&1 || true' EXIT
+          docker run --rm -d \
+            --name prp-mcp-keycloak-ci \
+            -p 127.0.0.1:18080:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=prp-smoke-admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD="${admin_secret}" \
+            -v "${PWD}/app/deploy/mcp-oauth/.generated/realm:/opt/keycloak/data/import:ro" \
+            quay.io/keycloak/keycloak:26.8.0 \
+            start-dev --import-realm --features=cimd,resource-indicators \
+            --hostname=http://127.0.0.1:18080
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/keycloak_ephemeral_smoke.py \
+              --admin-user prp-smoke-admin
+
   safe-deployment-diagnostics:
     runs-on: ubuntu-latest
     steps:
