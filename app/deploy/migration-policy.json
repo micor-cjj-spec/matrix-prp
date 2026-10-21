@@ -22,7 +22,7 @@
     {
       "version": 24,
       "file": "V24__vocal_song_library_and_assignments.sql",
-      "sha256": "64a16c96d696b10f6f768c42060acb2f0195071f278e2308716d3b9c59915443",
+      "sha256": "40818afd8a1df3d3440eeeb6e4bc19710b1e187cf3392b1d2eb0aabeb0eaa216",
       "mode": "create-empty",
       "tables": [
         "prp_vocal_songs",
