@@ -69,7 +69,7 @@ class McpHttpSecurityTests {
             initialization = mvc.perform(asyncDispatch(initialization)).andReturn();
         }
         org.assertj.core.api.Assertions.assertThat(initialization.getResponse().getStatus())
-            .as("MCP initialize response: %s", initialization.getResponse().getContentAsString())
+            .as("MCP initialize handler=%s; exception=%s; response=%s", initialization.getHandler(), initialization.getResolvedException(), initialization.getResponse().getContentAsString())
             .isEqualTo(200);
         var result = mvc.perform(post("/api/mcp")
             .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
