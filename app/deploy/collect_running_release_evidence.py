@@ -17,6 +17,7 @@ import sys
 
 BASE = Path("/srv/matrix-prp/releases")
 CONTROLLER = Path("/usr/local/sbin/prp-release")
+PROC = Path("/proc")
 SERVICE = "matrix-prp.service"
 ENV = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"}
 SHA = re.compile(r"[0-9a-f]{64}\Z")
@@ -96,7 +97,7 @@ def collect() -> dict:
     if state.get("ActiveState") != "active" or not re.fullmatch(r"[1-9][0-9]{0,8}", pid_raw):
         raise ValueError("Expected active Java process absent")
     pid = int(pid_raw)
-    cmdline_raw = (Path("/proc") / str(pid) / "cmdline").read_bytes()
+    cmdline_raw = (PROC / str(pid) / "cmdline").read_bytes()
     if not 0 < len(cmdline_raw) <= 8192:
         raise ValueError("Unsafe process arguments")
     args = cmdline_raw.rstrip(b"\x00").split(b"\x00")
@@ -112,6 +113,9 @@ def collect() -> dict:
     if Path(jar_arg).resolve(strict=True) != jar_path.resolve(strict=True):
         raise ValueError("Running process points at a different JAR")
 
+    st = CONTROLLER.lstat()
+    if st.st_uid != 0 or st.st_gid != 0 or st.st_mode & 0o022 or st.st_nlink != 1:
+        raise ValueError("Unexpected controller ownership or permissions")
     controller_digest = safe_digest(CONTROLLER, 8 * 1024 * 1024)
     # Detect pointer drift during observations; this is metadata-only and not
     # a filesystem snapshot, and cannot prove bytes loaded into JVM memory.
