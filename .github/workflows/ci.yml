@@ -154,6 +154,55 @@ jobs:
       - name: Test production deployment data-preservation rules
         run: python3 -m unittest discover -s app/deploy -p 'test_*.py' -v
 
+  expanded-schema-backend-compatibility:
+    # Independent Spring Boot API regressions against an additive real PRP
+    # finance-table column in TWO CI-only MySQL databases. No production access.
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: matrix_prp
+          MYSQL_USER: matrix_prp
+          MYSQL_PASSWORD: ci-app-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out main application baseline in a separate directory
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: |
+            app/backend/pom.xml
+            baseline/app/backend/pom.xml
+      - name: Provision two isolated test-only databases
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y default-mysql-client
+          MYSQL_PWD=ci-root-password mysql -h 127.0.0.1 -uroot -e "
+            CREATE DATABASE matrix_prp_expand_app_baseline CHARACTER SET utf8mb4;
+            CREATE DATABASE matrix_prp_expand_app_candidate CHARACTER SET utf8mb4;
+            GRANT ALL PRIVILEGES ON matrix_prp_expand_app_baseline.* TO 'matrix_prp'@'%';
+            GRANT ALL PRIVILEGES ON matrix_prp_expand_app_candidate.* TO 'matrix_prp'@'%';"
+      - name: Run independent backend compatibility suites on expanded schema
+        env:
+          PRP_EXPANDED_APP_TEST: synthetic-only
+          MYSQL_PWD: ci-app-password
+        run: bash app/scripts/verify-expanded-backend-compatibility.sh
+
   db-migration-integration:
     runs-on: ubuntu-latest
     services:
@@ -234,4 +283,5 @@ jobs:
           /tmp/prp-diagnostic-tests/bin/python -m unittest discover -s app/deploy -v
           bash -n app/deploy/admin_install_diagnostic.sh
           sh -n app/deploy/ssh-gateway.sh
+          bash -n app/scripts/verify-expanded-backend-compatibility.sh
           node --test app/scripts/deploy-workflow-contract.test.mjs
