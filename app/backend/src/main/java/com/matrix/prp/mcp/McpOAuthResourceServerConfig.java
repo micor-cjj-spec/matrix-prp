@@ -93,7 +93,7 @@ public class McpOAuthResourceServerConfig {
                 .authenticationEntryPoint((request, response, cause) -> {
                     response.setStatus(HttpStatus.UNAUTHORIZED.value());
                     response.setHeader("WWW-Authenticate",
-                        "Bearer resource_metadata=\\"" + metadataUri + "\\"");
+                        "Bearer resource_metadata=\"" + metadataUri + "\"");
                 })
                 .jwt(jwt -> jwt.decoder(mcpJwtDecoder).jwtAuthenticationConverter(token -> {
                     Object rawId = token.getClaim("prp_user_id");
