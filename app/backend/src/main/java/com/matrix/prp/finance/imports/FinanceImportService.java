@@ -38,12 +38,14 @@ public class FinanceImportService {
     private final FinanceTransactionMapper transactions;
     private final WeChatBillParser parser;
     private final FinanceImportSourceLinkRepository sourceLinks;
+    private final FinanceImportStagingRepository staging;
 
     public FinanceImportService(JdbcTemplate jdbc, FinanceAccountMapper accounts,
                                 FinanceTransactionMapper transactions, WeChatBillParser parser,
-                                FinanceImportSourceLinkRepository sourceLinks) {
+                                FinanceImportSourceLinkRepository sourceLinks,
+                                FinanceImportStagingRepository staging) {
         this.jdbc=jdbc; this.accounts=accounts; this.transactions=transactions;
-        this.parser=parser; this.sourceLinks=sourceLinks;
+        this.parser=parser; this.sourceLinks=sourceLinks; this.staging=staging;
     }
 
     public record RowView(long id,int sourceLine,LocalDateTime transactionAt,String transactionType,
@@ -95,18 +97,16 @@ public class FinanceImportService {
         // the commit-time recheck remain the authoritative posting defenses.
         Set<String> postedIds=sourceLinks.findPostedPreviewIds(owner,bill.rows());
         Set<String> seen=new HashSet<>();
+        List<FinanceImportStagingRepository.StagedRow> staged=new ArrayList<>(bill.rows().size());
         for(var row:bill.rows()) {
             String status=FinanceImportPolicy.previewRowStatus(
                 row.reviewState(),row.sourceTransactionId(),seen,
                 ()->postedIds.contains(row.sourceTransactionId()));
-            jdbc.update("INSERT INTO prp_finance_import_rows "
-                +"(batch_id,user_id,source_line,source_transaction_id,merchant_transaction_id,transaction_at,"
-                +"transaction_type,counterparty,description,direction,amount,payment_method,original_status,note,"
-                +"row_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(6))",
-                batch,owner,row.sourceLine(),row.sourceTransactionId(),row.merchantTransactionId(),
-                row.transactionAt(),row.transactionType(),row.counterparty(),row.description(),
-                row.direction(),row.amount(),row.paymentMethod(),row.originalStatus(),row.note(),status);
+            staged.add(new FinanceImportStagingRepository.StagedRow(row,status));
         }
+        // @Transactional covers the header and every JDBC batch. A failure
+        // after one or more chunks must roll back the whole preview.
+        staging.insertRows(batch,owner,staged);
         return detail(batch);
     }
 
