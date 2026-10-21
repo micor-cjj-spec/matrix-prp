@@ -321,7 +321,9 @@ async function select(id: string, automaticRestore = false) {
     input.value = ''
     selectedScopes.value = []
     preview.value = null
+    ++photoSelectionVersion
     chatPhoto.value = null
+    preparingPhoto.value = false
     mentionOpen.value = false
     hasOlder.value = data.length > HISTORY_PAGE_SIZE
     messages.value = data.slice(-HISTORY_PAGE_SIZE)
@@ -366,7 +368,9 @@ function newChat() {
   input.value = ''
   selectedScopes.value = []
   preview.value = null
+  ++photoSelectionVersion
   chatPhoto.value = null
+  preparingPhoto.value = false
   mentionOpen.value = false
   showJumpToBottom.value = false
   streamError.value = ''
