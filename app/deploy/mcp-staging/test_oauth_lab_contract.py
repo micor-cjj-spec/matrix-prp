@@ -44,6 +44,16 @@ class OAuthLabContractTests(unittest.TestCase):
         self.assertNotIn('CERT_NONE', source)
         self.assertNotIn('verify=False', source)
 
+    def test_public_vhosts_are_review_only_and_verify_internal_tls(self):
+        script=Path(__file__).resolve().parent.parent/'mcp-oauth-stage/public_nginx.py'
+        spec=importlib.util.spec_from_file_location('lab_public',script)
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        config=module.render()
+        self.assertIn('proxy_ssl_verify on',config)
+        self.assertIn('proxy_ssl_name auth-test.micor.top',config)
+        self.assertEqual(config.count('server_name '),3) # two vhosts + upstream SNI
+        self.assertNotIn('server_name micor.top;',config)
+
 
 if __name__ == '__main__':
     unittest.main()
