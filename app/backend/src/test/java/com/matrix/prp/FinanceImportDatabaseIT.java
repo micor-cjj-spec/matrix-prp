@@ -54,6 +54,50 @@ class FinanceImportDatabaseIT {
         }
     }
 
+    @Test void batchingKeepsSourceCollationAndTenantIsolation() throws Exception {
+        // The V21 source-link unique key uses utf8mb4_unicode_ci; Java
+        // String.equalsIgnoreCase is not a sufficient substitute for SQL.
+        long alice = 8023601L, bob = 8023602L;
+        String id = "abc" + UUID.randomUUID().toString().replace("-", "");
+        var lowerUpload = new MockMultipartFile("file", "original.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", sample(id));
+        var upperUpload = new MockMultipartFile("file", "changedcase.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            sample(id.toUpperCase(java.util.Locale.ROOT)));
+        try {
+            owner(alice);
+            var account = new FinanceAccountEntity();
+            account.setUserId(alice); account.setName("review-" + id);
+            account.setType("cash"); account.setCurrency("CNY");
+            account.setOpeningBalance(BigDecimal.valueOf(100));
+            account.setCreatedAt(LocalDateTime.now());
+            account.setUpdatedAt(account.getCreatedAt());
+            account.setDeleted(0); account.setNote("test");
+            accounts.insert(account);
+            var first = imports.preview(lowerUpload, null);
+            assertThat(first.ready()).isEqualTo(1);
+            assertThat(imports.commit(first.id(),
+                new FinanceImportService.CommitRequest(Map.of("零钱", account.getId()))).posted())
+                .isEqualTo(1);
+            // Same external transaction, different case and XLSX bytes;
+            // the database collation should still classify a duplicate.
+            var alreadyLinked = imports.preview(upperUpload, null);
+            assertThat(alreadyLinked.ready()).isZero();
+            assertThat(alreadyLinked.duplicate()).isEqualTo(1);
+            assertThat(alreadyLinked.review()).isEqualTo(2);
+            assertThat(imports.commit(alreadyLinked.id(),
+                new FinanceImportService.CommitRequest(Map.of("零钱", account.getId()))).posted())
+                .isZero();
+            // A separate user is allowed to import their OWN external ID.
+            owner(bob);
+            var independent = imports.preview(upperUpload, null);
+            assertThat(independent.ready()).isEqualTo(1);
+            assertThat(independent.duplicate()).isZero();
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
     @Test void importsSafeExpenseOnlyAndRefusesCrossUserOrRepeat() throws Exception {
         long first=8023501L,second=8023502L;
         String id=UUID.randomUUID().toString().replace("-","");
