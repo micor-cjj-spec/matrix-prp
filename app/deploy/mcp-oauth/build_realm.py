@@ -24,7 +24,25 @@ def canonical_resource(value):
     return value
 
 
-def build_realm(resource, template=None):
+def staging_redirect_uri(value):
+    parsed = urlsplit(value)
+    loopback = parsed.hostname in ("localhost", "127.0.0.1", "::1")
+    if not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise ValueError("Redirect must have an explicit trusted host")
+    if parsed.scheme != "https" and not (parsed.scheme == "http" and loopback):
+        raise ValueError("Staging redirect must be HTTPS or an explicit loopback HTTP URI")
+    if parsed.query or not parsed.path.startswith("/") or "*" in value or "//" in parsed.path:
+        raise ValueError("Redirect URI must be exact, with no query or wildcard")
+    return value
+
+
+MCP_SCOPES = (
+    "prp.tasks.read", "prp.finance.read", "prp.wellness.read",
+    "prp.write.create", "prp.write.status", "prp.write.confirm",
+)
+
+
+def build_realm(resource, template=None, *, staging_client_id=None, staging_redirect=None):
     resource = canonical_resource(resource)
     base = json.loads((template or ROOT / "realm/prp-mcp-realm.json").read_text(encoding="utf-8"))
     if base.get("realm") != "prp-mcp" or not base.get("enabled"):
@@ -45,6 +63,58 @@ def build_realm(resource, template=None):
             "resource_url": resource
         }
     }]
+    # These are optional, consent-visible scopes. A client gets none unless
+    # a requested scope is explicitly assigned to that OAuth client.
+    base["clientScopes"] = [{
+        "name": scope,
+        "description": "PRP MCP permission: " + scope,
+        "protocol": "openid-connect",
+        "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true",
+            "consent.screen.text": scope,
+        },
+    } for scope in MCP_SCOPES]
+    if (staging_client_id is None) != (staging_redirect is None):
+        raise ValueError("Staging client ID and redirect URI must both be provided")
+    if staging_client_id is not None:
+        if not (2 <= len(staging_client_id) <= 128 and
+                staging_client_id[0].isalnum() and
+                all(ch.isalnum() or ch in "._~-" for ch in staging_client_id)):
+            raise ValueError("Invalid staging OAuth client ID")
+        staging_redirect_uri(staging_redirect)
+        # Explicit, read-only client for isolated browser PKCE testing only.
+        # Never register ChatGPT or any unknown third-party redirect by default.
+        base["clients"].append({
+            "clientId": staging_client_id,
+            "name": "PRP OAuth PKCE Staging Probe",
+            "enabled": True,
+            "protocol": "openid-connect",
+            "publicClient": True,
+            "consentRequired": True,
+            "standardFlowEnabled": True,
+            "implicitFlowEnabled": False,
+            "directAccessGrantsEnabled": False,
+            "serviceAccountsEnabled": False,
+            "redirectUris": [staging_redirect],
+            "webOrigins": [],
+            "attributes": {
+                "pkce.code.challenge.method": "S256",
+                "oauth2.device.authorization.grant.enabled": "false",
+            },
+            "optionalClientScopes": ["prp.tasks.read"],
+            "protocolMappers": [{
+                "name": "PRP MCP Resource Audience",
+                "protocol": "openid-connect",
+                "protocolMapper": "oidc-audience-mapper",
+                "consentRequired": False,
+                "config": {
+                    "included.client.audience": "matrix-prp-mcp-resource",
+                    "id.token.claim": "false",
+                    "access.token.claim": "true",
+                },
+            }],
+        })
     return base
 
 
@@ -53,8 +123,13 @@ def main():
     parser.add_argument("--resource", required=True, help="Exact HTTPS URI published by PRP MCP")
     parser.add_argument("--output", default=str(ROOT / ".generated/realm/prp-mcp-realm.json"),
                         help="Destination JSON for Keycloak first-time import")
+    parser.add_argument("--staging-client-id",
+                        help="Optional exact ID of an isolated read-only OAuth PKCE test client")
+    parser.add_argument("--staging-redirect",
+                        help="Exact HTTPS or localhost callback URL for the staging PKCE client")
     options = parser.parse_args()
-    result = build_realm(options.resource)
+    result = build_realm(options.resource, staging_client_id=options.staging_client_id,
+                         staging_redirect=options.staging_redirect)
     target = Path(options.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
