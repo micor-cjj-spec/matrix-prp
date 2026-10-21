@@ -161,8 +161,21 @@ def main():
     badparams={'client_id':flow.CLIENT,'response_type':'code','redirect_uri':'https://wrong.example/callback',
                'scope':'openid','code_challenge_method':'S256','code_challenge':'A'*43,'state':'safe-state'}
     record('Incorrect callback URI',flow.request(op,metadata['authorization_endpoint']+'?'+urlencode(badparams))[0],[400])
-    badparams['redirect_uri']=flow.CALLBACK;badparams['resource']='https://wrong.example/api/mcp'
-    record('Unregistered resource',flow.request(op,metadata['authorization_endpoint']+'?'+urlencode(badparams))[0],[400])
+    original_resource=flow.RESOURCE
+    flow.RESOURCE='https://wrong.example/api/mcp'
+    try:
+        badresourceop=opener()
+        try:
+            resourcecode,resourceverifier=flow.code_pkce(badresourceop,one['name'],one['password'])
+        except RuntimeError as error:
+            if 'unexpected HTTP 400' not in str(error):raise
+            record('Unregistered resource rejected after login',400,[400])
+        else:
+            record('Unregistered resource rejected at token exchange',flow.request(badresourceop,
+                metadata['token_endpoint'],form=True,data={'grant_type':'authorization_code',
+                'client_id':flow.CLIENT,'redirect_uri':flow.CALLBACK,'code':resourcecode,
+                'code_verifier':resourceverifier,'resource':flow.RESOURCE})[0],[400])
+    finally:flow.RESOURCE=original_resource
     original_parse=flow.parse_callback
     def wrong_state(url,state):return original_parse(url,state+'-wrong')
     flow.parse_callback=wrong_state
