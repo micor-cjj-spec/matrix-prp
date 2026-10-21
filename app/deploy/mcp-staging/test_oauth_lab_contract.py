@@ -51,6 +51,8 @@ class OAuthLabContractTests(unittest.TestCase):
         config=module.render()
         self.assertIn('proxy_ssl_verify on',config)
         self.assertIn('proxy_ssl_name auth-test.micor.top',config)
+        self.assertIn('location ^~ /admin/ { return 404; }',config)
+        self.assertIn('location ^~ /realms/master/ { return 404; }',config)
         self.assertEqual(config.count('server_name '),3) # two vhosts + upstream SNI
         self.assertNotIn('server_name micor.top;',config)
 
