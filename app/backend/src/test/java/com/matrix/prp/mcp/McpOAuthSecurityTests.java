@@ -5,6 +5,7 @@ import com.matrix.prp.auth.service.JwtService;
 import com.matrix.prp.wellness.WellnessService;
 import java.time.Instant;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +46,7 @@ class McpOAuthSecurityTests {
     @Autowired JwtService prpJwt;
     @MockitoBean JdbcTemplate jdbc;
     @MockitoBean McpClientGrantService clientGrants;
+    @MockitoBean McpIdentityLinkService identityLinks;
     @MockitoBean WellnessService wellness;
     @MockitoBean(name = "mcpJwtDecoder") JwtDecoder oauthDecoder;
 
@@ -98,6 +100,7 @@ class McpOAuthSecurityTests {
 
     @Test
     void oauthTaskReadDoesNotAuthorizeFinanceOrDraftWrites() throws Exception {
+        when(identityLinks.resolveUserId("https://issuer.example.test", "external-provider-subject")).thenReturn(OptionalLong.of(1L));
         when(clientGrants.grantedScopes(1L, "test-client")).thenReturn(Set.of("prp.tasks.read"));
         when(oauthDecoder.decode("read-only")).thenReturn(jwt("read-only", "prp.tasks.read", 1L));
         var list = mvc.perform(mcp("read-only",
@@ -126,6 +129,7 @@ class McpOAuthSecurityTests {
     @Test
     void revokedClientFailsOnNextAuthenticationEvenWithUnexpiredToken() throws Exception {
         when(oauthDecoder.decode("revoked-token")).thenReturn(jwt("revoked-token", "prp.tasks.read", 1L));
+        when(identityLinks.resolveUserId("https://issuer.example.test", "external-provider-subject")).thenReturn(OptionalLong.of(1L));
         when(clientGrants.grantedScopes(1L, "test-client"))
             .thenReturn(Set.of("prp.tasks.read")).thenReturn(Set.of());
         mvc.perform(mcp("revoked-token",
@@ -138,6 +142,24 @@ class McpOAuthSecurityTests {
                 {"jsonrpc":"2.0","id":41,"method":"tools/list"}
                 """))
             .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void validOAuthBearerCanCompleteExplicitLinkWithoutExistingPrpMapping() throws Exception {
+        when(oauthDecoder.decode("bootstrap")).thenReturn(jwt("bootstrap", "prp.tasks.read", 1L));
+        when(identityLinks.complete(
+            "1234567890123456789012345678901234567890123",
+            "https://issuer.example.test", "external-provider-subject", "test-client"))
+            .thenReturn(new McpIdentityLinkService.Link(
+                "https://issuer.example.test", "external-provider-subject", true));
+        mvc.perform(post("/api/mcp/link")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer bootstrap")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"ticket":"1234567890123456789012345678901234567890123"}
+                """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.newlyLinked").value(true));
     }
 
     @Test
