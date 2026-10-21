@@ -65,7 +65,32 @@ def build_realm(resource, template=None, *, staging_client_id=None, staging_redi
     }]
     # These are optional, consent-visible scopes. A client gets none unless
     # a requested scope is explicitly assigned to that OAuth client.
-    base["clientScopes"] = [{
+    # Explicit clientScopes in a Keycloak realm import replace the realm
+    # built-in scope defaults. Keycloak 25+ no longer always adds 'sub' to
+    # access tokens automatically; its Subject mapper belongs to 'basic'.
+    # Include this built-in-equivalent scope explicitly so PKCE browser tokens
+    # have a stable signed issuer+subject for PRP identity linking.
+    basic_scope = {
+        "name": "basic",
+        "description": "OIDC subject identity for PKCE bearer tokens",
+        "protocol": "openid-connect",
+        "attributes": {
+            "include.in.token.scope": "false",
+            "display.on.consent.screen": "false",
+        },
+        "protocolMappers": [{
+            "name": "Subject (sub)",
+            "protocol": "openid-connect",
+            "protocolMapper": "oidc-sub-mapper",
+            "consentRequired": False,
+            "config": {
+                "access.token.claim": "true",
+                "introspection.token.claim": "true",
+                "lightweight.claim": "false",
+            },
+        }],
+    }
+    base["clientScopes"] = [basic_scope] + [{
         "name": scope,
         "description": "PRP MCP permission: " + scope,
         "protocol": "openid-connect",
