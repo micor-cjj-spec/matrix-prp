@@ -214,7 +214,9 @@ def main():
         issuer=issuer, resource=resource, client_id=args.client_id,
         required_scope="prp.tasks.read",
     )
-    print("OAuth token exchange: accepted; RS256/JWKS + issuer + exact aud + client + task scope verified")
+    print("OAuth token exchange: accepted; RS256/JWKS + issuer + exact MCP aud + client + task scope verified")
+    if result["additional_audiences_present"]:
+        print("OAuth review notice: token has additional signed audiences; inspect provider policy before production.")
     pairing_code = None
     if not args.already_linked:
         pairing_code = getpass("Paste one-time code from your own PRP MCP account-link page (hidden): ").strip()
