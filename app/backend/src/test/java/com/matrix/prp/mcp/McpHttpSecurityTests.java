@@ -58,6 +58,19 @@ class McpHttpSecurityTests {
                 """))
             .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         String token = json.readTree(loginResponse).path("data").path("token").asText();
+        var initialization = mvc.perform(post("/api/mcp")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM)
+            .content("""
+                {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"prp-mcp-test","version":"1.0"}}}
+                """)).andReturn();
+        if (initialization.getRequest().isAsyncStarted()) {
+            initialization = mvc.perform(asyncDispatch(initialization)).andReturn();
+        }
+        org.assertj.core.api.Assertions.assertThat(initialization.getResponse().getStatus())
+            .as("MCP initialize response: %s", initialization.getResponse().getContentAsString())
+            .isEqualTo(200);
         var result = mvc.perform(post("/api/mcp")
             .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
             .contentType(MediaType.APPLICATION_JSON)
@@ -68,7 +81,8 @@ class McpHttpSecurityTests {
         if (result.getRequest().isAsyncStarted()) {
             result = mvc.perform(asyncDispatch(result)).andReturn();
         }
-        org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus())
+            .as("MCP tools/list response: %s", result.getResponse().getContentAsString()).isEqualTo(200);
         org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentAsString())
             .contains("prp_tasks_list", "prp_prepare_task", "prp_confirm_draft")
             .doesNotContain("exec_sql", "arbitrary_url");
