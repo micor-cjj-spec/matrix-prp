@@ -1,0 +1,12 @@
+FROM node:22-alpine AS build
+WORKDIR /web
+COPY app/web/package*.json ./
+RUN npm ci
+COPY app/web ./
+ENV VITE_APP_BASE=/prp/
+RUN npm run build && node scripts/verify-deploy-base.mjs /prp/
+
+FROM nginx:1.29-alpine
+COPY app/deploy/mcp-staging/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /web/dist /usr/share/nginx/html
+EXPOSE 8080
