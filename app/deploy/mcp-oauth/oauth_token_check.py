@@ -67,8 +67,10 @@ def check_token(token, jwks, *, issuer, resource, client_id, required_scope="prp
             raise ValueError("JWT subject missing")
         aud = claims.get("aud")
         audiences = [aud] if isinstance(aud, str) else aud
-        if not isinstance(audiences, list) or audiences != [resource]:
-            raise ValueError("JWT audience must be the exact single MCP resource")
+        if (not isinstance(audiences, list) or not audiences or
+                any(not isinstance(item, str) or not item for item in audiences) or
+                len(set(audiences)) != len(audiences) or resource not in audiences):
+            raise ValueError("JWT audience must contain exact MCP resource")
         azp, client_claim = claims.get("azp"), claims.get("client_id")
         if azp is not None and client_claim is not None and azp != client_claim:
             raise ValueError("Conflicting signed OAuth client claims")
@@ -89,8 +91,9 @@ def check_token(token, jwks, *, issuer, resource, client_id, required_scope="prp
         if not granted or required_scope not in granted:
             raise ValueError("Required OAuth task-read scope missing")
         return {"signature": "RS256 verified", "issuer": "verified",
-                "audience": "exact MCP resource", "client": "verified",
-                "scope": required_scope}
+                "audience": "exact MCP resource",
+                "additional_audiences_present": len(audiences) > 1,
+                "client": "verified", "scope": required_scope}
     except (KeyError, OverflowError, UnicodeError, TypeError, json.JSONDecodeError) as exc:
         # Deliberately suppress untrusted field values/token contents.
         raise ValueError("Invalid external OAuth access token or JWKS") from None
