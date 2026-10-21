@@ -187,7 +187,9 @@ def main():
     resource = https_url(args.resource, "MCP resource")
     staging_redirect_uri(args.redirect_uri)
     result = validate(issuer, resource, public_get_json)
-    metadata = public_get_json(issuer + "/.well-known/openid-configuration")
+    # Keep the issuer byte-exact for JWT iss validation, but never produce
+    # a double slash in the discovery request when issuer ends with '/'.
+    metadata = public_get_json(issuer.rstrip("/") + "/.well-known/openid-configuration")
     verifier, challenge = pkce_pair()
     state, nonce = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     url = authorization_url(metadata["authorization_endpoint"], args.client_id,
