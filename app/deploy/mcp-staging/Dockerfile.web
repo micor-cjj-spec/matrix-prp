@@ -7,6 +7,8 @@ RUN npm ci
 WORKDIR /repo
 COPY app ./app
 COPY .github ./.github
+# Fail the real build if a local staging secret bypasses context exclusions.
+RUN test ! -e /repo/app/deploy/mcp-staging/.env
 WORKDIR /repo/app/web
 ENV VITE_APP_BASE=/prp/
 RUN npm run build && node scripts/verify-deploy-base.mjs /prp/

@@ -7,6 +7,14 @@ from prepare_env import make_config, write_secrets_file
 
 
 class StagingIsolationTests(unittest.TestCase):
+    def test_build_context_excludes_nested_credentials(self):
+        repo = Path(__file__).resolve().parents[3]
+        patterns = set((repo / ".dockerignore").read_text().splitlines())
+        for required in (".git", "**/.env", "**/.env.*", "**/.generated", "**/*.pem", "**/*.key"):
+            self.assertIn(required, patterns)
+        dockerfile = (Path(__file__).parent / "Dockerfile.web").read_text()
+        self.assertIn("RUN test ! -e /repo/app/deploy/mcp-staging/.env", dockerfile)
+
     def setUp(self):
         self.values = make_config("prp-test.micor.top", "auth-test.micor.top", "stage_admin")
 
