@@ -66,7 +66,9 @@ public class FinanceImportSourceLinkRepository {
         List<Object> params = new ArrayList<>(ids.size() + 1);
         for (int i = 0; i < ids.size(); i++) {
             if (i > 0) sql.append(" UNION ALL ");
-            sql.append(i == 0 ? "SELECT ? AS source_id" : "SELECT ?");
+            sql.append(i == 0
+                ? "SELECT CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci AS source_id"
+                : "SELECT CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci");
             params.add(ids.get(i));
         }
         sql.append(") AS submitted WHERE EXISTS (" +
