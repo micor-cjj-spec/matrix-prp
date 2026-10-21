@@ -231,7 +231,7 @@ async function remove(take: VocalTake) {
         </div>
       </header>
 
-      <section class="vocal-metrics" aria-label="声乐训练统计">
+      <section class="vocal-overview-metrics" aria-label="声乐训练统计">
         <article class="vocal-metric">
           <span class="metric-icon"><el-icon><Calendar /></el-icon></span>
           <div><strong>{{ todayTakes.length }}</strong><span>今日练习记录</span></div>
@@ -422,7 +422,7 @@ async function remove(take: VocalTake) {
 .vocal-hero-stats strong,.vocal-hero-stats span{display:block}
 .vocal-hero-stats strong{font-size:25px;font-variant-numeric:tabular-nums}
 .vocal-hero-stats span{font-size:12px;color:var(--el-text-color-secondary);margin-top:3px}
-.vocal-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.vocal-overview-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
 .vocal-metric{display:flex;align-items:center;gap:12px;padding:15px;border:1px solid var(--el-border-color-lighter);border-radius:15px;background:var(--el-bg-color)}
 .metric-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--el-fill-color-light);color:var(--el-color-primary);font-size:19px;flex-shrink:0}
 .vocal-metric strong,.vocal-metric span:not(.metric-icon){display:block}
@@ -499,7 +499,7 @@ async function remove(take: VocalTake) {
 .vocal-empty .el-icon{font-size:28px}
 .vocal-empty strong{font-size:14px;color:var(--el-text-color-primary)}
 .vocal-empty span{font-size:12px;line-height:1.6}
-@media(max-width:980px){.vocal-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.vocal-dashboard,.vocal-layout{grid-template-columns:1fr}}
+@media(max-width:980px){.vocal-overview-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.vocal-dashboard,.vocal-layout{grid-template-columns:1fr}}
 @media(max-width:600px){.vocal-page{padding:18px 12px 42px}.vocal-hero{align-items:flex-start;flex-direction:column}.vocal-hero-stats{width:100%}.vocal-hero-stats div{flex:1;min-width:0}.vocal-panel{padding:15px}.vocal-exercises{grid-template-columns:1fr 1fr}.vocal-song{align-items:flex-start;flex-wrap:wrap}.vocal-song .el-button{margin-left:53px}.input-status-copy small{width:100%;margin-left:15px}.vocal-reading{gap:6px}.vocal-reading div{padding:8px}}
 @media(max-width:360px){.vocal-exercises{grid-template-columns:1fr}.section-heading{align-items:flex-start;flex-direction:column}}
 </style>
