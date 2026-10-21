@@ -18,6 +18,12 @@ class VocalAnalysisTests {
             .targetHitPercent()).isNull();
         assertThat(VocalAnalysis.summarize(List.of(),440d).targetHitPercent()).isNull();
     }
+    @Test void missingPitchSamplesDoNotClaimRecordingIsSilent() {
+        var summary = VocalAnalysis.summarize(List.of(), 440d);
+        assertThat(summary.voicedSamples()).isZero();
+        assertThat(summary.targetHitPercent()).isNull();
+        assertThat(summary.guidance()).contains("不等于录音文件没有声音");
+    }
     @Test void rejectsInvalidAndOversizedTelemetry() {
         assertThatThrownBy(()->VocalAnalysis.summarize(
             List.of(new VocalAnalysis.Point(0,440),new VocalAnalysis.Point(-1,450)),440d))
