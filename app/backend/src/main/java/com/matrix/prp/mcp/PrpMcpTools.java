@@ -114,14 +114,20 @@ public class PrpMcpTools {
             new CreateRecordRequest(moduleCode, title, content, optionalDate(date), List.of()));
     }
 
-    @McpTool(name = "prp_confirm_draft",
-             description = "Save exactly one prepared, owner-owned draft. Only call after the human explicitly approves the displayed values. Never infer approval from earlier conversation. Replays return the original saved record.")
-    public McpDraftService.Result confirmDraft(
-            @McpToolParam(description = "Exact draftId returned by prp_prepare_*", required = true) String draftId,
-            @McpToolParam(description = "true only if the human explicitly approved the exact draft", required = true)
-            boolean userApproved) {
+    @McpTool(name = "prp_draft_status",
+             description = "Check the authenticated user's MCP draft status. Approval is possible only by opening PRP and reentering the account password.")
+    public McpDraftService.Review draftStatus(
+            @McpToolParam(description = "Exact draftId returned by prp_prepare_*", required = true) String draftId) {
         CurrentUser.id();
-        return drafts.confirm(draftId, userApproved);
+        return drafts.review(draftId);
+    }
+
+    @McpTool(name = "prp_confirm_draft",
+             description = "Commit exactly one already APPROVED draft. The user must first open the PRP approval page and reenter their account password. Cannot approve a draft from an MCP tool call. Replays return the saved record.")
+    public McpDraftService.Result confirmDraft(
+            @McpToolParam(description = "Exact draftId returned by prp_prepare_*", required = true) String draftId) {
+        CurrentUser.id();
+        return drafts.confirm(draftId);
     }
 
     private static LocalDate optionalDate(String value) {
