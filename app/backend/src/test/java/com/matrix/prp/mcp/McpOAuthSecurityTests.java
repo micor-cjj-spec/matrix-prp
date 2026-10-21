@@ -152,14 +152,20 @@ class McpOAuthSecurityTests {
             "https://issuer.example.test", "external-provider-subject", "test-client"))
             .thenReturn(new McpIdentityLinkService.Link(
                 "https://issuer.example.test", "external-provider-subject", true));
-        mvc.perform(post("/api/mcp/link")
+        var result = mvc.perform(post("/api/mcp/link")
             .header(HttpHeaders.AUTHORIZATION, "Bearer bootstrap")
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {"ticket":"1234567890123456789012345678901234567890123"}
                 """))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.newlyLinked").value(true));
+            .andReturn();
+        org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus())
+            .as("OAuth link handler=%s exception=%s headers=%s body=%s",
+                result.getHandler(), result.getResolvedException(),
+                result.getResponse().getHeaderNames(), result.getResponse().getContentAsString())
+            .isEqualTo(200);
+        org.assertj.core.api.Assertions.assertThat(
+            result.getResponse().getContentAsString()).contains("\"newlyLinked\":true");
     }
 
     @Test
