@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 
 from check_metadata import public_get_json, validate, https_url
 from build_realm import staging_redirect_uri
+from oauth_token_check import check_token
 
 
 def pkce_pair():
@@ -204,7 +205,14 @@ def main():
     code = validate_callback(callback[0], state, issuer)
     token = exchange(metadata["token_endpoint"], args.client_id,
                      args.redirect_uri, code, verifier, resource)
-    print("OAuth token exchange: accepted (token is held only in memory)")
+    # Signature-verify the REAL bearer and its exact audience before ever
+    # presenting it to the account-link or MCP API; no claim content printed.
+    result = check_token(
+        token, public_get_json(metadata["jwks_uri"]),
+        issuer=issuer, resource=resource, client_id=args.client_id,
+        required_scope="prp.tasks.read",
+    )
+    print("OAuth token exchange: accepted; RS256/JWKS + issuer + exact aud + client + task scope verified")
     pairing_code = None
     if not args.already_linked:
         pairing_code = getpass("Paste one-time code from your own PRP MCP account-link page (hidden): ").strip()
