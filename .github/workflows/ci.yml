@@ -223,3 +223,42 @@ jobs:
           bash -n app/deploy/admin_install_diagnostic.sh
           sh -n app/deploy/ssh-gateway.sh
           node --test app/scripts/deploy-workflow-contract.test.mjs
+
+  frontend-interaction-regressions:
+    # Isolated synthetic browser fixtures; never connect to production.
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            app/web/package-lock.json
+            app/test-automation/package-lock.json
+      - name: Install production Web dependencies without changing lockfiles
+        working-directory: app/web
+        run: npm ci --no-audit --no-fund
+      - name: Install locked test toolchain
+        working-directory: app/test-automation
+        run: npm ci --no-audit --no-fund
+      - name: Run Vitest session and photo safety regressions
+        working-directory: app/test-automation
+        run: npm run test:unit
+      - name: Install isolated Chromium for Playwright
+        working-directory: app/test-automation
+        run: npx playwright install --with-deps chromium
+      - name: Run synthetic-login browser smoke tests
+        working-directory: app/test-automation
+        run: npm run test:e2e
+      - name: Upload browser diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prp-playwright-failure-diagnostics
+          path: |
+            app/test-automation/playwright-report/
+            app/test-automation/test-results/
+          if-no-files-found: warn
+          retention-days: 7
