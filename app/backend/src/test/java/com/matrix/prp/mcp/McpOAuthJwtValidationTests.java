@@ -16,6 +16,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.Date;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
@@ -32,6 +33,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * decoder, an external identity provider or any test bearer logged to CI.
  */
 class McpOAuthJwtValidationTests {
+    @Test
+    void stalledJwksFailsWithinBoundWithoutAuthenticating() throws Exception {
+        HttpServer stalled = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        stalled.createContext("/stall", exchange -> {
+            try { Thread.sleep(8000); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            finally { exchange.close(); }
+        });
+        stalled.start();
+        try {
+            var decoder = McpOAuthResourceServerConfig.jwksDecoder(
+                "http://127.0.0.1:" + stalled.getAddress().getPort() + "/stall");
+            String token = signedToken(trusted, ISSUER, RESOURCE, Instant.now().plusSeconds(360));
+            org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(10), () ->
+                assertThatThrownBy(() -> decoder.decode(token)).isInstanceOf(JwtException.class));
+        } finally { stalled.stop(0); }
+    }
     private static final String ISSUER = "https://issuer.example.test/realms/prp-mcp";
     private static final String RESOURCE = "https://prp.example.test/api/mcp";
     private static HttpServer jwks;

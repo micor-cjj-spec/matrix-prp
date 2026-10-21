@@ -3,6 +3,8 @@ package com.matrix.prp.mcp;
 import com.matrix.prp.auth.model.UserAccount;
 import com.matrix.prp.auth.repository.UserStore;
 import java.net.URI;
+import java.time.Duration;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.List;
@@ -68,9 +70,17 @@ public class McpOAuthResourceServerConfig {
 
     @Bean("mcpJwtDecoder")
     JwtDecoder mcpJwtDecoder() {
-        NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwks).build();
+        NimbusJwtDecoder decoder = jwksDecoder(jwks);
         decoder.setJwtValidator(jwtValidator(issuer, resource));
         return decoder;
+    }
+
+    static NimbusJwtDecoder jwksDecoder(String uri) {
+        // Bound an unavailable issuer/JWKS; preserve signature validation and
+        // Nimbus key caching. No fallback to a PRP session or an unverified JWT.
+        var http = new RestTemplateBuilder().connectTimeout(Duration.ofSeconds(2))
+            .readTimeout(Duration.ofSeconds(3)).build();
+        return NimbusJwtDecoder.withJwkSetUri(uri).restOperations(http).build();
     }
 
     /**
