@@ -22,7 +22,7 @@
     {
       "version": 24,
       "file": "V24__mcp_write_drafts.sql",
-      "sha256": "4b97619c1d019923a7a014923b701cf666c90712efaf8bf05a4e21e058b7620a",
+      "sha256": "d2d35d2233be5ca948f36e1c9bc5ef2b0fd3983d318617780754bf3b6d410f10",
       "mode": "create-empty",
       "tables": [
         "prp_mcp_write_drafts"
