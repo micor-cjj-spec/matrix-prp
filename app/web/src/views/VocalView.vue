@@ -348,7 +348,8 @@ async function remove(take: VocalTake) {
           <div v-if="pending && previewUrl" class="vocal-preview">
             <div class="preview-heading">
               <div><strong>录音预览</strong><span>{{ formatTime(pending.seconds) }} · {{ formatSize(pending.blob.size) }}</span></div>
-              <el-tag v-if="previewHasInput" type="success">检测到输入</el-tag>
+              <el-tag v-if="!pending.analysisAvailable" type="info">无法检测输入电平</el-tag>
+              <el-tag v-else-if="previewHasInput" type="success">检测到输入</el-tag>
               <el-tag v-else type="warning">输入音量偏低</el-tag>
             </div>
             <audio :src="previewUrl" controls preload="metadata" class="vocal-audio"/>
