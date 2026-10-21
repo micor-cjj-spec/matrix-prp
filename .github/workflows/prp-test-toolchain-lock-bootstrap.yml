@@ -1,0 +1,23 @@
+name: Bootstrap PRP test lockfile (temporary)
+on:
+  push:
+    branches: [feat/prp-eng-01b-vitest-playwright-20261021]
+permissions:
+  contents: read
+jobs:
+  generate-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve exact pinned test dependencies
+        working-directory: app/test-automation
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prp-test-automation-lockfile
+          path: app/test-automation/package-lock.json
+          if-no-files-found: error
+          retention-days: 3
