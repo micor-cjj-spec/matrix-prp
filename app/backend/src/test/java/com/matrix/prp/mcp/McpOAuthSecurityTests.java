@@ -129,10 +129,14 @@ class McpOAuthSecurityTests {
         when(clientGrants.grantedScopes(1L, "test-client"))
             .thenReturn(Set.of("prp.tasks.read")).thenReturn(Set.of());
         mvc.perform(mcp("revoked-token",
-            "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":40,\\"method\\":\\"tools/list\\"}"))
+            """
+                {"jsonrpc":"2.0","id":40,"method":"tools/list"}
+                """))
             .andExpect(status().isOk());
         mvc.perform(mcp("revoked-token",
-            "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":41,\\"method\\":\\"tools/list\\"}"))
+            """
+                {"jsonrpc":"2.0","id":41,"method":"tools/list"}
+                """))
             .andExpect(status().isUnauthorized());
     }
 
