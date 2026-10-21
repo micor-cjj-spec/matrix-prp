@@ -301,6 +301,16 @@ jobs:
       - name: Real isolated PRP staging build, Flyway V26 and loopback Web/API smoke
         run: bash app/deploy/mcp-staging/smoke_disposable.sh
 
+  mcp-staging-tls:
+    # Real TLS reverse-proxy acceptance using disposable local secrets and mocks.
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate isolated HTTPS staging virtual hosts and Keycloak admin isolation
+        run: bash app/deploy/mcp-staging/test_tls_ephemeral.sh
+
   safe-deployment-diagnostics:
     runs-on: ubuntu-latest
     steps:
