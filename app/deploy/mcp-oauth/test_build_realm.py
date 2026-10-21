@@ -16,6 +16,46 @@ class KeycloakResourceRealmTests(unittest.TestCase):
         self.assertFalse(resource["directAccessGrantsEnabled"])
         self.assertFalse(resource["serviceAccountsEnabled"])
 
+    def test_scopes_optional_and_never_granted_without_client_assignment(self):
+        realm = build_realm("https://prp.staging.test/api/mcp")
+        self.assertEqual(len(realm["clientScopes"]), 6)
+        self.assertTrue(all(s["attributes"]["include.in.token.scope"] == "true"
+                            for s in realm["clientScopes"]))
+        self.assertEqual(len(realm["clients"]), 1)
+        self.assertFalse(realm["clients"][0]["standardFlowEnabled"])
+
+    def test_explicit_read_only_pkce_client_and_exact_audience(self):
+        realm = build_realm(
+            "https://prp.staging.test/api/mcp",
+            staging_client_id="prp-pkce-probe",
+            staging_redirect="http://127.0.0.1:8765/callback")
+        self.assertEqual(len(realm["clients"]), 2)
+        client = realm["clients"][1]
+        self.assertEqual(client["clientId"], "prp-pkce-probe")
+        self.assertEqual(client["redirectUris"], ["http://127.0.0.1:8765/callback"])
+        self.assertEqual(client["attributes"]["pkce.code.challenge.method"], "S256")
+        self.assertTrue(client["consentRequired"])
+        self.assertFalse(client["directAccessGrantsEnabled"])
+        self.assertEqual(client["optionalClientScopes"], ["prp.tasks.read"])
+        self.assertEqual(client["protocolMappers"][0]["config"]["included.client.audience"],
+                         "matrix-prp-mcp-resource")
+
+    def test_rejects_non_loopback_http_redirects_and_wildcards(self):
+        for uri in (
+            "http://attack.example.org/callback",
+            "https://attack.example.org/*",
+            "https://user:secret@example.org/redirect",
+            "https://app.example.org/redirect?code=foo",
+        ):
+            with self.subTest(uri=uri), self.assertRaises(ValueError):
+                build_realm("https://prp.staging.test/api/mcp",
+                            staging_client_id="prp-pkce-probe", staging_redirect=uri)
+
+    def test_staging_client_always_requires_both_arguments(self):
+        with self.assertRaises(ValueError):
+            build_realm("https://prp.staging.test/api/mcp",
+                        staging_client_id="prp-pkce-probe")
+
     def test_no_arbitrary_insecure_resource(self):
         for value in (
             "http://prp.staging.test/api/mcp",
