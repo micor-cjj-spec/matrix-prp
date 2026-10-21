@@ -75,6 +75,10 @@ def https_fetch(uri, method, body):
     except HTTPError as err:
         response = err
     with response:
+        # Do not silently follow a redirect to a different or insecure
+        # endpoint: metadata and the MCP resource are exact public URLs.
+        if response.geturl() != uri:
+            raise ValueError("OAuth/MCP preflight forbids endpoint redirects")
         status = response.status
         headers_out = {k.lower(): v for k, v in response.headers.items()}
         # Error bodies may contain environment details; never consume or print them.
