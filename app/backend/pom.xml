@@ -59,6 +59,11 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-anthropic</artifactId>
         </dependency>
+        <!-- Opt-in MCP gateway; disabled by default until authorization tests pass. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
 		<dependency>
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi-ooxml</artifactId>
