@@ -47,7 +47,9 @@ class McpHttpSecurityTests {
     void authenticatedTransportListsOnlyExplicitMcpTools() throws Exception {
         String loginResponse = mvc.perform(post("/api/auth/login")
             .contentType(MediaType.APPLICATION_JSON)
-            .content("{\\"username\\":\\"admin\\",\\"password\\":\\"matrix-prp\\"}"))
+            .content("""
+                {"username":"admin","password":"matrix-prp"}
+                """))
             .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         String token = json.readTree(loginResponse).path("data").path("token").asText();
         var result = mvc.perform(post("/api/mcp")
