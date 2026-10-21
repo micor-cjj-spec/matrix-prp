@@ -102,3 +102,18 @@ Defined scopes: `prp.tasks.read`, `prp.finance.read`, `prp.wellness.read`, `prp.
 
 **Production gate:** Do not enable MCP/OAuth until a real external authorization server is configured with authorization-code+PKCE, scopes, trusted PRP account mapping, token lifecycle/revocation policies, public origin/host and reverse-proxy agreement, plus real network integration with a compatible MCP client. Unit tests using a mocked JWT decoder prove Spring authentication and scope wiring, not real issuer signature rotation or full interactive authorization.
 
+
+## PRP-owned OAuth client grants (V25, opt-in)
+
+V25 adds only `prp_mcp_client_grants`: `(user_id, client_id)` primary key, approved scopes, ACTIVE/REVOKED status and timestamps. The database never stores OAuth access tokens, refresh tokens or PRP passwords. V25 follows immutable V24 and is pinned in the reviewed additive migration policy.
+
+With OAuth and MCP enabled, an authenticated PRP user can open **我的 → MCP 客户端授权** (`/me/mcp-clients`) to approve a known OAuth `client_id` and an explicit subset of supported MCP scopes after reentering the PRP password. The same owner can downscope or revoke a grant. These are ordinary PRP JWT-protected browser APIs, **not** MCP tools; no agent can silently approve itself.
+
+- `GET /api/mcp/clients`: show the current user's grants, including revoked ones.
+- `POST /api/mcp/clients`: `{clientId, scopes, password}`; password reauthentication is rate-limited with existing PRP login attempt safeguards; maximum 12 active clients.
+- `POST /api/mcp/clients/revoke`: `{clientId}`; owner-scoped, idempotent revoke.
+- Every external OAuth bearer request must have a valid issuer-signed `client_id` and a matching **ACTIVE** PRP owner grant. The granted authorities are the **intersection** of signed OAuth token scopes and owner-approved PRP scopes. Empty/revoked grants cause authentication failure even if an access token is unexpired. The lookup is performed for each request, not served from an authorization cache.
+
+**Important trust boundary:** This per-client permission table is PRP-side *consent enforcement*, not a complete OAuth authorization-code/PKCE grant, identity-provider subject-to-user enrollment, or OpenAI client registration. It still depends on the trusted issuer issuing a correct, signed `prp_user_id` and `client_id` claim. Do not approve an unknown client's ID or enable public MCP while external issuer account linking and token lifecycle remain unverified.
+
+Verification should cover wrong passwords, unsupported/duplicate scopes, cross-user revoke failures, reduction of previously granted scopes, and immediate rejection after revoke on a still-unexpired signed token. User credentials and OAuth token values must never appear in application logs or AI tool arguments.
