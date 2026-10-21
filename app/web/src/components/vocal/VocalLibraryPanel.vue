@@ -10,6 +10,7 @@ import {
   type VocalLesson, type VocalLessonRequest, type VocalAssignment, type VocalAssignmentRequest,
 } from '@/api/vocal'
 
+const props = defineProps<{ recording: boolean; pending: boolean }>()
 const emit = defineEmits<{
   (event: 'association-change', value: { songId: number | null; sectionId: number | null }): void
 }>()
@@ -98,11 +99,15 @@ watch(selectedSongId, async songId => {
 })
 watch(selectedSectionId, emitAssociation)
 watch(() => assignmentDraft.songId, async songId => {
-  assignmentDraft.sectionId = null
+  const preferredSection = assignmentDraft.sectionId
   assignmentSections.value = []
-  if (!songId) return
-  try { assignmentSections.value = await vocalApi.sections(songId) }
-  catch { ElMessage.error('作业关联的歌曲段落加载失败') }
+  if (!songId) { assignmentDraft.sectionId = null; return }
+  try {
+    const result = await vocalApi.sections(songId)
+    assignmentSections.value = result
+    assignmentDraft.sectionId = preferredSection !== null && result.some(section => section.id === preferredSection)
+      ? preferredSection : null
+  } catch { ElMessage.error('作业关联的歌曲段落加载失败') }
 })
 
 onMounted(() => {
@@ -257,7 +262,7 @@ async function removeAssignment(assignment: VocalAssignment) {
 </script>
 
 <template>
-  <section class="vocal-library" v-loading="busy">
+  <section class="vocal-library" :class="{ 'is-locked': props.recording || props.pending }" v-loading="busy">
     <article class="vocal-library-panel">
       <div class="library-heading">
         <div>
@@ -309,7 +314,7 @@ async function removeAssignment(assignment: VocalAssignment) {
           <div v-for="section in sections" :key="section.id" class="section-row">
             <div class="section-row-copy">
               <strong>{{ section.title }}</strong>
-              <span v-if="section.startMarker || section.endMarker">{{ section.startMarker || '起点未记'} } → {{ section.endMarker || '终点未记' }}</span>
+              <span v-if="section.startMarker || section.endMarker">{{ section.startMarker || '起点未记' }} → {{ section.endMarker || '终点未记' }}</span>
               <small>{{ section.focus || '尚未填写练习重点' }}</small>
             </div>
             <el-button text size="small" @click="selectedSectionId = section.id">用于录音</el-button>
@@ -433,7 +438,7 @@ async function removeAssignment(assignment: VocalAssignment) {
 </template>
 
 <style scoped>
-.vocal-library{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin:16px 0;align-items:start}
+.vocal-library{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin:16px 0;align-items:start}.vocal-library.is-locked{opacity:.72;pointer-events:none}
 .vocal-library-panel{min-width:0;border:1px solid var(--el-border-color-lighter);border-radius:18px;padding:20px;background:var(--el-bg-color)}
 .library-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}
 .library-heading h2{display:flex;align-items:center;gap:8px;font-size:18px;margin:4px 0 0}
