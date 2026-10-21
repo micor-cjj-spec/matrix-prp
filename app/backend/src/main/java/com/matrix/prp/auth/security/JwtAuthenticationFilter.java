@@ -34,7 +34,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     // the Spring Security filter chain.
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return mcpOAuthEnabled && "/api/mcp".equals(request.getServletPath());
+        return mcpOAuthEnabled && ("/api/mcp".equals(request.getServletPath()) || "/api/mcp/link".equals(request.getServletPath()));
     }
 
     // SSE resumes on a servlet async dispatch. Restore the JWT principal on that dispatch.
