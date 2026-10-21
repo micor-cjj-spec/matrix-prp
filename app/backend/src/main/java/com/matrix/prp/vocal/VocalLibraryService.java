@@ -171,7 +171,7 @@ public class VocalLibraryService {
         long user = CurrentUser.id();
         LessonFields fields = lessonFields(request);
         int changed = jdbc.update("UPDATE prp_vocal_lessons SET lesson_date=?,teacher_name=?,summary=?,feedback=? "
-            + "WHERE id=? AND user_id=?", fields.date(), fields.teacher(), fields.summary(), fields.feedback(), id, user);
+            + "WHERE id=? AND user_id=?", java.sql.Date.valueOf(fields.date()), fields.teacher(), fields.summary(), fields.feedback(), id, user);
         requireUpdated(changed, "Lesson not found");
         return lesson(id, user);
     }
@@ -234,7 +234,8 @@ public class VocalLibraryService {
      * current owner; the legacy recording table is intentionally not altered by V24.
      */
     @Transactional
-    public void attachTake(long user, long takeId, Long songId, Long sectionId) {
+    public void attachTake(long takeId, Long songId, Long sectionId) {
+        long user = CurrentUser.id();
         if (songId == null && sectionId == null) return;
         if (songId == null && sectionId != null)
             throw badRequest("A song must be selected before a section");
