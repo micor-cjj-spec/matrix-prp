@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Calendar, TrendCharts, Timer, ChatLineRound, Check, Headset, Microphone } from '@element-plus/icons-vue'
 import AppLayout from '@/layouts/AppLayout.vue'
+import VocalLibraryPanel from '@/components/vocal/VocalLibraryPanel.vue'
 import { vocalApi, type VocalExercise, type VocalTake, type PitchPoint } from '@/api/vocal'
 import { useVocalRecorder } from '@/composables/useVocalRecorder'
 import { displayNote, lastPitchCurve } from '@/utils/vocalPitch'
@@ -15,6 +16,8 @@ type PendingTake = {
   note: string
   peakRms: number
   analysisAvailable: boolean
+  songId: number | null
+  sectionId: number | null
 }
 
 const exercises = ref<VocalExercise[]>([])
@@ -29,6 +32,10 @@ const playerUrl = ref('')
 const playerId = ref<number | null>(null)
 const previewUrl = ref('')
 const pending = ref<PendingTake | null>(null)
+const selectedSongId = ref<number | null>(null)
+const selectedSectionId = ref<number | null>(null)
+let activeSongId: number | null = null
+let activeSectionId: number | null = null
 const microphone = useVocalRecorder()
 
 const targetSongs = [
@@ -109,11 +116,17 @@ async function referenceTone() {
     ElMessage.warning('无法播放参考音，请确认手机媒体音量和浏览器音频权限')
   }
 }
+function updateAssociation(value: { songId: number | null; sectionId: number | null }) {
+  selectedSongId.value = value.songId
+  selectedSectionId.value = value.sectionId
+}
 async function start() {
   try {
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
     previewUrl.value = ''
     pending.value = null
+    activeSongId = selectedSongId.value
+    activeSectionId = selectedSectionId.value
     await microphone.start()
   } catch (error) {
     const message = error instanceof Error ? error.message : '无法启动录音'
@@ -134,6 +147,8 @@ async function stop() {
       note: description,
       peakRms: microphone.peakRms.value,
       analysisAvailable: microphone.analysisAvailable.value,
+      songId: activeSongId,
+      sectionId: activeSectionId,
     }
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
     previewUrl.value = URL.createObjectURL(blob)
@@ -148,7 +163,7 @@ async function save() {
   saving.value = true
   try {
     const take = pending.value
-    await vocalApi.upload(take.blob, take.code, take.note, take.seconds, take.points)
+    await vocalApi.upload(take.blob, take.code, take.note, take.seconds, take.points, take.songId, take.sectionId)
     pending.value = null
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
     previewUrl.value = ''
@@ -290,6 +305,12 @@ async function remove(take: VocalTake) {
         </article>
       </section>
 
+      <VocalLibraryPanel
+        :recording="microphone.recording.value"
+        :pending="!!pending"
+        @association-change="updateAssociation"
+      />
+
       <div class="vocal-layout">
         <section id="vocal-recorder" class="vocal-panel recorder-panel">
           <div class="section-heading">
@@ -390,6 +411,9 @@ async function remove(take: VocalTake) {
               </div>
               <el-button text type="danger" size="small" @click="remove(take)">删除</el-button>
             </div>
+            <p v-if="take.songTitle" class="vocal-description">
+              曲目：{{ take.songTitle }}<template v-if="take.sectionTitle"> · 段落：{{ take.sectionTitle }}</template>
+            </p>
             <p v-if="take.note" class="vocal-description">{{ take.note }}</p>
             <div class="vocal-metrics">
               <span>音高采样 <b>{{ take.analysis.voicedSamples }}</b></span>
