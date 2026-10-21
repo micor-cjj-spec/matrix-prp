@@ -1,9 +1,25 @@
 # PRP MCP: hosted OAuth on a single 4C8G production server
 
-Status: REVIEW ONLY — **not authorized for release**. The operator's
-2026-10-21 read-only check found 1.3 GB available RAM and 40 GB free
-disk, with PRP, Nginx and MySQL serving production at database V23.
-Do not start Keycloak, PostgreSQL or a second MySQL on this host.
+Status: REVIEW ONLY — **not authorized for release**.
+
+Latest operator-supplied read-only snapshot on 2026-10-21, after stopping the
+Matrix microservices and their supporting containers:
+- Host MemAvailable: **6091 MiB**; SwapFree: **2017 MiB**; root disk free: **39.9 GiB**.
+- PRP remains active/running; process RSS **311.2 MiB** (systemd MemoryCurrent about 298 MiB).
+- Only `matrix-mysql` was listed as a running Docker container; Nginx remains active.
+- A prior process scan still showed the OpenClaw Gateway user service (about 389 MiB,
+  loopback port 18789), so this host is not literally running PRP alone.
+
+This latest sample clears the script's preliminary 1536 MiB available-memory and
+10 GiB free-disk review thresholds. The earlier 1289.7 MiB sample was taken while
+the Matrix stack was running and describes a different host workload. This is still
+**one snapshot, not a peak-load test or deployment approval**. The checker always
+returns `safe_to_deploy: false` by design and requires separate manual review.
+
+Do not deploy the production-facing OAuth/MCP feature. A local-only isolated staging
+stack with separate credentials and databases may be evaluated after compose/env
+preflight and an explicit operator decision. Do not configure public DNS/TLS or start
+the OAuth stack merely because the capacity threshold now passes.
 
 ## Resource-efficient topology
 
@@ -80,12 +96,14 @@ thresholds**, not sizing guarantees. An operator's earlier observation
 of ~1.3 GB available RAM would trigger a low-headroom warning; only
 a fresh measured sample can confirm current pressure.
 
-Collect snapshots at normal and representative peak times, preferably
-on different days. If even one sample is pressured, do not add an
-OAuth service to this host. This check does not measure GC pauses,
-database memory, network latency, heap usage or real peak workloads;
-production deployment still needs independent operator approval and
-the preexisting release/data-preservation gates.
+Collect snapshots for the intended service topology at normal and representative
+peak times, preferably on different days. If a sample under that same topology is
+pressured, do not add an OAuth service to this host. A snapshot taken before the
+Matrix services were stopped should be retained as historical context, not treated
+as the current post-stop baseline. This check does not measure GC pauses,
+database memory, network latency, heap usage or real peak workloads; production
+deployment still needs independent operator approval and the preexisting
+release/data-preservation gates.
 
 Avoid copying outputs containing user- or vendor-specific diagnostic
 extensions into public issue comments. The intended script output
