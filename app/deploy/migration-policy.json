@@ -27,6 +27,15 @@
       "tables": [
         "prp_mcp_write_drafts"
       ]
+    },
+    {
+      "version": 25,
+      "file": "V25__mcp_client_grants.sql",
+      "sha256": "dfbe4d821f17c1a3b0fc210398948e3fa99e0dc0b43cb2fe25c1eff2bbd21309",
+      "mode": "create-empty",
+      "tables": [
+        "prp_mcp_client_grants"
+      ]
     }
   ]
 }
