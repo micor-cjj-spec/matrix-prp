@@ -102,6 +102,11 @@ def build_realm(resource, template=None, *, staging_client_id=None, staging_redi
                 "pkce.code.challenge.method": "S256",
                 "oauth2.device.authorization.grant.enabled": "false",
             },
+            # Keycloak 25+ attaches the 'sub' (Subject) access-token
+            # mapper via the built-in 'basic' default client scope.
+            # Without it, a browser login can succeed while the bearer
+            # has no signed subject and PRP MUST reject account linking.
+            "defaultClientScopes": ["basic"],
             "optionalClientScopes": ["prp.tasks.read"],
             "protocolMappers": [{
                 "name": "PRP MCP Resource Audience",
