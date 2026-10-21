@@ -129,6 +129,7 @@ def add_user(opener, admin_password, username, password):
         raise RuntimeError("Keycloak CI admin token unavailable")
     # Only ephemeral realm user. No password grant on the public PKCE client.
     user = {"username": username, "enabled": True, "emailVerified": True,
+            "firstName": "E2E", "lastName": "Test", "email": "ci-oauth-user@example.invalid",
             "requiredActions": [],
             "credentials": [{"type": "password", "value": password, "temporary": False}]}
     expect(request(opener, ADMIN + "/admin/realms/prp-mcp/users",
@@ -182,13 +183,27 @@ def code_pkce(opener, login_user, login_password):
         payload = dict(f["inputs"])
         payload["accept"] = "Yes"
         try:
-            request(opener, action, data=payload, form=True)
+            after = request(opener, action, data=payload, form=True)
         except CallbackReceived as cb:
             approved = True
             code = parse_callback(cb.url, state)
             break
+        if after[0] != 200:
+            raise RuntimeError("OAuth consent POST rejected (HTTP " + str(after[0]) + ")")
+        next_forms = Forms()
+        next_forms.feed(after[2])
+        safe_names = ",".join(x["id"] or "unnamed" for x in next_forms.forms[:5])
+        raise RuntimeError("OAuth consent reached another page; next form ids=" +
+                           (safe_names or "none"))
     if not approved:
-        raise RuntimeError("Consent did not lead to a validated OAuth callback")
+        summary = ",".join(
+            (f["id"] or "unnamed") + ":" + ",".join(sorted(f["buttons"]))
+            for f in consent.forms[:5])
+        # Only structural form identifiers and submit-button names, never
+        # login HTML, fields, codes, cookies, secrets, or auth URLs.
+        raise RuntimeError(
+            "OAuth post-login page did not reach callback; form ids/buttons=" +
+            (summary or "none") + "; status=" + str(current[0]))
     return code, verifier
 
 
