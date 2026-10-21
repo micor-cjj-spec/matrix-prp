@@ -311,6 +311,24 @@ jobs:
       - name: Validate isolated HTTPS staging virtual hosts and Keycloak admin isolation
         run: bash app/deploy/mcp-staging/test_tls_ephemeral.sh
 
+  mcp-real-pkce-e2e:
+    # Full disposable CI: live Keycloak browser login+PKCE, fresh PRP MySQL,
+    # TLS trusted JWKS, first-party owner grant/link and OAuth MCP tool calls.
+    # No prod DNS, no user data, no external server access.
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run real ephemeral PKCE + owner link + MCP read/revoke end-to-end
+        run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
+
   safe-deployment-diagnostics:
     runs-on: ubuntu-latest
     steps:
