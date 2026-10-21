@@ -15,6 +15,14 @@ class StagingIsolationTests(unittest.TestCase):
         dockerfile = (Path(__file__).parent / "Dockerfile.web").read_text()
         self.assertIn("RUN test ! -e /repo/app/deploy/mcp-staging/.env", dockerfile)
 
+    def test_staging_web_api_base_matches_gateway_routes(self):
+        root = Path(__file__).parent
+        dockerfile = (root / "Dockerfile.web").read_text()
+        nginx = (root / "nginx.conf.template").read_text()
+        self.assertIn("ENV VITE_API_BASE=/api", dockerfile)
+        self.assertIn("location ^~ /api/ {", nginx)
+        self.assertIn("location ^~ /prp/api/ { return 404; }", nginx)
+
     def setUp(self):
         self.values = make_config("prp-test.micor.top", "auth-test.micor.top", "stage_admin")
 

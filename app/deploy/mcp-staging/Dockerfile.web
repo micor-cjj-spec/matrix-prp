@@ -11,6 +11,7 @@ COPY .github ./.github
 RUN test ! -e /repo/app/deploy/mcp-staging/.env
 WORKDIR /repo/app/web
 ENV VITE_APP_BASE=/prp/
+ENV VITE_API_BASE=/api
 RUN npm run build && node scripts/verify-deploy-base.mjs /prp/
 
 FROM nginx:1.29-alpine
