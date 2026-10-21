@@ -47,6 +47,27 @@ def canonical_url(value, expected_path, label):
     return parsed.hostname.lower()
 
 
+def staging_dns_host(host, label):
+    """Ensure DNS values are safe to interpolate into an Nginx config."""
+    if not isinstance(host, str) or not re.fullmatch(r"[a-z0-9.-]{4,253}", host):
+        raise ValueError(label + " must be a lowercase staging DNS name")
+    if "." not in host or ".." in host or host.startswith(".") or host.endswith("."):
+        raise ValueError(label + " must be an explicit staging DNS name")
+    if host in ("micor.top", "www.micor.top", "localhost"):
+        raise ValueError(label + " must be non-production DNS")
+    for part in host.split("."):
+        if not 1 <= len(part) <= 63 or part.startswith("-") or part.endswith("-"):
+            raise ValueError(label + " has an invalid DNS label")
+    # A literal IP is not a managed, isolated DNS hostname.
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        raise ValueError(label + " must be a DNS name, not an IP address")
+    return host
+
+
 def check(config):
     missing = [k for k in REQUIRED if k not in config]
     if missing:
@@ -65,8 +86,10 @@ def check(config):
         raise ValueError("PRP public host differs from public URL")
     if canonical_url(config["PRP_STAGE_MCP_RESOURCE"], "/api/mcp", "MCP resource") != host:
         raise ValueError("MCP resource must be on the exact staging public hostname")
+    staging_dns_host(host, "PRP staging")
     auth_host = canonical_url(config["PRP_STAGE_AUTH_PUBLIC_URL"], "", "OAuth public URL")
-    if auth_host in (host, "micor.top", "www.micor.top"):
+    staging_dns_host(auth_host, "OAuth staging")
+    if auth_host == host:
         raise ValueError("OAuth issuer must use a separate non-production hostname")
     if canonical_url(config["PRP_STAGE_AUTH_ISSUER"], "/realms/prp-mcp", "OAuth issuer") != auth_host:
         raise ValueError("Issuer must be exactly the staged Keycloak realm")
