@@ -300,4 +300,5 @@ jobs:
           bash -n app/scripts/verify-expanded-jar-http.sh
           python3 -m py_compile app/scripts/probe-expanded-jar-http.py
           python3 -m py_compile app/deploy/collect_running_release_evidence.py app/deploy/reconcile_running_release.py
+          python3 -m py_compile app/deploy/review_release_evidence_bundle.py
           node --test app/scripts/deploy-workflow-contract.test.mjs
