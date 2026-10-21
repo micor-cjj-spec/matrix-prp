@@ -118,7 +118,7 @@ class ExpandReleaseRehearsalMysqlTests(unittest.TestCase):
         self.restored_copy()
         original = self.before_snapshot(DB_RESTORE)
         process = subprocess.Popen(
-            self.command(DB_RESTORE) + ["--unbuffered"],
+            self.command(DB_RESTORE)[:-1] + ["--unbuffered", DB_RESTORE],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1,
         )
