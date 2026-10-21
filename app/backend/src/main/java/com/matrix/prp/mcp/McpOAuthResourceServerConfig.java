@@ -4,6 +4,7 @@ import com.matrix.prp.auth.model.UserAccount;
 import com.matrix.prp.auth.repository.UserStore;
 import java.net.URI;
 import java.util.Arrays;
+import java.util.Set;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
@@ -82,7 +83,8 @@ public class McpOAuthResourceServerConfig {
 
     @Bean
     @Order(1)
-    SecurityFilterChain mcpOAuthFilterChain(HttpSecurity http, JwtDecoder mcpJwtDecoder, UserStore users)
+    SecurityFilterChain mcpOAuthFilterChain(HttpSecurity http, JwtDecoder mcpJwtDecoder, UserStore users,
+                                              McpClientGrantService grants)
         throws Exception {
         var metadataUri = McpOAuthMetadataController.metadataUrl(resource);
         return http.securityMatcher("/api/mcp")
@@ -105,13 +107,16 @@ public class McpOAuthResourceServerConfig {
                     if (account == null || !account.enabled()) {
                         throw new BadCredentialsException("PRP account not available");
                     }
+                    String clientId = token.getClaimAsString("client_id");
+                    Set<String> granted = grants.grantedScopes(account.id(), clientId);
+                    if (granted.isEmpty()) throw new BadCredentialsException("MCP client not authorized by PRP owner");
                     List<String> scopes = token.getClaimAsStringList("scp");
                     if (scopes == null) {
                         String rawScope = token.getClaimAsString("scope");
                         scopes = rawScope == null ? List.of()
                             : Arrays.stream(rawScope.split("\\s+")).filter(v -> !v.isBlank()).toList();
                     }
-                    var authorities = scopes.stream().filter(scope -> scope.matches("prp\\.(tasks|finance|wellness|write)\\.(read|create|confirm|status)"))
+                    var authorities = scopes.stream().filter(granted::contains)
                         .map(scope -> new SimpleGrantedAuthority("SCOPE_" + scope))
                         .collect(Collectors.toList());
                     return new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
