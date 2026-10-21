@@ -6,8 +6,19 @@ import {
   authorizeMcpClient, listMcpClients, mcpScopes, revokeMcpClient,
   type McpClientGrant,
 } from '@/api/mcpClients'
+import {
+  createMcpIdentityTicket, listMcpIdentityLinks, unlinkMcpIdentity,
+  type McpIdentityLink, type McpLinkTicket,
+} from '@/api/mcpIdentity'
 
 const clients = ref<McpClientGrant[]>([])
+const identities = ref<McpIdentityLink[]>([])
+const pairClientId = ref('')
+const pairPassword = ref('')
+const unlinkPassword = ref('')
+const ticket = ref<McpLinkTicket | null>(null)
+const pairing = ref(false)
+const pairError = ref('')
 const clientId = ref('')
 const scopes = ref<string[]>(['prp.tasks.read'])
 const password = ref('')
@@ -21,6 +32,44 @@ async function refresh() {
   try { clients.value = await listMcpClients() }
   catch { error.value = '连接管理未启用或暂时不可用。请检查 PRP MCP OAuth 配置。' }
   finally { loading.value = false }
+}
+
+async function refreshIdentities() {
+  try { identities.value = await listMcpIdentityLinks() }
+  catch { identities.value = [] }
+}
+
+async function issueTicket() {
+  if (!pairClientId.value.trim() || !pairPassword.value) return
+  pairing.value = true
+  pairError.value = ''
+  ticket.value = null
+  try {
+    ticket.value = await createMcpIdentityTicket(pairClientId.value.trim(), pairPassword.value)
+    pairPassword.value = ''
+    ElMessage.success('一次性关联码已生成，十分钟内有效')
+  } catch {
+    pairPassword.value = ''
+    pairError.value = '创建关联码失败：请先批准这个客户端，并检查 PRP 密码。'
+  } finally { pairing.value = false }
+}
+
+async function unlinkIdentity() {
+  if (!unlinkPassword.value) return
+  try {
+    await ElMessageBox.confirm('解除后外部 OAuth 账号将无法访问当前 PRP 用户的数据，确认解除吗？', '解除 OAuth 关联', { type: 'warning' })
+  } catch { return }
+  pairing.value = true
+  try {
+    await unlinkMcpIdentity(unlinkPassword.value)
+    unlinkPassword.value = ''
+    ticket.value = null
+    await refreshIdentities()
+    ElMessage.success('OAuth 身份关联已解除')
+  } catch {
+    unlinkPassword.value = ''
+    ElMessage.error('解除失败：请核对当前 PRP 账号密码')
+  } finally { pairing.value = false }
 }
 
 async function approve() {
@@ -47,7 +96,7 @@ async function revoke(client: McpClientGrant) {
   catch { ElMessage.error('撤销失败，请重试') }
   finally { busy.value = false }
 }
-onMounted(refresh)
+onMounted(() => { void refresh(); void refreshIdentities() })
 </script>
 
 <template>
@@ -82,6 +131,42 @@ onMounted(refresh)
         </el-form>
       </el-card>
       <el-card shadow="never" class="section">
+        <template #header>关联 PRP 与外部 OAuth 账号</template>
+        <p>先完成上方客户端授权，然后创建一次性关联码。外部 OAuth 客户端必须使用其已验证的 Bearer Token 调用 PRP 的 <code>POST /api/mcp/link</code> 完成关联。</p>
+        <el-form label-position="top" @submit.prevent="issueTicket">
+          <el-form-item label="待关联的客户端 ID（必须与上方已批准的客户端一致）">
+            <el-input v-model="pairClientId" maxlength="128" autocomplete="off" placeholder="OAuth client_id" />
+          </el-form-item>
+          <el-form-item label="PRP 登录密码（仅用于生成一次性关联码）">
+            <el-input v-model="pairPassword" type="password" autocomplete="current-password"
+              maxlength="256" placeholder="PRP 登录密码" />
+          </el-form-item>
+          <el-button type="primary" :disabled="!pairClientId.trim() || !pairPassword || pairing"
+            :loading="pairing" native-type="submit">生成账号关联码</el-button>
+        </el-form>
+        <el-alert v-if="pairError" type="error" :title="pairError" :closable="false" class="section" />
+        <div v-if="ticket" class="pair-ticket">
+          <strong>一次性关联码（只显示此次；10 分钟内有效）</strong>
+          <p class="ticket-code">{{ ticket.code }}</p>
+          <p>客户端：{{ ticket.clientId }}，有效期至 {{ ticket.expiresAt }}</p>
+          <p>只在你信任的 OAuth 客户端中完成关联，不要把关联码或登录密码发到普通 AI 对话中。</p>
+        </div>
+        <div class="identity-list">
+          <strong>已验证的外部身份</strong>
+          <p v-if="!identities.length">当前尚未关联 OAuth 账号。</p>
+          <p v-for="identity in identities" :key="identity.issuer + ':' + identity.subject">
+            {{ identity.issuer }} · {{ identity.subject }}
+          </p>
+          <el-button plain :disabled="pairing" @click="refreshIdentities">刷新关联状态</el-button>
+        </div>
+        <div v-if="identities.length" class="identity-unlink">
+          <el-input v-model="unlinkPassword" type="password" autocomplete="current-password"
+            maxlength="256" placeholder="输入 PRP 密码解除关联" />
+          <el-button type="danger" plain :disabled="!unlinkPassword || pairing"
+            :loading="pairing" @click="unlinkIdentity">解除外部身份关联</el-button>
+        </div>
+      </el-card>
+      <el-card shadow="never" class="section">
         <template #header>已登记的客户端</template>
         <el-skeleton v-if="loading" :rows="3" animated />
         <el-alert v-else-if="error" type="info" :closable="false" :title="error" />
@@ -107,6 +192,11 @@ onMounted(refresh)
 .back{display:inline-block;margin-bottom:16px;text-decoration:none;color:var(--el-color-primary)}
 .section{margin-top:20px}.scope-option{margin-bottom:6px}
 .client-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;border-bottom:1px solid var(--el-border-color-lighter)}
+.pair-ticket{background:var(--el-fill-color-light);border-radius:10px;padding:14px;margin-top:16px}
+.ticket-code{font-family:monospace;font-size:14px;overflow-wrap:anywhere}
+.identity-list{margin-top:18px}.identity-list p{overflow-wrap:anywhere;font-size:13px;color:var(--el-text-color-secondary)}
+.identity-unlink{display:flex;gap:12px;margin-top:12px;flex-wrap:wrap}
+.identity-unlink .el-input{flex:1;min-width:220px}
 .client-row:last-child{border-bottom:none}.client-info{min-width:0}
 .client-info strong,.client-info p{overflow-wrap:anywhere}.client-info p{color:var(--el-text-color-secondary);font-size:13px}
 </style>
