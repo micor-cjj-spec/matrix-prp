@@ -46,11 +46,11 @@ echo 'Stage Web: PASS'
 # Fresh database must contain all approved MCP migration tables, not production data.
 schema=$( "${compose[@]}" exec -T mysql sh -c \
   'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B matrix_prp_mcp_stage -e "SELECT version FROM flyway_schema_history WHERE success=1 ORDER BY installed_rank DESC LIMIT 1;"')
-if [[ "$schema" != 26 ]]; then
-  echo "Stage Flyway expected version 26, got version: $schema" >&2
+if [[ "$schema" != 27 ]]; then
+  echo "Stage Flyway expected version 27, got version: $schema" >&2
   exit 1
 fi
-echo 'Stage Flyway: PASS version 26'
+echo 'Stage Flyway: PASS version 27'
 tables=$( "${compose[@]}" exec -T mysql sh -c \
   'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B matrix_prp_mcp_stage -e "SHOW TABLES LIKE '\''prp_mcp_%'\'';"')
 for expected in prp_mcp_client_grants prp_mcp_identity_links prp_mcp_link_tickets prp_mcp_write_drafts; do
@@ -74,5 +74,5 @@ if [[ "$wrong_path" != 404 ]]; then
 fi
 echo 'Stage wrong API prefix: PASS'
 
-echo "PASS: isolated PRP stage backend + Web actually start; V26 migrated only the fresh test DB."
+echo "PASS: isolated PRP stage backend + Web actually start; V27 migrated only the fresh test DB."
 echo "PASS: 127.0.0.1:18081 staging routing and wrong Host/path rejection; OAuth remains OFF."

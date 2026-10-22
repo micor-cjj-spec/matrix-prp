@@ -21,7 +21,20 @@
     },
     {
       "version": 24,
-      "file": "V24__mcp_write_drafts.sql",
+      "file": "V24__vocal_song_library_and_assignments.sql",
+      "sha256": "40818afd8a1df3d3440eeeb6e4bc19710b1e187cf3392b1d2eb0aabeb0eaa216",
+      "mode": "create-empty",
+      "tables": [
+        "prp_vocal_songs",
+        "prp_vocal_song_sections",
+        "prp_vocal_lessons",
+        "prp_vocal_assignments",
+        "prp_vocal_take_links"
+      ]
+    },
+    {
+      "version": 25,
+      "file": "V25__mcp_write_drafts.sql",
       "sha256": "d2d35d2233be5ca948f36e1c9bc5ef2b0fd3983d318617780754bf3b6d410f10",
       "mode": "create-empty",
       "tables": [
@@ -29,8 +42,8 @@
       ]
     },
     {
-      "version": 25,
-      "file": "V25__mcp_client_grants.sql",
+      "version": 26,
+      "file": "V26__mcp_client_grants.sql",
       "sha256": "dfbe4d821f17c1a3b0fc210398948e3fa99e0dc0b43cb2fe25c1eff2bbd21309",
       "mode": "create-empty",
       "tables": [
@@ -38,8 +51,8 @@
       ]
     },
     {
-      "version": 26,
-      "file": "V26__mcp_identity_links.sql",
+      "version": 27,
+      "file": "V27__mcp_identity_links.sql",
       "sha256": "f7f6f6a47dc94e6dd694bcfe04ace67e58845c945995ca9130c1d2a5c9726eb0",
       "mode": "create-empty",
       "tables": [

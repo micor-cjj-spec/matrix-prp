@@ -298,7 +298,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Real isolated PRP staging build, Flyway V26 and loopback Web/API smoke
+      - name: Real isolated PRP staging build, Flyway V27 and loopback Web/API smoke
         run: bash app/deploy/mcp-staging/smoke_disposable.sh
 
   mcp-staging-tls:

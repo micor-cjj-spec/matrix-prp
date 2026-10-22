@@ -27,7 +27,10 @@ This **does not** implement third-party OAuth 2.0. Existing PRP JWT authenticati
 
 ## Database & release policy
 
-V24 introduces only an initially-empty `prp_mcp_write_drafts` table, including `approval_failures` (five-attempt lockout), `approved_at` and `CONSUMED` replay receipts. It is registered with a SHA-256 in the reviewed additive migration policy. V1–V23 files remain untouched; deploy **in order** on a reviewed restored copy. Do not baseline or clean the production schema, truncate any user data, bypass snapshot/diff gates, or run Flyway on a populated environment without a reviewed baseline.
+The production branch already owns `V24__vocal_song_library_and_assignments.sql`. To avoid irreversible Flyway version collision, MCP migrations are now **V25 drafts, V26 client grants, V27 identity links**. See `mcp-flyway-lineage-reconciliation.md`. This version renumbering is compatible with **fresh** schemas only: the previously validated staging DB retains the legacy V24–V26 history and must not be auto-upgraded or silently repaired.
+
+
+V25 introduces only an initially-empty `prp_mcp_write_drafts` table, including `approval_failures` (five-attempt lockout), `approved_at` and `CONSUMED` replay receipts. It is registered with a SHA-256 in the reviewed additive migration policy. V1–V24 (including the production vocal V24) remain untouched; deploy **in order** on a reviewed restored copy. Do not baseline or clean the production schema, truncate any user data, bypass snapshot/diff gates, or run Flyway on a populated environment without a reviewed baseline.
 
 No production deployment is part of this PR. In particular, the current SSH/SFTP/release-gateway hold must remain in place until separately accepted.
 
@@ -71,7 +74,7 @@ Then, against an isolated migrated test database:
 - Concurrent confirmation from two clients creates one record.
 - Verify authenticated identity remains present in MCP tool handler execution.
 - Test real MCP initialize, tools/list, tools/call and response formatting using MCP Inspector.
-- Verify JDBC and MyBatis use the **same transaction** for confirmation/replay behavior; verify Flyway V24 on a restored copy.
+- Verify JDBC and MyBatis use the **same transaction** for confirmation/replay behavior; verify the production V24 plus MCP V25–V27 lineage on a restored copy.
 - Audit finance input matching and merchant/category handling with real business service constraints.
 - Recheck release controller's migration compatibility policy and restore evidence before promotion.
 
@@ -103,9 +106,9 @@ Defined scopes: `prp.tasks.read`, `prp.finance.read`, `prp.wellness.read`, `prp.
 **Production gate:** Do not enable MCP/OAuth until a real external authorization server is configured with authorization-code+PKCE, scopes, trusted PRP account mapping, token lifecycle/revocation policies, public origin/host and reverse-proxy agreement, plus real network integration with a compatible MCP client. Unit tests using a mocked JWT decoder prove Spring authentication and scope wiring, not real issuer signature rotation or full interactive authorization.
 
 
-## PRP-owned OAuth client grants (V25, opt-in)
+## PRP-owned OAuth client grants (V26, opt-in)
 
-V25 adds only `prp_mcp_client_grants`: `(user_id, client_id)` primary key, approved scopes, ACTIVE/REVOKED status and timestamps. The database never stores OAuth access tokens, refresh tokens or PRP passwords. V25 follows immutable V24 and is pinned in the reviewed additive migration policy.
+V26 adds only `prp_mcp_client_grants`: `(user_id, client_id)` primary key, approved scopes, ACTIVE/REVOKED status and timestamps. The database never stores OAuth access tokens, refresh tokens or PRP passwords. V26 follows immutable production V24 and MCP V25 and is pinned in the reviewed additive migration policy.
 
 With OAuth and MCP enabled, an authenticated PRP user can open **我的 → MCP 客户端授权** (`/me/mcp-clients`) to approve a known OAuth `client_id` and an explicit subset of supported MCP scopes after reentering the PRP password. The same owner can downscope or revoke a grant. These are ordinary PRP JWT-protected browser APIs, **not** MCP tools; no agent can silently approve itself.
 
@@ -119,15 +122,15 @@ With OAuth and MCP enabled, an authenticated PRP user can open **我的 → MCP 
 Verification should cover wrong passwords, unsupported/duplicate scopes, cross-user revoke failures, reduction of previously granted scopes, and immediate rejection after revoke on a still-unexpired signed token. User credentials and OAuth token values must never appear in application logs or AI tool arguments.
 
 
-## V26 — Verified OAuth issuer/subject account linking
+## V27 — Verified OAuth issuer/subject account linking
 
 The MCP resource server no longer trusts an externally signed `prp_user_id` as sufficient proof of PRP account ownership. Instead it maps the **verified OAuth issuer+subject** to a PRP user through a separate, owner-authorized proof-of-control exchange:
 
 1. The PRP owner logs in through the normal app, approves a known OAuth client ID and allowed scopes, then opens `我的 → MCP 客户端授权`.
 2. The owner reenters their PRP password and requests a ten-minute, **single-use, 256-bit** client-bound linking ticket via `POST /api/mcp/identity/tickets`. Only a SHA-256 digest of the ticket is stored; the raw secret is displayed once in PRP and should not be logged or pasted into a normal AI conversation.
 3. The external client separately obtains a signed **access token** through the OAuth issuer's Authorization Code + PKCE flow. To bootstrap, it invokes `POST /api/mcp/link` with Bearer and `{"ticket":"..."}`. The dedicated OAuth SecurityFilterChain verifies the token's signature, issuer, expiration and MCP resource audience, captures the verified JWT in the current Servlet request and passes its signed `issuer`, `sub`, `client_id` to the linking service. It never accepts raw user IDs or subjects from request JSON.
-4. An atomic transaction locks the ticket, verifies its expiry, owner and exact signed client ID, rechecks that the owner's PRP grant is still active, and enforces one external subject per PRP owner per issuer and one owner per issuer/subject. The mapping is stored in the additive V26 `prp_mcp_identity_links` table; the ticket is marked consumed exactly once.
-5. Future OAuth requests resolve the PRP account **only** through this verified mapping, recheck enabled account status, then intersect issuer-signed token scopes with the owner's active V25 client grant. Unlinked, revoked or mismatched identities fail closed.
+4. An atomic transaction locks the ticket, verifies its expiry, owner and exact signed client ID, rechecks that the owner's PRP grant is still active, and enforces one external subject per PRP owner per issuer and one owner per issuer/subject. The mapping is stored in the additive V27 `prp_mcp_identity_links` table; the ticket is marked consumed exactly once.
+5. Future OAuth requests resolve the PRP account **only** through this verified mapping, recheck enabled account status, then intersect issuer-signed token scopes with the owner's active V26 client grant. Unlinked, revoked or mismatched identities fail closed.
 6. The owner can view mappings at `GET /api/mcp/identity`, or reauthenticate to unlink through `POST /api/mcp/identity/unlink`. Revoking the client grant also blocks new MCP calls immediately, independently of identity unlinking.
 
 This is an explicit owner-controlled **account-link bootstrap**, not a public OAuth authorization server. It requires an actual external issuer and compatible client to authenticate and submit the code. Public ChatGPT MCP write support depends on ChatGPT plan entitlements; no such access is implied by local PRP implementation.

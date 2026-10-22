@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * True MySQL integration: JDBC draft locks and MyBatis business inserts must
  * participate in the same Spring transaction and preserve tenant isolation.
- * CI provisions a disposable MySQL database with all migrations through V24.
+ * CI provisions a disposable MySQL database with all migrations through V27 (MCP drafts from V25).
  */
 @SpringBootTest
 @ActiveProfiles("video-integration")
