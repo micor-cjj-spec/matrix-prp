@@ -171,7 +171,7 @@ class McpGatewayTests {
 
     private McpDraftService drafts(boolean enabled) {
         return new McpDraftService(db, json,
-            Validation.buildDefaultValidatorFactory().getValidator(), tasks, finance, records, users, passwords, enabled);
+            Validation.buildDefaultValidatorFactory().getValidator(), tasks, finance, records, users, passwords, enabled, "https://prp-test.micor.top/api/mcp");
     }
 
     @Test
@@ -211,6 +211,8 @@ class McpGatewayTests {
         var preview = drafts(true).prepare(McpDraftService.Kind.TASK,
             new CreateTaskRequest("work", "Review API contract", "", "high", null));
         assertThat(preview.kind()).isEqualTo("TASK");
+        assertThat(preview.instruction()).contains("https://prp-test.micor.top/prp/me/mcp-approve/" + preview.draftId())
+            .contains("never in chat");
         assertThat(preview.values().get("title").asText()).isEqualTo("Review API contract");
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
             any(), eq(501L), eq("TASK"), any(), any());

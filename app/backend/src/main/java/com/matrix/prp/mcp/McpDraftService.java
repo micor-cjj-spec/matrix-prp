@@ -52,13 +52,15 @@ public class McpDraftService {
     private final FinanceService finance;
     private final RecordService records;
     private final boolean writeEnabled;
+    private final String approvalBase;
     private final UserStore users;
     private final PasswordEncoder passwords;
 
     public McpDraftService(JdbcTemplate db, ObjectMapper json, Validator validator,
                            TaskService tasks, FinanceService finance, RecordService records,
                            UserStore users, PasswordEncoder passwords,
-                           @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled) {
+                           @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled,
+                           @Value("${matrix-prp.mcp.oauth.resource:}") String resource) {
         this.db = db;
         this.json = json;
         this.validator = validator;
@@ -66,8 +68,15 @@ public class McpDraftService {
         this.finance = finance;
         this.records = records;
         this.writeEnabled = writeEnabled;
+        this.approvalBase = approvalBase(resource);
         this.users = users;
         this.passwords = passwords;
+    }
+
+    static String approvalBase(String resource) {
+        if (resource == null || resource.isBlank()) return "/prp/";
+        var uri = java.net.URI.create(McpOAuthResourceServerConfig.strictHttps(resource, "MCP approval origin"));
+        return uri.resolve("/prp/").toString();
     }
 
     private void requireWrite() {
@@ -133,7 +142,7 @@ public class McpDraftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft");
         }
         return new Preview(id, kind.name(), json.valueToTree(request), expiry.toString(),
-            "Open PRP /me/mcp-approve/" + id + " in your own browser, review and enter your PRP password. Only then may the MCP client call prp_confirm_draft.");
+            "Open " + approvalBase + "me/mcp-approve/" + id + " in your own browser, review and enter your PRP password there, never in chat. Only then may the MCP client call prp_confirm_draft.");
     }
 
     /** The human reviews the exact owner-bound data through PRP, never through a model-controlled approval flag. */
