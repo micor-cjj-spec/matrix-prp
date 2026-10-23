@@ -217,7 +217,7 @@ jobs:
 
   keycloak-oauth-ephemeral:
     # Only PR #95/its feature branch. A disposable GitHub runner, not PRP production.
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -250,7 +250,7 @@ jobs:
 
   nginx-oauth-ephemeral:
     # Runs only for the review branch: isolated HTTPS Nginx and fake backend.
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
     runs-on: ubuntu-latest
     timeout-minutes: 9
     steps:
@@ -261,7 +261,7 @@ jobs:
   mcp-staging-compose:
     # Real Docker Compose parse with freshly generated disposable secrets.
     # No containers started, no production resources used.
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -293,7 +293,7 @@ jobs:
   mcp-staging-runtime:
     # Build and boot real PRP images with brand-new MySQL on disposable runner.
     # No server credentials, no PRP production data or environment access.
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -303,7 +303,7 @@ jobs:
 
   mcp-staging-tls:
     # Real TLS reverse-proxy acceptance using disposable local secrets and mocks.
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
     runs-on: ubuntu-latest
     timeout-minutes: 9
     steps:
@@ -315,7 +315,7 @@ jobs:
     # Full disposable CI: live Keycloak browser login+PKCE, fresh PRP MySQL,
     # TLS trusted JWKS, first-party owner grant/link and OAuth MCP tool calls.
     # No prod DNS, no user data, no external server access.
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/prp-mcp-gateway-v1'
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
     runs-on: ubuntu-latest
     timeout-minutes: 28
     steps:

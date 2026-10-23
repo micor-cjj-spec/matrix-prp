@@ -34,7 +34,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @ConditionalOnProperty(prefix = "matrix-prp.mcp", name = "enabled", havingValue = "true")
 public class McpDraftService {
-    public enum Kind { TASK, FINANCE, RECORD }
+    public enum Kind { TASK, FINANCE, RECORD, TASK_UPDATE, TASK_DELETE }
+    public record TaskChange(long taskId, com.matrix.prp.tasks.model.TaskItem before,
+                             String revision, CreateTaskRequest after, String status) {}
     public record Preview(String draftId, String kind, JsonNode values, String expiresAt,
                           String instruction) {}
     public record Result(String draftId, String kind, JsonNode saved, boolean alreadySaved) {}
@@ -73,6 +75,42 @@ public class McpDraftService {
         if (!writeEnabled) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "MCP writing is disabled");
         }
+    }
+
+    private String lockTask(long id) {
+        if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid task ID");
+        var rows = db.query("SELECT updated_at FROM prp_tasks WHERE id=? AND user_id=? AND deleted=0 FOR UPDATE",
+            (rs, n) -> rs.getTimestamp("updated_at").toString(), id, CurrentUser.id());
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found");
+        return rows.getFirst();
+    }
+
+    @Transactional
+    public Preview prepareTaskChange(long id, CreateTaskRequest after, String status, boolean delete) {
+        requireWrite();
+        if (!delete && after == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Task values required");
+        String revision = lockTask(id);
+        return prepare(delete ? Kind.TASK_DELETE : Kind.TASK_UPDATE,
+            new TaskChange(id, tasks.get(id), revision, delete ? null : after, delete ? null : status));
+    }
+
+    private Object applyTaskChange(TaskChange change, boolean delete) {
+        String revision = lockTask(change.taskId());
+        if (!revision.equals(change.revision()) || !normalized(tasks.get(change.taskId())).equals(normalized(change.before())))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Task changed; prepare and approve a new draft");
+        if (delete) {
+            tasks.delete(change.taskId());
+            return java.util.Map.of("taskId", change.taskId(), "deleted", true);
+        }
+        var updated = tasks.update(change.taskId(), change.after());
+        return change.status() == null ? updated : tasks.updateStatus(change.taskId(), change.status());
+    }
+
+    private static com.matrix.prp.tasks.model.TaskItem normalized(com.matrix.prp.tasks.model.TaskItem item) {
+        return new com.matrix.prp.tasks.model.TaskItem(item.id(), item.moduleCode(), item.title(),
+            item.description(), item.priority(), item.status(), item.dueDate(),
+            item.createdAt() == null ? null : item.createdAt().withOffsetSameInstant(java.time.ZoneOffset.UTC),
+            item.completedAt() == null ? null : item.completedAt().withOffsetSameInstant(java.time.ZoneOffset.UTC));
     }
 
     @Transactional
@@ -188,12 +226,15 @@ public class McpDraftService {
                 case TASK -> json.readValue(row.payload(), CreateTaskRequest.class);
                 case FINANCE -> json.readValue(row.payload(), CreateFinanceTransactionRequest.class);
                 case RECORD -> json.readValue(row.payload(), CreateRecordRequest.class);
+                case TASK_UPDATE, TASK_DELETE -> json.readValue(row.payload(), TaskChange.class);
             };
             validate(request);
             Object result = switch (Kind.valueOf(row.kind())) {
                 case TASK -> tasks.create((CreateTaskRequest) request);
                 case FINANCE -> finance.createTransaction((CreateFinanceTransactionRequest) request);
                 case RECORD -> records.create((CreateRecordRequest) request);
+                case TASK_UPDATE -> applyTaskChange((TaskChange) request, false);
+                case TASK_DELETE -> applyTaskChange((TaskChange) request, true);
             };
             saved = json.valueToTree(result);
             if (db.update("UPDATE prp_mcp_write_drafts SET status='CONSUMED', result_json=?, consumed_at=CURRENT_TIMESTAMP " +
@@ -219,7 +260,14 @@ public class McpDraftService {
         if (!validator.validate(request).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid business fields");
         }
-        if (request instanceof CreateTaskRequest t) {
+        if (request instanceof TaskChange change) {
+            if (change.taskId() <= 0 || change.before() == null || change.before().id() != change.taskId()
+                || change.revision() == null || change.revision().isBlank())
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid task change");
+            if (change.after() != null) validate(change.after());
+            if (change.status() != null && !List.of("todo", "in_progress", "done", "canceled").contains(change.status()))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid task status");
+        } else if (request instanceof CreateTaskRequest t) {
             length(t.moduleCode(), 1, 40); length(t.title(), 1, 160);
             length(t.description(), 0, 4000);
         } else if (request instanceof CreateFinanceTransactionRequest f) {
