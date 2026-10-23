@@ -318,6 +318,10 @@ jobs:
     if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
     runs-on: ubuntu-latest
     timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [readonly, crud]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -327,6 +331,8 @@ jobs:
           cache: maven
           cache-dependency-path: app/backend/pom.xml
       - name: Run real ephemeral PKCE + owner link + MCP read/revoke end-to-end
+        env:
+          MCP_E2E_CRUD: ${{ matrix.mode == 'crud' && 'true' || 'false' }}
         run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
 
   safe-deployment-diagnostics:

@@ -136,14 +136,14 @@ def add_user(opener, admin_password, username, password):
                    data=user, bearer=admin_token), 201, "Temporary Keycloak user creation")
 
 
-def code_pkce(opener, login_user, login_password):
+def code_pkce(opener, login_user, login_password, requested_scopes="openid prp.tasks.read"):
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()
                                           ).rstrip(b"=").decode()
     state, nonce = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     params = {
         "client_id": CLIENT, "response_type": "code", "redirect_uri": CALLBACK,
-        "scope": "openid prp.tasks.read", "code_challenge_method": "S256",
+        "scope": requested_scopes, "code_challenge_method": "S256",
         "code_challenge": challenge, "state": state, "nonce": nonce,
         "resource": RESOURCE,
     }
@@ -322,6 +322,9 @@ def main():
     if denied[0] != 200 or not denied[1].get("result", {}).get("isError"):
         raise RuntimeError("Finance scope unexpectedly granted by read-only client")
     print("PASS E2E: MCP initialize, tools/list, tasks read, finance permission denied.")
+    if os.environ.get('MCP_E2E_CRUD') == 'true':
+        import ci_crud_flow
+        ci_crud_flow.run(sys.modules[__name__], opener, prp_jwt, prp_password, user_password)
     revoke = json_response(request(opener, "https://prp-e2e.localhost/api/mcp/clients/revoke",
         bearer=prp_jwt, data={"clientId": CLIENT}), "PRP client revocation")
     after = jsonrpc(opener, bearer, 6, "tools/list", {})
