@@ -78,11 +78,20 @@ docker run --rm -d --name prp-ci-real-mysql \
   -e MYSQL_DATABASE=matrix_prp_mcp_e2e \
   -e MYSQL_USER=prp_e2e \
   -e MYSQL_PASSWORD="$database_user" mysql:8.4 >/dev/null
+# Require the application TCP path; the temporary init server can answer ping.
+mysql_ready() {
+  docker exec -e MYSQL_PWD="$database_user" prp-ci-real-mysql \
+    mysql --protocol=TCP -h 127.0.0.1 -u prp_e2e -D matrix_prp_mcp_e2e \
+    -Nse 'SELECT 1' >/dev/null 2>&1
+}
 for i in $(seq 1 45); do
-  if docker exec prp-ci-real-mysql mysqladmin ping --silent >/dev/null 2>&1; then break; fi
+  if mysql_ready; then break; fi
   sleep 2
 done
-docker exec prp-ci-real-mysql mysqladmin ping --silent >/dev/null
+if ! mysql_ready; then
+  echo "FAIL E2E: MySQL application TCP account/database not ready." >&2
+  exit 1
+fi
 echo "E2E MySQL: isolated empty database ready."
 
 python3 app/deploy/mcp-oauth/build_realm.py \
