@@ -33,6 +33,33 @@ import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.*;
 
 class McpGatewayTests {
+    @Test
+    void revokedOperationScopeCannotConfirmAnAlreadyApprovedDraft() {
+        var approvals = mock(McpDraftService.class);
+        when(approvals.review(CHANGE_ID)).thenReturn(new McpDraftService.Review(
+            CHANGE_ID, "TASK_DELETE", json.createObjectNode(), "APPROVED", "future"));
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+            new UserProfile(501L, "mcp-user", "MCP"), null,
+            List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.confirm"))));
+        var tools = new PrpMcpTools(tasks, finance, null, approvals, new McpScopeGuard(true));
+        assertThatThrownBy(() -> tools.confirmDraft(CHANGE_ID)).isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+        verify(approvals, never()).confirm(anyString());
+    }
+
+    @Test
+    void createPermissionDoesNotAuthorizeAnUpdateDraft() {
+        var approvals = mock(McpDraftService.class);
+        when(approvals.review(CHANGE_ID)).thenReturn(new McpDraftService.Review(
+            CHANGE_ID, "TASK_UPDATE", json.createObjectNode(), "APPROVED", "future"));
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+            new UserProfile(501L, "mcp-user", "MCP"), null,
+            List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.confirm"),
+                new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.create"))));
+        var tools = new PrpMcpTools(tasks, finance, null, approvals, new McpScopeGuard(true));
+        assertThatThrownBy(() -> tools.confirmDraft(CHANGE_ID)).isInstanceOf(ResponseStatusException.class);
+        verify(approvals, never()).confirm(anyString());
+    }
     private static final String CHANGE_ID = "41abc027-d67e-4bdf-8985-e3ec97d23204";
 
     private com.matrix.prp.tasks.model.TaskItem ownedTask(String title) {
