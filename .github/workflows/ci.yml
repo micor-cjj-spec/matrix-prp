@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, feat/multi-user-foundation]
   pull_request:
-    branches: [main]
+    branches: [main, fix/mcp-v24-lineage-conflict-20261022]
 
 jobs:
   controller-compatibility:
