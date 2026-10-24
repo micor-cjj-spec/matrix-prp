@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   browserPairingConfig, createBrowserPairingRequest,
-  readBrowserPairingCallback, hasOAuthCallback,
+  readBrowserPairingCallback, hasOAuthCallback, exchangeBrowserPairingToken,
 } from '../src/api/mcpBrowserPairing.ts'
 
 const config = browserPairingConfig(
@@ -72,4 +72,47 @@ test('browser pairing rejects replayable, expired or substituted callback', asyn
 
 test('browser pairing never creates a request with invalid ticket', async () => {
   await assert.rejects(createBrowserPairingRequest(config, 'short', now))
+})
+
+test('browser token exchange is restricted to configured issuer/resource and never saves bearer', async () => {
+  const savedFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ access_token: 'synthetic-test-bearer', token_type: 'Bearer' }),
+    }
+  }
+  try {
+    const token = await exchangeBrowserPairingToken(config, 'synthetic-code', 'synthetic-pkce-verifier')
+    assert.equal(token, 'synthetic-test-bearer')
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].url, 'https://auth-test.micor.top/realms/prp-mcp/protocol/openid-connect/token')
+    assert.equal(calls[0].options.credentials, 'omit')
+    assert.equal(calls[0].options.referrerPolicy, 'no-referrer')
+    assert.equal(calls[0].options.cache, 'no-store')
+    const body = new URLSearchParams(calls[0].options.body)
+    assert.equal(body.get('grant_type'), 'authorization_code')
+    assert.equal(body.get('client_id'), config.clientId)
+    assert.equal(body.get('redirect_uri'), config.redirectUri)
+    assert.equal(body.get('resource'), config.resource)
+    assert.equal(body.get('code'), 'synthetic-code')
+    assert.equal(body.get('code_verifier'), 'synthetic-pkce-verifier')
+  } finally {
+    globalThis.fetch = savedFetch
+  }
+})
+
+test('browser token exchange rejects non-Bearer token types and failed responses', async () => {
+  const savedFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => ({ ok: true, text: async () =>
+      JSON.stringify({ access_token: 'fake', token_type: 'MAC' }) })
+    await assert.rejects(exchangeBrowserPairingToken(config, 'code', 'verifier'))
+    globalThis.fetch = async () => ({ ok: false, status: 400, text: async () => 'private' })
+    await assert.rejects(exchangeBrowserPairingToken(config, 'code', 'verifier'))
+  } finally {
+    globalThis.fetch = savedFetch
+  }
 })
