@@ -204,6 +204,10 @@ def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None, bad_
                      "redirect_uri": CALLBACK})
     elif grant == "refresh_token":
         data["refresh_token"] = refresh
+        # Keep the already-granted resource and task scope explicit.
+        # Some resource-indicator implementations recalculate the audience
+        # from the refresh request rather than inheriting the original grant.
+        data["scope"] = SCOPE
     else:
         raise RuntimeError("UNSUPPORTED_CI_GRANT")
     result = browser.request(opener, TOKEN_ENDPOINT, data=data, form=True)
