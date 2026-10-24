@@ -22,6 +22,8 @@ public class McpClientGrantController {
     public record GrantRequest(@NotBlank @Size(max = 128) String clientId,
                                @NotEmpty List<String> scopes,
                                @NotBlank String password) {}
+    public record TemporaryPairingRequest(@NotBlank @Size(max = 128) String clientId,
+                                          @NotBlank String password) {}
     public record RevokeRequest(@NotBlank String clientId) {}
     private final McpClientGrantService service;
 
@@ -41,6 +43,15 @@ public class McpClientGrantController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
             .body(ApiResponse.success(service.authorize(
                 input.clientId(), input.scopes(), input.password())));
+    }
+
+    /** PRP owner-only, ten-minute task-read lease. Not a general MCP grant. */
+    @PostMapping("/pairing")
+    public ResponseEntity<ApiResponse<McpClientGrantService.Grant>> pairing(
+            @Valid @RequestBody TemporaryPairingRequest input) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+            .body(ApiResponse.success(service.authorizeTemporaryPairing(
+                input.clientId(), input.password())));
     }
 
     @PostMapping("/revoke")
