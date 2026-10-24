@@ -1,13 +1,27 @@
 import type { PitchPoint } from '@/api/vocal'
 
-/** A lightweight, device-local monophonic pitch estimator; not a medical or professional assessment. */
-export function estimatePitch(data: Float32Array, sampleRate: number): number | null {
+/**
+ * RMS input level used for a lightweight microphone meter.
+ * This is an amplitude indicator, not a calibrated sound-pressure measurement.
+ */
+export function calculateRms(data: Float32Array): number {
+  if (data.length === 0) return 0
   let sum = 0
-  for (const v of data) sum += v * v
-  if (Math.sqrt(sum / data.length) < 0.018) return null
+  for (const value of data) sum += value * value
+  return Math.sqrt(sum / data.length)
+}
+
+/** A lightweight device-local monophonic pitch estimator, not a professional assessment. */
+export function estimatePitch(data: Float32Array, sampleRate: number): number | null {
+  // Quiet humming and phone microphones can produce a low-amplitude signal.
+  // Keep a noise gate, but do not discard ordinary soft practice at the old 0.018 RMS threshold.
+  if (calculateRms(data) < 0.003 || !Number.isFinite(sampleRate) || sampleRate <= 0) return null
+
   const minLag = Math.floor(sampleRate / 1200)
   const maxLag = Math.min(data.length / 2, Math.ceil(sampleRate / 65))
   const window = Math.min(2048, data.length - maxLag)
+  if (window <= 0 || maxLag <= minLag) return null
+
   const differences = new Float64Array(maxLag + 1)
   // YIN-like cumulative mean normalized difference: prefer the first good trough,
   // not the global autocorrelation peak (which often aliases one octave lower).
@@ -19,6 +33,7 @@ export function estimatePitch(data: Float32Array, sampleRate: number): number | 
     }
     differences[lag] = difference
   }
+
   let cumulative = 0
   const normalized = new Float64Array(maxLag + 1)
   for (let lag = 2; lag <= maxLag; lag++) {
@@ -46,7 +61,7 @@ export function lastPitchCurve(points: PitchPoint[]): string {
   if (recent.length < 2) return ''
   const min = 120, max = 850
   return recent.map((p, i) => (
-    (i / 63 * 300).toFixed(1) + ',' +
+    (i / Math.max(1, recent.length - 1) * 300).toFixed(1) + ',' +
     (100 - (Math.log2(Math.min(max, Math.max(min, p.hz)) / min) /
       Math.log2(max / min) * 100)).toFixed(1)
   )).join(' ')
