@@ -145,13 +145,13 @@ def configure(token):
     print("PASS CIMD: two isolated profiles and policies active in disposable Keycloak.")
 
 
-def auth_request(method):
+def auth_request(method, *, scope="openid"):
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     state = secrets.token_urlsafe(24)
     params = {
         "client_id": CLIENT, "response_type": "code", "redirect_uri": REDIRECT,
-        "scope": "openid", "state": state, "resource": RESOURCE,
+        "scope": scope, "state": state, "resource": RESOURCE,
     }
     if method == "S256":
         params.update({"code_challenge_method": "S256", "code_challenge": challenge})
@@ -187,8 +187,8 @@ def auth_request(method):
     return status, error, location, diagnostic
 
 
-def require_pkce_result(mode):
-    status, error, location, diagnostic = auth_request(mode)
+def require_pkce_result(mode, *, scope="openid"):
+    status, error, location, diagnostic = auth_request(mode, scope=scope)
     if mode == "S256":
         # 200 login page or an internal Keycloak redirect to its login route.
         internal = location.startswith(BASE + "/realms/prp-mcp/") or location.startswith("/realms/prp-mcp/")
@@ -232,6 +232,34 @@ def has_known_chatgpt_parser_blocker():
     )
 
 
+
+def ensure_offline_access(token):
+    # A realm generated from explicit client scopes may not contain Keycloak's
+    # built-in offline_access scope. This is a disposable-CI-only fixture.
+    endpoint = REALM_ADMIN + "/client-scopes"
+    status, _, raw = request(endpoint, bearer=token)
+    if status != 200:
+        raise RuntimeError("CI_OFFLINE_SCOPE_LIST_FAILED")
+    names = {item.get("name") for item in json.loads(raw)}
+    if "offline_access" not in names:
+        status, _, _ = request(endpoint, method="POST", bearer=token, json_body={
+            "name": "offline_access", "protocol": "openid-connect",
+            "attributes": {
+                "include.in.token.scope": "true",
+                "display.on.consent.screen": "true",
+                "consent.screen.text": "Offline Access",
+            },
+        })
+        if status != 201:
+            raise RuntimeError("CI_OFFLINE_SCOPE_CREATE_FAILED")
+    status, _, raw = request(endpoint, bearer=token)
+    if status != 200 or "offline_access" not in {
+        item.get("name") for item in json.loads(raw)
+    }:
+        raise RuntimeError("CI_OFFLINE_SCOPE_NOT_AVAILABLE")
+    print("PASS PREREG: offline_access scope available in disposable Realm.")
+
+
 def install_exact_preregistered(token):
     """Fallback proof only: exact ChatGPT client pre-registration in CI realm."""
     from urllib.parse import quote
@@ -257,18 +285,19 @@ def install_exact_preregistered(token):
         "redirectUris": [REDIRECT],
         "webOrigins": [],
         "defaultClientScopes": ["basic"],
-        "optionalClientScopes": ["prp.tasks.read"],
+        "optionalClientScopes": ["prp.tasks.read", "offline_access"],
         "attributes": {
             "use.jwks.url": "true",
             "jwks.url": "https://chatgpt.com/oauth/jwks.json",
             "pkce.code.challenge.method": "S256",
+            "token.endpoint.auth.signing.alg": "RS256",
         },
         "protocolMappers": [{
             "name": "PRP MCP exact audience",
             "protocol": "openid-connect",
             "protocolMapper": "oidc-audience-mapper",
             "config": {
-                "included.client.audience": "matrix-prp-mcp-resource",
+                "included.custom.audience": RESOURCE,
                 "id.token.claim": "false",
                 "access.token.claim": "true",
             },
@@ -283,6 +312,23 @@ def install_exact_preregistered(token):
     matches = [x for x in json.loads(raw) if x.get("clientId") == CLIENT]
     if len(matches) != 1 or matches[0].get("publicClient") is not False:
         raise RuntimeError("EXACT_CLIENT_NOT_CONFIDENTIAL")
+    client_id = matches[0]["id"]
+    status, _, full_raw = request(endpoint + "/" + client_id, bearer=token)
+    if status != 200:
+        raise RuntimeError("EXACT_CLIENT_DETAILS_UNAVAILABLE")
+    details = json.loads(full_raw)
+    if not {"offline_access", "prp.tasks.read"}.issubset(
+            set(details.get("optionalClientScopes", []))):
+        raise RuntimeError("EXACT_CLIENT_REQUIRED_SCOPES_MISSING")
+    custom_aud = [
+        mapper.get("config", {}).get("included.custom.audience")
+        for mapper in details.get("protocolMappers", [])
+    ]
+    if custom_aud != [RESOURCE]:
+        raise RuntimeError("EXACT_CLIENT_RESOURCE_AUDIENCE_MISMATCH")
+    if details.get("attributes", {}).get("token.endpoint.auth.signing.alg") != "RS256":
+        raise RuntimeError("EXACT_CLIENT_SIGNED_JWT_ALGORITHM_MISSING")
+    print("PASS PREREG: exact resource URI mapper, offline scope, and RS256 settings.")
     print("PASS PREREG: exact ChatGPT ID/callback/JWKS/S256 configured in disposable Realm.")
 
 
@@ -325,12 +371,16 @@ def main():
         # A pre-registered, narrowly scoped exact client can be a valid
         # *alternative* to dynamic CIMD. Verify it independently rather than
         # rewriting a third-party metadata document or relaxing the parser.
+        ensure_offline_access(token)
         install_exact_preregistered(token)
         disable_dynamic_cimd_after_preregistration(token)
-        require_pkce_result("S256")
+        # Match the minimal production ChatGPT authorization request. The
+        # generic CIMD-only test above intentionally used openid alone.
+        full_scope = "openid offline_access prp.tasks.read"
+        require_pkce_result("S256", scope=full_scope)
         verify_persisted(token)
         for mode in ("missing", "plain"):
-            require_pkce_result(mode)
+            require_pkce_result(mode, scope=full_scope)
             print("PASS PREREG: " + mode + " PKCE rejected on exact client.")
         print("PASS PREREG: disposable exact-client auth page & PKCE only; no token flow.")
         return
