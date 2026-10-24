@@ -5,7 +5,7 @@ export { mcpScopes } from './mcpScopes'
 export interface McpClientGrant {
   clientId: string
   scopes: string[]
-  status: 'ACTIVE' | 'REVOKED'
+  status: 'ACTIVE' | 'REVOKED' | 'EXPIRED'
 }
 
 export async function listMcpClients(): Promise<McpClientGrant[]> {
@@ -15,6 +15,12 @@ export async function listMcpClients(): Promise<McpClientGrant[]> {
 
 export async function authorizeMcpClient(clientId: string, scopes: string[], password: string): Promise<McpClientGrant> {
   const response = await apiClient.post<ApiResponse<McpClientGrant>>('/mcp/clients', { clientId, scopes, password })
+  return response.data.data
+}
+
+/** Owner password required; only a ten-minute, task-read pairing grant. */
+export async function authorizeTemporaryMcpPairing(clientId: string, password: string): Promise<McpClientGrant> {
+  const response = await apiClient.post<ApiResponse<McpClientGrant>>('/mcp/clients/pairing', { clientId, password })
   return response.data.data
 }
 
