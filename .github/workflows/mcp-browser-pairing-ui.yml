@@ -27,3 +27,21 @@ jobs:
           npm run build
           VITE_APP_BASE=/prp/ npm run build
           node scripts/verify-deploy-base.mjs /prp/
+
+  browser-pairing-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Real public PKCE pairing and PRP identity link (disposable)
+        env:
+          MCP_E2E_CRUD: 'false'
+        run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
