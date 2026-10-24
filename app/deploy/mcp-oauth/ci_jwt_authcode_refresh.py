@@ -192,7 +192,8 @@ def register_client(token, certificate):
     print("PASS AUTHCODE: PKCE S256 confidential client with signed-JWT auth registered.")
 
 
-def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None, bad_auth=False):
+def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None,
+             bad_auth=False, resource=RESOURCE, scope=SCOPE):
     data = {
         "grant_type": grant,
         "client_id": CLIENT,
@@ -201,7 +202,7 @@ def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None, bad_
             key, issuer=CLIENT, subject=CLIENT,
             replace_signature=bad_auth,
         ),
-        "resource": RESOURCE,
+        "resource": resource,
     }
     if grant == "authorization_code":
         data.update({"code": code, "code_verifier": verifier,
@@ -211,7 +212,7 @@ def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None, bad_
         # Keep the already-granted resource and task scope explicit.
         # Some resource-indicator implementations recalculate the audience
         # from the refresh request rather than inheriting the original grant.
-        data["scope"] = SCOPE
+        data["scope"] = scope
     else:
         raise RuntimeError("UNSUPPORTED_CI_GRANT")
     result = browser.request(opener, TOKEN_ENDPOINT, data=data, form=True)
@@ -309,6 +310,18 @@ def main():
                                  refresh=first_refresh, bad_auth=True)
         if bad_status not in (400, 401):
             raise RuntimeError("BAD_REFRESH_CLIENT_SIGNATURE_ACCEPTED")
+
+        wrong_resource_status, _ = exchange(
+            opener, key, grant="refresh_token", refresh=first_refresh,
+            resource="https://not-prp.staging.example.org/api/mcp")
+        if wrong_resource_status not in (400, 401):
+            raise RuntimeError("WRONG_REFRESH_RESOURCE_ACCEPTED")
+        wrong_scope_status, _ = exchange(
+            opener, key, grant="refresh_token", refresh=first_refresh,
+            scope="openid offline_access prp.finance.read")
+        if wrong_scope_status not in (400, 401):
+            raise RuntimeError("UNGRANTED_REFRESH_FINANCE_SCOPE_ACCEPTED")
+        print("PASS AUTHCODE: refresh rejects unrelated MCP resource and finance scope.")
 
         refreshed_status, refreshed = exchange(opener, key, grant="refresh_token",
                                                 refresh=first_refresh)
