@@ -214,3 +214,46 @@ Regression coverage checks the actual public MockMvc endpoint returns exactly
 one scope, requires opt-in for financial discovery, and rejects invalid scope
 configuration or write advertisement with writes disabled. Nothing in this
 change enables writes, modifies any stored grant, or deploys an application.
+
+
+## CIMD PKCE event-scope compatibility — Keycloak 26.8 review gate
+
+Keycloak upstream issue [#52795](https://github.com/keycloak/keycloak/issues/52795)
+(documented 2026-09-15; 26.8.0 workaround reported 2026-10-06)
+warns that a `pkce-enforcer` executor attached **only** to the
+`client-id-uri` CIMD policy may not execute on the client registration,
+authorization or token events. The policy may look enabled while authorization
+codes can be issued without an S256 code challenge. Treat this as an
+explicitly unverified security risk for this staging Keycloak, not a proven
+live exploit or evidence of a fixed 26.8 deployment.
+
+Additional REQUIRED isolated-restored-Realm acceptance before allowing a
+ChatGPT login or deploying the CIMD policy:
+
+1. Keep the allowlisted `client-id-metadata-document` CIMD resolver Profile
+   and HTTPS `client-id-uri` Policy limited to `chatgpt.com`, with exact
+   verified callback, JWKS, resource indicator and scope permissions.
+2. Do **not** place PKCE enforcement only in that URI-matching Policy. Review
+   a **separate** `pkce-enforcer` Profile with `auto-configure=true`, and a
+   matching policy whose condition applies on CIMD client registration,
+   such as `client-updater-context` with
+   `update-client-source=["ByAnonymous"]`. The Keycloak issue reports
+   this workaround working on 26.8.0, but the exact installed build must
+   be tested. Do not accidentally broaden permissions to unrelated clients.
+3. On an ephemeral/fully-restored isolated Keycloak with the exact provider
+   version, send **new** authorization requests with (a) missing
+   `code_challenge`, (b) `code_challenge_method=plain` and
+   (c) a valid S256 challenge. Cases (a)/(b) MUST fail and case (c) MUST
+   proceed only with registered exact ChatGPT client/redirect/resource.
+   Check both the first CIMD resolution and subsequent cached-client request.
+4. Verify authorization-code exchange refuses absent/incorrect
+   `code_verifier`, and that the saved Keycloak client requires S256.
+   Also test callback mismatch, unrelated client host and unregistered
+   resource denial. Verify older 13 clients remain unchanged.
+5. Persist only sanitized results and the true active policy/realm hashes;
+   never copy an upstream demonstration policy to production without the
+   original guarded host change-control approvals and fresh recovery evidence.
+
+The current PR has **not** installed either policy or performed these
+negative live tests. Passing external metadata checks and disposable PKCE
+tests for a **pre-registered** client cannot satisfy this CIMD-specific gate.
