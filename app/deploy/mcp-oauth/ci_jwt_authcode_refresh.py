@@ -71,6 +71,8 @@ def create_user(token, password):
         "username": username,
         "enabled": True,
         "emailVerified": True,
+        "firstName": "Disposable", "lastName": "OAuth Test",
+        "email": username + "@example.invalid",
         "requiredActions": [],
         "credentials": [{"type": "password", "value": password, "temporary": False}],
     }
@@ -193,7 +195,7 @@ def main():
         opener = browser_opener()
         # Reuse existing robust login/consent driver; the code and verifier
         # exist only in this process and are never logged.
-        bad_code, _ = browser.code_pkce(opener, username, user_password, SCOPE)
+        bad_code, _ = browser.code_pkce(opener, username, user_password, "openid prp.tasks.read")
         bad_status, _ = exchange(opener, key, grant="authorization_code",
                                  code=bad_code, verifier=secrets.token_urlsafe(48))
         if bad_status not in (400, 401):
