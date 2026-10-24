@@ -194,6 +194,16 @@ jobs:
           for schema in app/docker/mysql/init/*.sql; do
             MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp_legacy < "$schema"
           done
+      - name: Rehearse nullable expansion on synthetic isolated MySQL
+        env:
+          CI: 'true'
+          MYSQL_PWD: ci-app-password
+          PRP_EXPAND_MYSQL_TEST: '1'
+        run: |
+          MYSQL_PWD=ci-root-password mysql -h 127.0.0.1 -uroot -e "
+            CREATE DATABASE matrix_prp_expand_verify CHARACTER SET utf8mb4;
+            GRANT ALL PRIVILEGES ON matrix_prp_expand_verify.* TO 'matrix_prp'@'%';"
+          python3 -m unittest discover -s app/deploy -p test_expand_candidate_mysql.py -v
       - name: Verify read-only legacy baseline gate
         env:
           MYSQL_PWD: ci-app-password
