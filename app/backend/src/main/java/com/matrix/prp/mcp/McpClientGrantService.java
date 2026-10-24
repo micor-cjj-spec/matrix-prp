@@ -6,7 +6,6 @@ import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.auth.security.LoginAttemptLimiter;
 import java.util.Arrays;
 import java.util.List;
-import java.time.LocalDateTime;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -103,15 +102,13 @@ public class McpClientGrantService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account reauthentication failed");
         }
         limiter.recordSuccess("mcp-pairing-grant", account.username());
-        record Existing(String status, LocalDateTime expiresAt) {}
+        record Existing(String status, boolean effective) {}
         List<Existing> previous = db.query(
-            "SELECT status,expires_at FROM prp_mcp_client_grants WHERE user_id=? AND client_id=? FOR UPDATE",
-            (rs, row) -> new Existing(rs.getString(1),
-                rs.getTimestamp(2) == null ? null : rs.getTimestamp(2).toLocalDateTime()),
-            owner, id);
+            "SELECT status,(expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) AS effective " +
+            "FROM prp_mcp_client_grants WHERE user_id=? AND client_id=? FOR UPDATE",
+            (rs, row) -> new Existing(rs.getString(1), rs.getBoolean(2)), owner, id);
         if (!previous.isEmpty() && "ACTIVE".equals(previous.getFirst().status()) &&
-            (previous.getFirst().expiresAt() == null ||
-             previous.getFirst().expiresAt().isAfter(LocalDateTime.now()))) {
+            previous.getFirst().effective()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                 "Revoke the existing active client grant before starting temporary pairing");
         }
