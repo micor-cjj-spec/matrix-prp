@@ -257,3 +257,57 @@ ChatGPT login or deploying the CIMD policy:
 The current PR has **not** installed either policy or performed these
 negative live tests. Passing external metadata checks and disposable PKCE
 tests for a **pre-registered** client cannot satisfy this CIMD-specific gate.
+
+## Disposable Keycloak 26.8 exact-client pre-registration results (2026-10-24)
+
+A new isolated GitHub Actions test, `ci_chatgpt_cimd_pkce.py`, runs **only**
+against the short-lived Keycloak container. It installs test-only CIMD
+Profile/Policy records and uses the actual ChatGPT public client ID
+`https://chatgpt.com/oauth/client.json`. On the native CIMD path it
+reproducibly encounters HTTP 400 with Keycloak's
+`UnrecognizedPropertyException` for
+`token_endpoint_auth_methods_supported`. This corroborates upstream
+Keycloak's documented compatibility limitation. **Do not weaken JSON parsing,
+change ChatGPT metadata, trust arbitrary CIMD domains or call that path
+accepted.**
+
+A distinct **exact-client pre-registration** alternative then succeeds
+in the same disposable Realm **only after disabling the generic CIMD URI
+interception policy**. It registers exactly one confidential client with:
+- Client ID equal to the official ChatGPT metadata URL, exact OAuth
+  redirect `https://chatgpt.com/connector_platform_oauth_redirect`,
+  `clientAuthenticatorType=client-jwt`, official JWKS URL, and S256
+  explicitly required.
+- Authorization Code only, no implicit/password/service-account grant;
+  empty web origins, consent required, full-scope access disabled, and
+  task-read only as optional PRP scope.
+
+[Green isolated evidence](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40108559013)
+shows a valid S256 request proceeds to the Keycloak login page, while
+requests missing PKCE or using `plain` are rejected. Exact client
+identity, redirect and stored S256 requirement are read back via the
+**disposable** Admin REST API. No user login, authorization code,
+`private_key_jwt` assertion, token endpoint exchange, refresh grant,
+PRP identity-link, real ChatGPT account, or MCP tool request was tested
+with this static client. Those remain HARD gates.
+
+This demonstrates a narrower possible alternative to a custom CIMD
+executor, **not** authorization to modify the active test Realm.
+The active Realm has 13 clients and its client policies must be preserved.
+Before any authorized test-only change:
+1. Obtain genuine, fresh B2 backup/restore + reviewed Nginx guard evidence
+   and an approved change transaction through the existing controller.
+2. Evaluate the exact-client pre-registration plan in a restored isolated
+   Keycloak clone; determine client JWT assertion compatibility with a
+   controlled test key, then with a real ChatGPT-originated token request.
+3. Recheck OIDC scopes (`openid offline_access prp.tasks.read`), resource
+   indicator/audience, signed client identification, refresh rotation,
+   revoke/expiry, account linkage and task-read isolation end-to-end.
+4. Never replace the active Realm's complete Clients/Policies collections
+   with the disposable CI examples or silently disable active policies.
+   If the original controller cannot safely apply this alternative,
+   leave production unchanged and record the blocker.
+
+The earlier CIMD-specific PKCE policy test is still required **if CIMD
+remains the chosen mechanism**; successful static pre-registration does
+not prove dynamic CIMD interoperability.
