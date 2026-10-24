@@ -228,7 +228,21 @@ def verify_access(value, jwks, *, subject=None):
     bearer = value.get("access_token")
     if not isinstance(bearer, str):
         raise RuntimeError("ACCESS_TOKEN_ABSENT")
-    check_token(bearer, jwks, issuer=ISSUER, resource=RESOURCE, client_id=CLIENT)
+    try:
+        check_token(bearer, jwks, issuer=ISSUER, resource=RESOURCE, client_id=CLIENT)
+    except ValueError as exc:
+        if str(exc) != "JWT audience must contain exact MCP resource":
+            raise
+        # The verifier checks the RSA signature BEFORE rejecting the
+        # audience. Never print actual claims, client IDs or bearer.
+        claims = json.loads(_b64url(bearer.split(".")[1]))
+        aud = claims.get("aud")
+        audiences = [aud] if isinstance(aud, str) else aud if isinstance(aud, list) else []
+        source = ("EMPTY" if not audiences else
+                  "CONTAINS_CLIENT" if "matrix-prp-mcp-resource" in audiences else
+                  "CONTAINS_ACCOUNT" if "account" in audiences else "OTHER")
+        task_scope = "READ" if "prp.tasks.read" in claims.get("scope", "").split() else "NO_READ"
+        raise RuntimeError("SIGNED_REFRESH_AUDIENCE_" + source + "_SCOPE_" + task_scope) from None
     claims = json.loads(_b64url(bearer.split(".")[1]))
     if subject is not None and claims.get("sub") != subject:
         raise RuntimeError("REFRESH_TOKEN_SUBJECT_CHANGED")
