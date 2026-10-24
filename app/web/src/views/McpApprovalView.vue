@@ -12,7 +12,7 @@ const password = ref('')
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
-const kindText: Record<string, string> = { TASK: '新建任务', FINANCE: '新增财务流水', RECORD: '新建个人记录' }
+const kindText: Record<string, string> = { TASK: '新建任务', TASK_UPDATE: '修改任务', TASK_DELETE: '删除任务', FINANCE: '新增财务流水', RECORD: '新建个人记录' }
 const statusText: Record<string, string> = { PENDING: '待本人确认', APPROVED: '本人已批准，等待 MCP 客户端保存', CONSUMED: '已保存', REJECTED: '已拒绝' }
 
 async function load() {

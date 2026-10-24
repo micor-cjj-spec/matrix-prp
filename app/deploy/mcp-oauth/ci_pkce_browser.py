@@ -136,38 +136,42 @@ def add_user(opener, admin_password, username, password):
                    data=user, bearer=admin_token), 201, "Temporary Keycloak user creation")
 
 
-def code_pkce(opener, login_user, login_password):
+def code_pkce(opener, login_user, login_password, requested_scopes="openid prp.tasks.read"):
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()
                                           ).rstrip(b"=").decode()
     state, nonce = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     params = {
         "client_id": CLIENT, "response_type": "code", "redirect_uri": CALLBACK,
-        "scope": "openid prp.tasks.read", "code_challenge_method": "S256",
+        "scope": requested_scopes, "code_challenge_method": "S256",
         "code_challenge": challenge, "state": state, "nonce": nonce,
         "resource": RESOURCE,
     }
     url = ISSUER + "/protocol/openid-connect/auth?" + urlencode(params)
-    current = request(opener, url, form=True)
+    try:
+        current = request(opener, url, form=True)
+    except CallbackReceived as cb:
+        return parse_callback(cb.url, state), verifier
     expect(current, 200, "Keycloak browser authorization page")
     parser = Forms()
     parser.feed(current[2])
     logins = [f for f in parser.forms
               if {"username", "password"}.issubset(f["inputs"])]
-    if len(logins) != 1:
-        raise RuntimeError("Keycloak browser login form not detected")
-    login_form = logins[0]
-    if not login_form["action"]:
-        raise RuntimeError("Keycloak login form action is missing")
-    target = urljoin(ISSUER, login_form["action"])
-    if urlsplit(target).hostname != urlsplit(ISSUER).hostname:
-        raise RuntimeError("Untrusted Keycloak login action")
-    data = dict(login_form["inputs"])
-    data.update({"username": login_user, "password": login_password})
-    try:
-        current = request(opener, target, data=data, form=True)
-    except CallbackReceived as cb:
-        return parse_callback(cb.url, state), verifier
+    if len(logins) > 1:
+        raise RuntimeError("Ambiguous Keycloak login forms")
+    if logins:
+        login_form = logins[0]
+        if not login_form["action"]:
+            raise RuntimeError("Keycloak login form action is missing")
+        target = urljoin(ISSUER, login_form["action"])
+        if urlsplit(target).hostname != urlsplit(ISSUER).hostname:
+            raise RuntimeError("Untrusted Keycloak login action")
+        data = dict(login_form["inputs"])
+        data.update({"username": login_user, "password": login_password})
+        try:
+            current = request(opener, target, data=data, form=True)
+        except CallbackReceived as cb:
+            return parse_callback(cb.url, state), verifier
     expect(current, 200, "Keycloak OAuth consent screen")
     consent = Forms()
     consent.feed(current[2])
@@ -322,6 +326,9 @@ def main():
     if denied[0] != 200 or not denied[1].get("result", {}).get("isError"):
         raise RuntimeError("Finance scope unexpectedly granted by read-only client")
     print("PASS E2E: MCP initialize, tools/list, tasks read, finance permission denied.")
+    if os.environ.get('MCP_E2E_CRUD') == 'true':
+        import ci_crud_flow
+        ci_crud_flow.run(sys.modules[__name__], opener, prp_jwt, prp_password, user_password)
     revoke = json_response(request(opener, "https://prp-e2e.localhost/api/mcp/clients/revoke",
         bearer=prp_jwt, data={"clientId": CLIENT}), "PRP client revocation")
     after = jsonrpc(opener, bearer, 6, "tools/list", {})

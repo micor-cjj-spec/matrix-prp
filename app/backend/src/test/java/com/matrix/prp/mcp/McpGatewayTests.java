@@ -33,6 +33,123 @@ import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.*;
 
 class McpGatewayTests {
+    @Test
+    void revokedOperationScopeCannotConfirmAnAlreadyApprovedDraft() {
+        var approvals = mock(McpDraftService.class);
+        when(approvals.review(CHANGE_ID)).thenReturn(new McpDraftService.Review(
+            CHANGE_ID, "TASK_DELETE", json.createObjectNode(), "APPROVED", "future"));
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+            new UserProfile(501L, "mcp-user", "MCP"), null,
+            List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.confirm"))));
+        var tools = new PrpMcpTools(tasks, finance, null, approvals, new McpScopeGuard(true));
+        assertThatThrownBy(() -> tools.confirmDraft(CHANGE_ID)).isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+        verify(approvals, never()).confirm(anyString());
+    }
+
+    @Test
+    void createPermissionDoesNotAuthorizeAnUpdateDraft() {
+        var approvals = mock(McpDraftService.class);
+        when(approvals.review(CHANGE_ID)).thenReturn(new McpDraftService.Review(
+            CHANGE_ID, "TASK_UPDATE", json.createObjectNode(), "APPROVED", "future"));
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+            new UserProfile(501L, "mcp-user", "MCP"), null,
+            List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.confirm"),
+                new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.create"))));
+        var tools = new PrpMcpTools(tasks, finance, null, approvals, new McpScopeGuard(true));
+        assertThatThrownBy(() -> tools.confirmDraft(CHANGE_ID)).isInstanceOf(ResponseStatusException.class);
+        verify(approvals, never()).confirm(anyString());
+    }
+    private static final String CHANGE_ID = "41abc027-d67e-4bdf-8985-e3ec97d23204";
+
+    private com.matrix.prp.tasks.model.TaskItem ownedTask(String title) {
+        return new com.matrix.prp.tasks.model.TaskItem(77L, "work", title, "", "low", "todo", null,
+            java.time.OffsetDateTime.parse("2026-10-23T08:00:00+08:00"), null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void storedTaskChange(String kind, McpDraftService.TaskChange change, String status) throws Exception {
+        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,expires_at"),
+            any(RowMapper.class), eq(CHANGE_ID), eq(501L))).thenAnswer(invocation -> {
+                RowMapper<Object> mapper = invocation.getArgument(1);
+                ResultSet rs = mock(ResultSet.class);
+                when(rs.getString("kind")).thenReturn(kind);
+                when(rs.getString("payload_json")).thenReturn(json.writeValueAsString(change));
+                when(rs.getString("result_json")).thenReturn("{\"deleted\":true}");
+                when(rs.getString("status")).thenReturn(status);
+                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                return List.of(mapper.mapRow(rs, 0));
+            });
+        when(db.query(startsWith("SELECT updated_at"), any(RowMapper.class), eq(77L), eq(501L)))
+            .thenReturn(List.of("revision"));
+        when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status='CONSUMED'"),
+            any(), any(), any())).thenReturn(1);
+    }
+
+    @Test void approvedDeleteRejectsChangedValues() throws Exception {
+        storedTaskChange("TASK_DELETE", new McpDraftService.TaskChange(77L, ownedTask("Approved"), "revision", null, null), "APPROVED");
+        when(tasks.get(77L)).thenReturn(ownedTask("Changed"));
+        assertThatThrownBy(() -> drafts(true).confirm(CHANGE_ID)).isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        verify(tasks, never()).delete(anyLong());
+    }
+
+    @Test void approvedDeleteRejectsChangedRevision() throws Exception {
+        storedTaskChange("TASK_DELETE", new McpDraftService.TaskChange(77L, ownedTask("Approved"), "old-revision", null, null), "APPROVED");
+        assertThatThrownBy(() -> drafts(true).confirm(CHANGE_ID)).isInstanceOf(ResponseStatusException.class);
+        verify(tasks, never()).delete(anyLong());
+    }
+
+    @Test void approvedDeleteConsumesExactOwnedTask() throws Exception {
+        var task = ownedTask("Approved");
+        storedTaskChange("TASK_DELETE", new McpDraftService.TaskChange(77L, task, "revision", null, null), "APPROVED");
+        when(tasks.get(77L)).thenReturn(task);
+        var result = drafts(true).confirm(CHANGE_ID);
+        assertThat(result.saved().path("deleted").asBoolean()).isTrue();
+        verify(tasks).delete(77L);
+    }
+
+    @Test void consumedDeletionDoesNotDeleteAgain() throws Exception {
+        storedTaskChange("TASK_DELETE", new McpDraftService.TaskChange(77L, ownedTask("Approved"), "revision", null, null), "CONSUMED");
+        assertThat(drafts(true).confirm(CHANGE_ID).alreadySaved()).isTrue();
+        verifyNoInteractions(tasks);
+    }
+
+    @Test void approvedUpdateAppliesReviewedValuesAndStatus() throws Exception {
+        var before = ownedTask("Approved");
+        var after = new CreateTaskRequest("work", "Reviewed replacement", "", "high", null);
+        storedTaskChange("TASK_UPDATE", new McpDraftService.TaskChange(77L, before, "revision", after, "done"), "APPROVED");
+        when(tasks.get(77L)).thenReturn(before);
+        when(tasks.updateStatus(77L, "done")).thenReturn(ownedTask("Reviewed replacement"));
+        drafts(true).confirm(CHANGE_ID);
+        verify(tasks).update(77L, after);
+        verify(tasks).updateStatus(77L, "done");
+        verify(tasks, never()).delete(anyLong());
+    }
+    @Test
+    void taskMutationGateRejectsBeforeTargetLookup() {
+        assertThatThrownBy(() -> drafts(false).prepareTaskChange(77L, null, null, true))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(db, tasks);
+    }
+
+    @Test
+    void inaccessibleTaskCannotBecomeADeletionDraft() {
+        assertThatThrownBy(() -> drafts(true).prepareTaskChange(77L, null, null, true))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND));
+        verifyNoInteractions(tasks);
+    }
+
+    @Test
+    void invalidReplacementCannotBecomeUpdateDraft() {
+        assertThatThrownBy(() -> drafts(true).prepareTaskChange(77L, null, null, false))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST));
+        verifyNoInteractions(db, tasks);
+    }
     private final JdbcTemplate db = mock(JdbcTemplate.class);
     private final TaskService tasks = mock(TaskService.class);
     private final FinanceService finance = mock(FinanceService.class);
@@ -54,7 +171,7 @@ class McpGatewayTests {
 
     private McpDraftService drafts(boolean enabled) {
         return new McpDraftService(db, json,
-            Validation.buildDefaultValidatorFactory().getValidator(), tasks, finance, records, users, passwords, enabled);
+            Validation.buildDefaultValidatorFactory().getValidator(), tasks, finance, records, users, passwords, enabled, "https://prp-test.micor.top/api/mcp");
     }
 
     @Test
@@ -94,6 +211,8 @@ class McpGatewayTests {
         var preview = drafts(true).prepare(McpDraftService.Kind.TASK,
             new CreateTaskRequest("work", "Review API contract", "", "high", null));
         assertThat(preview.kind()).isEqualTo("TASK");
+        assertThat(preview.instruction()).contains("https://prp-test.micor.top/prp/me/mcp-approve/" + preview.draftId())
+            .contains("never in chat");
         assertThat(preview.values().get("title").asText()).isEqualTo("Review API contract");
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
             any(), eq(501L), eq("TASK"), any(), any());
