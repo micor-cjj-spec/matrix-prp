@@ -1,0 +1,17 @@
+name: MCP public metadata read-only reachability
+on:
+  push:
+    branches:
+      - test/mcp-public-readonly-reachability-20261025
+permissions:
+  contents: read
+jobs:
+  external-metadata-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check exact public staging MCP resource metadata and OIDC discovery
+        run: python3 app/deploy/mcp-oauth/ci_public_readonly_probe.py
