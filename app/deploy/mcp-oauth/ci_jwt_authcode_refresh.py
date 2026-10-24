@@ -14,7 +14,9 @@ from pathlib import Path
 import secrets
 import tempfile
 from urllib.parse import urlsplit
-from urllib.request import build_opener, HTTPCookieProcessor, HTTPRedirectHandler
+from urllib.request import build_opener, HTTPCookieProcessor, HTTPRedirectHandler, Request
+from urllib.error import HTTPError
+from urllib.parse import urlencode
 
 import ci_pkce_browser as browser
 from ci_chatgpt_cimd_pkce import BASE, REALM_ADMIN, admin_token, request, read_json, replace_admin_doc
@@ -39,13 +41,69 @@ class LocalRedirect(HTTPRedirectHandler):
 
 
 def browser_opener():
-    # Reuse the already green login/consent/PCKE form driver, but make its
+    # Reuse the already green login/consent/PKCE form driver, but make its
     # issuer strictly the ephemeral loopback Keycloak.
     browser.ISSUER = ISSUER
     browser.RESOURCE = RESOURCE
     browser.CLIENT = CLIENT
     browser.CALLBACK = CALLBACK
+    browser.request = classified_browser_request
     return build_opener(HTTPCookieProcessor(CookieJar()), LocalRedirect())
+
+
+def classified_browser_request(opener, url, *, data=None, bearer=None, form=False, method=None):
+    """Return original driver contract, with static-only 400 error categories.
+
+    Keycloak login POST errors are otherwise silently reduced to HTTP 400,
+    making CI unable to distinguish an invalid realm/client setting from
+    a broken browser driver. Never print URLs, HTML, cookies or response.
+    """
+    if not url.startswith(BASE + "/"):
+        raise RuntimeError("DISPOSABLE_BROWSER_NON_LOCAL_REQUEST")
+    headers = {"Accept": "text/html" if form else "application/json"}
+    if bearer:
+        headers["Authorization"] = "Bearer " + bearer
+    body = None
+    if data is not None:
+        if form:
+            body = urlencode(data).encode()
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        else:
+            body = json.dumps(data).encode()
+            headers["Content-Type"] = "application/json"
+    try:
+        response = opener.open(Request(url, data=body, headers=headers, method=method), timeout=15)
+    except HTTPError as err:
+        response = err
+    with response:
+        status = response.status
+        raw = response.read(250001)
+        if len(raw) > 250000:
+            raise RuntimeError("OVERSIZED_BROWSER_RESPONSE")
+        content = raw.decode("utf-8", errors="replace")
+        if status == 400:
+            lower = content[:30000].lower()
+            diagnostic = "UNCLASSIFIED"
+            for needle, category in (
+                ("invalid_scope", "INVALID_SCOPE"),
+                ("invalid scope", "INVALID_SCOPE"),
+                ("invalid_grant", "INVALID_GRANT"),
+                ("invalid_request", "INVALID_REQUEST"),
+                ("invalid_client", "INVALID_CLIENT"),
+                ("invalid username or password", "INVALID_LOGIN"),
+                ("page has expired", "LOGIN_PAGE_EXPIRED"),
+                ("cookie not found", "LOGIN_COOKIE_MISSING"),
+                ("restart login", "LOGIN_RESTART"),
+                ("request failed", "REQUEST_FAILED"),
+                ("client session", "CLIENT_SESSION"),
+            ):
+                if needle in lower:
+                    diagnostic = category
+                    break
+            stage = "TOKEN" if "/token" in url else (
+                "LOGIN" if "/login-actions/" in url else "AUTHORIZE")
+            raise RuntimeError("LOCAL_KEYCLOAK_HTTP_400_" + stage + "_" + diagnostic)
+        return status, response.headers.get("Content-Type", ""), content
 
 
 def configure_realm(token):
