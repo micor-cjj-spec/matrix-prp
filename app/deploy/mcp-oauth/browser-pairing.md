@@ -37,8 +37,16 @@ Review these exact client settings in an isolated restored Keycloak 26.8 Realm:
 | Refresh/offline access | Not requested/granted to the browser pairing client |
 
 The same client must not retain `prp.tasks.read` permission within PRP:
-the pairing wizard grants it **temporarily**, submits the existing hashed
-one-time ticket, and attempts to revoke it on **success or failure**. If the
+the pairing wizard calls the dedicated owner-only
+`POST /api/mcp/clients/pairing` endpoint to issue a **server-enforced
+10-minute, task-read-only lease**. V28 creates the separate empty
+`prp_mcp_pairing_grant_leases` companion table, without altering existing
+`prp_mcp_client_grants` rows. Every subsequent bearer request joins that
+lease using MySQL's current clock: expiration immediately denies the bearer,
+even after a browser crash or lost `sessionStorage`.
+
+The wizard submits the existing hashed one-time ticket and also attempts
+to revoke the lease on **success or failure**, for earlier cutoff. If the
 owner cancels, the callback fails, or the token exchange/PRP link is rejected,
 the browser must revoke the temporary grant. A cancelled/incomplete same-tab
 session remains discoverable on revisiting the owner page; the UI provides
@@ -47,8 +55,10 @@ session remains discoverable on revisiting the owner page; the UI provides
 expires the separate PRP **client grant**; it does not.
 
 If the browser never returns (lost tab/session, crashed PWA) or a network outage
-prevents revocation, the PRP owner **must** go to **Registered clients** and
-manually revoke the separate pairing client's read permission. The UI surfaces
+prevents manual revocation, the lease automatically becomes ineffective after
+10 minutes; the database retains an `EXPIRED` record for owner visibility.
+The PRP owner can still go to **Registered clients** and manually revoke
+the separate pairing client's read permission immediately. The UI surfaces
 an explicit danger warning when its automatic revocation call fails.
 
 ## Front-end opt-in deployment settings
