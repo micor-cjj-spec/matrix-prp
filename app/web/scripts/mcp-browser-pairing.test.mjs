@@ -144,3 +144,12 @@ test('browser pairing cleanup is mandatory on failure, cancellation and callback
   assert.match(view, /v-if="pairingCleanupWarning"/)
   assert.match(router, /redirect: safeUnauthenticatedRedirect\(to\)/)
 })
+
+test('browser OAuth pairing never uses the permanent user-grant API', () => {
+  const view = readFileSync(new URL('../src/views/McpClientsView.vue', import.meta.url), 'utf8')
+  const clients = readFileSync(new URL('../src/api/mcpClients.ts', import.meta.url), 'utf8')
+  assert.match(view, /await authorizeTemporaryMcpPairing\(config\.clientId, ownerPassword\)/)
+  assert.doesNotMatch(view, /await authorizeMcpClient\(config\.clientId,/)
+  assert.match(clients, /'\/mcp\/clients\/pairing'/)
+  assert.match(clients, /'ACTIVE' \| 'REVOKED' \| 'EXPIRED'/)
+})
