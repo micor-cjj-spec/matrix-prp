@@ -45,8 +45,11 @@ def inspect(resource, issuer, fetch):
         raise ValueError("Unexpected OAuth authorization server")
     if metadata.get("bearer_methods_supported") != ["header"]:
         raise ValueError("Bearer scheme is not an HTTP header")
-    if "prp.tasks.read" not in metadata.get("scopes_supported", []):
-        raise ValueError("Expected PRP task scope is absent")
+    # Discovery controls requested permissions, so extra scopes are not safe
+    # merely because task read is present. Only the task-read-only canary
+    # is eligible for ChatGPT acceptance at this stage.
+    if metadata.get("scopes_supported") != ["prp.tasks.read"]:
+        raise ValueError("Public PRP MCP scope discovery must be task-read-only")
 
     status, headers, _ = fetch(expected, "POST",
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",
