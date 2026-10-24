@@ -177,8 +177,11 @@ def register_client(token, certificate):
             "name": "CI resource indicator only",
             "protocol": "openid-connect",
             "protocolMapper": "oidc-audience-mapper",
-            "config": {"included.client.audience": "matrix-prp-mcp-resource",
-                       "included.custom.audience": RESOURCE,
+            # The Keycloak Audience Mapper treats Included Client and
+            # Included Custom Audience as mutually exclusive. An actual
+            # HTTPS MCP resource URI MUST use the latter, otherwise refresh
+            # grants can issue an internal client-id audience.
+            "config": {"included.custom.audience": RESOURCE,
                        "id.token.claim": "false", "access.token.claim": "true"},
         }],
     }
