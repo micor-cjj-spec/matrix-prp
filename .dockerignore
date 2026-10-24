@@ -1,0 +1,13 @@
+# Local credentials must never enter either staging build context or its cache.
+.git
+**/.env
+**/.env.*
+**/.generated
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/__pycache__
+**/node_modules
+**/target
+**/dist

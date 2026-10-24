@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, feat/multi-user-foundation]
   pull_request:
-    branches: [main]
+    branches: [main, fix/mcp-v24-lineage-conflict-20261022]
 
 jobs:
   controller-compatibility:
@@ -144,7 +144,7 @@ jobs:
           MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
         run: |
           chmod +x mvnw
-          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT test
+          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT test
 
 
   deployment-gate-tests:
@@ -153,6 +153,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test production deployment data-preservation rules
         run: python3 -m unittest discover -s app/deploy -p 'test_*.py' -v
+      - name: Validate OAuth authorization metadata preflight fixtures
+        run: python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_*.py' -v
+      - name: Validate isolated MCP staging configuration guards
+        run: python3 -m unittest discover -s app/deploy/mcp-staging -p 'test_*.py' -v
 
   db-migration-integration:
     runs-on: ubuntu-latest
@@ -210,6 +214,126 @@ jobs:
         run: |
           chmod +x mvnw
           ./mvnw -B -Dtest=FlywayMigrationIT test
+
+  keycloak-oauth-ephemeral:
+    # Only PR #95/its feature branch. A disposable GitHub runner, not PRP production.
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate exact Keycloak resource and read-only PKCE client
+        run: |
+          python3 app/deploy/mcp-oauth/build_realm.py \
+            --resource https://prp.staging.example.org/api/mcp \
+            --staging-client-id prp-pkce-probe \
+            --staging-redirect http://127.0.0.1:8765/callback
+      - name: Verify actual Keycloak import and PKCE settings using loopback only
+        shell: bash
+        run: |
+          set -euo pipefail
+          admin_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::${admin_secret}"
+          trap 'docker rm -f prp-mcp-keycloak-ci >/dev/null 2>&1 || true' EXIT
+          docker run --rm -d \
+            --name prp-mcp-keycloak-ci \
+            -p 127.0.0.1:18080:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=prp-smoke-admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD="${admin_secret}" \
+            -v "${PWD}/app/deploy/mcp-oauth/.generated/realm:/opt/keycloak/data/import:ro" \
+            quay.io/keycloak/keycloak:26.8.0 \
+            start-dev --import-realm --features=cimd,resource-indicators \
+            --hostname=http://127.0.0.1:18080
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/keycloak_ephemeral_smoke.py \
+              --admin-user prp-smoke-admin
+
+  nginx-oauth-ephemeral:
+    # Runs only for the review branch: isolated HTTPS Nginx and fake backend.
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test actual TLS/Host forwarding and MCP path preservation with Nginx
+        run: bash app/deploy/mcp-oauth/test_nginx_ephemeral.sh
+
+  mcp-staging-compose:
+    # Real Docker Compose parse with freshly generated disposable secrets.
+    # No containers started, no production resources used.
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate disposable staging-only environment and validate isolation
+        working-directory: app/deploy/mcp-staging
+        run: |
+          python3 prepare_env.py
+          python3 check_env.py --env-file .env
+          docker compose --project-name prp-mcp-stage --env-file .env -f compose.yaml config --quiet
+          test "$(stat -c '%a' .env)" = 600
+          test "$(docker compose --project-name prp-mcp-stage --env-file .env -f compose.yaml config --services | wc -l)" = 3
+      - name: Reject accidental live/anonymous MCP settings
+        working-directory: app/deploy/mcp-staging
+        run: |
+          sed -i 's/PRP_STAGE_MCP_ENABLED=false/PRP_STAGE_MCP_ENABLED=true/' .env
+          if python3 check_env.py --env-file .env; then
+            echo 'ERROR: staging guard accepted MCP without OAuth'
+            exit 1
+          fi
+          sed -i 's/PRP_STAGE_MCP_ENABLED=true/PRP_STAGE_MCP_ENABLED=false/' .env
+          sed -i 's/PRP_STAGE_PUBLIC_HOST=prp-test.micor.top/PRP_STAGE_PUBLIC_HOST=micor.top/' .env
+          if python3 check_env.py --env-file .env; then
+            echo 'ERROR: staging guard accepted the production domain'
+            exit 1
+          fi
+          echo 'PASS: staging Compose is valid and unsafe enablement is rejected.'
+
+  mcp-staging-runtime:
+    # Build and boot real PRP images with brand-new MySQL on disposable runner.
+    # No server credentials, no PRP production data or environment access.
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real isolated PRP staging, manifest-pinned Flyway and loopback Web/API smoke
+        run: bash app/deploy/mcp-staging/smoke_disposable.sh
+
+  mcp-staging-tls:
+    # Real TLS reverse-proxy acceptance using disposable local secrets and mocks.
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate isolated HTTPS staging virtual hosts and Keycloak admin isolation
+        run: bash app/deploy/mcp-staging/test_tls_ephemeral.sh
+
+  mcp-real-pkce-e2e:
+    # Full disposable CI: live Keycloak browser login+PKCE, fresh PRP MySQL,
+    # TLS trusted JWKS, first-party owner grant/link and OAuth MCP tool calls.
+    # No prod DNS, no user data, no external server access.
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feat/prp-mcp-gateway-v1' || github.head_ref == 'feat/mcp-owner-crud-20261023')
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [readonly, crud]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run real ephemeral PKCE + owner link + MCP read/revoke end-to-end
+        env:
+          MCP_E2E_CRUD: ${{ matrix.mode == 'crud' && 'true' || 'false' }}
+        run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
 
   safe-deployment-diagnostics:
     runs-on: ubuntu-latest

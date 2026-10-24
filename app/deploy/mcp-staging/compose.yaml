@@ -1,0 +1,84 @@
+# MCP staging ONLY. All published ports are loopback; no production database mounts.
+# Run with: docker compose --project-name prp-mcp-stage --env-file .env -f compose.yaml up -d --build
+name: prp-mcp-stage
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${PRP_STAGE_DB_ROOT_PASSWORD:?staging root password required}
+      MYSQL_DATABASE: matrix_prp_mcp_stage
+      MYSQL_USER: prp_stage
+      MYSQL_PASSWORD: ${PRP_STAGE_DB_PASSWORD:?staging app password required}
+    volumes:
+      - stage_mysql:/var/lib/mysql
+    networks: [stage_private]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  backend:
+    build:
+      context: ../../..
+      dockerfile: app/deploy/mcp-staging/Dockerfile.backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MATRIX_PRP_DB_URL: jdbc:mysql://mysql:3306/matrix_prp_mcp_stage?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      MATRIX_PRP_DB_USER: prp_stage
+      MATRIX_PRP_DB_PASSWORD: ${PRP_STAGE_DB_PASSWORD:?}
+      MATRIX_PRP_JWT_SECRET: ${PRP_STAGE_JWT_SECRET:?}
+      MATRIX_PRP_BOOTSTRAP_USERNAME: ${PRP_STAGE_ADMIN_USERNAME:?}
+      MATRIX_PRP_BOOTSTRAP_PASSWORD: ${PRP_STAGE_ADMIN_PASSWORD:?}
+      MATRIX_PRP_FLYWAY_ENABLED: "true"
+      MATRIX_PRP_MCP_ENABLED: ${PRP_STAGE_MCP_ENABLED:-false}
+      MATRIX_PRP_MCP_OAUTH_ENABLED: ${PRP_STAGE_OAUTH_ENABLED:-false}
+      MATRIX_PRP_MCP_WRITE_ENABLED: "false"
+      MATRIX_PRP_MCP_ALLOWED_ORIGINS: ${PRP_STAGE_PUBLIC_URL:?}
+      MATRIX_PRP_MCP_OAUTH_ISSUER: ${PRP_STAGE_AUTH_ISSUER:?}
+      MATRIX_PRP_MCP_OAUTH_JWK_SET_URI: ${PRP_STAGE_AUTH_JWKS_URI:?}
+      MATRIX_PRP_MCP_OAUTH_RESOURCE: ${PRP_STAGE_MCP_RESOURCE:?}
+      MATRIX_PRP_AI_SPRING_AI_ENABLED: "false"
+      MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED: "false"
+      MATRIX_PRP_VIDEO_ROOT: /data/video
+      MATRIX_PRP_VOCAL_ROOT: /data/vocal
+    volumes:
+      - stage_video:/data/video
+      - stage_vocal:/data/vocal
+    networks: [stage_private, stage_egress]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+
+  gateway:
+    build:
+      context: ../../..
+      dockerfile: app/deploy/mcp-staging/Dockerfile.web
+    restart: unless-stopped
+    depends_on: [backend]
+    environment:
+      PRP_STAGE_HOST: ${PRP_STAGE_PUBLIC_HOST:?}
+    ports:
+      - "127.0.0.1:18081:8080"
+    networks: [stage_private, stage_egress]
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  stage_private:
+    driver: bridge
+    internal: true
+  # Backend must verify HTTPS JWKS from the external Keycloak issuer.
+  stage_egress:
+    driver: bridge
+
+volumes:
+  stage_mysql:
+  stage_video:
+  stage_vocal:
