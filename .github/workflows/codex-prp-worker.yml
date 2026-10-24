@@ -1,39 +1,118 @@
-name: PRP external network capability probe
+name: PRP approved disposable WARP capability probe
 on:
   workflow_dispatch:
+    inputs:
+      approve_temporary_warp_terms:
+        description: Explicit user approval for disposable WARP registration and service terms
+        type: boolean
+        required: true
+        default: false
 permissions: {}
 jobs:
   probe:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/mcp-hosted-network-probe-20261024'
-    runs-on: macos-15
-    timeout-minutes: 3
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'micor-cjj-spec/matrix-prp' && github.ref == 'refs/heads/fix/mcp-hosted-network-probe-20261024' && inputs.approve_temporary_warp_terms == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
     steps:
-      - name: Two normal public HTTPS controls; no credentials or checkout
+      - name: Approved disposable network capability test; no checkout or production credentials
         shell: bash
+        env:
+          PRP_WARP_TEST_APPROVED: 'true'
         run: |
           python3 - <<'PY'
-          import json, subprocess, time
-          rows=[]
-          for family,address in [(4,'207.57.123.94'),(6,'[2001:df1:7880:6::63]')]:
-              start=time.monotonic()
-              command=['curl','-'+str(family),'--noproxy','*','--silent',
-                  '--proto','=https','--connect-timeout','8','--max-time','15',
-                  '--resolve','micor.top:443:'+address,'--output','/dev/null',
-                  '--write-out','%{http_code} %{ssl_verify_result}',
-                  'https://micor.top/prp/api/health']
+          """Explicitly approved, disposable GitHub-runner-only WARP capability probe.
+          
+          Never run on Windows, PRP, self-hosted runners, or with production credentials.
+          Raw client output is captured in memory and never published.
+          """
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import time
+          
+          def main():
+              assert os.environ.get('GITHUB_ACTIONS')=='true'
+              assert os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted'
+              assert os.environ.get('RUNNER_OS')=='Linux'
+              assert os.environ.get('PRP_WARP_TEST_APPROVED')=='true'
+              assert os.environ.get('GITHUB_REF')=='refs/heads/fix/mcp-hosted-network-probe-20261024'
+              assert 'VERSION_CODENAME=noble' in Path('/etc/os-release').read_text()
+              os.umask(0o077)
+              report={'kind':'disposable_warp_capability_only','production_acceptance':False,
+                      'production_credentials_used':False,'production_configuration_changed':False,
+                      'third_party_registration_approved':True,'steps':[],'requests':[],
+                      'registration_attempted':False,'registration_command_succeeded':False,
+                      'capability_ready':False,'raw_client_output_exported':False}
+              def run(label,args,seconds,required=True):
+                  try:
+                      p=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=seconds)
+                      code=p.returncode;output=p.stdout+p.stderr
+                  except subprocess.TimeoutExpired:
+                      code=None;output=b''
+                  report['steps'].append({'step':label,'exit_code':code,'timed_out':code is None})
+                  if required and code!=0:raise RuntimeError(label)
+                  return code,output
+              registered=False
               try:
-                  result=subprocess.run(command,capture_output=True,text=True,timeout=18)
-                  parts=result.stdout.strip().split()
-                  valid=len(parts)==2 and all(x.isdigit() for x in parts)
-                  rows.append(dict(family=family,curl_exit=result.returncode,
-                      http_status=int(parts[0]) if valid else None,
-                      tls_verify=int(parts[1]) if valid else None,
-                      elapsed_seconds=round(time.monotonic()-start,3),
-                      normal_https_reachable=bool(valid and result.returncode==0 and parts==['200','0'])))
-              except subprocess.TimeoutExpired:
-                  rows.append(dict(family=family,process_timeout=True,normal_https_reachable=False))
-          report=dict(kind='external_hosted_runner_capability_only',
-              production_acceptance=False,security_denial_verified=False,
-              credentials_used=False,retries=0,requests=rows)
-          print(json.dumps(report,sort_keys=True))
+                  temp=Path(os.environ['RUNNER_TEMP'])
+                  key=temp/'cloudflare-official-public.gpg'
+                  run('official_signing_key_download',['curl','--proto','=https','--fail','--silent','--show-error',
+                      '--connect-timeout','8','--max-time','20','--output',str(key),
+                      'https://pkg.cloudflareclient.com/pubkey.gpg'],25)
+                  run('official_signing_key_install',['sudo','gpg','--batch','--yes','--dearmor','--output',
+                      '/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg',str(key)],15)
+                  source=temp/'cloudflare-client.list'
+                  source.write_text('deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main\n')
+                  run('official_repository_install',['sudo','install','-m','644',str(source),'/etc/apt/sources.list.d/cloudflare-client.list'],10)
+                  run('apt_update',['sudo','apt-get','update','-o','Acquire::Retries=0','-o','Acquire::http::Timeout=15'],90)
+                  run('official_client_install',['sudo','apt-get','install','--assume-yes','--no-install-recommends','cloudflare-warp'],90)
+                  code,out=run('client_version',['warp-cli','--version'],5)
+                  version=re.search(rb'\d+\.\d+\.\d+(?:\.\d+)?',out)
+                  report['client_version']=version.group().decode('ascii') if version else 'UNPARSED'
+                  report['registration_attempted']=True
+                  run('device_registration',['warp-cli','--accept-tos','registration','new'],30)
+                  registered=True;report['registration_command_succeeded']=True
+                  run('encrypted_tunnel_mode',['warp-cli','--accept-tos','mode','warp+doh'],10)
+                  run('connect',['warp-cli','--accept-tos','connect'],10)
+                  deadline=time.monotonic()+30
+                  connected=False
+                  while time.monotonic()<deadline:
+                      code,out=run('bounded_status',['warp-cli','--accept-tos','status'],4,False)
+                      if code==0 and re.search(rb'Status update:\s*Connected\b',out):connected=True;break
+                      time.sleep(1)
+                  report['client_reports_connected']=connected
+                  if not connected:raise RuntimeError('CLIENT_READINESS_NOT_CONFIRMED')
+                  for family,address in [(4,'207.57.123.94'),(6,'[2001:df1:7880:6::63]')]:
+                      start=time.monotonic()
+                      code,out=run('https_ipv'+str(family),['curl','-'+str(family),'--noproxy','*','--silent',
+                          '--proto','=https','--connect-timeout','8','--max-time','15',
+                          '--resolve','micor.top:443:'+address,'--output','/dev/null',
+                          '--write-out','%{http_code} %{ssl_verify_result}',
+                          'https://micor.top/prp/api/health'],18,False)
+                      parts=out.strip().split();valid=len(parts)==2 and all(x.isdigit() for x in parts)
+                      report['requests'].append({'family':family,'curl_exit':code,
+                          'http_status':int(parts[0]) if valid else None,'tls_verify':int(parts[1]) if valid else None,
+                          'elapsed_seconds':round(time.monotonic()-start,3),
+                          'normal_https_reachable':bool(code==0 and valid and parts==[b'200',b'0'])})
+                  report['capability_ready']=len(report['requests'])==2 and all(x['normal_https_reachable'] for x in report['requests'])
+              except Exception as exc:
+                  # Never serialize exception messages: subprocess output may contain identity.
+                  report['failure_type']=type(exc).__name__
+                  report['failed_step']=report['steps'][-1]['step'] if report['steps'] else 'INITIALIZATION'
+              finally:
+                  if report['registration_attempted']:
+                      dc,_=run('cleanup_disconnect',['warp-cli','--accept-tos','disconnect'],15,False)
+                      delete,_=run('cleanup_registration_delete',['warp-cli','--accept-tos','registration','delete'],15,False)
+                      show,out=run('cleanup_check_registration',['warp-cli','--accept-tos','registration','show'],5,False)
+                      missing=any(x in out.lower() for x in [b'registration missing',b'missing registration',b'missingregistration',b'registration not found'])
+                      report['cleanup']={'disconnect_command_succeeded':dc==0,'deletion_command_succeeded':delete==0,
+                          'local_registration_absence_confirmed':show!=0 and missing,
+                          'remote_registration_deletion_independently_verified':False}
+                  else:report['cleanup']={'registration_was_not_attempted':True}
+                  report['requests_retried']=False
+                  print(json.dumps(report,sort_keys=True),flush=True)
+          
+          if __name__=='__main__':main()
           PY
