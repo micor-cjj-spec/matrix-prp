@@ -54,8 +54,23 @@ def resource_check(document):
         raise ValueError("RESOURCE_URI_MISMATCH")
     if document.get("authorization_servers") != [ISSUER]:
         raise ValueError("ISSUER_LIST_MISMATCH")
-    if document.get("scopes_supported") != ["prp.tasks.read"]:
-        raise ValueError("NOT_STRICT_TASK_READ")
+    scopes = document.get("scopes_supported")
+    if scopes != ["prp.tasks.read"]:
+        if not isinstance(scopes, list) or any(not isinstance(v, str) for v in scopes):
+            raise ValueError("MALFORMED_PUBLIC_SCOPES")
+        categories = []
+        if "prp.tasks.read" not in scopes:
+            categories.append("TASK_READ_MISSING")
+        if any(v.startswith("prp.write.") for v in scopes):
+            categories.append("WRITE_ADVERTISED")
+        if "prp.finance.read" in scopes:
+            categories.append("FINANCE_ADVERTISED")
+        if "prp.wellness.read" in scopes:
+            categories.append("WELLNESS_ADVERTISED")
+        if any(v not in ("prp.tasks.read", "prp.finance.read", "prp.wellness.read")
+               and not v.startswith("prp.write.") for v in scopes):
+            categories.append("UNKNOWN_SCOPE_ADVERTISED")
+        raise ValueError("EXTRA_SCOPE_CATEGORIES_" + ("_".join(categories) if categories else "OTHER"))
     if document.get("bearer_methods_supported") != ["header"]:
         raise ValueError("BEARER_METHOD_MISMATCH")
 
