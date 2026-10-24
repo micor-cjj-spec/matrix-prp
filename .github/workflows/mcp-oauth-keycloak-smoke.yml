@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/prp-mcp-gateway-v1
+      - test/mcp-authcode-privatejwt-refresh-20261024
     paths:
       - "app/deploy/mcp-oauth/**"
       - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
@@ -60,3 +61,7 @@ jobs:
           # token authentication. No real ChatGPT private keys are available.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_static_client_jwt.py
+          # Separate throwaway client and user: real Authorization Code,
+          # signed JWT client auth, offline refresh rotation and revocation.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_jwt_authcode_refresh.py
