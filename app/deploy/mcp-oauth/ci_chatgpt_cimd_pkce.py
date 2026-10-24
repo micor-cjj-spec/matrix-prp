@@ -157,7 +157,24 @@ def auth_request(method):
         params.update({"code_challenge_method": "S256", "code_challenge": challenge})
     elif method == "plain":
         params.update({"code_challenge_method": "plain", "code_challenge": verifier})
-    status, location, _ = request(AUTH_URL + "?" + urlencode(params))
+    status, location, body = request(AUTH_URL + "?" + urlencode(params))
+    # Report only a static category for failures; never print HTML, URL,
+    # OAuth state, remotely-supplied content, or client metadata.
+    lower = body[:10000].decode("utf-8", errors="replace").lower()
+    diagnostic = "UNCLASSIFIED"
+    for text, code in (
+        ("client not found", "CLIENT_NOT_FOUND"),
+        ("invalid client metadata", "INVALID_CLIENT_METADATA"),
+        ("invalid redirect_uri", "INVALID_REDIRECT"),
+        ("invalid scope", "INVALID_SCOPE"),
+        ("invalid target", "INVALID_TARGET"),
+        ("unable to fetch", "METADATA_FETCH_FAILED"),
+        ("could not fetch", "METADATA_FETCH_FAILED"),
+        ("pkce", "PKCE_POLICY_REJECTED"),
+    ):
+        if text in lower:
+            diagnostic = code
+            break
     # We never submit a login form, so a proper S256 request can only reach
     # Keycloak's login UI; no authorization code or user credential is used.
     error = None
@@ -167,16 +184,16 @@ def auth_request(method):
             query = parse_qs(parsed.query)
             if query.get("state") == [state]:
                 error = query.get("error", [None])[0]
-    return status, error, location
+    return status, error, location, diagnostic
 
 
 def require_pkce_result(mode):
-    status, error, location = auth_request(mode)
+    status, error, location, diagnostic = auth_request(mode)
     if mode == "S256":
         # 200 login page or an internal Keycloak redirect to its login route.
         internal = location.startswith(BASE + "/realms/prp-mcp/") or location.startswith("/realms/prp-mcp/")
         if not (status == 200 or (status == 302 and internal)) or error:
-            raise RuntimeError("S256_AUTHORIZATION_NOT_ACCEPTED_HTTP_" + str(status))
+            raise RuntimeError("S256_AUTHORIZATION_NOT_ACCEPTED_HTTP_" + str(status) + "_" + diagnostic)
     else:
         # Fail closed: an authorization/login page is NOT a rejection.
         # Errors may be a Keycloak 400 or an OAuth error redirect.
