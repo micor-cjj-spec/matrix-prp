@@ -1,0 +1,29 @@
+name: PRP OAuth browser pairing UI (isolated review)
+on:
+  push:
+    branches: [feat/mcp-owner-browser-pairing-20261025]
+permissions:
+  contents: read
+jobs:
+  web-pairing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: Test owner OAuth PKCE browser pairing
+        working-directory: app/web
+        run: node --experimental-strip-types --test scripts/mcp-browser-pairing.test.mjs
+      - name: Web typecheck and builds (root and /prp/)
+        working-directory: app/web
+        run: |
+          npm ci
+          npm run build
+          VITE_APP_BASE=/prp/ npm run build
+          node scripts/verify-deploy-base.mjs /prp/
