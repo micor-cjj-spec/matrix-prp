@@ -151,10 +151,9 @@ def run():
         bearer=prp_bearer), "PRP_UNLINK_VERIFY")
     if initial.get("data"):
         raise RuntimeError("PAIR_FIRST_LINK_PRECONDITION")
-    grant = browser.json_response(browser.request(opener, PRP + "/api/mcp/clients",
+    grant = browser.json_response(browser.request(opener, PRP + "/api/mcp/clients/pairing",
         bearer=prp_bearer, data={
-            "clientId": PUBLIC_PAIR_CLIENT, "scopes": ["prp.tasks.read"],
-            "password": owner_password,
+            "clientId": PUBLIC_PAIR_CLIENT, "password": owner_password,
         }), "PUBLIC_PAIR_OWNER_GRANT")
     if grant.get("data", {}).get("status") != "ACTIVE":
         raise RuntimeError("PAIR_CLIENT_OWNER_GRANT_UNAVAILABLE")
