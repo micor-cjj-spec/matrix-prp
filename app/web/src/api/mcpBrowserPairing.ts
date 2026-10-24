@@ -173,7 +173,9 @@ export async function exchangeBrowserPairingToken(
   if (!response.ok) throw new Error('Keycloak 授权码交换失败，请检查配对客户端和 CORS 配置')
   const raw = await response.text()
   if (raw.length > 50000) throw new Error('Keycloak 返回内容超出安全限制')
-  const data: unknown = JSON.parse(raw)
+  let data: unknown
+  try { data = JSON.parse(raw) }
+  catch { throw new Error('Keycloak 令牌响应格式无效') }
   if (!data || typeof data !== 'object' || !('access_token' in data) ||
       !('token_type' in data) || data.token_type !== 'Bearer' ||
       typeof data.access_token !== 'string' || !data.access_token) {
