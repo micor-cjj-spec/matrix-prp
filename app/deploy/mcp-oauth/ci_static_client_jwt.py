@@ -109,8 +109,9 @@ def token(key, *, mode="valid"):
         "grant_type": "client_credentials",
         "client_id": CLIENT,
         "client_assertion_type": ASSERTION_TYPE,
-        "scope": "prp.tasks.read",
-        "resource": RESOURCE,
+        "scope": "prp.finance.read" if mode == "finance_scope" else "prp.tasks.read",
+        "resource": "https://invalid-resource.example.invalid/api/mcp"
+                    if mode == "bad_resource" else RESOURCE,
     }
     if mode != "missing":
         params["client_assertion"] = assertion(
@@ -144,7 +145,8 @@ def main():
             raise RuntimeError("ISSUER_JWKS_UNAVAILABLE")
         check_token(access, json.loads(body), issuer=ISSUER, resource=RESOURCE, client_id=CLIENT)
         print("PASS JWT: real RS256 private_key_jwt authenticates and issuer-signed MCP-audience token validates.")
-        for failure in ("missing", "bad_signature", "bad_audience", "expired"):
+        for failure in ("missing", "bad_signature", "bad_audience", "expired",
+                        "bad_resource", "finance_scope"):
             reject_status, issued = token(key, mode=failure)
             if reject_status not in (400, 401) or issued is not None:
                 raise RuntimeError("INVALID_ASSERTION_ACCEPTED_" + failure)
