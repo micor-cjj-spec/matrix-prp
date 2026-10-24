@@ -7,6 +7,24 @@ on:
 permissions:
   contents: read
 jobs:
+  mcp-scope-discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Test actual metadata endpoint and OAuth permission boundaries
+        working-directory: app/backend
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp -Dtest=McpOAuthSecurityTests,McpOAuthAdvertisedScopesTests test
   cimd-contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 3

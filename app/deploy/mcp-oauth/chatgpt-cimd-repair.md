@@ -140,3 +140,77 @@ not prove container egress, Realm policy, login, JWT validity or tool use.
 References: [Keycloak MCP setup](https://www.keycloak.org/securing-apps/mcp-authz-server),
 [OpenAI OAuth](https://developers.openai.com/plugins/build/auth),
 [official client document](https://chatgpt.com/oauth/client.json).
+
+## P0 follow-up: precise live gate diagnosis, 2026-10-24 23:07 CST
+
+The original `verify_evidence()` returned ISOLATED_GUARD_EVIDENCE_PASSED.
+The exact first failing live condition compares the ordered Nginx inventory
+and six source-file SHA256 values. Four files match. The two mismatches are:
+
+| File | Actual rollback baseline SHA256 | Required candidate SHA256 |
+| --- | --- | --- |
+| micor.top.conf | ba200a57e880dd286789fcb04ffcf7ce76db4f6005e86bdf934fc9682807792b | da227c0f6be8c9342d8830cbbe2e76372e4083bff51768c490a0e60c6b18828b |
+| prp-mcp-test.conf | be7d4ba493f38280918cc7ec775f7759c150fea23d466f74358c06188403fa0d | 90814118bda4c8ca0be3d87ae36accb003a4be7f593954d552bfe05c1c98e6bd |
+
+These are the known original rollback bytes, not an unexplained third version.
+The candidate hashes agree with the already-reviewed guard transaction. No
+controller logic, expected digest, certificate or production route was edited.
+
+There are also two independent downstream blockers: both
+`host-guard/approved-install.safe.json` and `host-guard/fresh-b2-restore.safe.json`
+are absent. The first needs actual completed public acceptance and the installed
+six-file inventory; the second needs actual isolated restore/fingerprints/signing
+key checks within one hour and the matching dump under the approved backup root.
+Neither can be made valid by copying old evidence or setting boolean fields.
+The original guard coordinator deliberately reports `b2_execution_ready=false`;
+its state alone is not a substitute for these B2 handoff/recovery requirements.
+
+An additional isolated mirror check tested both the current baseline and the
+exact two-file candidate with the server's actual Nginx binary: both `nginx -t`
+exits were 0. Only include/log/PID paths were redirected to the private mirror;
+public certificate paths were preserved. Mirror result:
+`/root/prp-p0-syntax-omwnbycj/result.safe.json`. All six production file hashes
+were unchanged. No Nginx configuration was loaded or reloaded.
+
+The minimal live repair remains the existing controlled two-file installation,
+not a controller change. Before it may run: fresh config/database recovery
+proof, exact candidate/source pins, isolated syntax, explicit transaction
+authorization and genuinely fresh required external evidence must all pass.
+Forward failure must restore the two verified original files through the same
+controller and complete fresh rollback acceptance. The old direct installer
+explicitly disables `--install`; do not call another Admin REST/installer entry
+to work around this. Once real installation/acceptance and recovery receipts
+exist, rerun the original command:
+
+```sh
+python3 /root/prp-mcp-cimd-stage-b/cutover_b2_guarded.py --check
+```
+
+No new WARP registration is authorized by this PR. All existing attempts were
+consumed. The full baseline diagnostic exceeded the unchanged 300-second gate;
+the TLS-context candidate passed isolated tests but has not proved full public
+freshness including evidence delivery. Do not begin a production transaction
+or label P0 complete on that basis.
+
+## Scope discovery correction (source change, not deployed)
+
+`McpOAuthMetadataController` previously advertised its full static scope catalog
+regardless of the write switch. The live PRM also lists financial, wellness and
+write scopes. This is a concrete source of excessive client scope requests;
+the actual client request and any saved ChatGPT scope selection must still be
+rechecked after rollout and metadata refresh.
+
+Discovery now defaults to exactly `prp.tasks.read`. Explicit opt-in is available
+through `MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES` (comma separated). Unknown,
+empty, duplicate and wildcard entries are startup errors; write scopes also
+require the independent write switch. The complete catalog remains unchanged
+for existing grant validation: metadata is a client-request hint, not a substitute
+for issuer/token/grant/tool authorization. `openid` and `offline_access` are
+authorization-server scopes, not PRP tool scopes, so they do not belong in this
+resource allowlist. Their Provider/consent/refresh behavior still needs the
+separate gated three-scope repair described above.
+
+Regression coverage checks the actual public MockMvc endpoint returns exactly
+one scope, requires opt-in for financial discovery, and rejects invalid scope
+configuration or write advertisement with writes disabled. Nothing in this
+change enables writes, modifies any stored grant, or deploys an application.
