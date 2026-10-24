@@ -346,3 +346,29 @@ negative test on an isolated restored Realm. Never make PRP accept
 `matrix-prp-mcp-resource` as a substitute for its canonical URL,
 skip refresh resource constraints, or confuse JWT signature/audience
 checks with the authorization-server grant validation.
+
+## Exact ChatGPT static-client scope and audience contract — isolated proof
+
+[Disposable Keycloak 26.8 run #40112710941](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40112710941)
+verified two previously missing requirements in the **exact-client
+pre-registration** fallback fixture (no real ChatGPT private signing key):
+
+- The generated Realm may lack the built-in `offline_access` scope because
+  it imports explicit client scopes. A reviewed administrator must ensure the
+  scope exists, and the exact confidential ChatGPT client must allow **both**
+  `offline_access` and `prp.tasks.read` as optional scopes, not just
+  task-read. The isolated authorization probe sends the exact minimum:
+  `scope=openid offline_access prp.tasks.read`; valid PKCE S256 reaches the
+  login stage, missing/plain PKCE are rejected.
+- For the MCP bearer, the audience mapper must use
+  `included.custom.audience=<exact full HTTPS MCP resource URI>`.
+  `included.client.audience=matrix-prp-mcp-resource` denotes an internal
+  Keycloak client ID instead of the external MCP resource, which can break
+  token validation after refresh. The isolated test reads back the persisted
+  exact-URI mapper and RS256 client JWT settings.
+
+The test configures and checks those properties **only in its disposable
+GitHub Actions Realm**. It does not edit active client registrations, mint
+tokens signed by ChatGPT, perform a real account link, or issue a guarded
+staging release. Retain the existing B2 recovery/Nginx safety gates and
+client-policy change control.
