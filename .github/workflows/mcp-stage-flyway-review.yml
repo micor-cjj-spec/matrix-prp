@@ -1,0 +1,16 @@
+name: MCP staging Flyway V28 manifest review
+on:
+  push:
+    branches: [fix/mcp-stage-flyway-manifest-20261025]
+permissions:
+  contents: read
+jobs:
+  staging-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify isolated staging backend, Web and manifest-pinned Flyway
+        run: bash app/deploy/mcp-staging/smoke_disposable.sh
