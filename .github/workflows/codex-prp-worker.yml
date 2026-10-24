@@ -1,41 +1,21 @@
-# DIAGNOSTIC ONLY. Does not mutate Nginx or produce production evidence.
-name: PRP fixed baseline network diagnostic
-run-name: prp-baseline-${{ inputs.diagnostic_nonce }}
+name: PRP hosted evidence chain regressions
 on:
   workflow_dispatch:
-    inputs:
-      diagnostic_nonce:
-        type: string
-        required: true
-        description: Public 32-hex diagnostic identity, never a root job nonce
-      warp_authorized:
-        type: boolean
-        required: true
-        default: false
-        description: Requires one additional explicitly authorized device
-permissions:
-  contents: read
-  id-token: write
-  attestations: write
+permissions: {}
 jobs:
-  diagnostic:
-    if: inputs.warp_authorized == true && github.event_name == 'workflow_dispatch' && github.repository == 'micor-cjj-spec/matrix-prp' && github.ref == 'refs/heads/fix/mcp-hosted-network-probe-20261024'
+  unit:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'micor-cjj-spec/matrix-prp' && github.ref == 'refs/heads/fix/mcp-hosted-network-probe-20261024'
     runs-on: ubuntu-24.04
-    timeout-minutes: 26
+    timeout-minutes: 5
     steps:
-      - name: Measure fixed baseline matrix; never production acceptance
-        id: collect
-        env:
-          DIAGNOSTIC_NONCE: ${{ inputs.diagnostic_nonce }}
-          PRP_WARP_COLLECTION_APPROVED: 'true'
+      - name: Verify immutable source bytes and run isolated Linux unit tests
         shell: bash
         run: |
           python3 - <<'PY'
-          import pathlib,os,re,json,hashlib,urllib.request,sys,time
+          import pathlib,os,re,json,hashlib,urllib.request,unittest,io,sys,time
           sha=os.environ['GITHUB_SHA'];assert re.fullmatch('[0-9a-f]{40}',sha)
-          nonce=os.environ['DIAGNOSTIC_NONCE'];assert re.fullmatch('[0-9a-f]{32}',nonce)
-          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'prp-baseline-diagnostic';root.mkdir(mode=0o700)
-          files={'app/deploy/mcp-external-probe/core/guard_release_engine.py': {'local': 'guard_release_engine.py', 'sha256': '9d9a4d41b888115f26886c0762a191c1e72d2fe43f7b30f4a1dfb9d12002e431'}, 'app/deploy/mcp-external-probe/core/guard_external_probe.py': {'local': 'guard_external_probe.py', 'sha256': 'c64c0c12a0b96c134814351769206ec2af0d0b4bf41353cbfc37b8db822ab92a'}, 'app/deploy/mcp-external-probe/core/guard_external_h2.js': {'local': 'guard_external_h2.js', 'sha256': '1b6f0f46809c5c6c3dd65b77dc54cfa6db5ef04bf6540e3960d1492db91e81e9'}, 'app/deploy/mcp-external-probe/core/guard_experimental_scheduler.py': {'local': 'guard_experimental_scheduler.py', 'sha256': '9ff90754d9632e90049ce25ab2e38d739472206414b940fffc9fdbe2fb6d703a'}, 'app/deploy/mcp-external-probe/core/windows_dns_worker.py': {'local': 'windows_dns_worker.py', 'sha256': '33ef2412f52e248cea886fe7d5197a7ad6da4658f951e0ba0aa6526c5f61dccf'}, 'app/deploy/mcp-external-probe/core/linux_dns_worker.py': {'local': 'linux_dns_worker.py', 'sha256': '5b40eeeda63017f3f14ccb071213c20cfb617b9475a932137c7775384ed656fe'}, 'app/deploy/mcp-external-probe/core/linux_external_collector.py': {'local': 'linux_external_collector.py', 'sha256': '6de71df1ff8dbae431083ee12bb5b32523cf3e30196f2a0c867ceed9cdd5126d'}, 'app/deploy/mcp-external-probe/core/disposable_warp_runtime.py': {'local': 'disposable_warp_runtime.py', 'sha256': 'ab2dd823216fc914bec7258ddfd8552cc008a8020d0d3e3d6eb47c554f3dd422'}, 'app/deploy/mcp-external-probe/core/baseline_matrix_diagnostic.py': {'local': 'baseline_matrix_diagnostic.py', 'sha256': 'c08f173b8569a876374decb3806ffdb376f751b55b0a39aea83f2a2e317dac07'}, 'app/deploy/mcp-external-probe/fixtures/parent-manifest.json': {'local': 'parent-manifest.json', 'sha256': '0b6ebd6551755dbd171946945ac2565e59642a7aaa8d7015f4c4c874ffd68535'}}
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'prp-linux-worker-units';root.mkdir(mode=0o700)
+          files={'app/deploy/mcp-external-probe/core/guard_release_engine.py': {'local': 'release-v4/guard_release_engine.py', 'sha256': '9d9a4d41b888115f26886c0762a191c1e72d2fe43f7b30f4a1dfb9d12002e431'}, 'app/deploy/mcp-external-probe/core/guard_external_probe.py': {'local': 'release-v4/guard_external_probe.py', 'sha256': 'c64c0c12a0b96c134814351769206ec2af0d0b4bf41353cbfc37b8db822ab92a'}, 'app/deploy/mcp-external-probe/core/guard_external_h2.js': {'local': 'release-v4/guard_external_h2.js', 'sha256': '1b6f0f46809c5c6c3dd65b77dc54cfa6db5ef04bf6540e3960d1492db91e81e9'}, 'app/deploy/mcp-external-probe/core/guard_experimental_scheduler.py': {'local': 'release-v4/guard_experimental_scheduler.py', 'sha256': '9ff90754d9632e90049ce25ab2e38d739472206414b940fffc9fdbe2fb6d703a'}, 'app/deploy/mcp-external-probe/core/windows_dns_worker.py': {'local': 'release-v4/windows_dns_worker.py', 'sha256': '33ef2412f52e248cea886fe7d5197a7ad6da4658f951e0ba0aa6526c5f61dccf'}, 'app/deploy/mcp-external-probe/core/guard_external_launcher.py': {'local': 'release-v4/guard_external_launcher.py', 'sha256': 'c55ec429886ed4f43a40477a585f04978ac6cb863ad79efc8146ea2cd6edc8ed'}, 'app/deploy/mcp-external-probe/core/test_guard_release_engine.py': {'local': 'release-v4/test_guard_release_engine.py', 'sha256': 'efc97aefc339cbc3d5570c07b840672915c89ef59ce938253d677f9891a98865'}, 'app/deploy/mcp-external-probe/core/linux_dns_worker.py': {'local': 'release-v4/linux_dns_worker.py', 'sha256': '5b40eeeda63017f3f14ccb071213c20cfb617b9475a932137c7775384ed656fe'}, 'app/deploy/mcp-external-probe/core/linux_external_collector.py': {'local': 'release-v4/linux_external_collector.py', 'sha256': '6de71df1ff8dbae431083ee12bb5b32523cf3e30196f2a0c867ceed9cdd5126d'}, 'app/deploy/mcp-external-probe/core/attested_evidence_bridge.py': {'local': 'release-v4/attested_evidence_bridge.py', 'sha256': 'dc50c62b972f68c6a4d449102d28061132876ffa7ffa56ff792af6a4652a4c5d'}, 'app/deploy/mcp-external-probe/core/github_artifact_transport.py': {'local': 'release-v4/github_artifact_transport.py', 'sha256': '808673684142789303bc38faa62d4dcfe1785e80f21bbbc220aebe7b8ea38f38'}, 'app/deploy/mcp-external-probe/core/hosted_transaction_watcher.py': {'local': 'release-v4/hosted_transaction_watcher.py', 'sha256': 'e005dd52cdb1c9ae1f2823ae7efffd0abb641c8008a2509f2b41af412f0883de'}, 'app/deploy/mcp-external-probe/core/trusted_phase_context.py': {'local': 'release-v4/trusted_phase_context.py', 'sha256': '2b59f9b34e09b1b5c9cff8a5b90503593f31e3388bacbdaf2ddfcee68e438116'}, 'app/deploy/mcp-external-probe/core/pinned_transaction_channel.py': {'local': 'release-v4/pinned_transaction_channel.py', 'sha256': 'bfc3f3097e012d420d0687dc901d60cb7f23c7c3360403943d51bc1ad333cace'}, 'app/deploy/mcp-external-probe/core/hosted_phase_publisher.py': {'local': 'release-v4/hosted_phase_publisher.py', 'sha256': 'fd283c880e38777ab41b0e4c90dc86f11a5c7fb0d264f6d4835ea37bec7651e6'}, 'app/deploy/mcp-external-probe/tests/test_linux_dns_worker.py': {'local': 'tests/test_linux_dns_worker.py', 'sha256': 'f9e1f80ddeef547fc34ef7052ce4d0af766dd3649e072a7733c2e44169b62b24'}, 'app/deploy/mcp-external-probe/tests/test_linux_external_collector.py': {'local': 'tests/test_linux_external_collector.py', 'sha256': '0b6023e48e9a75837946ffc0680d5fbd5131bb674ce5ef457fe400264ea3e6ab'}, 'app/deploy/mcp-external-probe/tests/test_attested_evidence_bridge.py': {'local': 'tests/test_attested_evidence_bridge.py', 'sha256': '305d5813b8c680b564a8feabfc43cc7c19ecfdd7c0df36ffb2637781d163c16a'}, 'app/deploy/mcp-external-probe/tests/test_github_artifact_transport.py': {'local': 'tests/test_github_artifact_transport.py', 'sha256': '22746e7b61f7e7a396fcb1479804da72dc449ca04db56ac70d713fb30cf8f319'}, 'app/deploy/mcp-external-probe/tests/test_hosted_transaction_watcher.py': {'local': 'tests/test_hosted_transaction_watcher.py', 'sha256': '6b58c5d9918e36eeb5e2a2a7fb7d8063b3436d9454ca7de35279059e6ba99261'}, 'app/deploy/mcp-external-probe/tests/test_trusted_phase_context.py': {'local': 'tests/test_trusted_phase_context.py', 'sha256': 'd0690efee17bdcbc1a1e7e2d12fc5e897731cfb80200a133bb7244c195fbcdf6'}, 'app/deploy/mcp-external-probe/tests/test_pinned_transaction_channel.py': {'local': 'tests/test_pinned_transaction_channel.py', 'sha256': '04b3feee6a77a6f63477f23d2186731094aa69fbbc9a86cc27e13fa3c1bf1412'}, 'app/deploy/mcp-external-probe/tests/test_hosted_phase_publisher.py': {'local': 'tests/test_hosted_phase_publisher.py', 'sha256': 'da0ca5a1891efeda276a5e26903c0a602634cdabb28bf2dcacae311bf0765480'}, 'app/deploy/mcp-external-probe/fixtures/parent-manifest.json': {'local': 'release-v4/manifest.candidate.json', 'sha256': '0b6ebd6551755dbd171946945ac2565e59642a7aaa8d7015f4c4c874ffd68535'}, 'app/deploy/mcp-external-probe/core/disposable_warp_runtime.py': {'local': 'release-v4/disposable_warp_runtime.py', 'sha256': 'ab2dd823216fc914bec7258ddfd8552cc008a8020d0d3e3d6eb47c554f3dd422'}, 'app/deploy/mcp-external-probe/core/hosted_evidence_delivery.py': {'local': 'release-v4/hosted_evidence_delivery.py', 'sha256': 'ac17af59b8bc0a7aa54684533514645b89b4a3a9ae1964e15b0cb5f39c61428f'}, 'app/deploy/mcp-external-probe/tests/test_disposable_warp_runtime.py': {'local': 'tests/test_disposable_warp_runtime.py', 'sha256': '47476dc1c4e5fa0bb57932bdece2a11495dc8be6a40df09626a1bf8f41e1dbf3'}, 'app/deploy/mcp-external-probe/tests/test_hosted_evidence_delivery.py': {'local': 'tests/test_hosted_evidence_delivery.py', 'sha256': 'e7d665bc01ba9ed02f4e96a65f84846dd8c8b3221e6fb76081789df6ae68dd33'}, 'app/deploy/mcp-external-probe/tests/test_hosted_coordinator_integration.py': {'local': 'tests/test_hosted_coordinator_integration.py', 'sha256': '61b6d4cbcf2d9908755c50347d1528845fe1fde477485fbdf37723347b87592c'}, 'app/deploy/mcp-external-probe/core/watch_existing_hosted_transaction.py': {'local': 'release-v4/watch_existing_hosted_transaction.py', 'sha256': 'b10aa049e7e6713f60b29cba11fd0d9388a85b5132a32d595dd97119b14ee3ea'}, 'app/deploy/mcp-external-probe/tests/test_watch_existing_hosted_transaction.py': {'local': 'tests/test_watch_existing_hosted_transaction.py', 'sha256': '0ecaecac04a00bdc23bff1249d16b9bbf9724b50ef5a44107298c2b816251ebd'}, 'app/deploy/mcp-external-probe/core/run_hosted_guard_authorized.py': {'local': 'release-v4/run_hosted_guard_authorized.py', 'sha256': '9fbbbca482b2132eed65bba572bf58cd1394d0fcf4250ff216812f1288c63500'}, 'app/deploy/mcp-external-probe/tests/test_hosted_registration_budget.py': {'local': 'tests/test_hosted_registration_budget.py', 'sha256': '799153fd3354f0dbc1f35f7142ccfd3c4dcb5c2fe315130e50af326f979c9d82'}, 'app/deploy/mcp-external-probe/core/upgrade_candidate_helpers.py': {'local': 'release-v4/upgrade_candidate_helpers.py', 'sha256': '14fa20e082fa5027c294ef13e28428343336c04c81d429bee75a6c1f83cc8632'}, 'app/deploy/mcp-external-probe/tests/test_upgrade_candidate_helpers.py': {'local': 'tests/test_upgrade_candidate_helpers.py', 'sha256': '42445affe1f124c56cfa2f0f3a6a8c8092fecc64ee99f7429067dd47d1ea1627'}, 'app/deploy/mcp-external-probe/core/baseline_matrix_diagnostic.py': {'local': 'release-v4/baseline_matrix_diagnostic.py', 'sha256': 'c08f173b8569a876374decb3806ffdb376f751b55b0a39aea83f2a2e317dac07'}, 'app/deploy/mcp-external-probe/tests/test_baseline_matrix_diagnostic.py': {'local': 'tests/test_baseline_matrix_diagnostic.py', 'sha256': '7e47539e43380615b7694c1bf93816165c3f8b451c404c8c2a5c64024c1bfeed'}, 'app/deploy/mcp-external-probe/core/profile_collector_cpu.py': {'local': 'release-v4/profile_collector_cpu.py', 'sha256': '5f991ad1653b2a8f33e103a5d5a2ff3898ca241e864fa73c051d1bef139b4d60'}}
           class NoRedirect(urllib.request.HTTPRedirectHandler):
            def redirect_request(self,*args,**kwargs):raise RuntimeError('SOURCE_REDIRECT_UNAPPROVED')
           opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
@@ -45,46 +25,12 @@ jobs:
            with opener.open('https://raw.githubusercontent.com/micor-cjj-spec/matrix-prp/'+sha+'/'+remote,timeout=min(15,remaining)) as response:
             assert response.status==200;data=response.read(4000001)
            assert len(data)<=4000000 and hashlib.sha256(data).hexdigest()==record['sha256']
-           target=root/record['local'];assert target.parent==root;target.write_bytes(data)
-          sys.path.insert(0,str(root))
-          from baseline_matrix_diagnostic import diagnose,validate
-          from disposable_warp_runtime import WarpRuntime
-          manifest=json.loads((root/'parent-manifest.json').read_text());validate(manifest)
-          runtime=WarpRuntime()
-          result={'kind':'BASELINE_DIAGNOSTIC_ONLY','production_acceptance':False,'diagnostic_nonce':nonce,'diagnostic_completed':False}
-          try:
-           with runtime:
-            result.update(diagnose(manifest))
-           result['diagnostic_completed']=result.get('completed_requests')==682 and result.get('failure_type') is None
-          except BaseException as error:
-           result['runner_failure_type']=type(error).__name__ if type(error).__name__ in {'RuntimeErrorSafe','GateError','TimeoutError'} else 'OTHER_EXCEPTION'
-          result.update(cleanup=runtime.cleanup,runtime_steps=runtime.steps)
-          (root/'diagnostics.json').write_text(json.dumps(result,sort_keys=True,separators=(',',':')))
-          with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('report_ready=true\n')
-          print(json.dumps(result,sort_keys=True))
-          sys.exit(0 if result['diagnostic_completed'] else 1)
+           target=root/record['local'];assert target.resolve().is_relative_to(root.resolve());target.parent.mkdir(exist_ok=True);target.write_bytes(data)
+          sys.path.insert(0,str(root/'release-v4'))
+          suite=unittest.defaultTestLoader.discover(str(root/'tests'),pattern='test_*.py');stream=io.StringIO();result=unittest.TextTestRunner(stream=stream,verbosity=2).run(suite)
+          (root/'unit.private.log').write_text(stream.getvalue())
+          print(json.dumps({'kind':'linux_worker_offline_regressions','source_files_verified':len(files),'tests_run':result.testsRun,'failures':len(result.failures),'errors':len(result.errors),'skips':len(result.skipped),'production_acceptance':False,'production_requests':0,'warp_used':False},sort_keys=True))
+          assert result.testsRun==106 and result.wasSuccessful() and not result.skipped
+          import runpy
+          runpy.run_path(str(root/'release-v4/profile_collector_cpu.py'),run_name='__main__')
           PY
-      - name: Attest diagnostic summary only
-        id: attest
-        if: always() && steps.collect.outputs.report_ready == 'true'
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
-        with:
-          subject-path: ${{ runner.temp }}/prp-baseline-diagnostic/diagnostics.json
-          create-storage-record: false
-          show-summary: false
-      - name: Preserve diagnostic summary, including failed diagnostics
-        if: always() && steps.collect.outputs.report_ready == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: prp-baseline-${{ inputs.diagnostic_nonce }}
-          path: ${{ runner.temp }}/prp-baseline-diagnostic/diagnostics.json
-          retention-days: 1
-          if-no-files-found: error
-      - name: Preserve diagnostic signature bundle
-        if: always() && steps.attest.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: prp-baseline-${{ inputs.diagnostic_nonce }}-bundle
-          path: ${{ steps.attest.outputs.bundle-path }}
-          retention-days: 1
-          if-no-files-found: error
