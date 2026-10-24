@@ -87,7 +87,9 @@ def classified_browser_request(opener, url, *, data=None, bearer=None, form=Fals
         if len(raw) > 250000:
             raise RuntimeError("OVERSIZED_BROWSER_RESPONSE")
         content = raw.decode("utf-8", errors="replace")
-        if status == 400:
+        # Token endpoint HTTP 400 is an expected *negative* test result
+        # for bad PKCE, replay and revoked refresh; let exchange() assert it.
+        if status == 400 and not url.startswith(TOKEN_ENDPOINT):
             lower = content[:30000].lower()
             diagnostic = "UNCLASSIFIED"
             for needle, category in (
