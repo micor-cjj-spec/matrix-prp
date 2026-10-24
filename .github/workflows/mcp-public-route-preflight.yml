@@ -1,0 +1,24 @@
+name: PRP public OAuth route preflight (read-only)
+run-name: PRP public OAuth preflight · ${{ github.sha }}
+on:
+  push:
+    branches: [feat/mcp-public-acceptance-20261024]
+permissions:
+  contents: read
+concurrency:
+  group: prp-public-oauth-preflight
+  cancel-in-progress: false
+jobs:
+  public-route:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Probe public protected-resource metadata and unauthenticated denial
+        run: |
+          python3 app/deploy/mcp-oauth/public_route_preflight.py \
+            --resource https://prp-test.micor.top/api/mcp \
+            --issuer https://auth-test.micor.top/realms/prp-mcp
