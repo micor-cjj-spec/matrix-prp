@@ -1,4 +1,4 @@
-name: MCP public metadata read-only reachability
+name: MCP public preflight code tests (offline)
 on:
   push:
     branches:
@@ -6,12 +6,12 @@ on:
 permissions:
   contents: read
 jobs:
-  external-metadata-only:
+  no-network-regressions:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Check exact public staging MCP resource metadata and OIDC discovery
-        run: python3 app/deploy/mcp-oauth/ci_public_readonly_probe.py
+      - name: Validate public read-only probe against static fixtures, no external calls
+        run: python3 -m unittest discover -s app/deploy/mcp-oauth -p test_public_readonly_probe.py -v
