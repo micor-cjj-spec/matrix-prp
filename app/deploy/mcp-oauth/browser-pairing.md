@@ -38,8 +38,18 @@ Review these exact client settings in an isolated restored Keycloak 26.8 Realm:
 
 The same client must not retain `prp.tasks.read` permission within PRP:
 the pairing wizard grants it **temporarily**, submits the existing hashed
-one-time ticket, and revokes it on success. If a browser/network failure
-occurs, the PRP user should manually revoke that pairing-client grant.
+one-time ticket, and attempts to revoke it on **success or failure**. If the
+owner cancels, the callback fails, or the token exchange/PRP link is rejected,
+the browser must revoke the temporary grant. A cancelled/incomplete same-tab
+session remains discoverable on revisiting the owner page; the UI provides
+**Cancel pairing and revoke**, and automatically cancels requests whose stored
+9-minute deadline has elapsed. Never imply that the local ticket expiry itself
+expires the separate PRP **client grant**; it does not.
+
+If the browser never returns (lost tab/session, crashed PWA) or a network outage
+prevents revocation, the PRP owner **must** go to **Registered clients** and
+manually revoke the separate pairing client's read permission. The UI surfaces
+an explicit danger warning when its automatic revocation call fails.
 
 ## Front-end opt-in deployment settings
 
@@ -115,3 +125,16 @@ OAuth code and ticket cannot be recovered from the chat.
 **Do not install the live Realm client, deploy PRP, merge the MCP release
 candidate into `main`, or open Keycloak admin publicly until all existing
 guarded B2 backup/restore and Nginx approval steps pass.**
+
+## Authentication loss during OAuth callback
+
+If the original PRP session expired while the browser visited Keycloak,
+Vue Router sends the user to the PRP login page **without** copying OAuth
+`code`, `state`, or `iss` into the `redirect` URL. The incomplete
+authorization code must **not** be reused after a fresh PRP login; the user
+returns to MCP Client Authorization to cancel and revoke the pending public
+client grant, and can then initiate a new pairing with a fresh ticket/state.
+
+A passing isolated E2E alone does not establish that every iOS PWA process
+retains `sessionStorage` across Keycloak login. If persistence is lost,
+fail closed rather than weakening callback state/issuer validation.
