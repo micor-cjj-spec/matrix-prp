@@ -201,13 +201,9 @@ def run():
                 "SIGNED_CLIENT_REVOKED_ACCESS")
         print("PASS SIGNED E2E: PRP revokes access to still-valid refreshed bearer.")
 
-        # This does not invalidate access tokens at Keycloak: revoke the
-        # current *refresh token* explicitly at the auth server as well.
-        revocation = signed_request(opener, key, {
-            "token": current_refresh, "token_type_hint": "refresh_token",
-        })
-        # signed_request defaults to the token endpoint; use the OIDC revoke URL.
-        # Revoke below uses a fresh assertion at the actual revoke endpoint.
+        # Authorization-server refresh revocation is a separate Keycloak
+        # endpoint and is NOT claimed by the PRP grant revocation proof.
+        # The PRP grant itself must block a previously issued bearer immediately.
 
 
 if __name__ == "__main__":
