@@ -11,6 +11,8 @@ import os
 import ssl
 from http.cookiejar import CookieJar
 from urllib.parse import urlencode
+from urllib.request import Request
+from urllib.error import HTTPError
 
 import ci_pkce_browser as browser
 from oauth_token_check import check_token
@@ -77,6 +79,54 @@ def register_public_pairing_client(opener, admin):
     print("PASS PAIR: separate public PKCE-only client with exact SPA callback and CORS origin.")
 
 
+def browser_token_exchange(opener, code, verifier):
+    # An ordinary Python code exchange cannot prove WebKit can POST across
+    # origins. Check the actual public client's token-endpoint CORS response.
+    preflight = Request(TOKEN_URL, method="OPTIONS", headers={
+        "Origin": PRP,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    })
+    try:
+        with opener.open(preflight, timeout=15) as response:
+            if response.status not in (200, 204):
+                raise RuntimeError("PAIR_PREFLIGHT_HTTP_" + str(response.status))
+            if response.headers.get("Access-Control-Allow-Origin") != PRP:
+                raise RuntimeError("PAIR_PREFLIGHT_CORS_ORIGIN_UNAVAILABLE")
+    except HTTPError as error:
+        raise RuntimeError("PAIR_PREFLIGHT_HTTP_" + str(error.code)) from None
+
+    payload = urlencode({
+        "grant_type": "authorization_code",
+        "client_id": PUBLIC_PAIR_CLIENT,
+        "code": code,
+        "redirect_uri": PUBLIC_PAIR_REDIRECT,
+        "code_verifier": verifier,
+        "resource": browser.RESOURCE,
+    }).encode()
+    request = Request(TOKEN_URL, method="POST", data=payload, headers={
+        "Origin": PRP,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+    })
+    try:
+        with opener.open(request, timeout=15) as response:
+            if response.status != 200:
+                raise RuntimeError("PAIR_BROWSER_TOKEN_HTTP_" + str(response.status))
+            if response.headers.get("Access-Control-Allow-Origin") != PRP:
+                raise RuntimeError("PAIR_BROWSER_TOKEN_CORS_ORIGIN_UNAVAILABLE")
+            raw = response.read(50001)
+    except HTTPError as error:
+        raise RuntimeError("PAIR_BROWSER_TOKEN_HTTP_" + str(error.code)) from None
+    if len(raw) > 50000:
+        raise RuntimeError("PAIR_BROWSER_TOKEN_RESPONSE_TOO_LARGE")
+    doc = json.loads(raw)
+    if not isinstance(doc, dict):
+        raise RuntimeError("PAIR_BROWSER_TOKEN_RESPONSE_INVALID")
+    print("PASS PAIR: CORS preflight and token response allow exact PRP Web origin.")
+    return doc
+
+
 def run():
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
         raise RuntimeError("DISPOSABLE_CI_ONLY")
@@ -122,14 +172,7 @@ def run():
     browser.CALLBACK = PUBLIC_PAIR_REDIRECT
     code, verifier = browser.code_pkce(opener, "e2e-keycloak-owner",
         os.environ["MCP_E2E_KC_USER_PASSWORD"])
-    token_doc = browser.json_response(browser.request(opener, TOKEN_URL, form=True, data={
-        "grant_type": "authorization_code",
-        "client_id": PUBLIC_PAIR_CLIENT,
-        "code": code,
-        "redirect_uri": PUBLIC_PAIR_REDIRECT,
-        "code_verifier": verifier,
-        "resource": browser.RESOURCE,
-    }), "PUBLIC_PAIR_CODE_EXCHANGE")
+    token_doc = browser_token_exchange(opener, code, verifier)
     token = token_doc.get("access_token")
     if not isinstance(token, str) or not token:
         raise RuntimeError("PUBLIC_PAIR_ACCESS_TOKEN_UNAVAILABLE")
