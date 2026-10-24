@@ -47,3 +47,7 @@ jobs:
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/keycloak_ephemeral_smoke.py \
               --admin-user prp-smoke-admin
+          # Keycloak stays alive here; only this throwaway instance receives
+          # the temporary CIMD policies and ChatGPT public metadata requests.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_chatgpt_cimd_pkce.py
