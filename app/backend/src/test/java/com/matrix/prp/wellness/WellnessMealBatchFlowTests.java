@@ -259,4 +259,42 @@ class WellnessMealBatchFlowTests {
             .hasMessageContaining("超过30项");
     }
 
+    @Test void rejectsForeignDraftIdBeforeAnyMealWrite() {
+        asOwner();
+        var db = mock(JdbcTemplate.class);
+        var wellness = mock(WellnessService.class);
+        String draftId = "12345678-1234-1234-1234-123456789abc";
+        when(db.queryForList(contains("FOR UPDATE"), eq(draftId), eq(71L)))
+            .thenReturn(List.of()); // The only row belongs to somebody else.
+        assertThatThrownBy(() -> service(db, wellness).confirm(draftId))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("Draft not found");
+        verify(wellness, never()).addAiMeal(any(), anyString(), anyString(), anyList(), anyString());
+        verify(db, never()).update(contains("status='CONSUMED'"), any(Object[].class));
+    }
+
+    @Test void rejectsExpiredOrConsumedDraftBeforeAnyMealWrite() {
+        asOwner();
+        var db = mock(JdbcTemplate.class);
+        var wellness = mock(WellnessService.class);
+        var service = service(db, wellness);
+        String draftId = "12345678-1234-1234-1234-123456789abc";
+        for (String state : List.of("EXPIRED", "CONSUMED", "PENDING")) {
+            LocalDateTime expiry = "PENDING".equals(state)
+                ? LocalDateTime.now().minusMinutes(2)
+                : LocalDateTime.now().plusMinutes(10);
+            when(db.queryForList(contains("FOR UPDATE"), eq(draftId), eq(71L)))
+                .thenReturn(List.of(Map.of(
+                    "action_type", "meal.create_batch",
+                    "payload_json", "{}",
+                    "status", state,
+                    "expires_at", Timestamp.valueOf(expiry))));
+            assertThatThrownBy(() -> service.confirm(draftId))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Draft expired or already used");
+        }
+        verify(wellness, never()).addAiMeal(any(), anyString(), anyString(), anyList(), anyString());
+        verify(db, never()).update(contains("status='CONSUMED'"), any(Object[].class));
+    }
+
 }

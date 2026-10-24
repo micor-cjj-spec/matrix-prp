@@ -87,4 +87,77 @@ class FinanceImportDatabaseIT {
             .isInstanceOf(ResponseStatusException.class);
         SecurityContextHolder.clearContext();
     }
+    @Test void keepsUnmappedExpensesPendingUntilMapped() throws Exception {
+        long user = 8023511L;
+        String fixtureId = UUID.randomUUID().toString().replace("-", "");
+        var upload = new MockMultipartFile("file", "wechat.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", sample(fixtureId));
+        try {
+            owner(user);
+            var preview = imports.preview(upload, null);
+            assertThat(preview.ready()).isEqualTo(1);
+            var unmapped = imports.commit(preview.id(), new FinanceImportService.CommitRequest(Map.of()));
+            assertThat(unmapped.status()).isEqualTo("PARTIAL");
+            assertThat(unmapped.ready()).isEqualTo(1);
+            assertThat(unmapped.posted()).isZero();
+            assertThat(unmapped.review()).isEqualTo(2);
+
+            var account = new FinanceAccountEntity();
+            account.setUserId(user);
+            account.setName("explicit-account-" + fixtureId);
+            account.setType("cash");
+            account.setCurrency("CNY");
+            account.setOpeningBalance(BigDecimal.ZERO);
+            account.setCreatedAt(LocalDateTime.now());
+            account.setUpdatedAt(account.getCreatedAt());
+            account.setDeleted(0);
+            account.setNote("test");
+            accounts.insert(account);
+
+            var mapping = new FinanceImportService.CommitRequest(Map.of("零钱", account.getId()));
+            var posted = imports.commit(preview.id(), mapping);
+            assertThat(posted.status()).isEqualTo("DONE");
+            assertThat(posted.ready()).isZero();
+            assertThat(posted.posted()).isEqualTo(1);
+            assertThat(posted.review()).isEqualTo(2);
+            // A second click must not create another finance ledger entry.
+            assertThat(imports.commit(preview.id(), mapping).posted()).isEqualTo(1);
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test void refusesMappingToAnotherUsersFinanceAccountWithoutPosting() throws Exception {
+        long user = 8023512L, otherUser = 8023513L;
+        String fixtureId = UUID.randomUUID().toString().replace("-", "");
+        var upload = new MockMultipartFile("file", "wechat.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", sample(fixtureId));
+        try {
+            owner(otherUser);
+            var foreignAccount = new FinanceAccountEntity();
+            foreignAccount.setUserId(otherUser);
+            foreignAccount.setName("other-tenant-" + fixtureId);
+            foreignAccount.setType("cash");
+            foreignAccount.setCurrency("CNY");
+            foreignAccount.setOpeningBalance(BigDecimal.ZERO);
+            foreignAccount.setCreatedAt(LocalDateTime.now());
+            foreignAccount.setUpdatedAt(foreignAccount.getCreatedAt());
+            foreignAccount.setDeleted(0);
+            foreignAccount.setNote("test");
+            accounts.insert(foreignAccount);
+
+            owner(user);
+            var preview = imports.preview(upload, null);
+            var mapping = new FinanceImportService.CommitRequest(Map.of("零钱", foreignAccount.getId()));
+            assertThatThrownBy(() -> imports.commit(preview.id(), mapping))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("owned CNY account");
+            var unchanged = imports.detail(preview.id());
+            assertThat(unchanged.posted()).isZero();
+            assertThat(unchanged.ready()).isEqualTo(1);
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
 }
