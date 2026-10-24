@@ -22,3 +22,9 @@ jobs:
           python3 app/deploy/mcp-oauth/public_route_preflight.py \
             --resource https://prp-test.micor.top/api/mcp \
             --issuer https://auth-test.micor.top/realms/prp-mcp
+      - name: Read-only OAuth/OIDC issuer discovery preflight
+        run: |
+          python3 app/deploy/mcp-oauth/hosted_issuer_gate.py \
+            --issuer https://auth-test.micor.top/realms/prp-mcp \
+            --resource https://prp-test.micor.top/api/mcp \
+            --client-mode dcr
