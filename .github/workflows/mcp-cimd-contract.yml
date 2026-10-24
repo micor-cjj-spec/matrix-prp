@@ -1,0 +1,19 @@
+name: PRP ChatGPT CIMD contract (offline)
+on:
+  push:
+    branches: [fix/mcp-cimd-readonly-audit-20261024]
+  pull_request:
+    branches: [feat/mcp-public-acceptance-20261024]
+permissions:
+  contents: read
+jobs:
+  cimd-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test metadata method negotiation and fail-closed discovery
+        working-directory: app/deploy/mcp-oauth
+        run: python3 -m unittest discover -p 'test_*.py'
