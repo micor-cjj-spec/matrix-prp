@@ -177,3 +177,11 @@ backend_pid="$!"
 # Only generic PASS/failure step names are printed by the browser driver.
 python3 app/deploy/mcp-oauth/ci_pkce_browser.py
 echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP protocol."
+
+# Exercise an independent confidential browser client on the same disposable
+# HTTPS Keycloak+MySQL+PRP stack. No production accounts or real ChatGPT keys.
+# CRUD job stays isolated from this strictly read-only refresh regression.
+if [[ "${MCP_E2E_CRUD:-false}" != "true" ]]; then
+  python3 app/deploy/mcp-oauth/ci_signed_code_refresh.py
+  echo "PASS: signed authorization-code/PKCE, offline refresh and scoped PRP read."
+fi
