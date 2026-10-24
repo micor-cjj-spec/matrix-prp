@@ -44,7 +44,24 @@ class ChannelTests(unittest.TestCase):
 
     def test_submit_requires_exact_receipt(self):
         with patch.object(self.c,'_call',return_value={'stored':False}):
-            with self.assertRaises(GateError):self.c.submit({}, {})
+            with self.assertRaises(GateError):self.c.submit(dict(deployment_id='a'*32,phase='preflight',nonce='b'*48), {})
+
+    def test_real_phase_names_accepted_by_exact_remote_function(self):
+        namespace={}
+        definition=channel.REMOTE.split('import base64,hashlib,json,os,pathlib,stat,sys',1)[0]
+        exec(compile(definition,'shared-remote-filename','exec'),namespace)
+        for phase in ['preflight','post_reload','post_rollback']:
+            job=dict(deployment_id='a'*32,phase=phase,nonce='b'*48)
+            expected='a'*32+'.'+phase+'.'+'b'*48+'.json'
+            self.assertEqual(namespace['inbox_filename'](job),expected)
+            self.assertEqual(channel.inbox_filename(job),expected)
+
+    def test_inbox_traversal_and_unknown_phase_rejected_before_ssh(self):
+        for changes in [dict(phase='../escape'),dict(phase='deploy'),dict(nonce='../secret'),dict(deployment_id='x')]:
+            job=dict(deployment_id='a'*32,phase='preflight',nonce='b'*48);job.update(changes)
+            with patch.object(self.c,'_call') as call:
+                with self.assertRaises(GateError):self.c.submit(job,{})
+                call.assert_not_called()
 
     def test_remote_program_compiles_without_execution(self):
         compile(channel.REMOTE,'reviewed-private-reader','exec')

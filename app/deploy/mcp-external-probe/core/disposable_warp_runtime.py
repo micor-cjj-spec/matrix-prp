@@ -36,7 +36,9 @@ class WarpRuntime:
         self.steps.append({'step':label,'exit_code':code,'timed_out':code is None,
                            'elapsed_seconds':round(time.monotonic()-started,3)})
         if required and code!=0:raise RuntimeErrorSafe('RUNTIME_COMMAND_FAILED')
-        return code,out
+        # warp-cli reports missing registration on stderr. Keep both streams
+        # in memory for classification; neither is written to reports/logs.
+        return code,out+err if code is not None else b''
 
     def __enter__(self):
         conditions={'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted','RUNNER_OS':'Linux',

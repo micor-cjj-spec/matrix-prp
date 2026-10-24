@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -72,6 +73,16 @@ class RuntimeTests(unittest.TestCase):
         with patch.object(runtime,'run',side_effect=command):
             with self.assertRaises(warp.RuntimeErrorSafe):self.enter(runtime)
         self.assertNotIn('registration',[x[0] for x in self.calls])
+
+    def test_stderr_missing_registration_is_preserved_for_classification(self):
+        runtime=warp.WarpRuntime();runtime.deadline=time.monotonic()+60
+        with patch.object(warp.subprocess,'Popen') as factory:
+            factory.return_value.communicate.return_value=(b'',b'Error: Missing registration')
+            factory.return_value.returncode=1
+            code,out=runtime.run('cleanup_absence',['warp-cli','registration','show'],5,False,True)
+        self.assertEqual(code,1)
+        self.assertIn(b'Missing registration',out)
+        self.assertNotIn('registration',repr(runtime.steps))
 
 
 if __name__=='__main__':unittest.main()

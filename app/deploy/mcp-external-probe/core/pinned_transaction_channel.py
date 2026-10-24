@@ -5,12 +5,21 @@ Only the transaction's private inbox is writable by submit().
 """
 import base64
 import hashlib
+import inspect
 import re
 from guard_release_engine import GateError, digest
 from guard_external_launcher import call
 
 ROOT='/root/prp-guard-release-20261024-v4'
 HOST_PIN='NOEkvKq3BcBnErn+vjNMyjPaEt21xXLUJptsK9HXX64'
+
+
+def inbox_filename(job):
+    import re
+    filename=job['deployment_id']+'.'+job['phase']+'.'+job['nonce']+'.json'
+    if not re.fullmatch(r'[0-9a-f]{32}\.(?:preflight|post_reload|post_rollback)\.[0-9a-f]{48}\.json',filename):
+        raise ValueError('INBOX_NAME')
+    return filename
 
 REMOTE = r'''
 import base64,hashlib,json,os,pathlib,stat,sys
@@ -73,8 +82,7 @@ if request['operation']=='read':
 elif request['operation']=='submit':
  if request['job']!=job:raise RuntimeError('SUBMISSION_JOB_CHANGED')
  inbox=transaction/'inbox';private(inbox,True)
- filename=job['deployment_id']+'.'+job['phase']+'.'+job['nonce']+'.json'
- if any(c not in '0123456789abcdef._' for c in filename):raise RuntimeError('INBOX_NAME')
+ filename=inbox_filename(job)
  payload=json.dumps(request['envelope'],sort_keys=True,separators=(',',':')).encode()
  if len(payload)>4000000:raise RuntimeError('ENVELOPE_LIMIT')
  final=inbox/filename;pending=inbox/(filename+'.channel-pending')
@@ -90,6 +98,8 @@ elif request['operation']=='submit':
  print(json.dumps({'stored':True}))
 else:raise RuntimeError('UNSUPPORTED_OPERATION')
 '''
+# One exact filename implementation is executed locally and on the server.
+REMOTE=inspect.getsource(inbox_filename)+'\n'+REMOTE
 
 
 class PinnedChannel:
@@ -117,5 +127,7 @@ class PinnedChannel:
         return result,None
 
     def submit(self,job,envelope):
+        try:inbox_filename(job)
+        except (ValueError,KeyError,TypeError):raise GateError('PRIVATE_INBOX_NAME') from None
         receipt=self._call('submit',job=job,envelope=envelope)
         if receipt!={'stored':True}:raise GateError('PRIVATE_INBOX_RECEIPT')
