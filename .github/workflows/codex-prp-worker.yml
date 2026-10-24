@@ -5,7 +5,7 @@ permissions: {}
 jobs:
   probe:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/mcp-hosted-network-probe-20261024'
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     timeout-minutes: 3
     steps:
       - name: Two normal public HTTPS controls; no credentials or checkout
