@@ -82,7 +82,7 @@ def register(opener, admin, certificate):
             "protocol": "openid-connect",
             "protocolMapper": "oidc-audience-mapper",
             "config": {
-                "included.client.audience": "matrix-prp-mcp-resource",
+                "included.custom.audience": browser.RESOURCE,
                 "id.token.claim": "false", "access.token.claim": "true",
             },
         }],
@@ -116,6 +116,7 @@ def code_exchange(opener, key, code, verifier, mode="valid"):
 def refresh(opener, key, current, mode="valid"):
     return signed_request(opener, key, {
         "grant_type": "refresh_token", "refresh_token": current,
+        "scope": "openid offline_access prp.tasks.read",
         "resource": browser.RESOURCE,
     }, mode=mode)
 
