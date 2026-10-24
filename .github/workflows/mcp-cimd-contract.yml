@@ -1,0 +1,50 @@
+name: PRP ChatGPT CIMD contract (offline)
+on:
+  push:
+    branches: [fix/mcp-cimd-readonly-audit-20261024]
+  pull_request:
+    branches: [feat/mcp-public-acceptance-20261024]
+permissions:
+  contents: read
+jobs:
+  mcp-scope-discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Test actual metadata endpoint and OAuth permission boundaries
+        working-directory: app/backend
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp -Dtest=McpOAuthSecurityTests,McpOAuthAdvertisedScopesTests test
+  cimd-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test metadata method negotiation and fail-closed discovery
+        working-directory: app/deploy/mcp-oauth
+        run: python3 -m unittest discover -p 'test_*.py'
+
+  # External read-only evidence; never substitutes for a real OAuth login,
+  # managed client policy, isolated restore, or release approval.
+  cimd-live-metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate public ChatGPT CIMD document and issuer metadata (no tokens)
+        working-directory: app/deploy/mcp-oauth
+        run: python3 chatgpt_cimd_preflight.py

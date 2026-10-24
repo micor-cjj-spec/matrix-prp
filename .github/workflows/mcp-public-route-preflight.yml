@@ -27,4 +27,4 @@ jobs:
           python3 app/deploy/mcp-oauth/hosted_issuer_gate.py \
             --issuer https://auth-test.micor.top/realms/prp-mcp \
             --resource https://prp-test.micor.top/api/mcp \
-            --client-mode dcr
+            --client-mode cimd

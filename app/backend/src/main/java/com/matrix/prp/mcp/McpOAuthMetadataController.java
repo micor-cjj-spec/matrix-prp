@@ -2,6 +2,7 @@ package com.matrix.prp.mcp;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,13 +25,34 @@ public class McpOAuthMetadataController {
     private final String resource;
     private final String issuer;
     private final String metadata;
+    private final List<String> advertisedScopes;
 
     public McpOAuthMetadataController(
         @Value("${matrix-prp.mcp.oauth.resource:}") String resource,
-        @Value("${matrix-prp.mcp.oauth.issuer:}") String issuer) {
+        @Value("${matrix-prp.mcp.oauth.issuer:}") String issuer,
+        @Value("${matrix-prp.mcp.oauth.advertised-scopes:prp.tasks.read}") String advertisedScopes,
+        @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled) {
         this.resource = McpOAuthResourceServerConfig.strictHttps(resource, "MCP OAuth resource");
         this.issuer = McpOAuthResourceServerConfig.strictHttps(issuer, "MCP OAuth issuer");
         this.metadata = metadataUrl(this.resource);
+        this.advertisedScopes = parseAdvertisedScopes(advertisedScopes, writeEnabled);
+    }
+
+    static List<String> parseAdvertisedScopes(String configured, boolean writeEnabled) {
+        if (configured == null || configured.isBlank() || configured.length() > 1024) {
+            throw new IllegalArgumentException("Explicit MCP advertised scopes required");
+        }
+        var scopes = new LinkedHashSet<String>();
+        for (String part : configured.split(",", -1)) {
+            String scope = part.trim();
+            if (!SCOPES.contains(scope) || !scopes.add(scope)) {
+                throw new IllegalArgumentException("Unknown, empty or duplicate MCP advertised scope");
+            }
+            if (scope.startsWith("prp.write.") && !writeEnabled) {
+                throw new IllegalArgumentException("Cannot advertise MCP writes while writes are disabled");
+            }
+        }
+        return List.copyOf(scopes);
     }
 
     static String metadataUrl(String resource) {
@@ -51,7 +73,7 @@ public class McpOAuthMetadataController {
             .body(Map.of(
                 "resource", resource,
                 "authorization_servers", List.of(issuer),
-                "scopes_supported", SCOPES,
+                "scopes_supported", advertisedScopes,
                 "bearer_methods_supported", List.of("header"),
                 "resource_name", "Matrix PRP MCP"));
     }

@@ -78,6 +78,7 @@ class McpOAuthSecurityTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.resource").value("https://micor.top/api/mcp"))
             .andExpect(jsonPath("$.authorization_servers[0]").value("https://issuer.example.test"))
+            .andExpect(jsonPath("$.scopes_supported.length()").value(1))
             .andExpect(jsonPath("$.scopes_supported[0]").value("prp.tasks.read"));
         mvc.perform(get("/.well-known/oauth-protected-resource/another"))
             .andExpect(status().isNotFound());
