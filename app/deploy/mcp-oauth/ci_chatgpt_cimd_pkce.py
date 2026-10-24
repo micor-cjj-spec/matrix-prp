@@ -286,6 +286,29 @@ def install_exact_preregistered(token):
     print("PASS PREREG: exact ChatGPT ID/callback/JWKS/S256 configured in disposable Realm.")
 
 
+
+def disable_dynamic_cimd_after_preregistration(token):
+    # A static exact-client alternative is only meaningful when the generic
+    # CIMD policy is NOT intercepting URI-shaped client IDs. Test this
+    # explicitly in disposable CI, without changing the live Realm.
+    endpoint = REALM_ADMIN + "/client-policies/policies"
+    data = read_json(endpoint, token)
+    found = 0
+    for policy in data.get("policies", []):
+        if policy.get("name") == "ci-chatgpt-cimd-only":
+            policy["enabled"] = False
+            found += 1
+    if found != 1:
+        raise RuntimeError("EXACT_CIMD_POLICY_NOT_FOUND")
+    replace_admin_doc(endpoint, token, data)
+    reread = read_json(endpoint, token)
+    disabled = [p for p in reread.get("policies", [])
+                if p.get("name") == "ci-chatgpt-cimd-only" and not p.get("enabled")]
+    if len(disabled) != 1:
+        raise RuntimeError("DYNAMIC_CIMD_POLICY_STILL_ACTIVE")
+    print("PASS PREREG: dynamic CIMD interception explicitly disabled in disposable Realm.")
+
+
 def main():
     token = admin_token()
     configure(token)
@@ -303,6 +326,7 @@ def main():
         # *alternative* to dynamic CIMD. Verify it independently rather than
         # rewriting a third-party metadata document or relaxing the parser.
         install_exact_preregistered(token)
+        disable_dynamic_cimd_after_preregistration(token)
         require_pkce_result("S256")
         verify_persisted(token)
         for mode in ("missing", "plain"):
