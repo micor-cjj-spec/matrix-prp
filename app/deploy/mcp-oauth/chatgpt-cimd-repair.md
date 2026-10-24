@@ -372,3 +372,42 @@ GitHub Actions Realm**. It does not edit active client registrations, mint
 tokens signed by ChatGPT, perform a real account link, or issue a guarded
 staging release. Retain the existing B2 recovery/Nginx safety gates and
 client-policy change control.
+
+## Live-public metadata scope mismatch — read-only probe, 2026-10-24 18:12 UTC
+
+The external, unauthenticated GitHub Actions runner checked only two exact
+public HTTPS GET endpoints. There were **no OAuth credentials, login, admin
+calls, tokens, data modifications, Nginx changes or Keycloak PUTs**.
+
+- [Read-only probe #40119639867](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40119639867):
+  the Keycloak OIDC discovery endpoint passed exact issuer, S256 and token
+  endpoint checks.
+- The live public RFC 9728 protected resource at
+  `https://prp-test.micor.top/.well-known/oauth-protected-resource/api/mcp`
+  returned the expected resource and issuer, **but advertises additional
+  write, finance, and wellness scope categories** rather than only
+  `["prp.tasks.read"]`; the probe correctly exited nonzero.
+- This **does not establish those tools can be invoked or any write is enabled**
+  or reveal why the running backend differs from source defaults. It is a
+  public discovery mismatch, **not** production readiness or a reason to
+  widen requested scopes. The running build/env and server receipts are
+  unverified via GitHub.
+
+Reproduce without credentials from a trusted network or isolated CI runner:
+
+```sh
+python3 app/deploy/mcp-oauth/ci_public_readonly_probe.py
+```
+
+This fixed-host, read-only checker permits no redirects or HTTP proxies,
+validates server TLS, bounds JSON and prints only recognized status categories.
+Exit 0 requires **both** strict task-only public scope metadata and expected
+Keycloak OIDC discovery. Any network error is `UNVERIFIED`, not proof the
+server is down. It never verifies actual OAuth tokens, Realm policies,
+the Nginx guarded-install receipt or B2 recovery.
+
+Do **not** attempt a production reload or test Realm change solely to fix
+discovery. After existing independent B2 restore/Nginx/Keycloak approvals
+allow a staged change, repeat the checker, independently verify the MCP
+write switch and PRP owner grant isolation, then perform real authorized
+ChatGPT OAuth and `prp_tasks_list` acceptance. PR #95 remains Draft.
