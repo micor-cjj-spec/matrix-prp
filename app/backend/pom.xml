@@ -210,11 +210,28 @@
 					</execution>
 				</executions>
 			</plugin>
+			<!-- ENG-01: Instrument tests and publish coverage without changing the existing quality gates. -->
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>0.8.14</version>
+				<executions>
+					<execution>
+						<id>prepare-agent</id>
+						<goals><goal>prepare-agent</goal></goals>
+					</execution>
+					<execution>
+						<id>coverage-report</id>
+						<phase>verify</phase>
+						<goals><goal>report</goal></goals>
+					</execution>
+				</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
-					<argLine>-Xmx160m -XX:MaxMetaspaceSize=128m</argLine>
+					<argLine>@{argLine} -Xmx160m -XX:MaxMetaspaceSize=128m</argLine>
 					<forkCount>1</forkCount>
 					<reuseForks>true</reuseForks>
 				</configuration>
