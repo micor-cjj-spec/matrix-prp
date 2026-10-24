@@ -178,6 +178,7 @@ def register_client(token, certificate):
             "protocol": "openid-connect",
             "protocolMapper": "oidc-audience-mapper",
             "config": {"included.client.audience": "matrix-prp-mcp-resource",
+                       "included.custom.audience": RESOURCE,
                        "id.token.claim": "false", "access.token.claim": "true"},
         }],
     }
