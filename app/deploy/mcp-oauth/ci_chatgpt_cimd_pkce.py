@@ -215,14 +215,102 @@ def verify_persisted(token):
         raise RuntimeError("CIMD_CLIENT_S256_NOT_PERSISTED")
     if client.get("redirectUris") != [REDIRECT]:
         raise RuntimeError("CIMD_CLIENT_CALLBACK_MISMATCH")
-    print("PASS CIMD: real ChatGPT metadata resolved; exact callback and persisted S256.")
+    print("PASS CLIENT: exact callback and persisted S256 verified.")
+
+
+
+def has_known_chatgpt_parser_blocker():
+    # Only inspect the throwaway container's logs and return a boolean.
+    # Never echo them: authorization requests could contain transient state.
+    import subprocess
+    result = subprocess.run(
+        ["docker", "logs", "prp-mcp-keycloak-ci"],
+        capture_output=True, timeout=8, check=False,
+    )
+    return b'Unrecognized field "token_endpoint_auth_methods_supported"' in (
+        result.stdout + result.stderr
+    )
+
+
+def install_exact_preregistered(token):
+    """Fallback proof only: exact ChatGPT client pre-registration in CI realm."""
+    from urllib.parse import quote
+    endpoint = REALM_ADMIN + "/clients"
+    status, _, raw = request(endpoint + "?clientId=" + quote(CLIENT, safe=""), bearer=token)
+    if status != 200 or json.loads(raw):
+        raise RuntimeError("STATIC_CLIENT_MUST_NOT_PREEXIST")
+    # Use the official public ChatGPT ID, callback, and JWKS verbatim.
+    # This is not generic/anonymous DCR, no secrets, and no user token.
+    representation = {
+        "clientId": CLIENT,
+        "name": "Disposable exact ChatGPT OAuth pre-registration",
+        "enabled": True,
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "clientAuthenticatorType": "client-jwt",
+        "standardFlowEnabled": True,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "consentRequired": True,
+        "fullScopeAllowed": False,
+        "redirectUris": [REDIRECT],
+        "webOrigins": [],
+        "defaultClientScopes": ["basic"],
+        "optionalClientScopes": ["prp.tasks.read"],
+        "attributes": {
+            "use.jwks.url": "true",
+            "jwks.url": "https://chatgpt.com/oauth/jwks.json",
+            "pkce.code.challenge.method": "S256",
+        },
+        "protocolMappers": [{
+            "name": "PRP MCP exact audience",
+            "protocol": "openid-connect",
+            "protocolMapper": "oidc-audience-mapper",
+            "config": {
+                "included.client.audience": "matrix-prp-mcp-resource",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+            },
+        }],
+    }
+    status, _, _ = request(endpoint, method="POST", json_body=representation, bearer=token)
+    if status != 201:
+        raise RuntimeError("EXACT_CLIENT_PREREGISTRATION_REJECTED_" + str(status))
+    status, _, raw = request(endpoint + "?clientId=" + quote(CLIENT, safe=""), bearer=token)
+    if status != 200:
+        raise RuntimeError("EXACT_CLIENT_READ_FAILED")
+    matches = [x for x in json.loads(raw) if x.get("clientId") == CLIENT]
+    if len(matches) != 1 or matches[0].get("publicClient") is not False:
+        raise RuntimeError("EXACT_CLIENT_NOT_CONFIDENTIAL")
+    print("PASS PREREG: exact ChatGPT ID/callback/JWKS/S256 configured in disposable Realm.")
 
 
 def main():
     token = admin_token()
     configure(token)
-    # The first request exercises CIMD registration and ByAnonymous auto-config.
-    require_pkce_result("S256")
+    # First prove the built-in parser behavior with the actual official
+    # ChatGPT metadata URL. A known Keycloak 26.8 compatibility failure
+    # is NOT reported as successful native CIMD.
+    try:
+        require_pkce_result("S256")
+    except RuntimeError as exc:
+        if (not str(exc).startswith("S256_AUTHORIZATION_NOT_ACCEPTED_")
+                or not has_known_chatgpt_parser_blocker()):
+            raise
+        print("KNOWN BLOCKER: Keycloak 26.8 native CIMD rejects ChatGPT plural auth field.")
+        # A pre-registered, narrowly scoped exact client can be a valid
+        # *alternative* to dynamic CIMD. Verify it independently rather than
+        # rewriting a third-party metadata document or relaxing the parser.
+        install_exact_preregistered(token)
+        require_pkce_result("S256")
+        verify_persisted(token)
+        for mode in ("missing", "plain"):
+            require_pkce_result(mode)
+            print("PASS PREREG: " + mode + " PKCE rejected on exact client.")
+        print("PASS PREREG: disposable exact-client auth page & PKCE only; no token flow.")
+        return
+
     verify_persisted(token)
     for mode in ("missing", "plain"):
         require_pkce_result(mode)
