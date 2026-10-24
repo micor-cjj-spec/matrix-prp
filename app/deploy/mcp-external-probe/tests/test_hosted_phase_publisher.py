@@ -23,7 +23,7 @@ class PublisherTests(unittest.TestCase):
                       issued_utc='fixture',max_seconds=900)
         self.api=Mock();self.transport=Mock();self.transport.run.return_value=copy.deepcopy(self.run)
         self.raw=b'reviewed workflow fixture'
-        self.publisher=Publisher(self.api,self.transport,'a'*40,hashlib.sha256(self.raw).hexdigest(),123,456)
+        self.publisher=Publisher(self.api,self.transport,'a'*40,hashlib.sha256(self.raw).hexdigest(),123,456,warp_authorized=True)
 
     def start(self):
         self.api.side_effect=[{'object':{'sha':'a'*40}},
@@ -34,6 +34,7 @@ class PublisherTests(unittest.TestCase):
         self.start()
         body=self.api.call_args.kwargs['body']
         self.assertEqual(json.loads(body['inputs']['guard_job']),self.job)
+        self.assertIs(body['inputs']['warp_authorized'],True)
         with self.assertRaises(GateError):self.publisher.start(self.job)
         self.assertEqual(self.api.call_count,3)
 
@@ -41,6 +42,11 @@ class PublisherTests(unittest.TestCase):
         self.api.return_value={'object':{'sha':'d'*40}}
         with self.assertRaises(GateError):self.publisher.start(self.job)
         self.api.assert_called_once()
+
+    def test_default_has_no_registration_authority(self):
+        publisher=Publisher(self.api,self.transport,'a'*40,hashlib.sha256(self.raw).hexdigest(),123,456)
+        with self.assertRaises(GateError):publisher.start(self.job)
+        self.api.assert_not_called()
 
     def test_workflow_drift_prevents_dispatch(self):
         self.api.side_effect=[{'object':{'sha':'a'*40}},{'encoding':'base64','content':'eA=='}]

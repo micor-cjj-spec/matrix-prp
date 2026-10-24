@@ -14,7 +14,7 @@ from linux_external_collector import public_job
 
 
 class Publisher:
-    def __init__(self, api, artifacts, commit, workflow_sha256, repository_id, owner_id):
+    def __init__(self, api, artifacts, commit, workflow_sha256, repository_id, owner_id, *, warp_authorized=False):
         if not re.fullmatch('[0-9a-f]{40}',commit) or not re.fullmatch('[0-9a-f]{64}',workflow_sha256):
             raise GateError('PUBLISHER_SOURCE_PIN')
         ExpectedRun(commit,1,1,repository_id,owner_id)
@@ -22,8 +22,10 @@ class Publisher:
         self.commit,self.workflow_sha256=commit,workflow_sha256
         self.repository_id,self.owner_id=repository_id,owner_id
         self.started=set()
+        self.warp_authorized=warp_authorized is True
 
     def start(self, root_job):
+        if not self.warp_authorized:raise GateError('FULL_COLLECTION_WARP_AUTHORIZATION_REQUIRED')
         job=public_job(root_job)
         nonce=job['nonce']
         if not re.fullmatch('[0-9a-f]{48}',nonce):raise GateError('PUBLISHER_NONCE')
@@ -39,7 +41,7 @@ class Publisher:
         if hashlib.sha256(raw).hexdigest()!=self.workflow_sha256:raise GateError('PUBLISHER_WORKFLOW_DRIFT')
         self.started.add(nonce)
         response=self.api(prefix+'actions/workflows/381769081/dispatches',method='POST',
-            body={'ref':REF.removeprefix('refs/heads/'),'inputs':{'guard_job':json.dumps(job,sort_keys=True,separators=(',',':'))}})
+            body={'ref':REF.removeprefix('refs/heads/'),'inputs':{'guard_job':json.dumps(job,sort_keys=True,separators=(',',':')),'warp_authorized':True}})
         if response!={'status':204}:raise GateError('PUBLISHER_DISPATCH_UNCONFIRMED')
         return {'job':copy.deepcopy(job),'run_id':None,'attempt':1}
 
