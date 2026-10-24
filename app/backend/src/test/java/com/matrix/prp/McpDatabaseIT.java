@@ -43,6 +43,69 @@ class McpDatabaseIT {
     @Autowired UserStore users;
     @Autowired PasswordEncoder encoder;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.matrix.prp.tasks.service.TaskService tasks;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
+
+    @Test
+    void approvedTaskUpdateAndDeleteAreOwnerScopedAndIdempotent() {
+        String password = "synthetic-mcp-crud-2026";
+        var owner = createUser(password);
+        var stranger = createUser("another-synthetic-password");
+        as(owner);
+        var original = tasks.create(new CreateTaskRequest("work", "Before", "", "low", java.time.LocalDate.now().plusDays(2)));
+        var replacement = new CreateTaskRequest("work", "After", "Reviewed", "high", null);
+        var update = drafts.prepareTaskChange(original.id(), replacement, "done", false);
+        assertThat(tasks.get(original.id()).title()).isEqualTo("Before");
+        drafts.approve(update.draftId(), password);
+        drafts.confirm(update.draftId());
+        assertThat(tasks.get(original.id()).title()).isEqualTo("After");
+        assertThat(tasks.get(original.id()).status()).isEqualTo("done");
+        assertThat(tasks.get(original.id()).dueDate()).isNull();
+        assertThat(drafts.confirm(update.draftId()).alreadySaved()).isTrue();
+        as(stranger);
+        assertThatThrownBy(() -> drafts.prepareTaskChange(original.id(), null, null, true))
+            .isInstanceOf(ResponseStatusException.class);
+        as(owner);
+        var deletion = drafts.prepareTaskChange(original.id(), null, null, true);
+        drafts.approve(deletion.draftId(), password);
+        assertThat(drafts.confirm(deletion.draftId()).saved().path("deleted").asBoolean()).isTrue();
+        assertThat(drafts.confirm(deletion.draftId()).alreadySaved()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT deleted FROM prp_tasks WHERE id=? AND user_id=?", Integer.class,
+            original.id(), owner.id())).isEqualTo(1);
+    }
+
+    @Test
+    void changedTaskCannotBeDeletedByAnOlderApproval() {
+        String password = "synthetic-mcp-conflict-2026";
+        var owner = createUser(password);
+        as(owner);
+        var task = tasks.create(new CreateTaskRequest("work", "Before", "", "low", null));
+        var deletion = drafts.prepareTaskChange(task.id(), null, null, true);
+        drafts.approve(deletion.draftId(), password);
+        tasks.update(task.id(), new CreateTaskRequest("work", "Newer human edit", "", "low", null));
+        assertThatThrownBy(() -> drafts.confirm(deletion.draftId())).isInstanceOf(ResponseStatusException.class)
+            .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        assertThat(tasks.get(task.id()).title()).isEqualTo("Newer human edit");
+        assertThat(drafts.review(deletion.draftId()).status()).isEqualTo("APPROVED");
+    }
+
+    @Test
+    void taskMutationAndDraftConsumptionRollbackTogether() {
+        String password = "synthetic-mcp-rollback-2026";
+        var owner = createUser(password);
+        as(owner);
+        var task = tasks.create(new CreateTaskRequest("work", "Before", "", "low", null));
+        var deletion = drafts.prepareTaskChange(task.id(), null, null, true);
+        drafts.approve(deletion.draftId(), password);
+        var transaction = new org.springframework.transaction.support.TransactionTemplate(transactions);
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+            drafts.confirm(deletion.draftId());
+            throw new IllegalStateException("SYNTHETIC_TRANSACTION_FAILURE");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(tasks.get(task.id()).title()).isEqualTo("Before");
+        assertThat(drafts.review(deletion.draftId()).status()).isEqualTo("APPROVED");
+        assertThat(drafts.confirm(deletion.draftId()).alreadySaved()).isFalse();
+    }
 
     @AfterEach
     void cleanupIdentity() { SecurityContextHolder.clearContext(); }

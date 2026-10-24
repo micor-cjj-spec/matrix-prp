@@ -19,7 +19,7 @@ import org.springframework.http.HttpStatus;
 public class McpOAuthMetadataController {
     public static final List<String> SCOPES = List.of(
         "prp.tasks.read", "prp.finance.read", "prp.wellness.read",
-        "prp.write.create", "prp.write.status", "prp.write.confirm");
+        "prp.write.create", "prp.write.status", "prp.write.confirm", "prp.write.update", "prp.write.delete");
 
     private final String resource;
     private final String issuer;

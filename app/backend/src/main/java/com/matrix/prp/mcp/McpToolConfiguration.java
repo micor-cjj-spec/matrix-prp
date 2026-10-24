@@ -24,7 +24,11 @@ public class McpToolConfiguration {
     public List<McpStatelessServerFeatures.SyncToolSpecification> prpMcpSpecifications(
             PrpMcpTools tools, @Value("${matrix-prp.mcp.oauth.enabled:false}") boolean oauthEnabled) {
         var definitions = new SyncStatelessMcpToolProvider(List.of(tools)).getToolSpecifications();
-        if (definitions.size() != 8) {
+        var expected = java.util.Set.of("prp_tasks_list", "prp_task_get", "prp_finance_month",
+            "prp_wellness_daily", "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record",
+            "prp_draft_status", "prp_confirm_draft", "prp_prepare_task_update", "prp_prepare_task_delete");
+        var actual = definitions.stream().map(spec -> spec.tool().name()).collect(java.util.stream.Collectors.toSet());
+        if (definitions.size() != expected.size() || !actual.equals(expected)) {
             throw new IllegalStateException("PRP MCP tool allowlist mismatch; refusing to start");
         }
         if (!oauthEnabled) return List.copyOf(definitions);

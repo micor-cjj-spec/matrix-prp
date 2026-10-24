@@ -54,6 +54,13 @@ public class PrpMcpTools {
         return tasks.listLimited(new TaskFilter(status, null, null, null), 20);
     }
 
+    @McpTool(name = "prp_task_get", description = "Read one task by its exact ID belonging to the authenticated PRP user. Missing and other-user tasks are both unavailable.")
+    public Object getTask(
+            @McpToolParam(description = "Exact positive task ID returned by PRP", required = true) long taskId) {
+        scopes.require("prp.tasks.read");
+        return tasks.get(taskId);
+    }
+
     @McpTool(name = "prp_finance_month", description = "Read monthly summary and up to 10 transactions belonging to the authenticated PRP user.")
     public Object financeMonth(
             @McpToolParam(description = "Month in yyyy-MM; optional, defaults to the current month", required = false)
@@ -83,6 +90,27 @@ public class PrpMcpTools {
         scopes.require("prp.write.create");
         return drafts.prepare(McpDraftService.Kind.TASK,
             new CreateTaskRequest(moduleCode, title, description, priority, optionalDate(dueDate)));
+    }
+
+    @McpTool(name = "prp_prepare_task_update", description = "Prepare an update to one owned task. Shows before and after values. Requires separate owner approval in PRP; never updates immediately.")
+    public McpDraftService.Preview prepareTaskUpdate(
+            @McpToolParam(description = "Exact owned task ID", required = true) long taskId,
+            @McpToolParam(description = "Replacement module code", required = true) String moduleCode,
+            @McpToolParam(description = "Replacement title", required = true) String title,
+            @McpToolParam(description = "Replacement description; omitted clears it", required = false) String description,
+            @McpToolParam(description = "Replacement priority: low, medium, high", required = false) String priority,
+            @McpToolParam(description = "Replacement due date yyyy-MM-dd", required = false) String dueDate,
+            @McpToolParam(description = "Optional new status: todo, in_progress, done, canceled", required = false) String status) {
+        scopes.require("prp.write.update");
+        return drafts.prepareTaskChange(taskId,
+            new CreateTaskRequest(moduleCode, title, description, priority, optionalDate(dueDate)), status, false);
+    }
+
+    @McpTool(name = "prp_prepare_task_delete", description = "Prepare deletion of one owned task. Does not delete until the owner separately approves in PRP and confirms the draft. Changed records are rejected.")
+    public McpDraftService.Preview prepareTaskDelete(
+            @McpToolParam(description = "Exact owned task ID", required = true) long taskId) {
+        scopes.require("prp.write.delete");
+        return drafts.prepareTaskChange(taskId, null, null, true);
     }
 
     @McpTool(name = "prp_prepare_finance", description = "Prepare a new income or expense draft only. Amount is decimal CNY; does not book any transaction until confirmed.")
@@ -129,6 +157,13 @@ public class PrpMcpTools {
     public McpDraftService.Result confirmDraft(
             @McpToolParam(description = "Exact draftId returned by prp_prepare_*", required = true) String draftId) {
         scopes.require("prp.write.confirm");
+        // Recheck the operation permission at execution time, including after revocation.
+        var review = drafts.review(draftId);
+        switch (review.kind()) {
+            case "TASK_UPDATE" -> scopes.require("prp.write.update");
+            case "TASK_DELETE" -> scopes.require("prp.write.delete");
+            default -> scopes.require("prp.write.create");
+        }
         return drafts.confirm(draftId);
     }
 

@@ -7,6 +7,8 @@ import java.util.List;
 
 public interface TaskRepository {
 
+    TaskItem get(long id);
+
     List<TaskItem> list();
 
     List<TaskItem> list(TaskFilter filter);
