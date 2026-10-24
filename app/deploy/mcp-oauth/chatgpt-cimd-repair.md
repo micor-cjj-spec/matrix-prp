@@ -311,3 +311,38 @@ Before any authorized test-only change:
 The earlier CIMD-specific PKCE policy test is still required **if CIMD
 remains the chosen mechanism**; successful static pre-registration does
 not prove dynamic CIMD interoperability.
+
+
+## Offline refresh resource-indicator negative test — deployment blocker
+
+The disposable Keycloak 26.8 authentication test at
+[run 40111110684](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40111110684)
+successfully exercised a synthetic (not ChatGPT) confidential client:
+real login/consent, PKCE S256 authorization-code exchange, signed
+`private_key_jwt`, an RSA-verified JWT with exact PRP MCP URI audience,
+`offline_access` refresh, rotated refresh tokens, replay denial and
+refresh-token revocation. The Keycloak Audience mapper must use
+`included.custom.audience` with the exact MCP HTTPS URI, **not**
+`included.client.audience`, because Keycloak's built-in mapper ignores
+custom audience when a client audience is populated.
+
+However, an additional fail-closed negative test in
+[run 40111254877](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40111254877)
+proved that a synthetic OAuth client refreshing with an **unapproved**
+`resource` URL received HTTP 200 instead of `invalid_target`. A fixed
+custom audience mapper can still stamp the PRP URI on the new JWT.
+This is an **authorization-server resource-indicator enforcement gap**
+for the tested Keycloak 26.8 configuration. The positive test is not
+an RFC 8707 refresh-grant compliance proof. The negative regression is
+intentionally retained separately in draft PR #113 rather than hidden
+or weakening the client/resource checks. RFC 8707 applies the
+`resource` parameter to all access-token request grant types.
+
+**Do NOT activate offline refresh for real ChatGPT or release MCP** based
+on the positive test alone. Require a distinct authorization-server
+upgrade, compatible provider, or strictly reviewed Keycloak extension
+that enforces the exact resource on refresh grants, and rerun the
+negative test on an isolated restored Realm. Never make PRP accept
+`matrix-prp-mcp-resource` as a substitute for its canonical URL,
+skip refresh resource constraints, or confuse JWT signature/audience
+checks with the authorization-server grant validation.
