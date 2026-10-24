@@ -7,7 +7,7 @@ or log passwords, cookies, authorization codes, assertions or bearer tokens.
 """
 import base64
 import hashlib
-from http.cookiejar import CookieJar
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 import json
 import os
 from pathlib import Path
@@ -48,7 +48,13 @@ def browser_opener():
     browser.CLIENT = CLIENT
     browser.CALLBACK = CALLBACK
     browser.request = classified_browser_request
-    return build_opener(HTTPCookieProcessor(CookieJar()), LocalRedirect())
+    # Keycloak sets Secure auth-session cookies even in its dev-mode loopback
+    # HTTP runner. Browsers treat localhost as a secure context, while Python's
+    # CookieJar does not by default. This exception is restricted to a
+    # disposable Keycloak loopback origin by LocalRedirect and request allowlist;
+    # NEVER apply it to public or production HTTPS endpoints.
+    policy = DefaultCookiePolicy(secure_protocols=("https", "wss", "http"))
+    return build_opener(HTTPCookieProcessor(CookieJar(policy=policy)), LocalRedirect())
 
 
 def classified_browser_request(opener, url, *, data=None, bearer=None, form=False, method=None):
