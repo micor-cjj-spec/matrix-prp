@@ -75,4 +75,32 @@ class CollectorTests(unittest.TestCase):
             with self.assertRaises(collector.GateError):collector.collect_payload(self.job,self.manifest,self.pin)
             schedule.assert_not_called()
 
+    def test_stale_batch_rejected_with_counts_and_no_raw_rows(self):
+        now=time.time();old=datetime.datetime.fromtimestamp(now-301,datetime.timezone.utc).isoformat()
+        rows=[{'started_utc':old,'error':None,'body':'SECRET-CANARY'} for _ in range(682)]
+        answers=[{'utc':old,'credential':'SECRET-CANARY'}]
+        with patch.object(collector.sys,'platform','linux'),patch.object(collector,'validate'),patch.object(collector,'dns_linux',return_value=answers),patch.object(collector,'schedule',return_value=rows):
+            with self.assertRaises(collector.CollectorRejected) as caught:collector.collect_payload(self.job,self.manifest,self.pin)
+        report=collector.failure_report(caught.exception)
+        self.assertEqual(report['failure_code'],'COLLECTOR_OBSERVATIONS_STALE')
+        self.assertEqual(report['completed_requests'],682)
+        self.assertGreaterEqual(report['oldest_request_age_seconds'],301)
+        self.assertFalse(report['evidence_accepted'])
+        self.assertNotIn('SECRET',json.dumps(report))
+
+    def test_failure_summary_does_not_reflect_unknown_error_or_exception(self):
+        stamp=utc()
+        error=collector.CollectorRejected('COLLECTOR_DEADLINE',
+            [{'started_utc':stamp,'error':'SECRET-CANARY'}],[{'utc':stamp}],stamp,stamp,time.time())
+        report=collector.failure_report(error)
+        self.assertEqual(report['error_counts'],{'OTHER_ERROR':1})
+        self.assertNotIn('SECRET',json.dumps(report))
+        self.assertEqual(collector.failure_report(RuntimeError('TOKEN-SECRET'))['failure_code'],'UNCLASSIFIED')
+
+    def test_virtual_slow_collection_still_rejects_at_original_300_seconds(self):
+        now=time.time();stamp=datetime.datetime.fromtimestamp(now-300.1,datetime.timezone.utc).isoformat()
+        row={'started_utc':stamp,'error':None}
+        with patch.object(collector.sys,'platform','linux'),patch.object(collector,'validate'),patch.object(collector,'dns_linux',return_value=[]),patch.object(collector,'schedule',return_value=[row]):
+            with self.assertRaisesRegex(collector.GateError,'COLLECTOR_OBSERVATIONS_STALE'):collector.collect_payload(self.job,self.manifest,self.pin)
+
 if __name__=='__main__':unittest.main()

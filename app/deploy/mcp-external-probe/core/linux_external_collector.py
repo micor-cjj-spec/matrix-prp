@@ -25,6 +25,37 @@ PUBLIC_JOB=('deployment_id','phase','nonce','manifest_sha256','source_config','t
             'probe_sha256','issued_utc','max_seconds')
 IDENTITY=PUBLIC_JOB[:7]
 
+SAFE_ERRORS={'TCP_CONNECT_TIMEOUT','TLS_OR_CERT_VALIDATION_TIMEOUT',
+             'REQUEST_OR_FIRST_BYTE_TIMEOUT','RESPONSE_COMPLETION_TIMEOUT',
+             'RESPONSE_HEADERS_TIMEOUT','CERTIFICATE_FAILED','TLS_FAILED',
+             'TRANSPORT_OR_PROTOCOL_ERROR','OUTPUT_LIMIT','TLS_PROBE_FAILED',
+             'H2_WORKER_FAILED','H2_OUTPUT_CORRUPT'}
+
+
+class CollectorRejected(GateError):
+    """A rejected batch has diagnostics, never an acceptable evidence payload."""
+    def __init__(self,code,rows,answers,started,ended,now):
+        if code not in {'COLLECTOR_DEADLINE','COLLECTOR_OBSERVATIONS_STALE'}:
+            raise ValueError('UNREVIEWED_REJECTION_CODE')
+        super().__init__(code)
+        errors={}
+        for row in rows:
+            if row.get('error'):
+                label=row['error'] if row['error'] in SAFE_ERRORS else 'OTHER_ERROR'
+                errors[label]=errors.get(label,0)+1
+        self.safe_report={'failure_code':code,'completed_requests':len(rows),
+            'dns_rows':len(answers),'elapsed_seconds':round(epoch(ended)-epoch(started),3),
+            'oldest_request_age_seconds':round(max((now-epoch(row['started_utc']) for row in rows),default=0),3),
+            'oldest_dns_age_seconds':round(max((now-epoch(row['utc']) for row in answers),default=0),3),
+            'transport_errors':sum(errors.values()),'error_counts':errors,
+            'evidence_accepted':False}
+
+
+def failure_report(error):
+    # No arbitrary exception message, raw response, URL, token or row is exported.
+    if type(error) is CollectorRejected:return copy.deepcopy(error.safe_report)
+    return {'failure_code':'UNCLASSIFIED','completed_requests':None,'evidence_accepted':False}
+
 def public_job(root_job):
     """Never forward root-local route attestations or incidental secret fields."""
     return {name:copy.deepcopy(root_job[name]) for name in PUBLIC_JOB}
@@ -71,11 +102,13 @@ def collect_payload(job,manifest,pin):
         return http_probe(spec,False)
     rows=schedule(manifest['phases'][job['phase']]['requests'],probe,time.monotonic()+remaining,concurrency=2)
     end=utc()
-    if time.time()>epoch(job['issued_utc'])+job['max_seconds']:raise GateError('COLLECTOR_DEADLINE')
+    now=time.time()
+    if now>epoch(job['issued_utc'])+job['max_seconds']:
+        raise CollectorRejected('COLLECTOR_DEADLINE',rows,answers,start,end,now)
     # Do not produce an apparently usable stale batch. The root gate still
     # independently applies every timestamp and response-contract requirement.
-    if any(time.time()-epoch(row['started_utc'])>300 for row in rows) or any(time.time()-epoch(row['utc'])>300 for row in answers):
-        raise GateError('COLLECTOR_OBSERVATIONS_STALE')
+    if any(now-epoch(row['started_utc'])>300 for row in rows) or any(now-epoch(row['utc'])>300 for row in answers):
+        raise CollectorRejected('COLLECTOR_OBSERVATIONS_STALE',rows,answers,start,end,now)
     result={name:copy.deepcopy(job[name]) for name in IDENTITY}
     result.update(started_utc=start,ended_utc=end,observations=rows,dns=answers)
     return result
