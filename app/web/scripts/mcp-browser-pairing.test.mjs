@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { safeUnauthenticatedRedirect } from '../src/router/safeUnauthenticatedRedirect.ts'
 import {
   browserPairingConfig, createBrowserPairingRequest,
   readBrowserPairingCallback, hasOAuthCallback, exchangeBrowserPairingToken,
@@ -115,4 +117,30 @@ test('browser token exchange rejects non-Bearer token types and failed responses
   } finally {
     globalThis.fetch = savedFetch
   }
+})
+
+test('unauthenticated login redirect strips all OAuth callback parameters', () => {
+  const callback = '/me/mcp-clients?code=secret&state=nonce&iss=https%3A%2F%2Fissuer'
+  const cleaned = safeUnauthenticatedRedirect({
+    name: 'mcp-client-grants', path: '/me/mcp-clients', fullPath: callback,
+  })
+  assert.equal(cleaned, '/me/mcp-clients')
+  assert.ok(!cleaned.includes('secret'))
+  assert.ok(!cleaned.includes('nonce'))
+  assert.equal(safeUnauthenticatedRedirect({
+    name: 'tasks', path: '/tasks', fullPath: '/tasks?filter=upcoming',
+  }), '/tasks?filter=upcoming')
+})
+
+test('browser pairing cleanup is mandatory on failure, cancellation and callback', () => {
+  const view = readFileSync(new URL('../src/views/McpClientsView.vue', import.meta.url), 'utf8')
+  const router = readFileSync(new URL('../src/router/index.ts', import.meta.url), 'utf8')
+  assert.match(view, /if \(grantIssued\) await revokePairingOnlyGrant\(config\.clientId\)/)
+  assert.match(view, /async function cancelBrowserPairing\(\)/)
+  assert.match(view, /const cleaned = await revokePairingOnlyGrant\(browserConfig\.clientId\)/)
+  assert.match(view, /const revoked = browserConfig \? await revokePairingOnlyGrant\(browserConfig\.clientId\)/)
+  assert.match(view, /if \(shouldCancel\) await cancelBrowserPairing\(\)/)
+  assert.match(view, /v-if="pendingBrowserPairing"/)
+  assert.match(view, /v-if="pairingCleanupWarning"/)
+  assert.match(router, /redirect: safeUnauthenticatedRedirect\(to\)/)
 })
