@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/prp-mcp-gateway-v1
+      - test/mcp-chatgpt-static-contract-20261025
     paths:
       - "app/deploy/mcp-oauth/**"
       - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
