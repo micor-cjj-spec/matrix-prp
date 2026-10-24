@@ -1,0 +1,96 @@
+name: MCP temporary pairing lease review
+on:
+  push:
+    branches:
+      - fix/mcp-expiring-browser-grants-20261025
+permissions:
+  contents: read
+jobs:
+  web-and-migration-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: Validate immutable migration registry and V28 create-only policy
+        run: node app/scripts/verify-db-migrations.mjs
+      - name: Install and test first-party browser pairing
+        working-directory: app/web
+        run: |
+          npm ci
+          npm run build
+          VITE_APP_BASE=/prp/ npm run build
+          node scripts/verify-deploy-base.mjs /prp/
+  mysql-lease-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: matrix_prp
+          MYSQL_USER: matrix_prp
+          MYSQL_PASSWORD: ci-app-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Apply existing immutable schema and V28 to disposable MySQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y default-mysql-client
+          for schema in app/docker/mysql/init/*.sql; do
+            MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+          done
+          for schema in $(find app/backend/src/main/resources/db/migration -name 'V*__*.sql' | sort -V); do
+            version=$(basename "$schema" | sed -E 's/V([0-9]+)__.*/\1/')
+            if [ "$version" -gt 7 ]; then
+              MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+            fi
+          done
+      - name: Test expiring leases and legacy owner grants on real MySQL
+        working-directory: app/backend
+        env:
+          MATRIX_PRP_DB_PASSWORD: ci-app-password
+          MATRIX_PRP_BOOTSTRAP_USERNAME: lease_admin
+          MATRIX_PRP_BOOTSTRAP_PASSWORD: lease-admin-ci-password-2026
+          MATRIX_PRP_JWT_SECRET: ci-only-32-byte-JWT-secret-for-lease
+          MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -Dtest=McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT test
+  keycloak-prp-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Exercise real disposable Keycloak+PRP browser pairing
+        env:
+          MCP_E2E_CRUD: 'false'
+        run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
