@@ -9,7 +9,7 @@ import {
   type McpBrowserPairingConfig, type McpPendingBrowserPairing,
 } from '@/api/mcpBrowserPairing'
 import {
-  authorizeMcpClient, listMcpClients, mcpScopes, revokeMcpClient,
+  authorizeMcpClient, authorizeTemporaryMcpPairing, listMcpClients, mcpScopes, revokeMcpClient,
   type McpClientGrant,
 } from '@/api/mcpClients'
 import {
@@ -107,7 +107,7 @@ async function beginBrowserPairing() {
     const ownerPassword = pairingPassword.value
     // A temporary task-read grant is needed for the one-use ticket and must
     // be revoked even if ticket creation or browser navigation fails.
-    await authorizeMcpClient(config.clientId, ['prp.tasks.read'], ownerPassword)
+    await authorizeTemporaryMcpPairing(config.clientId, ownerPassword)
     grantIssued = true
     const ticket = await createMcpIdentityTicket(config.clientId, ownerPassword)
     const request = await createBrowserPairingRequest(config, ticket.code)
@@ -292,7 +292,7 @@ onMounted(() => {
       </el-card>
       <el-card v-if="browserConfig" shadow="never" class="section">
         <template #header>浏览器一键关联 Keycloak 身份</template>
-        <p>适用于 iPhone 和电脑。通过独立的 Keycloak 公共配对客户端完成 PKCE S256 登录，不需要在 ChatGPT 里粘贴任何关联码。临时任务只读授权会在完成关联后自动撤销。</p>
+        <p>适用于 iPhone 和电脑。通过独立的 Keycloak 公共配对客户端完成 PKCE S256 登录，不需要在 ChatGPT 里粘贴任何关联码。临时任务只读授权由 PRP 服务器限制为 10 分钟，并在关联完成或取消时尝试提前撤销。</p>
         <el-form label-position="top" @submit.prevent="beginBrowserPairing">
           <el-form-item label="再次输入 PRP 密码以启动绑定">
             <el-input v-model="pairingPassword" type="password" show-password
