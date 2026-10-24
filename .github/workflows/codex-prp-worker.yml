@@ -45,13 +45,30 @@ jobs:
                       'third_party_registration_approved':True,'steps':[],'requests':[],
                       'registration_attempted':False,'registration_command_succeeded':False,
                       'capability_ready':False,'raw_client_output_exported':False}
+              overall_deadline=time.monotonic()+400
               def run(label,args,seconds,required=True):
+                  started=time.monotonic()
+                  available=overall_deadline-started-(0 if label.startswith('cleanup_') else 35)
+                  if available<=0:
+                      report['steps'].append({'step':label,'exit_code':None,'skipped_budget_exhausted':True})
+                      if required:raise RuntimeError(label)
+                      return None,b''
+                  seconds=min(seconds,max(.1,available))
                   try:
-                      p=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=seconds)
+                      env=dict(os.environ,DEBIAN_FRONTEND='noninteractive',NEEDRESTART_MODE='a')
+                      p=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=seconds,env=env)
                       code=p.returncode;output=p.stdout+p.stderr
-                  except subprocess.TimeoutExpired:
-                      code=None;output=b''
-                  report['steps'].append({'step':label,'exit_code':code,'timed_out':code is None})
+                  except subprocess.TimeoutExpired as exc:
+                      code=None;output=(exc.stdout or b'')+(exc.stderr or b'')
+                  row={'step':label,'exit_code':code,'timed_out':code is None,'elapsed_seconds':round(time.monotonic()-started,3)}
+                  if label=='official_client_install':
+                      row['sanitized_install_markers']={
+                          'download_announced':b'Need to get ' in output,
+                          'unpack_started':b'Unpacking cloudflare-warp' in output,
+                          'setup_started':b'Setting up cloudflare-warp' in output,
+                          'lock_wait_seen':b'Waiting for cache lock' in output,
+                          'download_error_seen':b'Failed to fetch' in output or b'Temporary failure resolving' in output}
+                  report['steps'].append(row)
                   if required and code!=0:raise RuntimeError(label)
                   return code,output
               registered=False
@@ -67,7 +84,7 @@ jobs:
                   source.write_text('deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main\n')
                   run('official_repository_install',['sudo','install','-m','644',str(source),'/etc/apt/sources.list.d/cloudflare-client.list'],10)
                   run('apt_update',['sudo','apt-get','update','-o','Acquire::Retries=0','-o','Acquire::http::Timeout=15'],90)
-                  run('official_client_install',['sudo','apt-get','install','--assume-yes','--no-install-recommends','cloudflare-warp'],90)
+                  run('official_client_install',['sudo','apt-get','install','--assume-yes','--no-install-recommends','cloudflare-warp=2026.8.2115.0'],180)
                   code,out=run('client_version',['warp-cli','--version'],5)
                   version=re.search(rb'\d+\.\d+\.\d+(?:\.\d+)?',out)
                   report['client_version']=version.group().decode('ascii') if version else 'UNPARSED'
