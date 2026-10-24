@@ -103,7 +103,7 @@ class McpClientGrantDatabaseIT {
 
         Long leaseSeconds = jdbc.queryForObject(
             "SELECT TIMESTAMPDIFF(SECOND,CURRENT_TIMESTAMP,expires_at) " +
-            "FROM prp_mcp_client_grants WHERE user_id=? AND client_id=?",
+            "FROM prp_mcp_pairing_grant_leases WHERE user_id=? AND client_id=?",
             Long.class, owner.id(), pairingId);
         assertThat(leaseSeconds).isBetween(590L, 600L);
         assertThatThrownBy(() -> grants.authorizeTemporaryPairing(pairingId, password))
@@ -112,7 +112,7 @@ class McpClientGrantDatabaseIT {
                 .isEqualTo(HttpStatus.CONFLICT));
 
         // Expiration is enforced without waiting for a scheduler or browser visit.
-        jdbc.update("UPDATE prp_mcp_client_grants SET expires_at=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 1 SECOND) " +
+        jdbc.update("UPDATE prp_mcp_pairing_grant_leases SET expires_at=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 1 SECOND) " +
             "WHERE user_id=? AND client_id=?", owner.id(), pairingId);
         assertThat(grants.grantedScopes(owner.id(), pairingId)).isEmpty();
         assertThat(grants.mine()).filteredOn(grant -> grant.clientId().equals(pairingId))
@@ -127,8 +127,9 @@ class McpClientGrantDatabaseIT {
 
         grants.authorize(permanentId, List.of("prp.tasks.read", "prp.finance.read"), password);
         assertThat(jdbc.queryForObject(
-            "SELECT COUNT(*) FROM prp_mcp_client_grants WHERE user_id=? " +
-            "AND client_id=? AND expires_at IS NULL",
+            "SELECT COUNT(*) FROM prp_mcp_client_grants g " +
+            "LEFT JOIN prp_mcp_pairing_grant_leases l ON l.user_id=g.user_id AND l.client_id=g.client_id " +
+            "WHERE g.user_id=? AND g.client_id=? AND l.user_id IS NULL",
             Integer.class, owner.id(), permanentId)).isEqualTo(1);
         assertThatThrownBy(() -> grants.authorizeTemporaryPairing(permanentId, password))
             .isInstanceOf(ResponseStatusException.class)
