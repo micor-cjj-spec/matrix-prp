@@ -71,6 +71,8 @@ matrix-prp:
       issuer: ${MATRIX_PRP_MCP_OAUTH_ISSUER:}
       jwk-set-uri: ${MATRIX_PRP_MCP_OAUTH_JWK_SET_URI:}
       resource: ${MATRIX_PRP_MCP_OAUTH_RESOURCE:}
+      # Discovery drives client permission requests. Extra data/write scopes require explicit opt-in.
+      advertised-scopes: ${MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES:prp.tasks.read}
   knowledge:
     root: ../../knowledge
   vocal:
