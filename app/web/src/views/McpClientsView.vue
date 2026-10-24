@@ -2,6 +2,12 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { apiUrl } from '@/api/client'
+import {
+  browserPairingConfig, createBrowserPairingRequest, exchangeBrowserPairingToken,
+  hasOAuthCallback, readBrowserPairingCallback, MCP_BROWSER_PAIRING_STORAGE_KEY,
+  type McpBrowserPairingConfig, type McpPendingBrowserPairing,
+} from '@/api/mcpBrowserPairing'
 import {
   authorizeMcpClient, listMcpClients, mcpScopes, revokeMcpClient,
   type McpClientGrant,
@@ -10,6 +16,25 @@ import {
   createMcpIdentityTicket, listMcpIdentityLinks, unlinkMcpIdentity,
   type McpIdentityLink, type McpLinkTicket,
 } from '@/api/mcpIdentity'
+
+// This is a separate, admin-approved public Keycloak S256 client, NOT
+// ChatGPT's client. All VITE_ config is public and contains no credentials.
+const pairingPassword = ref('')
+const pairingBusy = ref(false)
+const pairingStatus = ref('')
+const pairingError = ref('')
+let browserConfig: McpBrowserPairingConfig | null = null
+try {
+  const redirect = new URL('me/mcp-clients', new URL(import.meta.env.BASE_URL, window.location.origin))
+  browserConfig = browserPairingConfig(
+    import.meta.env.VITE_MCP_PAIRING_ISSUER,
+    import.meta.env.VITE_MCP_PAIRING_CLIENT_ID,
+    import.meta.env.VITE_MCP_PAIRING_RESOURCE,
+    redirect.toString(),
+  )
+} catch {
+  pairingError.value = '浏览器 OAuth 配对配置不合法，请联系 PRP 管理员。'
+}
 
 const clients = ref<McpClientGrant[]>([])
 const identities = ref<McpIdentityLink[]>([])
@@ -54,6 +79,79 @@ async function issueTicket() {
   } finally { pairing.value = false }
 }
 
+async function beginBrowserPairing() {
+  const config = browserConfig
+  if (!config || !pairingPassword.value || pairingBusy.value) return
+  pairingBusy.value = true
+  pairingError.value = ''
+  pairingStatus.value = ''
+  try {
+    // Both first-party operations authenticate the PRP owner with a password.
+    // A temporary read-only grant is revoked after successful pairing.
+    const password = pairingPassword.value
+    await authorizeMcpClient(config.clientId, ['prp.tasks.read'], password)
+    const ticket = await createMcpIdentityTicket(config.clientId, password)
+    const request = await createBrowserPairingRequest(config, ticket.code)
+    sessionStorage.setItem(MCP_BROWSER_PAIRING_STORAGE_KEY, JSON.stringify(request.pending))
+    pairingPassword.value = ''
+    // Same-tab navigation keeps the PKCE verifier and state in tab-scoped
+    // sessionStorage, including on iPhone Safari/PWA where supported.
+    window.location.assign(request.url)
+  } catch {
+    pairingPassword.value = ''
+    pairingError.value = '启动 OAuth 关联失败。请检查 PRP 密码、Keycloak 配对客户端和浏览器设置。'
+  } finally {
+    pairingBusy.value = false
+  }
+}
+
+async function finishBrowserPairing() {
+  const original = window.location.href
+  if (!hasOAuthCallback(original)) return
+  // Drop one-time code/state from address bar before any fetch or navigation.
+  window.history.replaceState(window.history.state, '', window.location.pathname)
+  const pendingRaw = sessionStorage.getItem(MCP_BROWSER_PAIRING_STORAGE_KEY)
+  sessionStorage.removeItem(MCP_BROWSER_PAIRING_STORAGE_KEY)
+  pairingBusy.value = true
+  try {
+    if (!browserConfig) throw new Error('OAuth 配对尚未配置')
+    let pending: McpPendingBrowserPairing | null = null
+    try { pending = pendingRaw ? JSON.parse(pendingRaw) as McpPendingBrowserPairing : null }
+    catch { pending = null }
+    const { code, verifier, ticket } = readBrowserPairingCallback(original, browserConfig, pending)
+    // The Bearer token is transient and never enters PRP local/sessionStorage,
+    // URL, logs, analytics, or normal AI chat.
+    const bearer = await exchangeBrowserPairingToken(browserConfig, code, verifier)
+    const response = await fetch(apiUrl('/mcp/link'), {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + bearer,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ ticket }),
+      cache: 'no-store',
+      credentials: 'omit',
+      redirect: 'error',
+      referrerPolicy: 'no-referrer',
+    })
+    if (!response.ok) throw new Error('PRP 关联服务拒绝了已验证 OAuth 身份')
+    const linked = await response.json() as { data?: { issuer?: string, subject?: string } }
+    if (!linked.data?.issuer || !linked.data.subject) {
+      throw new Error('PRP 未确认身份关联')
+    }
+    pairingStatus.value = 'Keycloak 身份已安全关联到当前 PRP 账号。后续可单独批准 ChatGPT 的任务读取权限。'
+    // A one-time pairing-only client should not retain task-read access.
+    try { await revokeMcpClient(browserConfig.clientId) }
+    catch { ElMessage.warning('身份已关联，但临时配对客户端撤销失败；请在下方手动撤销。') }
+    await Promise.all([refresh(), refreshIdentities()])
+  } catch (err) {
+    pairingError.value = err instanceof Error ? err.message : 'OAuth 配对失败，请重新发起'
+  } finally {
+    pairingBusy.value = false
+  }
+}
+
 async function unlinkIdentity() {
   if (!unlinkPassword.value) return
   try {
@@ -96,7 +194,11 @@ async function revoke(client: McpClientGrant) {
   catch { ElMessage.error('撤销失败，请重试') }
   finally { busy.value = false }
 }
-onMounted(() => { void refresh(); void refreshIdentities() })
+onMounted(() => {
+  void refresh()
+  void refreshIdentities()
+  void finishBrowserPairing()
+})
 </script>
 
 <template>
@@ -130,8 +232,26 @@ onMounted(() => { void refresh(); void refreshIdentities() })
             :disabled="!clientId.trim() || !password || scopes.length === 0 || busy">批准此客户端</el-button>
         </el-form>
       </el-card>
+      <el-card v-if="browserConfig" shadow="never" class="section">
+        <template #header>浏览器一键关联 Keycloak 身份</template>
+        <p>适用于 iPhone 和电脑。通过独立的 Keycloak 公共配对客户端完成 PKCE S256 登录，不需要在 ChatGPT 里粘贴任何关联码。临时任务只读授权会在完成关联后自动撤销。</p>
+        <el-form label-position="top" @submit.prevent="beginBrowserPairing">
+          <el-form-item label="再次输入 PRP 密码以启动绑定">
+            <el-input v-model="pairingPassword" type="password" show-password
+              autocomplete="current-password" maxlength="256"
+              placeholder="仅发送给 PRP，不发送到 Keycloak 或 AI 客户端" />
+          </el-form-item>
+          <el-button native-type="submit" type="primary"
+            :loading="pairingBusy" :disabled="!pairingPassword || pairingBusy">
+            跳转 Keycloak 安全登录并关联
+          </el-button>
+        </el-form>
+        <el-alert v-if="pairingStatus" type="success" :closable="false" :title="pairingStatus" class="section" />
+        <el-alert v-if="pairingError" type="error" :closable="false" :title="pairingError" class="section" />
+        <p>需管理员事先在 Keycloak 注册独立配对客户端，并允许当前 PRP 页面域名的 CORS。不能复用 ChatGPT 的 OAuth Client ID。</p>
+      </el-card>
       <el-card shadow="never" class="section">
-        <template #header>关联 PRP 与外部 OAuth 账号</template>
+        <template #header>关联 PRP 与外部 OAuth 账号（高级方式）</template>
         <p>先完成上方客户端授权，然后创建一次性关联码。外部 OAuth 客户端必须使用其已验证的 Bearer Token 调用 PRP 的 <code>POST /api/mcp/link</code> 完成关联。</p>
         <el-form label-position="top" @submit.prevent="issueTicket">
           <el-form-item label="待关联的客户端 ID（必须与上方已批准的客户端一致）">
