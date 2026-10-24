@@ -32,6 +32,11 @@ jobs:
           admin_secret="$(openssl rand -hex 32)"
           echo "::add-mask::${admin_secret}"
           cleanup() {
+            # Classify only known exception types. Never print raw server
+            # logs: those may include OAuth request details or callback URLs.
+            if docker logs prp-mcp-keycloak-ci 2>&1 | grep -Fq 'Unrecognized field "token_endpoint_auth_methods_supported"'; then
+              echo 'CIMD_DIAGNOSTIC=KEYCLOAK_UNRECOGNIZED_CHATGPT_METADATA_METHODS_FIELD'
+            fi
             docker rm -f prp-mcp-keycloak-ci >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
@@ -47,3 +52,7 @@ jobs:
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/keycloak_ephemeral_smoke.py \
               --admin-user prp-smoke-admin
+          # Keycloak stays alive here; only this throwaway instance receives
+          # the temporary CIMD policies and ChatGPT public metadata requests.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_chatgpt_cimd_pkce.py
