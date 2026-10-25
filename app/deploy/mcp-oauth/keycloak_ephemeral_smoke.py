@@ -122,6 +122,62 @@ def verify_real_issued_token(metadata, jwks, admin_access):
     return result
 
 
+def rehearse_disposable_pkce_mapper_repair(admin_access, client_uuid, original):
+    """CI-only: reproduce legacy mapper drift and restore the reviewed good state."""
+    if os.environ.get("GITHUB_ACTIONS") != "true" or BASE != "http://127.0.0.1:18080":
+        raise RuntimeError("Disposable GitHub runner required for mapper rehearsal")
+    mapper_id = original.get("id")
+    if not isinstance(mapper_id, str) or not mapper_id:
+        raise RuntimeError("Missing PKCE mapper UUID")
+    endpoint = (BASE + "/admin/realms/prp-mcp/clients/" + client_uuid
+                + "/protocol-mappers/models/" + mapper_id)
+
+    def read():
+        return request_json(endpoint)
+
+    def put(doc):
+        req = Request(
+            endpoint, data=json.dumps(doc).encode("utf-8"), method="PUT",
+            headers={"Authorization": "Bearer " + admin_access,
+                     "Content-Type": "application/json"},
+        )
+        with urlopen(req, timeout=8) as response:
+            if response.status != 204:
+                raise RuntimeError("Disposable Keycloak mapper update rejected")
+
+    # Real Admin GET must be authenticated; preserve all fields/IDs verbatim.
+    def read_authenticated():
+        return request_json(endpoint, bearer=admin_access)
+
+    baseline = read_authenticated()
+    if baseline != original:
+        raise RuntimeError("PKCE mapper changed before isolated rehearsal")
+
+    import copy
+    legacy = copy.deepcopy(original)
+    legacy["config"].pop("included.custom.audience", None)
+    legacy["config"]["included.client.audience"] = "matrix-prp-mcp-resource"
+    if legacy == original:
+        raise RuntimeError("Legacy mapper fixture did not change")
+
+    try:
+        put(legacy)
+        if read_authenticated() != legacy:
+            raise RuntimeError("Disposable legacy mapper was not persisted")
+        put(original)
+        if read_authenticated() != original:
+            raise RuntimeError("Disposable mapper repair did not persist")
+    finally:
+        # Never intentionally leave even the CI realm in the legacy state.
+        if read_authenticated() != original:
+            put(original)
+        if read_authenticated() != original:
+            raise RuntimeError("Disposable mapper rollback failed")
+
+    print("PASS: disposable Keycloak legacy audience reproduced, "
+          "canonical mapper restored and verified via authenticated Admin REST.")
+
+
 def wait_for_realm(seconds=180):
     metadata = BASE + "/realms/prp-mcp/.well-known/openid-configuration"
     until = time.monotonic() + seconds
@@ -221,6 +277,11 @@ def main():
             or audiences[0].get("included.custom.audience") != RESOURCE
             or audiences[0].get("included.client.audience")):
         raise RuntimeError("Disposable PKCE client has incorrect effective JWT audience")
+    matching = [
+        entry for entry in persisted_mappers
+        if entry.get("protocolMapper") == "oidc-audience-mapper"
+    ]
+    rehearse_disposable_pkce_mapper_repair(access, pkce_id, matching[0])
     verified = verify_real_issued_token(metadata, jwks, access)
     print("PASS: real Keycloak signed", verified["signature"],
           "access token with exact MCP resource audience and read scope.")
