@@ -77,6 +77,22 @@ class InspectionSSHPreflightTests(unittest.TestCase):
             "PRP_INSPECT_HOST": "example.test",
         }), "INSPECT_HOST_KEY_NOT_PINNED")
 
+    def test_workflow_does_not_use_production_deploy_identity(self):
+        workflow = (Path(__file__).resolve().parents[2] /
+                    ".github/workflows/prp-readonly-inspect.yml").read_text()
+        self.assertIn("environment: production-inspect", workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertNotIn("PRP_DEPLOY_SSH_KEY", workflow)
+        self.assertIn("ssh -F /dev/null", workflow)
+        self.assertIn("StrictHostKeyChecking=yes", workflow)
+        self.assertIn("GlobalKnownHostsFile=/dev/null", workflow)
+        self.assertLess(workflow.index("inspect_ssh_preflight.py"),
+                        workflow.index("Request fixed read-only report"))
+        self.assertIn("SSH_TRANSPORT_OR_AUTH_UNVERIFIED", workflow)
+        self.assertIn("SSH_TIMEOUT_UNVERIFIED", workflow)
+        self.assertIn("SSH_REPORT_RECEIVED_UNVALIDATED", workflow)
+        self.assertIn('2>/dev/null', workflow)
+
     def test_secret_files_are_never_overwritten(self):
         key, pub = self.make_key()
         self.identity.parent.mkdir()
