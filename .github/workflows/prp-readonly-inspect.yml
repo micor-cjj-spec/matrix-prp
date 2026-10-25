@@ -18,19 +18,21 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Configure separate read-only identity
+      - name: Verify separate read-only identity and pinned SSH host (no network)
         env:
-          INSPECT_KEY: ${{ secrets.PRP_INSPECT_SSH_KEY }}
-          INSPECT_KNOWN_HOSTS: ${{ secrets.PRP_INSPECT_KNOWN_HOSTS }}
+          PRP_INSPECT_SSH_KEY: ${{ secrets.PRP_INSPECT_SSH_KEY }}
+          PRP_INSPECT_KNOWN_HOSTS: ${{ secrets.PRP_INSPECT_KNOWN_HOSTS }}
+          PRP_INSPECT_HOST: ${{ secrets.PRP_INSPECT_HOST }}
         shell: bash
         run: |
           set -euo pipefail
           umask 077
-          mkdir -p "$HOME/.ssh"
-          printf '%s\n' "$INSPECT_KEY" > "$HOME/.ssh/prp_inspect"
-          printf '%s\n' "$INSPECT_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          test -s "$HOME/.ssh/prp_inspect"
-          test -s "$HOME/.ssh/known_hosts"
+          # The old printf + test -s accepted empty Secrets as newline-only files.
+          # Emit only fixed failure codes. Do not print credentials or hostnames.
+          python3 app/deploy/inspect_ssh_preflight.py \
+            --identity "$HOME/.ssh/prp_inspect" \
+            --known-hosts "$HOME/.ssh/known_hosts" \
+            --summary "$GITHUB_STEP_SUMMARY"
       - name: Request fixed read-only report
         env:
           INSPECT_HOST: ${{ secrets.PRP_INSPECT_HOST }}
