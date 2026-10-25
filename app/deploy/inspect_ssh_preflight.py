@@ -12,11 +12,7 @@ from pathlib import Path
 import re
 import subprocess
 
-HOST = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\\Z")
-
-
-class PreflightError(Exception):
-    pass
+HOST = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\Z")
 
 
 def valid_host(host: str) -> bool:
@@ -54,7 +50,7 @@ def prepare(values: dict[str, str], identity: Path, known_hosts: Path) -> str:
         for path, value in ((identity, key), (known_hosts, known)):
             with path.open("x", encoding="utf-8") as stream:
                 os.chmod(path, 0o600)
-                stream.write(value.rstrip("\\r\\n") + "\\n")
+                stream.write(value.rstrip("\r\n") + "\n")
         if not _probe(["ssh-keygen", "-y", "-P", "", "-f", str(identity)]):
             return "INSPECT_KEY_INVALID"
         # A successful parse of an unrelated known_hosts entry is not enough:
@@ -64,9 +60,6 @@ def prepare(values: dict[str, str], identity: Path, known_hosts: Path) -> str:
         return "INSPECT_PREFLIGHT_VALID"
     except (OSError, UnicodeError, ValueError):
         return "INSPECT_FILESYSTEM_UNAVAILABLE"
-    finally:
-        # Remove any incomplete identity on preflight failure below.
-        pass
 
 
 def main() -> int:
@@ -84,7 +77,7 @@ def main() -> int:
     print("INSPECT_SSH_PREFLIGHT=" + result)
     try:
         with args.summary.open("a", encoding="utf-8") as stream:
-            stream.write("\\nRead-only SSH prerequisite: \\u0060" + result + "\\u0060. No secret contents checked into logs.\\n")
+            stream.write("\nRead-only SSH prerequisite: \u0060" + result + "\u0060. No secret contents checked into logs.\n")
     except OSError:
         # Failure to publish a summary cannot turn a negative result positive.
         if result == "INSPECT_PREFLIGHT_VALID":
