@@ -44,8 +44,10 @@ class KeycloakResourceRealmTests(unittest.TestCase):
         self.assertFalse(client["directAccessGrantsEnabled"])
         self.assertEqual(client["optionalClientScopes"], ["prp.tasks.read"])
         self.assertEqual(client["defaultClientScopes"], ["basic"])  # required signed sub
-        self.assertEqual(client["protocolMappers"][0]["config"]["included.client.audience"],
-                         "matrix-prp-mcp-resource")
+        audience = client["protocolMappers"][0]["config"]
+        self.assertEqual(audience["included.custom.audience"],
+                         "https://prp.staging.test/api/mcp")
+        self.assertNotIn("included.client.audience", audience)
 
     def test_rejects_non_loopback_http_redirects_and_wildcards(self):
         for uri in (
