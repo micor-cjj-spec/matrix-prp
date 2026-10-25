@@ -71,9 +71,8 @@ def main() -> int:
     names = ("PRP_INSPECT_SSH_KEY", "PRP_INSPECT_KNOWN_HOSTS", "PRP_INSPECT_HOST")
     result = prepare({name: os.environ.get(name, "") for name in names},
                      args.identity, args.known_hosts)
-    if result != "INSPECT_PREFLIGHT_VALID":
-        args.identity.unlink(missing_ok=True)
-        args.known_hosts.unlink(missing_ok=True)
+    # The workflow owns cleanup of the isolated RUNNER_TEMP directory.
+    # Never delete a preexisting file after exclusive-creation failure.
     print("INSPECT_SSH_PREFLIGHT=" + result)
     try:
         with args.summary.open("a", encoding="utf-8") as stream:
