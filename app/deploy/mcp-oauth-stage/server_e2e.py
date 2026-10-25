@@ -20,6 +20,7 @@ sys.path.insert(0,str(HERE.parent/'mcp-staging'))
 import ci_pkce_browser as flow
 from check_env import parse_env
 from oauth_token_check import check_token
+from ci_public_readonly_probe import resource_check
 
 STATE=Path('/root/prp-mcp-oauth-stage')
 REPORT=Path('/root/prp-mcp-phase2-evidence/oauth-tests.json')
@@ -114,7 +115,9 @@ def main():
     assert metadata.get('authorization_response_iss_parameter_supported') is True
     protected=obj(flow.request(op,PRP+'/.well-known/oauth-protected-resource/api/mcp'))
     assert protected['resource']==flow.RESOURCE and protected['authorization_servers']==[flow.ISSUER]
-    record('OIDC / protected-resource metadata and S256',200,[200])
+    # Reject an otherwise valid issuer/resource that advertises extra scopes.
+    resource_check(protected)
+    record('OIDC / task-only protected-resource metadata and S256',200,[200])
     unauth=flow.request(op,flow.RESOURCE,data={'jsonrpc':'2.0','id':1,'method':'tools/list'})
     record('Missing access token',unauth[0],[401])
     admin=obj(flow.request(op,flow.ADMIN+'/realms/master/protocol/openid-connect/token',form=True,
