@@ -1,0 +1,16 @@
+name: One-time PRP MCP public metadata GET-only recheck
+on:
+  push:
+    branches: [test/mcp-public-readonly-recheck-20261025]
+permissions:
+  contents: read
+jobs:
+  public-metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: TLS-verified, unauthenticated, no-redirect GET of fixed public metadata
+        run: python3 app/deploy/mcp-oauth/ci_public_readonly_probe.py
