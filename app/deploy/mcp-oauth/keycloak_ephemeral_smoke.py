@@ -207,6 +207,20 @@ def main():
     if "basic" not in {item.get("name") for item in defaults}:
         raise RuntimeError("PKCE client missing Keycloak 25+ Subject (sub) basic scope")
     validate_keycloak(metadata, jwks, resource_client, pkce_client, scopes)
+    # Inspect the mapper Keycloak actually persisted, not just the generated JSON.
+    # A client audience ID must not mask the canonical HTTPS protected resource.
+    persisted_mappers = request_json(
+        clients_uri + "/" + pkce_id + "/protocol-mappers/models",
+        bearer=access,
+    )
+    audiences = [
+        entry.get("config", {}) for entry in persisted_mappers
+        if entry.get("protocolMapper") == "oidc-audience-mapper"
+    ]
+    if (len(audiences) != 1
+            or audiences[0].get("included.custom.audience") != RESOURCE
+            or audiences[0].get("included.client.audience")):
+        raise RuntimeError("Disposable PKCE client has incorrect effective JWT audience")
     verified = verify_real_issued_token(metadata, jwks, access)
     print("PASS: real Keycloak signed", verified["signature"],
           "access token with exact MCP resource audience and read scope.")
