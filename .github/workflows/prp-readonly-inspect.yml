@@ -49,10 +49,22 @@ jobs:
               -o ConnectionAttempts=1 -o ForwardAgent=no \
               "prp-inspect@$INSPECT_HOST" report \
               > "$RUNNER_TEMP/prp-inspection-untrusted.json" 2>/dev/null); then
-            :
+            if test -s "$RUNNER_TEMP/prp-inspection-untrusted.json"; then
+              outcome=SSH_REPORT_RECEIVED_UNVALIDATED
+            else
+              outcome=SSH_EMPTY_RESPONSE
+            fi
           else
+            rc=$?
+            case "$rc" in
+              124) outcome=SSH_TIMEOUT_UNVERIFIED ;;
+              255) outcome=SSH_TRANSPORT_OR_AUTH_UNVERIFIED ;;
+              *) outcome=SSH_COMMAND_REJECTED_OR_UNVERIFIED ;;
+            esac
             : > "$RUNNER_TEMP/prp-inspection-untrusted.json"
           fi
+          # Publish only fixed classifications; no SSH stderr, stdout or host.
+          printf 'Read-only SSH request: `%s`\n' "$outcome" >> "$GITHUB_STEP_SUMMARY"
       - name: Strictly validate and publish sanitized metadata
         if: always()
         shell: bash
