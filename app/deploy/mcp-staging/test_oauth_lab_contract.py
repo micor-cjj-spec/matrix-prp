@@ -32,6 +32,12 @@ class OAuthLabContractTests(unittest.TestCase):
         self.assertNotIn('MATRIX_PRP_DB_', overlay)
         self.assertNotIn('MATRIX_PRP_JWT_SECRET', overlay)
 
+    def test_server_e2e_reuses_strict_public_scope_checker(self):
+        source = (Path(__file__).resolve().parent.parent /
+                  'mcp-oauth-stage/server_e2e.py').read_text()
+        self.assertIn('from ci_public_readonly_probe import resource_check', source)
+        self.assertIn('    resource_check(protected)\n', source)
+
     def test_preparation_checks_capacity_and_never_overwrites_env(self):
         lab = Path(__file__).resolve().parent.parent / 'mcp-oauth-stage'
         source = (lab / 'prepare.py').read_text()
