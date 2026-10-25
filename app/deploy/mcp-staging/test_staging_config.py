@@ -73,6 +73,7 @@ class StagingIsolationTests(unittest.TestCase):
         self.assertIn("127.0.0.1:18081:8080", compose)
         self.assertIn("stage_mysql:/var/lib/mysql", compose)
         self.assertIn("MATRIX_PRP_MCP_WRITE_ENABLED: \"false\"", compose)
+        self.assertIn('MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES: "prp.tasks.read"', compose)
         self.assertNotIn("container_name: matrix-mysql", compose)
         self.assertNotIn("127.0.0.1:11000", compose)
         self.assertNotIn("/var/lib/mysql:/var/lib/mysql", compose)
