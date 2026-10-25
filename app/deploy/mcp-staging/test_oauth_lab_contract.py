@@ -28,6 +28,7 @@ class OAuthLabContractTests(unittest.TestCase):
         self.assertNotIn('network_mode: host', compose)
         overlay = (lab / 'backend-overlay.yaml').read_text()
         self.assertIn("MATRIX_PRP_MCP_WRITE_ENABLED: 'false'", overlay)
+        self.assertIn("MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES: 'prp.tasks.read'", overlay)
         self.assertNotIn('MATRIX_PRP_DB_', overlay)
         self.assertNotIn('MATRIX_PRP_JWT_SECRET', overlay)
 
