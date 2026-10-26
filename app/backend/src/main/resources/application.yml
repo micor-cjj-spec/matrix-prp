@@ -2,6 +2,23 @@ server:
   port: 8080
 
 spring:
+  ai:
+    mcp:
+      server:
+        enabled: ${MATRIX_PRP_MCP_ENABLED:false}
+        protocol: STATELESS
+        type: SYNC
+        name: matrix-prp
+        version: 1.0.0
+        tool-callback-converter: false
+        annotation-scanner:
+          enabled: false
+        stateless:
+          mcp-endpoint: /api/mcp
+        # Spring AI 1.1.8 WebMVC transport currently reads the Streamable-HTTP
+        # endpoint property when installing its stateless RouterFunction.
+        streamable-http:
+          mcp-endpoint: /api/mcp
   application:
     name: matrix-prp-backend
   servlet:
@@ -42,6 +59,20 @@ springdoc:
     path: /swagger-ui.html
 
 matrix-prp:
+  mcp:
+    enabled: ${MATRIX_PRP_MCP_ENABLED:false}
+    write-enabled: ${MATRIX_PRP_MCP_WRITE_ENABLED:false}
+    # Exact HTTPS browser origins; never use wildcard or suffix matching.
+    allowed-origins: ${MATRIX_PRP_MCP_ALLOWED_ORIGINS:https://micor.top}
+    # Resource-server mode: external OAuth issuer/JWKS. No PRP JWT fallback for /api/mcp.
+    # All three HTTPS URLs must be configured before oauth.enabled=true.
+    oauth:
+      enabled: ${MATRIX_PRP_MCP_OAUTH_ENABLED:false}
+      issuer: ${MATRIX_PRP_MCP_OAUTH_ISSUER:}
+      jwk-set-uri: ${MATRIX_PRP_MCP_OAUTH_JWK_SET_URI:}
+      resource: ${MATRIX_PRP_MCP_OAUTH_RESOURCE:}
+      # Discovery drives client permission requests. Extra data/write scopes require explicit opt-in.
+      advertised-scopes: ${MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES:prp.tasks.read}
   knowledge:
     root: ../../knowledge
   vocal:

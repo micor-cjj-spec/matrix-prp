@@ -1,0 +1,14 @@
+{
+  "realm": "prp-mcp",
+  "enabled": true,
+  "displayName": "Matrix PRP MCP Authorization",
+  "sslRequired": "external",
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "loginWithEmailAllowed": false,
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false
+}
