@@ -35,6 +35,41 @@ command -v nsenter >/dev/null
 command -v mvn >/dev/null
 command -v java >/dev/null
 command -v python3 >/dev/null
+echo '=== IDENTIFY EXISTING JDK 21 COMPILER (NO SYSTEM CHANGES) ==='
+PRP_PID=$(systemctl show -p MainPID --value matrix-prp.service)
+PRP_EXEC=''
+if [[ "$PRP_PID" =~ ^[0-9]+$ ]] && (( PRP_PID > 1 )); then
+  PRP_EXEC=$(readlink -f "/proc/$PRP_PID/exe" 2>/dev/null || true)
+fi
+JDK21_HOME=''
+JDK21_SOURCE=''
+JDK_CANDIDATES=()
+if [[ "$PRP_EXEC" = */bin/java ]]; then JDK_CANDIDATES+=("${PRP_EXEC%/bin/java}"); fi
+if [[ -n "${JAVA_HOME:-}" ]]; then JDK_CANDIDATES+=("$JAVA_HOME"); fi
+JDK_CANDIDATES+=(
+  /usr/lib/jvm/java-21-openjdk-amd64 /usr/lib/jvm/*21*
+  /opt/java21 /opt/jdk21 /opt/java-21 /opt/jdk-21 /opt/java-21* /opt/jdk-21*
+  /usr/local/lib/jvm/*21* /usr/local/java-21* /usr/local/jdk-21*
+  /root/.sdkman/candidates/java/*21*
+)
+for candidate in "${JDK_CANDIDATES[@]}"; do
+  [[ -x "$candidate/bin/javac" && -x "$candidate/bin/java" ]] || continue
+  javac_version=$("$candidate/bin/javac" -version 2>&1 || true)
+  if [[ "$javac_version" =~ ^javac[[:space:]]21([.]|$) ]]; then
+    JDK21_HOME=$(cd "$candidate" && pwd -P)
+    JDK21_SOURCE=EXISTING_JDK_INSTALLATION
+    if [[ "$PRP_EXEC" = "$JDK21_HOME/bin/java" ]]; then JDK21_SOURCE=RUNNING_PRP_JVM; fi
+    break
+  fi
+done
+if [[ -z "$JDK21_HOME" ]]; then
+  echo 'HOST_JDK21_COMPILER=NOT_FOUND'
+  echo 'NO_CLONE_CONTAINERS_STARTED=YES'
+  echo 'No local Java 21 compiler found; do not change default Java or install an unreviewed JDK.'
+  exit 3
+fi
+echo 'HOST_JDK21_COMPILER=PASS'
+echo "HOST_JDK21_SELECTION=$JDK21_SOURCE"
 SOURCE_REPO=/root/matrix-prp-mcp-v2-staging
 SOURCE_PIN=00c9de9568f8dc93548b7884c8ff3561524ff1a4
 PREFIX=app/deploy/mcp-oauth/keycloak-resource-guard
@@ -52,7 +87,8 @@ do
   mkdir -p "$BUILD/$(dirname "$PART")"
   git -C "$SOURCE_REPO" show "$SOURCE_PIN:$PREFIX/$PART" > "$BUILD/$PART"
 done
-if ! MAVEN_OPTS='-Xmx512m -XX:MaxMetaspaceSize=256m' \
+if ! JAVA_HOME="$JDK21_HOME" PATH="$JDK21_HOME/bin:$PATH" \
+     MAVEN_OPTS='-Xmx512m -XX:MaxMetaspaceSize=256m' \
      mvn -B -ntp -q -f "$BUILD/pom.xml" -Dkeycloak.version=26.8.0 verify \
       > "$TEMP/maven-build.log" 2>&1; then
   echo 'CANDIDATE_MAVEN_BUILD=FAILED'
