@@ -530,21 +530,9 @@ try:
                 value["resource"] = resource_value
             return request_grant(value)
 
-        wrong_status, _ = refreshed(
-            first_refresh, resource_value="https://unrelated.example.test/api/mcp")
-        if wrong_status not in (400, 401):
-            raise RuntimeError("RESTORED_WRONG_RESOURCE_REFRESH_ACCEPTED")
-        duplicated_status, _ = refreshed(first_refresh, resource_value=[resource, resource])
-        if duplicated_status not in (400, 401):
-            raise RuntimeError("RESTORED_DUPLICATE_RESOURCE_REFRESH_ACCEPTED")
-        absent_status, _ = refreshed(first_refresh, resource_value=None)
-        if absent_status not in (400, 401):
-            raise RuntimeError("RESTORED_MISSING_RESOURCE_REFRESH_ACCEPTED")
-        finance_status, _ = refreshed(first_refresh, scope="openid prp.finance.read")
-        if finance_status not in (400, 401):
-            raise RuntimeError("RESTORED_FINANCE_SCOPE_ESCALATION_ACCEPTED")
-        print("CLONE_RESTORED_REFRESH_RESOURCE_AND_SCOPE_DENIAL=PASS")
-
+        # First validate the legitimate refresh lifecycle on its own token.
+        # Negative grant attempts may revoke their submitted token depending
+        # on Keycloak's grant processing order; do not share that token.
         good_status, renewed = refreshed(first_refresh)
         if good_status != 200:
             raise RuntimeError("RESTORED_CORRECT_REFRESH_HTTP_" + str(good_status))
@@ -557,7 +545,7 @@ try:
         print("CLONE_RESTORED_REFRESH_SIGNATURE_AND_ROTATION=PASS")
 
         revoke_path = "/realms/prp-mcp/protocol/openid-connect/revoke"
-        response = api(revoke_path, method="POST", payload=urlencode({
+        api(revoke_path, method="POST", payload=urlencode({
             "client_id": probe, "token": second_refresh,
             "token_type_hint": "refresh_token",
         }).encode())
@@ -565,6 +553,56 @@ try:
         if revoked_status not in (400, 401):
             raise RuntimeError("RESTORED_REVOKED_REFRESH_ACCEPTED")
         print("CLONE_RESTORED_REFRESH_REVOCATION=PASS")
+
+        def fresh_synthetic_refresh_token():
+            status, issued = request_grant({
+                "grant_type": "password", "client_id": probe,
+                "username": synthetic_user, "password": synthetic_password,
+                "scope": "openid prp.tasks.read", "resource": resource,
+            })
+            if status != 200:
+                raise RuntimeError("RESTORED_NEGATIVE_FIXTURE_GRANT_HTTP_" + str(status))
+            assert verify_signed_access(issued) == subject
+            fresh = issued.get("refresh_token")
+            assert isinstance(fresh, str) and fresh
+            return fresh
+
+        for category, request_resource, request_scope in (
+            ("WRONG_RESOURCE", "https://unrelated.example.test/api/mcp", "openid prp.tasks.read"),
+            ("DUPLICATE_RESOURCE", [resource, resource], "openid prp.tasks.read"),
+            ("BLANK_RESOURCE", "", "openid prp.tasks.read"),
+            ("FINANCE_SCOPE", resource, "openid prp.finance.read"),
+        ):
+            fresh_token = fresh_synthetic_refresh_token()
+            denied, _ = refreshed(
+                fresh_token, resource_value=request_resource, scope=request_scope)
+            if denied not in (400, 401):
+                raise RuntimeError("RESTORED_" + category + "_REFRESH_ACCEPTED")
+        print("CLONE_RESTORED_REFRESH_UNAUTHORIZED_RESOURCE_AND_SCOPE_DENIAL=PASS")
+
+        # Keycloak may infer the original grant's canonical resource when
+        # the optional RFC 8707 resource is omitted by a public client.
+        # This is *not* proof of explicit missing-resource rejection.
+        omitted_token = fresh_synthetic_refresh_token()
+        omitted_status, omitted = refreshed(omitted_token, resource_value=None)
+        if omitted_status == 200:
+            assert verify_signed_access(omitted) == subject
+            rotated = omitted.get("refresh_token")
+            assert isinstance(rotated, str) and rotated != omitted_token
+            old_status, _ = refreshed(omitted_token)
+            assert old_status in (400, 401)
+            api(revoke_path, method="POST", payload=urlencode({
+                "client_id": probe, "token": rotated,
+                "token_type_hint": "refresh_token",
+            }).encode())
+            final_status, _ = refreshed(rotated)
+            if final_status not in (400, 401):
+                raise RuntimeError("RESTORED_OMITTED_RESOURCE_REVOKE_BYPASS")
+            print("CLONE_RESTORED_OMITTED_RESOURCE=SIGNED_CANONICAL_AUDIENCE_ONLY")
+        elif omitted_status in (400, 401):
+            print("CLONE_RESTORED_OMITTED_RESOURCE=REJECTED")
+        else:
+            raise RuntimeError("RESTORED_OMITTED_RESOURCE_HTTP_" + str(omitted_status))
         print("CLONE_RESTORED_SPI_REFRESH_GRANT=PASS_SYNTHETIC_PASSWORD_GRANT")
     finally:
         # This is only the private restored clone. Undo the user's
