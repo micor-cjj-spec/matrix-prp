@@ -169,6 +169,49 @@ def prepare(sources, target):
             rewrite(sources["review_" + name]), encoding="utf-8")
     return counts
 
+def classify_nginx_failure(raw):
+    """Return only allowlisted categories, never raw config/paths/values."""
+    message = raw.lower()
+    families = (
+        ("INVALID_ARGUMENT_COUNT", r"invalid number of (?:arguments|parameters)"),
+        ("UNKNOWN_LOG_FORMAT", r"unknown log format"),
+        ("DUPLICATE_OR_CONFLICT", r"\bduplicate\b|\balready (?:defined|declared|bound)\b|\bconflicting\b"),
+        ("INVALID_PARAMETER_OR_VALUE", r"\binvalid (?:parameter|value|number|size|port|host)\b"),
+        ("SYNTAX_DELIMITER", r"unexpected [\x22{}]|expecting [\x22{}]|directive is not terminated"),
+        ("UNKNOWN_DIRECTIVE", r"unknown directive"),
+        ("DIRECTIVE_CONTEXT", r"not allowed here"),
+        ("UNKNOWN_VARIABLE", r"unknown [\x22$][^\n]{0,90}variable|\bunknown variable\b"),
+        ("UNRESOLVED_UPSTREAM", r"host not found in upstream|no resolver defined"),
+        ("TLS_CERTIFICATE_OR_KEY", r"ssl_ctx_|pem routines|certificate|private.key|private key|bio_new_file"),
+        ("DEPENDENCY_OR_PERMISSION", r"no such file or directory|permission denied|open\(\)"),
+        ("SHARED_MEMORY_ZONE", r"shared memory|zone .{0,120} (?:size|already|unknown)"),
+        ("NGINX_CONFIGURATION", r"configuration file .{0,200} test failed|directive"),
+    )
+    family = next((tag for tag, pattern in families
+                   if re.search(pattern, message)), "UNCLASSIFIED")
+    # Only line numbers and deterministic file roles may be disclosed.
+    location = re.search(
+        r"(?<![a-z0-9_.-])"
+        r"(nginx\.conf|main\.conf|test\.conf|include-\d{1,2}\.conf)"
+        r":(\d{1,6})(?!\d)", message)
+    source_role = None
+    line_number = None
+    if location:
+        file = location.group(1)
+        source_role = ("REVIEW_MAIN" if file == "main.conf" else
+                       "REVIEW_TEST" if file == "test.conf" else
+                       "SANDBOX_WRAPPER" if file == "nginx.conf" else
+                       "REVIEW_INCLUDED_DEPENDENCY")
+        line_number = int(location.group(2))
+    return {
+        "error_family": family,
+        "sandbox_source_role": source_role,
+        "sandbox_line": line_number,
+        "diagnostic_sha256": hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest(),
+        "raw_error_redacted": True,
+    }
+
+
 def execute():
     os.umask(0o077)
     sources = inspect_sources()
@@ -198,9 +241,18 @@ def execute():
              "-e", str(temp / "nginx-error.log")],
             capture_output=True, text=True, timeout=25)
         if run.returncode:
-            stderr = ((run.stderr or "") + "\n" + (run.stdout or "")).lower()
+            # -e redirects nginx diagnostic detail to this sandbox-only log.
+            # Read bounded bytes in memory; do not expose its raw contents.
+            log = temp / "nginx-error.log"
+            log_message = ""
+            if log.exists():
+                log_message = read_regular(log).decode("utf-8", "replace")
+            stderr = ((run.stderr or "") + "\n" + (run.stdout or "")
+                      + "\n" + log_message).lower()
+            diagnosis = classify_nginx_failure(stderr)
             return {
                 "status": "ISOLATED_NGINX_SYNTAX_FAILED",
+                "sanitized_error": diagnosis,
                 "exit_code": run.returncode,
                 "diagnostics": {
                     "unknown_directive": "unknown directive" in stderr,
