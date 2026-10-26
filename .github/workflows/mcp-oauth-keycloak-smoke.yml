@@ -115,6 +115,11 @@ jobs:
           # signed JWT client auth, offline refresh rotation and revocation.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_jwt_authcode_refresh.py
+          # Exercise the same public synthetic user password->refresh grant
+          # shape used only inside the separately restored 13-client clone.
+          # This is never a PRP production login flow.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_restored_password_refresh.py
 
       - name: Hash verified isolated SPI artifact
         run: |
