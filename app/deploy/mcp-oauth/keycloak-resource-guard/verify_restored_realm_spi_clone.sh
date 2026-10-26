@@ -395,6 +395,7 @@ try:
             "fullScopeAllowed": False,
             "redirectUris": [],
             "webOrigins": [],
+            "defaultClientScopes": ["basic"],
             "optionalClientScopes": ["prp.tasks.read"],
             "attributes": {"prp.ci.refresh-resource-guard": "enabled"},
             "protocolMappers": [{
