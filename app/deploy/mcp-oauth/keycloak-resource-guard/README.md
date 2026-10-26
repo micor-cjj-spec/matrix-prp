@@ -26,7 +26,8 @@ The policy is CI-only and the implementation changes behavior **only** when
 * A single explicit `resource` exactly equal to
   `https://prp.staging.example.org/api/mcp` is allowed.
 * Zero explicit `resource` values leave the original resource on refresh;
-  the test verifies the new access JWT stays canonically audience-bound.
+  but Keycloak 26.8.1 itself rejects resource-omitted refresh with HTTP 400;
+  the client must send the canonical resource on every refresh.
 * Any other explicit resource or a multi-resource request throws
   `invalid_target` before refresh is issued.
 * Existing invalid signed assertions, unauthorized finance scope, replay
