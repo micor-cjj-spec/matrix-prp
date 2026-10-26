@@ -18,7 +18,9 @@ cleanup() {
   if [ "$NETWORK" = 1 ]; then docker network rm "$NET" >/dev/null 2>&1 || rc=1; fi
   if [ "$VOLUME" = 1 ]; then docker volume rm "$VOL" >/dev/null 2>&1 || rc=1; fi
   rm -rf "$TEMP"
-  echo "CLONE_CLEANUP_FINAL_STATUS=$rc"
+  # Distinguish a failed rehearsal from a failed cleanup. This output
+  # never contains credentials or private Keycloak/PG container logs.
+  echo "CLONE_SCRIPT_EXIT_STATUS=$rc"
   exit "$rc"
 }
 trap cleanup EXIT
@@ -142,6 +144,14 @@ PY
   echo 'CANDIDATE_BUILD_METHOD=PINNED_VERIFIED_26_8_0_CI_JAR'
 fi
 test -s "$JAR"
+# Maven inherits the root-only umask 077 in this operator's shell. CI's
+# default umask differs; the clone's Keycloak UID is non-root and must be
+# able to read its own mounted provider. Only the bytecode JAR becomes
+# world-readable. Root's mktemp workspace stays mode 0700 and the container
+# mount remains :ro. No credential, DB dump, or token permissions change.
+chmod 0444 "$JAR"
+test "$(stat -c '%a' "$JAR")" = 444
+echo 'CLONE_PROVIDER_JAR_MOUNT_READABLE=PASS'
 echo "CANDIDATE_JAR_SHA256=$(sha256sum "$JAR" | awk '{print $1}')"
 PG_IMAGE=$(docker inspect "$LIVE_DB" -f '{{.Image}}')
 KC_IMAGE=$(docker inspect "$LIVE_KC" -f '{{.Image}}')
@@ -167,10 +177,36 @@ READY=0
 for _ in $(seq 1 90); do
   PID=$(docker inspect "$KC" -f '{{.State.Pid}}')
   if [ "$PID" -gt 1 ] && nsenter -t "$PID" -n -- curl --noproxy '*' -fsS --max-time 4 http://127.0.0.1:8080/realms/prp-mcp/.well-known/openid-configuration -o "$TEMP/metadata.json" 2>/dev/null; then READY=1; break; fi
-  test "$(docker inspect "$KC" -f '{{.State.Status}}')" = running
+  if [[ "$(docker inspect "$KC" -f '{{.State.Status}}')" != running ]]; then
+    break
+  fi
   sleep 2
 done
-test "$READY" = 1
+if [[ "$READY" != 1 ]]; then
+  # Raw Keycloak logs may include OAuth and config data. Keep them root-only
+  # inside the auto-removed temp dir, never print any log line or environment.
+  docker logs "$KC" > "$TEMP/clone-keycloak-private.log" 2>&1 || true
+  echo 'CLONE_KEYCLOAK_READY=NO'
+  echo "CLONE_KEYCLOAK_CONTAINER_STATUS=$(docker inspect "$KC" -f '{{.State.Status}}')"
+  echo "CLONE_KEYCLOAK_EXIT_CODE=$(docker inspect "$KC" -f '{{.State.ExitCode}}')"
+  echo "CLONE_KEYCLOAK_OOM_KILLED=$(docker inspect "$KC" -f '{{.State.OOMKilled}}')"
+  if grep -Eqi 'permission denied|accessdeniedexception|read-only file system|unable to read.*provider' "$TEMP/clone-keycloak-private.log"; then
+    echo 'CLONE_BOOT_DIAGNOSTIC=FILE_OR_PROVIDER_PERMISSION'
+  elif grep -Eqi 'failed to start.*quarkus|failed to augment|provider.*(exception|error)|classnotfoundexception|noclassdeffounderror' "$TEMP/clone-keycloak-private.log"; then
+    echo 'CLONE_BOOT_DIAGNOSTIC=PROVIDER_OR_QUARKUS_BUILD'
+  elif grep -Eqi 'unable to acquire jdbc|connection refused|connection.*timed out|liquibase|relation.*does not exist' "$TEMP/clone-keycloak-private.log"; then
+    echo 'CLONE_BOOT_DIAGNOSTIC=DATABASE_OR_MIGRATION'
+  elif grep -Eqi 'outofmemoryerror|oom-kill|killed process' "$TEMP/clone-keycloak-private.log"; then
+    echo 'CLONE_BOOT_DIAGNOSTIC=MEMORY'
+  elif grep -Eqi 'ERROR|Exception|Caused by:' "$TEMP/clone-keycloak-private.log"; then
+    echo 'CLONE_BOOT_DIAGNOSTIC=OTHER_KEYCLOAK_ERROR_REDACTED'
+  else
+    echo 'CLONE_BOOT_DIAGNOSTIC=NO_CLASSIFIABLE_ERROR'
+  fi
+  echo 'CLONE_BOOT_RAW_LOGS=NOT_EXPORTED'
+  exit 1
+fi
+echo 'CLONE_KEYCLOAK_READY=YES'
 PID=$(docker inspect "$KC" -f '{{.State.Pid}}')
 nsenter -t "$PID" -n -- curl --noproxy '*' -fsS --max-time 10 http://127.0.0.1:8080/realms/prp-mcp/protocol/openid-connect/certs -o "$TEMP/clone-jwks.json"
 curl --noproxy '*' -fsS --max-time 10 https://auth-test.micor.top/realms/prp-mcp/protocol/openid-connect/certs -o "$TEMP/live-jwks.json"
