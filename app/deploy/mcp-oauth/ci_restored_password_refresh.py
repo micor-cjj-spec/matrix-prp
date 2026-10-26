@@ -137,8 +137,21 @@ def main():
 
         def verify(result):
             bearer = result["access_token"]
-            check_token(bearer, jwks, issuer=ISSUER, resource=RESOURCE,
-                        client_id=CLIENT, required_scope="prp.tasks.read")
+            try:
+                check_token(bearer, jwks, issuer=ISSUER, resource=RESOURCE,
+                            client_id=CLIENT, required_scope="prp.tasks.read")
+            except ValueError as failure:
+                # Only exact diagnostic strings authored in our own verifier.
+                categories = {
+                    "JWT audience must contain exact MCP resource": "AUDIENCE_MISSING",
+                    "Required OAuth task-read scope missing": "TASK_SCOPE_MISSING",
+                    "JWT signed OAuth client mismatch": "CLIENT_MISMATCH",
+                    "Conflicting signed OAuth client claims": "CLIENT_CLAIMS_CONFLICT",
+                    "JWT issuer mismatch": "ISSUER_MISMATCH",
+                    "JWT RS256 signature failed": "JWT_SIGNATURE_FAILED",
+                }
+                print("CLONE_STYLE_JWT_DIAGNOSTIC=" + categories.get(str(failure), "OTHER_SIGNED_JWT_FAILURE"))
+                raise
             claims = json.loads(_b64url(bearer.split(".")[1]))
             assert claims["sub"] == user_id
             assert "prp.finance.read" not in claims.get("scope", "").split()
@@ -152,7 +165,12 @@ def main():
         if status != 200:
             print("CLONE_STYLE_INITIAL_GRANT_DIAGNOSTIC=" + issued["error_kind"])
             raise RuntimeError("CI_RESTORED_STYLE_PASSWORD_GRANT_HTTP_" + str(status))
+        phase = "INITIAL_GRANT_RESPONSE_SHAPE"
+        if not isinstance(issued, dict) or not isinstance(issued.get("access_token"), str):
+            raise RuntimeError("CI_RESTORED_STYLE_MISSING_ACCESS_TOKEN")
+        phase = "INITIAL_SIGNED_TOKEN_VERIFY"
         verify(issued)
+        phase = "INITIAL_REFRESH_TOKEN_READ"
         first = issued["refresh_token"]
 
         def refresh(rt, *, resource=RESOURCE, scope="openid prp.tasks.read"):
