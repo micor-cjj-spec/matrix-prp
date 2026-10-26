@@ -224,6 +224,7 @@ def main():
         for category, requested, requested_scope in cases:
             # Each rejection has a separate synthetic authorization/session,
             # so a failed refresh cannot invalidate the positive test.
+            phase = "NEGATIVE_" + category.upper() + "_NEW_GRANT"
             code, fresh = form_grant({
                 "grant_type": "password", "client_id": CLIENT,
                 "username": username, "password": password,
@@ -231,9 +232,12 @@ def main():
             })
             if code != 200:
                 raise RuntimeError("CI_RESTORED_STYLE_NEGATIVE_FIXTURE_GRANT_HTTP_" + str(code))
+            phase = "NEGATIVE_" + category.upper() + "_JWT_VERIFY"
             verify(fresh)
+            phase = "NEGATIVE_" + category.upper() + "_REFRESH"
             bad, _ = refresh(fresh["refresh_token"], resource=requested, scope=requested_scope)
             if bad not in (400, 401):
+                print("CLONE_STYLE_UNAPPROVED_RESOURCE_RESPONSE_STATUS=" + str(bad))
                 raise RuntimeError("CI_RESTORED_STYLE_NEGATIVE_" + category.upper() + "_ACCEPTED")
         phase = "PASS"
         print("PASS CLONE-STYLE: signed password-grant resource JWT, wrong/duplicate/missing resource denial.")
