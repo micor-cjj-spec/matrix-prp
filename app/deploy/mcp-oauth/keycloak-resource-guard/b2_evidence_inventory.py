@@ -7,7 +7,6 @@ It cannot approve, install, reload or bypass the B2 gate.
 """
 import argparse
 import json
-import os
 import stat
 from pathlib import Path
 
@@ -17,10 +16,9 @@ REQUIRED = {
 }
 DEFAULT_ROOT = Path("/root/prp-mcp-cimd-stage-b/host-guard")
 DEFAULT_PG_DUMP = Path("/root/prp-mcp-backups/snapshot-4G42atvf/keycloak-stage.dump")
-EXPECTED_DUMP_BYTES_MAGIC = "PGDMP"  # informational; not read by this tool
 
 
-def classify(path: Path):
+def classify(path: Path, *, trusted_uid: int = 0):
     try:
         # lstat refuses to mistake a symlink for an authentic evidence file.
         item = path.lstat()
@@ -38,12 +36,12 @@ def classify(path: Path):
         return "WEAK_FILE_PERMISSIONS"
     if item.st_mode & 0o6000:
         return "UNSAFE_SPECIAL_PERMISSIONS"
-    if item.st_uid != 0:
+    if item.st_uid != trusted_uid:
         return "NONROOT_OWNER_REVIEW_REQUIRED"
     return "PRESENT_METADATA_ONLY_UNVERIFIED"
 
 
-def examine(root: Path, dump: Path):
+def examine(root: Path, dump: Path, *, trusted_uid: int = 0):
     # The root directory itself is also untrusted evidence. No control is
     # considered approved just because a file was put at the expected path.
     out = {"host_guard_directory": "UNCHECKED", "requirements": {}}
@@ -51,7 +49,7 @@ def examine(root: Path, dump: Path):
         info = root.lstat()
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
             out["host_guard_directory"] = "UNSAFE_PATH"
-        elif info.st_uid != 0 or info.st_mode & 0o022:
+        elif info.st_uid != trusted_uid or info.st_mode & 0o022:
             out["host_guard_directory"] = "UNSAFE_OWNER_OR_PERMISSIONS"
         else:
             out["host_guard_directory"] = "METADATA_OK_UNVERIFIED"
@@ -62,11 +60,11 @@ def examine(root: Path, dump: Path):
 
     for name, filename in REQUIRED.items():
         out["requirements"][name] = (
-            classify(root / filename)
+            classify(root / filename, trusted_uid=trusted_uid)
             if out["host_guard_directory"] == "METADATA_OK_UNVERIFIED"
             else "NOT_INSPECTED_UNSAFE_PARENT"
         )
-    out["snapshot_dump"] = classify(dump)
+    out["snapshot_dump"] = classify(dump, trusted_uid=trusted_uid)
     out["operator_restore_test"] = (
         "PASSED_SEPARATELY_OPERATOR_REPORTED_NOT_A_B2_RECEIPT"
     )
