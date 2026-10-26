@@ -255,6 +255,44 @@ def verify_access(value, jwks, *, subject=None):
     return claims["sub"]
 
 
+def classify_unapproved_refresh(status, response, jwks, *, subject, prior_refresh):
+    """Static, safe diagnosis for an unintended-resource refresh acceptance.
+
+    Never log JWTs, client credentials, tokens, user subjects or the arbitrary
+    requested resource. Verify issuer signature and trusted claims BEFORE
+    examining the signed audience. This diagnostic is NOT an acceptance gate:
+    caller must still fail closed when an unrelated resource is accepted.
+    """
+    if status != 200 or not isinstance(response, dict):
+        return "UNEXPECTED_RESPONSE"
+    bearer = response.get("access_token")
+    if not isinstance(bearer, str):
+        return "NO_ACCESS_TOKEN"
+    try:
+        verify_access(response, jwks, subject=subject)
+    except (ValueError, RuntimeError):
+        return "MCP_TOKEN_VALIDATION_FAILED"
+    claims = json.loads(_b64url(bearer.split(".")[1]))
+    aud = claims.get("aud")
+    audiences = [aud] if isinstance(aud, str) else aud
+    if not isinstance(audiences, list) or not all(isinstance(a, str) for a in audiences):
+        return "AUDIENCE_INVALID"
+    # The unexpected resource is a constant only within this disposable test.
+    # Do not print audience values, even those supplied by an AS response.
+    unexpected = "https://not-prp.staging.example.org/api/mcp"
+    if unexpected in audiences:
+        return "FOREIGN_RESOURCE_AUDIENCE_ISSUED"
+    if RESOURCE not in audiences:
+        return "CANONICAL_RESOURCE_AUDIENCE_MISSING"
+    scopes = claims.get("scope", "")
+    if not isinstance(scopes, str) or "prp.finance.read" in scopes.split():
+        return "UNEXPECTED_SCOPE_ISSUED"
+    token = response.get("refresh_token")
+    if isinstance(token, str) and token and token != prior_refresh:
+        return "CANONICAL_AUDIENCE_ONLY_REFRESH_ROTATED"
+    return "CANONICAL_AUDIENCE_ONLY_NO_ROTATION_PROOF"
+
+
 def revoke(opener, key, refresh):
     data = {
         "client_id": CLIENT,
@@ -311,10 +349,18 @@ def main():
         if bad_status not in (400, 401):
             raise RuntimeError("BAD_REFRESH_CLIENT_SIGNATURE_ACCEPTED")
 
-        wrong_resource_status, _ = exchange(
+        wrong_resource_status, wrong_resource_response = exchange(
             opener, key, grant="refresh_token", refresh=first_refresh,
             resource="https://not-prp.staging.example.org/api/mcp")
         if wrong_resource_status not in (400, 401):
+            # Distinguish a rejected resource policy from an issuer that
+            # ignores the request but stamps the correct MCP-only audience.
+            # Neither behavior can be silently labeled approved; preserve
+            # the intentional failing authorization-server negative test.
+            kind = classify_unapproved_refresh(
+                wrong_resource_status, wrong_resource_response, jwks,
+                subject=sub, prior_refresh=first_refresh)
+            print("NEGATIVE RESOURCE DIAGNOSTIC=" + kind)
             raise RuntimeError("WRONG_REFRESH_RESOURCE_ACCEPTED")
         wrong_scope_status, _ = exchange(
             opener, key, grant="refresh_token", refresh=first_refresh,
