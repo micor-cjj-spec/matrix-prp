@@ -205,7 +205,7 @@ class IsolatedSyntaxSafetyTests(unittest.TestCase):
         original = "limit_req_zone $remote_addr zone=approved_zone:16m rate=9r/m;\n"
         root.write_text("events {}\nhttp {\n" + original + "}\n")
         (self.root / "main.conf").write_text("limit_req zone=approved_zone burst=4;\n")
-        (self.root / "test.conf").write_text("")
+        (self.root / "test.conf").write_text("# no additional limits\n")
         definition, _ = mod.recover_single_active_rate_limit(
             self.root, root=root, base=base)
         self.assertEqual(definition, original.strip())
@@ -220,7 +220,7 @@ class IsolatedSyntaxSafetyTests(unittest.TestCase):
             (confd / (label + ".conf")).write_text(
                 "limit_req_zone $binary_remote_addr zone=x:10m rate=5r/s;\n")
         (self.root / "main.conf").write_text("limit_req zone=x burst=1;\n")
-        (self.root / "test.conf").write_text("")
+        (self.root / "test.conf").write_text("# no additional limits\n")
         with self.assertRaisesRegex(ValueError, "EXPECTED_EXACTLY_ONE_ACTIVE_ZONE_DEFINITION"):
             mod.recover_single_active_rate_limit(self.root, root=root, base=base)
 
@@ -231,7 +231,7 @@ class IsolatedSyntaxSafetyTests(unittest.TestCase):
         root.write_text("limit_req_zone $binary_remote_addr "
                         "zone=x:10m rate=5r/s sync;\n")
         (self.root / "main.conf").write_text("limit_req zone=x burst=1;\n")
-        (self.root / "test.conf").write_text("")
+        (self.root / "test.conf").write_text("# no additional limits\n")
         with self.assertRaisesRegex(ValueError, "MATCHING_RATE_LIMIT_DEFINITION_UNREVIEWED"):
             mod.recover_single_active_rate_limit(self.root, root=root, base=base)
 
@@ -241,7 +241,7 @@ class IsolatedSyntaxSafetyTests(unittest.TestCase):
         root = base / "nginx.conf"
         root.write_text("events {}\n")
         (self.root / "main.conf").write_text("limit_req zone=absent burst=2;\n")
-        (self.root / "test.conf").write_text("")
+        (self.root / "test.conf").write_text("# no additional limits\n")
         with self.assertRaisesRegex(ValueError, "EXPECTED_EXACTLY_ONE_ACTIVE_ZONE_DEFINITION"):
             mod.recover_single_active_rate_limit(self.root, root=root, base=base)
 
@@ -251,7 +251,7 @@ class IsolatedSyntaxSafetyTests(unittest.TestCase):
         root = base / "nginx.conf"
         root.write_text("http { include /etc/shadow; }\n")
         (self.root / "main.conf").write_text("limit_req zone=x burst=1;\n")
-        (self.root / "test.conf").write_text("")
+        (self.root / "test.conf").write_text("# no additional limits\n")
         with self.assertRaisesRegex(ValueError, "UNTRUSTED_NGINX_INCLUDE_PATTERN"):
             mod.recover_single_active_rate_limit(self.root, root=root, base=base)
 
