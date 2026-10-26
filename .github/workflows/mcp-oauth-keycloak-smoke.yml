@@ -32,7 +32,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Compile synthetic-only Keycloak client-policy SPI
-        run: mvn -B -ntp -f app/deploy/mcp-oauth/keycloak-resource-guard/pom.xml -DskipTests package
+        run: mvn -B -ntp -f app/deploy/mcp-oauth/keycloak-resource-guard/pom.xml verify
       - name: Start real Keycloak, verify import, then delete everything
         shell: bash
         run: |
