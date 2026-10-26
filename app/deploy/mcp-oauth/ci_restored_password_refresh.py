@@ -80,6 +80,7 @@ def main():
             "implicitFlowEnabled": False, "directAccessGrantsEnabled": True,
             "serviceAccountsEnabled": False, "fullScopeAllowed": False,
             "redirectUris": [], "webOrigins": [],
+            "defaultClientScopes": ["basic"],
             "optionalClientScopes": ["prp.tasks.read"], "attributes": {ATTR: "enabled"},
             "protocolMappers": [{"name": "CI restored-style MCP audience",
                 "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
