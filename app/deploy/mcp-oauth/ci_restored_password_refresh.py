@@ -193,14 +193,9 @@ def main():
             return form_grant(data)
 
         phase = "NEGATIVE_RESOURCE"
-        for resource in ("https://unrelated.example.test/api/mcp",
-                         [RESOURCE, RESOURCE], None, ""):
-            bad, _ = refresh(first, resource=resource)
-            if bad not in (400, 401):
-                raise RuntimeError("CI_RESTORED_STYLE_WRONG_RESOURCE_ACCEPTED")
-        bad, _ = refresh(first, scope="openid prp.finance.read")
-        if bad not in (400, 401):
-            raise RuntimeError("CI_RESTORED_STYLE_UNGRANTED_SCOPE")
+        # Positive lifecycle first: negative token-grant attempts may revoke
+        # the source token in some Keycloak grant paths. Never classify a
+        # consumed token as failed canonical resource enforcement.
         phase = "CANONICAL_REFRESH"
         code, renewed = refresh(first)
         if code != 200:
@@ -217,6 +212,29 @@ def main():
         assert revoke == 200
         blocked, _ = refresh(second)
         assert blocked in (400, 401)
+
+        phase = "NEGATIVE_RESOURCE"
+        cases = [
+            ("foreign", "https://unrelated.example.test/api/mcp", "openid prp.tasks.read"),
+            ("duplicate", [RESOURCE, RESOURCE], "openid prp.tasks.read"),
+            ("omitted", None, "openid prp.tasks.read"),
+            ("blank", "", "openid prp.tasks.read"),
+            ("finance", RESOURCE, "openid prp.finance.read"),
+        ]
+        for category, requested, requested_scope in cases:
+            # Each rejection has a separate synthetic authorization/session,
+            # so a failed refresh cannot invalidate the positive test.
+            code, fresh = form_grant({
+                "grant_type": "password", "client_id": CLIENT,
+                "username": username, "password": password,
+                "scope": "openid prp.tasks.read", "resource": RESOURCE,
+            })
+            if code != 200:
+                raise RuntimeError("CI_RESTORED_STYLE_NEGATIVE_FIXTURE_GRANT_HTTP_" + str(code))
+            verify(fresh)
+            bad, _ = refresh(fresh["refresh_token"], resource=requested, scope=requested_scope)
+            if bad not in (400, 401):
+                raise RuntimeError("CI_RESTORED_STYLE_NEGATIVE_" + category.upper() + "_ACCEPTED")
         phase = "PASS"
         print("PASS CLONE-STYLE: signed password-grant resource JWT, wrong/duplicate/missing resource denial.")
         print("PASS CLONE-STYLE: authenticated refresh rotation, replay refusal and revocation.")
