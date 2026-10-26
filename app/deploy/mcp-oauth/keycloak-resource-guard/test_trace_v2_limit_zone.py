@@ -53,9 +53,9 @@ class LimitZoneTraceTests(unittest.TestCase):
             self.inspect("limit_req zone=unresolved burst=5;\n")
 
     def test_non_nginx_symlink_target_fails_closed(self):
-        outside = Path(tempfile.mkdtemp()) / "bad.conf"
-        self.addCleanup(lambda: outside.unlink(missing_ok=True))
-        self.addCleanup(lambda: outside.parent.rmdir())
+        extra = tempfile.TemporaryDirectory()
+        self.addCleanup(extra.cleanup)
+        outside = Path(extra.name) / "bad.conf"
         outside.write_text("limit_req_zone $remote_addr zone=a:10m rate=1r/s;\n")
         (self.conf / "alias.conf").symlink_to(outside)
         with self.assertRaisesRegex(ValueError, "INCLUDE_OUTSIDE_NGINX_TREE"):
