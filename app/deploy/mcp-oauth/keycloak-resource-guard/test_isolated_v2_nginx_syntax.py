@@ -89,6 +89,35 @@ class IsolatedSyntaxSafetyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "PINNED_SHA256_DRIFT"):
                 mod.inspect_sources()
 
+    def test_sanitized_nginx_error_categories_never_echo_secrets(self):
+        raw = (
+            'nginx: [emerg] invalid number of arguments in "map" directive '
+            'in /root/prp-mcp-cimd-stage-b/syntax-only-v2-private/test.conf:47 '
+            'client_secret=SENSITIVE_TEST_SECRET'
+        )
+        result = mod.classify_nginx_failure(raw)
+        self.assertEqual(result["error_family"], "INVALID_ARGUMENT_COUNT")
+        self.assertEqual(result["sandbox_source_role"], "REVIEW_TEST")
+        self.assertEqual(result["sandbox_line"], 47)
+        self.assertTrue(result["raw_error_redacted"])
+        self.assertNotIn("SENSITIVE_TEST_SECRET", str(result))
+        self.assertNotIn("/root/", str(result))
+
+    def test_sanitized_unknown_error_does_not_expose_content(self):
+        raw = "nginx: [emerg] SOME_PRIVATE_VALUE unusual problem happened"
+        result = mod.classify_nginx_failure(raw)
+        self.assertEqual(result["error_family"], "UNCLASSIFIED")
+        self.assertNotIn("SOME_PRIVATE_VALUE", str(result))
+        self.assertIsNone(result["sandbox_source_role"])
+
+    def test_sandbox_log_unknown_log_format_classification(self):
+        message = ('nginx: [emerg] unknown log format "custom-format" '
+                   'in /root/private/include-1.conf:21')
+        result = mod.classify_nginx_failure(message)
+        self.assertEqual(result["error_family"], "UNKNOWN_LOG_FORMAT")
+        self.assertEqual(result["sandbox_source_role"], "REVIEW_INCLUDED_DEPENDENCY")
+        self.assertEqual(result["sandbox_line"], 21)
+
     def test_input_symlink_refused(self):
         target = self.root / "regular.conf"
         target.write_bytes(MAIN)
