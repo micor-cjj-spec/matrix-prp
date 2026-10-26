@@ -41,15 +41,14 @@ jobs:
             docker rm -f prp-mcp-keycloak-ci >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
+          # Patch-release compatibility probe. Retain the negative RFC 8707
+          # refresh-resource regression as a fail-closed assertion.
           docker run --rm -d \
             --name prp-mcp-keycloak-ci \
             -p 127.0.0.1:18080:8080 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=prp-smoke-admin \
             -e KC_BOOTSTRAP_ADMIN_PASSWORD="${admin_secret}" \
             -v "${PWD}/app/deploy/mcp-oauth/.generated/realm:/opt/keycloak/data/import:ro" \
-            # Patch-release compatibility probe. Keep the negative RFC 8707
-            # refresh-resource assertion strictly fail-closed on this CI-only
-            # image; do not silently remove or relax any test.
             quay.io/keycloak/keycloak:26.8.1 \
             start-dev --import-realm --features=cimd,resource-indicators \
             --hostname=http://127.0.0.1:18080
