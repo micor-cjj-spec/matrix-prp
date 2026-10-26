@@ -13,13 +13,16 @@ NETWORK=0; VOLUME=0; DB=0; AUTH=0
 cleanup() {
   rc=$?
   trap - EXIT
-  if [ "$AUTH" = 1 ]; then docker rm -f "$KC" >/dev/null 2>&1 || rc=1; fi
-  if [ "$DB" = 1 ]; then docker rm -f "$PG" >/dev/null 2>&1 || rc=1; fi
-  if [ "$NETWORK" = 1 ]; then docker network rm "$NET" >/dev/null 2>&1 || rc=1; fi
-  if [ "$VOLUME" = 1 ]; then docker volume rm "$VOL" >/dev/null 2>&1 || rc=1; fi
-  rm -rf "$TEMP"
-  # Distinguish a failed rehearsal from a failed cleanup. This output
-  # never contains credentials or private Keycloak/PG container logs.
+  cleanup_rc=0
+  if [ "$AUTH" = 1 ]; then docker rm -f "$KC" >/dev/null 2>&1 || cleanup_rc=1; fi
+  if [ "$DB" = 1 ]; then docker rm -f "$PG" >/dev/null 2>&1 || cleanup_rc=1; fi
+  if [ "$NETWORK" = 1 ]; then docker network rm "$NET" >/dev/null 2>&1 || cleanup_rc=1; fi
+  if [ "$VOLUME" = 1 ]; then docker volume rm "$VOL" >/dev/null 2>&1 || cleanup_rc=1; fi
+  rm -rf "$TEMP" || cleanup_rc=1
+  echo "CLONE_CLEANUP_RESOURCE_STATUS=$cleanup_rc"
+  if [ "$cleanup_rc" -ne 0 ]; then rc=1; fi
+  # This status reports the overall rehearsal, NOT the resource cleanup.
+  # Never print container logs, credentials or private auth data.
   echo "CLONE_SCRIPT_EXIT_STATUS=$rc"
   exit "$rc"
 }
