@@ -212,6 +212,79 @@ def classify_nginx_failure(raw):
     }
 
 
+def classify_shared_memory_error(raw):
+    """Narrow nginx error subcategory; no zone identifier or raw log escapes."""
+    msg = raw.lower()
+    types = (
+        ("ZERO_SIZE_OR_UNDEFINED_ZONE", r"zero size shared memory zone"),
+        ("ZONE_TOO_SMALL", r"zone [^\n]{0,160} is too small"),
+        ("ZONE_SIZE_CONFLICT", r"shared memory zone [^\n]{0,160}(?:conflict|different size|already declared)"),
+        ("ZONE_REDEFINITION", r"(?:limit_req_zone|limit_conn_zone)[^\n]{0,160}(?:already bound|duplicate)"),
+        ("SHM_ALLOCATION_FAILED", r"(?:cannot allocate memory|failed to allocate|could not allocate|mmap\(\) failed)"),
+    )
+    return next((name for name, pattern in types if re.search(pattern, msg)),
+                "OTHER_SHARED_MEMORY_FAILURE")
+
+
+def inspect_limit_zones(sandbox_root):
+    """Compare sanitized rate/connection-limit references with explicit definitions.
+
+    The main nginx.conf is surveyed only for whether a definition appears to
+    be located outside this sandbox. It is NOT copied/included or trusted to
+    authorize additional live access.
+    """
+    pattern = re.compile(r"(?m)^[ \t]*(limit_req_zone|limit_conn_zone|limit_req|limit_conn)[ \t]+([^;\n]*);")
+    zone_arg = re.compile(r"(?:^|\s)zone=([a-zA-Z0-9_.-]+)(?::[0-9]+[kKmMgG]?)?(?:\s|$)")
+    conn_arg = re.compile(r"^([a-zA-Z0-9_.-]+)(?:\s|$)")
+    def parse(raw):
+        defs = {"req": set(), "conn": set()}
+        refs = {"req": set(), "conn": set()}
+        for raw_line in raw.splitlines():
+            line = raw_line.split("#", 1)[0]
+            for hit in pattern.finditer(line):
+                kind, args = hit.groups()
+                if kind in ("limit_req_zone", "limit_conn_zone", "limit_req"):
+                    match = zone_arg.search(" " + args + " ")
+                    if match:
+                        group = "req" if "req" in kind else "conn"
+                        (defs if kind.endswith("_zone") else refs)[group].add(match.group(1))
+                elif kind == "limit_conn":
+                    match = conn_arg.search(args.strip())
+                    if match:
+                        refs["conn"].add(match.group(1))
+        return defs, refs
+
+    configs = [sandbox_root / name for name in ("main.conf", "test.conf")]
+    configs += sorted(sandbox_root.glob("include-*.conf"))
+    defs, refs = {"req": set(), "conn": set()}, {"req": set(), "conn": set()}
+    for path in configs:
+        a, b = parse(read_regular(path).decode("utf-8", "replace"))
+        for kind in defs:
+            defs[kind].update(a[kind])
+            refs[kind].update(b[kind])
+    missing = {kind: refs[kind] - defs[kind] for kind in defs}
+    result = {
+        "candidate_req_defined": len(defs["req"]),
+        "candidate_req_referenced": len(refs["req"]),
+        "candidate_req_missing_definitions": len(missing["req"]),
+        "candidate_conn_defined": len(defs["conn"]),
+        "candidate_conn_referenced": len(refs["conn"]),
+        "candidate_conn_missing_definitions": len(missing["conn"]),
+        "root_nginx_conf_read": False,
+        "missing_candidate_zones_named_in_root_conf": None,
+    }
+    # Root file may define shared zones omitted by the synthetic wrapper.
+    try:
+        root_bytes = read_regular(Path("/etc/nginx/nginx.conf"))
+        root_defs, _ = parse(root_bytes.decode("utf-8", "replace"))
+        result["root_nginx_conf_read"] = True
+        result["missing_candidate_zones_named_in_root_conf"] = sum(
+            len(missing[kind] & root_defs[kind]) for kind in defs)
+    except (OSError, ValueError):
+        pass
+    return result
+
+
 def execute():
     os.umask(0o077)
     sources = inspect_sources()
@@ -250,9 +323,13 @@ def execute():
             stderr = ((run.stderr or "") + "\n" + (run.stdout or "")
                       + "\n" + log_message).lower()
             diagnosis = classify_nginx_failure(stderr)
+            if diagnosis["error_family"] == "SHARED_MEMORY_ZONE":
+                diagnosis["shared_memory_subtype"] = classify_shared_memory_error(stderr)
+            zones = inspect_limit_zones(temp)
             return {
                 "status": "ISOLATED_NGINX_SYNTAX_FAILED",
                 "sanitized_error": diagnosis,
+                "limit_zone_inventory": zones,
                 "exit_code": run.returncode,
                 "diagnostics": {
                     "unknown_directive": "unknown directive" in stderr,
