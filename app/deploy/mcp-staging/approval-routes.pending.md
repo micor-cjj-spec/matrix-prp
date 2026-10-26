@@ -4,7 +4,15 @@
 
 The snippet targets only `prp-test.micor.top`. It needs the existing reviewed Host/SNI/Authority and path canonicalization guards plus the `$prp_stage_origin_ok` map. It forwards to fixed loopback HTTPS, verifies the upstream chain and pins SNI to that host. The CA path and port are validated before rendering.
 
-Pages are limited to login, MCP client grants, exact UUID draft approvals, and frontend assets. APIs are restricted to the precise login/profile, grants, identity binding and draft-approval endpoints used by those pages. General `/prp/`, `/api/`, registration and administrator routes stay excluded. Write actions still require backend owner authentication, reauthentication and operation scopes. The UI keeps read-only scopes as its default.
+Pages are limited to login, MCP client grants, exact UUID draft approvals, and frontend assets.
+The exact read-only browser-pairing workflow additionally uses
+`POST /api/mcp/clients/pairing`, distinct from the generic owner client grant
+and from `POST /api/mcp/link`. This *review-only* location is now explicitly
+included; without it, the real CI pairing flow could pass behind a broad
+disposable proxy while the separately allowlisted public staging UI would fail.
+The location is POST-only and still requires backend owner reauthentication,
+client checks, and the separate public-install transaction. No active
+Nginx configuration references this snippet. APIs are restricted to the precise login/profile, grants, identity binding and draft-approval endpoints used by those pages. General `/prp/`, `/api/`, registration and administrator routes stay excluded. Write actions still require backend owner authentication, reauthentication and operation scopes. The UI keeps read-only scopes as its default.
 
 Before any public installation, independently review this broader route surface, verify that the internal TLS gateway can serve these exact routes to the isolated backend, rebuild the frontend with `/prp/` and `/api`, and perform real browser login/grant/link/approval/revocation tests. Do not reuse the guard-only approval to authorize these extra routes. Public enabling requires a separate explicit decision.
 
