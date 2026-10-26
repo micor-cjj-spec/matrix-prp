@@ -158,7 +158,13 @@ def activate_exact_refresh_policy(token):
     policies["policies"].append({
         "name": policy_name,
         "enabled": True,
-        "conditions": [{"condition": "any-client", "configuration": {}}],
+        # Built-in Keycloak 26.8.1 client-attributes condition: unlike
+        # any-client it does not attach the policy to the other Realm clients.
+        "conditions": [{"condition": "client-attributes", "configuration": {
+            "attributes": json.dumps([{
+                "key": "prp.ci.refresh-resource-guard", "value": "enabled",
+            }], separators=(",", ":")),
+        }}],
         "profiles": [profile_name],
     })
     replace_admin_doc(policies_url, token, policies)
@@ -169,6 +175,13 @@ def activate_exact_refresh_policy(token):
                and x.get("enabled") is True]
     if len(matches) != 1 or len(enabled) != 1:
         raise RuntimeError("CI_REFRESH_RESOURCE_POLICY_NOT_PERSISTED")
+    expected_condition = [{"condition": "client-attributes", "configuration": {
+        "attributes": json.dumps([{
+            "key": "prp.ci.refresh-resource-guard", "value": "enabled",
+        }], separators=(",", ":")),
+    }}]
+    if enabled[0].get("conditions") != expected_condition:
+        raise RuntimeError("CI_REFRESH_RESOURCE_POLICY_CONDITION_MISMATCH")
     executed = [x for x in matches[0].get("executors", [])
                 if x.get("executor") == "prp-ci-refresh-resource-guard"]
     if len(executed) != 1 or executed[0].get("configuration") != {
@@ -218,6 +231,7 @@ def register_client(token, certificate):
             "jwt.credential.certificate": certificate,
             "token.endpoint.auth.signing.alg": "RS256",
             "pkce.code.challenge.method": "S256",
+            "prp.ci.refresh-resource-guard": "enabled",
         },
         "protocolMappers": [{
             "name": "CI resource indicator only",
