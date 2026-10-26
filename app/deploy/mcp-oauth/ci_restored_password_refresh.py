@@ -110,6 +110,8 @@ def main():
         assert new_realm.get("refreshTokenMaxReuse") == 0
         admin_call("/users", token, method="POST", document={
             "username": username, "enabled": True, "emailVerified": True,
+            "email": username + "@example.invalid",
+            "firstName": "Disposable", "lastName": "Refresh CI",
             "requiredActions": [],
             "credentials": [{"type": "password", "value": password, "temporary": False}],
         })
