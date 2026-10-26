@@ -61,6 +61,7 @@ def form_grant(data, *, revocation=False):
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
         raise RuntimeError("DISPOSABLE_GITHUB_RUNNER_ONLY")
+    phase = "ADMIN_TOKEN"
     token = admin_token()
     policies = read_json(REALM_ADMIN + "/client-policies/policies", token)
     profiles = read_json(REALM_ADMIN + "/client-policies/profiles", token)
@@ -70,6 +71,7 @@ def main():
     username = "ci-ropc-" + secrets.token_hex(6)
     password = secrets.token_urlsafe(36)
     try:
+        phase = "CLIENT_CREATE"
         marker = json.dumps([{"key": ATTR, "value": "enabled"}], separators=(",", ":"))
         admin_call("/clients", token, method="POST", document={
             "clientId": CLIENT, "enabled": True, "protocol": "openid-connect",
@@ -83,31 +85,38 @@ def main():
                 "config": {"included.custom.audience": RESOURCE,
                            "id.token.claim": "false", "access.token.claim": "true"}}],
         })
+        phase = "CLIENT_READBACK"
         identities = admin_call("/clients?clientId=" + CLIENT, token)
         exact = [c for c in identities if c.get("clientId") == CLIENT]
         assert len(exact) == 1
         client_id = exact[0]["id"]
+        phase = "PROFILE_INSTALL"
         admin_call("/client-policies/profiles", token, method="PUT", document={
             "profiles": profiles["profiles"] + [{"name": PROFILE, "executors": [
                 {"executor": "prp-ci-refresh-resource-guard", "configuration": {
                     "target-client-id": CLIENT, "allowed-resource": RESOURCE}}]}],
         })
+        phase = "POLICY_INSTALL"
         admin_call("/client-policies/policies", token, method="PUT", document={
             "policies": policies["policies"] + [{"name": POLICY, "enabled": True,
                 "conditions": [{"condition": "client-attributes",
                     "configuration": {"attributes": marker}}],
                 "profiles": [PROFILE]}],
         })
+        phase = "POLICY_READBACK"
         p = admin_call("/client-policies/policies", token)
         assert len([x for x in p["policies"] if x.get("name") == POLICY and x.get("enabled")]) == 1
         conf = admin_call("/client-policies/profiles", token)
         assert len([x for x in conf["profiles"] if x.get("name") == PROFILE]) == 1
+        phase = "ROTATION_REALM_UPDATE"
         admin_call("", token, method="PUT", document={
             **original_realm, "revokeRefreshToken": True, "refreshTokenMaxReuse": 0,
         })
+        phase = "ROTATION_REALM_READBACK"
         new_realm = read_json(REALM_ADMIN, token)
         assert new_realm.get("revokeRefreshToken") is True
         assert new_realm.get("refreshTokenMaxReuse") == 0
+        phase = "TEST_USER_CREATE"
         admin_call("/users", token, method="POST", document={
             "username": username, "enabled": True, "emailVerified": True,
             "email": username + "@example.invalid",
@@ -115,10 +124,12 @@ def main():
             "requiredActions": [],
             "credentials": [{"type": "password", "value": password, "temporary": False}],
         })
+        phase = "TEST_USER_READBACK"
         found = admin_call("/users?username=" + username + "&exact=true", token)
         matches = [x for x in found if x.get("username") == username]
         assert len(matches) == 1
         user_id = matches[0]["id"]
+        phase = "JWKS_READBACK"
         status, _, raw = request(ISSUER + "/protocol/openid-connect/certs")
         assert status == 200
         jwks = json.loads(raw)
@@ -131,6 +142,7 @@ def main():
             assert claims["sub"] == user_id
             assert "prp.finance.read" not in claims.get("scope", "").split()
 
+        phase = "INITIAL_TOKEN_GRANT"
         status, issued = form_grant({
             "grant_type": "password", "client_id": CLIENT,
             "username": username, "password": password,
@@ -149,6 +161,7 @@ def main():
                 data["resource"] = resource
             return form_grant(data)
 
+        phase = "NEGATIVE_RESOURCE"
         for resource in ("https://unrelated.example.test/api/mcp",
                          [RESOURCE, RESOURCE], None, ""):
             bad, _ = refresh(first, resource=resource)
@@ -157,6 +170,7 @@ def main():
         bad, _ = refresh(first, scope="openid prp.finance.read")
         if bad not in (400, 401):
             raise RuntimeError("CI_RESTORED_STYLE_UNGRANTED_SCOPE")
+        phase = "CANONICAL_REFRESH"
         code, renewed = refresh(first)
         if code != 200:
             raise RuntimeError("CI_RESTORED_STYLE_CANONICAL_REFRESH_HTTP_" + str(code))
@@ -165,11 +179,13 @@ def main():
         assert second != first
         old, _ = refresh(first)
         assert old in (400, 401)
+        phase = "REVOKE"
         revoke, _ = form_grant({"client_id": CLIENT, "token": second,
                                 "token_type_hint": "refresh_token"}, revocation=True)
         assert revoke == 200
         blocked, _ = refresh(second)
         assert blocked in (400, 401)
+        phase = "PASS"
         print("PASS CLONE-STYLE: signed password-grant resource JWT, wrong/duplicate/missing resource denial.")
         print("PASS CLONE-STYLE: authenticated refresh rotation, replay refusal and revocation.")
     finally:
@@ -188,7 +204,10 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        # Avoid printing arbitrary assertion/Keycloak bodies and bearer tokens.
+        # Never print secrets, external exception text, or response bodies.
+        # Use the fixed phase name from our own test, not any remote data.
+        phase = locals().get("phase", "UNKNOWN")
+        print("CLONE_STYLE_FAILURE_PHASE=" + phase)
         msg = str(exc)
         if msg.startswith("CI_RESTORED_STYLE_") and msg.rsplit("_",1)[-1].isdigit():
             print("FAIL CLONE-STYLE: " + msg)
