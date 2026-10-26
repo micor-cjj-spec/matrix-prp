@@ -229,11 +229,17 @@ echo '=== CLONE-ONLY AUDIENCE MAPPER REPAIR AND ROLLBACK ==='
 REVIEW=/root/prp-mcp-backups/v2-keycloak-mapper-review-oyp642m6
 test "$(sha256sum "$REVIEW/original.json" | awk '{print $1}')" = 80834a6ea75b99a504e06e6a218af7215814475bcbecd00b932973e8e6672ca6
 test "$(sha256sum "$REVIEW/candidate.json" | awk '{print $1}')" = a26b7ec0f1739d2d12cd948f6134410b91a2782fdc4ea970036ef1bc1c4eb44b
+# Import only the pinned stdlib RS256/JWKS verifier, never a dependency
+# from the active system or an unreviewed current branch.
+TOKEN_VERIFIER="$TEMP/oauth_token_check.py"
+git -C "$SOURCE_REPO" show "$SOURCE_PIN:app/deploy/mcp-oauth/oauth_token_check.py" > "$TOKEN_VERIFIER"
+chmod 0400 "$TOKEN_VERIFIER"
 # nsenter changes only network namespace. Python runs on the host FS, but HTTP
 # is restricted to the disposable Keycloak's own 127.0.0.1:8080.
-nsenter -t "$PID" -n -- python3 - "$REVIEW" "$LIVE_KC" <<'PY'
+nsenter -t "$PID" -n -- python3 - "$REVIEW" "$LIVE_KC" "$TOKEN_VERIFIER" <<'PY'
 import copy
 import json
+import secrets
 import subprocess
 import sys
 from pathlib import Path
@@ -241,7 +247,9 @@ from urllib.parse import urlencode
 from urllib.request import Request, build_opener, ProxyHandler
 from urllib.error import HTTPError, URLError
 
-review, live_kc = sys.argv[1:]
+review, live_kc, verifier_file = sys.argv[1:]
+sys.path.insert(0, str(Path(verifier_file).parent))
+from oauth_token_check import check_token, _b64url
 base = "http://127.0.0.1:8080"
 resource = "https://prp-test.micor.top/api/mcp"
 opener = build_opener(ProxyHandler({}))
@@ -349,6 +357,8 @@ try:
     existing_ids = {x.get("clientId") for x in clients_before}
     assert probe not in existing_ids, "Synthetic ID collision"
     created_probe = None
+    created_user = None
+    old_realm = None
     profile_name = "ci-restored-refresh-resource"
     policy_name = "ci-restored-refresh-only"
     wanted_config = {
@@ -410,7 +420,156 @@ try:
         print("CLONE_RESTORED_SPI_PROVIDER_LOADED=YES")
         print("CLONE_RESTORED_CLIENT_POLICY_CONFIG=PASS")
         print("CLONE_ORIGINAL_13_CLIENTS_UNMODIFIED=YES")
+
+        print("=== CLONE-ONLY ACTUAL REFRESH GRANT NEGATIVE/POSITIVE TEST ===")
+        # Restore clone's original refresh behavior at the end; never
+        # enable direct access grants or rotate sessions on the live Realm.
+        old_realm = api(root, token=token)
+        for key in ("revokeRefreshToken", "refreshTokenMaxReuse"):
+            assert key in old_realm, "Refresh rotation field absent in restored Realm"
+        rotated_realm = copy.deepcopy(old_realm)
+        rotated_realm["revokeRefreshToken"] = True
+        rotated_realm["refreshTokenMaxReuse"] = 0
+        api(root, token=token, method="PUT", payload=rotated_realm)
+        active_realm = api(root, token=token)
+        assert active_realm.get("revokeRefreshToken") is True
+        assert active_realm.get("refreshTokenMaxReuse") == 0
+        print("CLONE_RESTORED_REFRESH_ROTATION_CONFIG=PASS")
+
+        scope_defs = api(root + "/client-scopes", token=token)
+        assert "prp.tasks.read" in {x.get("name") for x in scope_defs}
+        synthetic_user = "ci-restored-rfr-" + secrets.token_hex(8)
+        synthetic_password = secrets.token_urlsafe(36)
+        api(root + "/users", token=token, method="POST", payload={
+            "username": synthetic_user, "enabled": True,
+            "emailVerified": True, "requiredActions": [],
+            "credentials": [{"type": "password", "value": synthetic_password,
+                             "temporary": False}],
+        })
+        users = api(root + "/users?username=" + synthetic_user + "&exact=true", token=token)
+        found = [u for u in users if u.get("username") == synthetic_user]
+        assert len(found) == 1
+        created_user = found[0]["id"]
+
+        # ROPC is used ONLY to obtain a temporary initial grant in the
+        # restored, internal-network clone. It is not a recommended PRP
+        # user login flow. AuthCode+PKCE/private_key_jwt are tested in CI.
+        client_path = root + "/clients/" + created_probe
+        disposable_client = api(client_path, token=token)
+        assert disposable_client.get("clientId") == probe
+        disposable_client["directAccessGrantsEnabled"] = True
+        disposable_client["fullScopeAllowed"] = False
+        disposable_client["optionalClientScopes"] = ["prp.tasks.read"]
+        disposable_client["protocolMappers"] = [{
+            "name": "CI restored-only exact MCP audience",
+            "protocol": "openid-connect",
+            "protocolMapper": "oidc-audience-mapper",
+            "config": {"included.custom.audience": resource,
+                       "id.token.claim": "false", "access.token.claim": "true"},
+        }]
+        api(client_path, token=token, method="PUT", payload=disposable_client)
+        reread_client = api(client_path, token=token)
+        assert reread_client.get("directAccessGrantsEnabled") is True
+        assert reread_client.get("fullScopeAllowed") is False
+        assert reread_client.get("attributes", {}).get("prp.ci.refresh-resource-guard") == "enabled"
+
+        endpoint = "/realms/prp-mcp/protocol/openid-connect/token"
+        jwks = api("/realms/prp-mcp/protocol/openid-connect/certs")
+        issuer = base + "/realms/prp-mcp"
+
+        def request_grant(values):
+            form_data = urlencode(values, doseq=True).encode()
+            try:
+                result = api(endpoint, method="POST", payload=form_data)
+                return 200, result
+            except HTTPError as err:
+                # Only status codes are used for negative tests: no error
+                # body, token, claims or secret is ever printed.
+                return err.code, None
+
+        def verify_signed_access(values):
+            assert isinstance(values, dict)
+            bearer = values.get("access_token")
+            assert isinstance(bearer, str) and bearer
+            check_token(bearer, jwks, issuer=issuer, resource=resource,
+                        client_id=probe, required_scope="prp.tasks.read")
+            claims = json.loads(_b64url(bearer.split(".")[1]))
+            assert "prp.finance.read" not in claims.get("scope", "").split()
+            audience = claims.get("aud")
+            audiences = [audience] if isinstance(audience, str) else audience
+            assert isinstance(audiences, list)
+            assert "https://unrelated.example.test/api/mcp" not in audiences
+            return claims["sub"]
+
+        initial_status, initial = request_grant({
+            "grant_type": "password", "client_id": probe,
+            "username": synthetic_user, "password": synthetic_password,
+            "scope": "openid prp.tasks.read", "resource": resource,
+        })
+        if initial_status != 200:
+            raise RuntimeError("RESTORED_PASSWORD_TEST_GRANT_HTTP_" + str(initial_status))
+        subject = verify_signed_access(initial)
+        assert isinstance(initial.get("refresh_token"), str)
+        first_refresh = initial["refresh_token"]
+        print("CLONE_RESTORED_INITIAL_SIGNED_RESOURCE_JWT=PASS")
+
+        def refreshed(refresh_token, *, resource_value=resource, scope="openid prp.tasks.read"):
+            value = {
+                "grant_type": "refresh_token", "client_id": probe,
+                "refresh_token": refresh_token, "scope": scope,
+            }
+            if resource_value is not None:
+                value["resource"] = resource_value
+            return request_grant(value)
+
+        wrong_status, _ = refreshed(
+            first_refresh, resource_value="https://unrelated.example.test/api/mcp")
+        if wrong_status not in (400, 401):
+            raise RuntimeError("RESTORED_WRONG_RESOURCE_REFRESH_ACCEPTED")
+        duplicated_status, _ = refreshed(first_refresh, resource_value=[resource, resource])
+        if duplicated_status not in (400, 401):
+            raise RuntimeError("RESTORED_DUPLICATE_RESOURCE_REFRESH_ACCEPTED")
+        absent_status, _ = refreshed(first_refresh, resource_value=None)
+        if absent_status not in (400, 401):
+            raise RuntimeError("RESTORED_MISSING_RESOURCE_REFRESH_ACCEPTED")
+        finance_status, _ = refreshed(first_refresh, scope="openid prp.finance.read")
+        if finance_status not in (400, 401):
+            raise RuntimeError("RESTORED_FINANCE_SCOPE_ESCALATION_ACCEPTED")
+        print("CLONE_RESTORED_REFRESH_RESOURCE_AND_SCOPE_DENIAL=PASS")
+
+        good_status, renewed = refreshed(first_refresh)
+        if good_status != 200:
+            raise RuntimeError("RESTORED_CORRECT_REFRESH_HTTP_" + str(good_status))
+        assert verify_signed_access(renewed) == subject
+        second_refresh = renewed.get("refresh_token")
+        assert isinstance(second_refresh, str) and second_refresh != first_refresh
+        replay_status, _ = refreshed(first_refresh)
+        if replay_status not in (400, 401):
+            raise RuntimeError("RESTORED_ROTATED_REFRESH_REPLAY_ACCEPTED")
+        print("CLONE_RESTORED_REFRESH_SIGNATURE_AND_ROTATION=PASS")
+
+        revoke_path = "/realms/prp-mcp/protocol/openid-connect/revoke"
+        response = api(revoke_path, method="POST", payload=urlencode({
+            "client_id": probe, "token": second_refresh,
+            "token_type_hint": "refresh_token",
+        }).encode())
+        revoked_status, _ = refreshed(second_refresh)
+        if revoked_status not in (400, 401):
+            raise RuntimeError("RESTORED_REVOKED_REFRESH_ACCEPTED")
+        print("CLONE_RESTORED_REFRESH_REVOCATION=PASS")
+        print("CLONE_RESTORED_SPI_REFRESH_GRANT=PASS_SYNTHETIC_PASSWORD_GRANT")
     finally:
+        # This is only the private restored clone. Undo the user's
+        # synthetic credential and the clone-only refresh rotation change
+        # before removing the policy, profile and temporary client.
+        if created_user is not None:
+            api(root + "/users/" + created_user, token=token, method="DELETE")
+        if old_realm is not None:
+            api(root, token=token, method="PUT", payload=old_realm)
+            current = api(root, token=token)
+            for name in ("revokeRefreshToken", "refreshTokenMaxReuse"):
+                assert current.get(name) == old_realm.get(name)
+            print("CLONE_RESTORED_REFRESH_REALM_SETTINGS_ROLLBACK=PASS")
         # Delete the temporary policy before its referenced profile, then
         # the isolated probe. Never send these PUTs to the live Realm.
         api(root + "/client-policies/policies", token=token,
@@ -438,5 +597,5 @@ test "$(systemctl is-active matrix-prp.service)" = active
 test "$(docker inspect "$LIVE_KC" -f '{{.State.Status}}')" = running
 echo 'ACTIVE_REALM_CHANGED=NO'
 echo 'CLONE_RESTORE_AND_SIGNING_JWKS=PASS'
-echo 'CLONE_RESTORED_SPI_REFRESH_GRANT=NOT_EXECUTED'
+echo 'CLONE_RESTORED_OAUTH_AUTHCODE_PKCE=CI_DISPOSABLE_ONLY'
 echo 'B2_RECOVERY_GATE=NOT_COMPLETED'
