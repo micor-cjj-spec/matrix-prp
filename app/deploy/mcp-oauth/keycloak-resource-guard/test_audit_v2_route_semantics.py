@@ -71,7 +71,7 @@ class RouteSemanticsTests(unittest.TestCase):
     def test_v2_in_non_exact_location_requires_review(self):
         raw = b"location /v2/ { proxy_pass http://127.0.0.1:18082; }\n"
         item = pair(extra_test=raw)
-        with self.assertRaisesRegex(ValueError, "TEST_V2_TARGET_COUNT_DRIFT"):
+        with self.assertRaisesRegex(ValueError, "V2_BACKEND_TARGET_DRIFT"):
             mod.inspect(item)
         item["review_test"] = item["review_test"].replace(
             b"location = /api/mcp/link {\n     proxy_pass http://127.0.0.1:18082;\n }",
