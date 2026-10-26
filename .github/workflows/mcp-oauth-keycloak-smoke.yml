@@ -18,6 +18,10 @@ jobs:
     name: Ephemeral Keycloak OIDC and resource indicator
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        keycloak-version: ['26.8.0', '26.8.1']
     steps:
       - uses: actions/checkout@v4
       - name: Build reviewed staging realm with read-only PKCE test client
@@ -31,8 +35,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Compile synthetic-only Keycloak client-policy SPI
-        run: mvn -B -ntp -f app/deploy/mcp-oauth/keycloak-resource-guard/pom.xml verify
+      - name: Compile and test candidate against Keycloak ${{ matrix.keycloak-version }}
+        run: mvn -B -ntp -f app/deploy/mcp-oauth/keycloak-resource-guard/pom.xml -Dkeycloak.version=${{ matrix.keycloak-version }} verify
       - name: Start real Keycloak, verify import, then delete everything
         shell: bash
         run: |
@@ -48,8 +52,8 @@ jobs:
             docker rm -f prp-mcp-keycloak-ci >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          # Patch-release compatibility probe. Retain the negative RFC 8707
-          # refresh-resource regression as a fail-closed assertion.
+          # Both 26.8.0 (current host) and 26.8.1 (earlier CI) must pass.
+          # Never ignore resource denial, signed token verification or rollback.
           docker run --rm -d \
             --name prp-mcp-keycloak-ci \
             -p 127.0.0.1:18080:8080 \
@@ -57,7 +61,7 @@ jobs:
             -e KC_BOOTSTRAP_ADMIN_PASSWORD="${admin_secret}" \
             -v "${PWD}/app/deploy/mcp-oauth/.generated/realm:/opt/keycloak/data/import:ro" \
             -v "${PWD}/app/deploy/mcp-oauth/keycloak-resource-guard/target/prp-refresh-resource-guard.jar:/opt/keycloak/providers/prp-refresh-resource-guard.jar:ro" \
-            quay.io/keycloak/keycloak:26.8.1 \
+            quay.io/keycloak/keycloak:${{ matrix.keycloak-version }} \
             start-dev --import-realm --features=cimd,resource-indicators \
             --hostname=http://127.0.0.1:18080
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
@@ -86,7 +90,7 @@ jobs:
       - name: Retain verified CI-only SPI artifact for isolated restore testing
         uses: actions/upload-artifact@v4
         with:
-          name: prp-refresh-resource-guard-CI-ONLY
+          name: prp-refresh-resource-guard-${{ matrix.keycloak-version }}-CI-ONLY
           path: |
             app/deploy/mcp-oauth/keycloak-resource-guard/target/prp-refresh-resource-guard.jar
             app/deploy/mcp-oauth/keycloak-resource-guard/target/SHA256SUMS
