@@ -293,8 +293,8 @@ def recover_single_active_rate_limit(sandbox, *, root=Path("/etc/nginx/nginx.con
     validated directive is copied into the disposable Nginx http block.
     Unknown syntax, include provenance, zone keys/rates and duplicates block.
     """
-    req_zone = re.compile(r"(?m)^[ \t]*limit_req_zone[ \t]+([^;{}\n]*);")
-    req_use = re.compile(r"(?m)^[ \t]*limit_req[ \t]+([^;{}\n]*);")
+    req_zone = re.compile(r"(?m)(?:(?<=^)|(?<=[;{}]))[ \t]*limit_req_zone[ \t]+([^;{}\n]*);")
+    req_use = re.compile(r"(?m)(?:(?<=^)|(?<=[;{}]))[ \t]*limit_req[ \t]+([^;{}\n]*);")
     zone = re.compile(r"(?:^|\s)zone=([A-Za-z0-9_.-]+)(?::\d+[kKmMgG])?(?:\s|$)")
     definitions, references = set(), set()
     sandbox_files = [sandbox / "main.conf", sandbox / "test.conf"]
@@ -319,7 +319,7 @@ def recover_single_active_rate_limit(sandbox, *, root=Path("/etc/nginx/nginx.con
     base = base.resolve(strict=True)
     allowed_options = (Path("/etc/letsencrypt/options-ssl-nginx.conf")
                        if str(base) == "/etc/nginx" else None)
-    include_re = re.compile(r"(?m)^[ \t]*include[ \t]+([^;{}\n]*);")
+    include_re = re.compile(r"(?m)(?:(?<=^)|(?<=[;{}]))[ \t]*include[ \t]+([^;{}\n]*);")
     exact_zone = re.compile(
         r"limit_req_zone\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+"
         r"zone=([A-Za-z0-9_.-]+):([1-9][0-9]*[kKmM])\s+"
