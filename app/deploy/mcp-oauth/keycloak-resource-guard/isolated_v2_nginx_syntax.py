@@ -159,8 +159,8 @@ def prepare(sources, target):
             if name in ("proxy_pass", "grpc_pass", "uwsgi_pass",
                         "fastcgi_pass", "scgi_pass"):
                 if ("$" not in arg and
-                        not re.fullmatch(r"https?://(?:127\\.0\\.0\\.1|\\[::1\\])(?::\\d+)?(?:/[^\\s]*)?", arg) and
-                        not re.fullmatch(r"(?:127\\.0\\.0\\.1|\\[::1\\]):\\d+", arg)):
+                        not re.fullmatch(r"https?://(?:127\.0\.0\.1|\[::1\])(?::\d+)?(?:/[^\s]*)?", arg) and
+                        not re.fullmatch(r"(?:127\.0\.0\.1|\[::1\]):\d+", arg)):
                     raise ValueError("UNREWRITTEN_PROXY_UPSTREAM")
         return rewritten
 
