@@ -245,7 +245,7 @@ def execute():
             # Read bounded bytes in memory; do not expose its raw contents.
             log = temp / "nginx-error.log"
             log_message = ""
-            if log.exists():
+            if log.exists() and log.stat().st_size > 0:
                 log_message = read_regular(log).decode("utf-8", "replace")
             stderr = ((run.stderr or "") + "\n" + (run.stdout or "")
                       + "\n" + log_message).lower()
