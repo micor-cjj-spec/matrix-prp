@@ -118,6 +118,60 @@ class IsolatedSyntaxSafetyTests(unittest.TestCase):
         self.assertEqual(result["sandbox_source_role"], "REVIEW_INCLUDED_DEPENDENCY")
         self.assertEqual(result["sandbox_line"], 21)
 
+    def test_shared_memory_error_subcategories_are_fixed_labels(self):
+        checks = {
+            'nginx: [emerg] zero size shared memory zone "secret_zone"':
+                "ZERO_SIZE_OR_UNDEFINED_ZONE",
+            'nginx: [emerg] zone "internal" is too small':
+                "ZONE_TOO_SMALL",
+            'nginx: [emerg] shared memory zone "internal" conflicts with already declared size':
+                "ZONE_SIZE_CONFLICT",
+            'nginx: [emerg] limit_req_zone "internal" is already bound':
+                "ZONE_REDEFINITION",
+            'nginx: [emerg] mmap() failed (12: Cannot allocate memory)':
+                "SHM_ALLOCATION_FAILED",
+        }
+        for raw, expected in checks.items():
+            with self.subTest(expected=expected):
+                result = mod.classify_shared_memory_error(raw)
+                self.assertEqual(result, expected)
+                self.assertNotIn("secret_zone", result)
+                self.assertNotIn("internal", result)
+
+    def test_rate_limit_zone_inventory_identifies_unresolved_only(self):
+        (self.root / "main.conf").write_text(
+            "limit_req_zone $binary_remote_addr zone=global_a:10m rate=5r/s;\n"
+            "limit_conn_zone $binary_remote_addr zone=conn_a:10m;\n"
+        )
+        (self.root / "test.conf").write_text(
+            "server {\n"
+            "limit_req zone=global_a burst=2;\n"
+            "limit_req zone=zone_missing burst=3;\n"
+            "limit_conn conn_a 2;\n"
+            "limit_conn conn_missing 3;\n"
+            "}\n"
+        )
+        result = mod.inspect_limit_zones(self.root)
+        self.assertEqual(result["candidate_req_defined"], 1)
+        self.assertEqual(result["candidate_req_referenced"], 2)
+        self.assertEqual(result["candidate_req_missing_definitions"], 1)
+        self.assertEqual(result["candidate_conn_defined"], 1)
+        self.assertEqual(result["candidate_conn_referenced"], 2)
+        self.assertEqual(result["candidate_conn_missing_definitions"], 1)
+        self.assertNotIn("global_a", str(result))
+        self.assertNotIn("zone_missing", str(result))
+
+    def test_rate_limit_inventory_ignores_comment_lines(self):
+        (self.root / "main.conf").write_text(
+            "# limit_req_zone $remote_addr zone=fake:20m rate=1r/s;\n"
+        )
+        (self.root / "test.conf").write_text(
+            "limit_req zone=real_missing burst=1;\n"
+        )
+        result = mod.inspect_limit_zones(self.root)
+        self.assertEqual(result["candidate_req_defined"], 0)
+        self.assertEqual(result["candidate_req_missing_definitions"], 1)
+
     def test_input_symlink_refused(self):
         target = self.root / "regular.conf"
         target.write_bytes(MAIN)
