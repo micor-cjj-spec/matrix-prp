@@ -6,6 +6,7 @@ is a synthetic one, NOT the real ChatGPT client. Never use production credential
 or log passwords, cookies, authorization codes, assertions or bearer tokens.
 """
 import base64
+import copy
 import hashlib
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 import json
@@ -141,6 +142,7 @@ def activate_exact_refresh_policy(token):
     policies_url = REALM_ADMIN + "/client-policies/policies"
     profiles = read_json(profiles_url, token)
     policies = read_json(policies_url, token)
+    snapshots = (copy.deepcopy(profiles), copy.deepcopy(policies))
     profile_name = "ci-strict-refresh-resource"
     policy_name = "ci-strict-refresh-resource-only"
     if profile_name in {x.get("name") for x in profiles.get("profiles", [])}:
@@ -188,6 +190,21 @@ def activate_exact_refresh_policy(token):
             "target-client-id": CLIENT, "allowed-resource": RESOURCE}:
         raise RuntimeError("CI_REFRESH_RESOURCE_SPI_CONFIG_NOT_PERSISTED")
     print("PASS AUTHCODE: persisted exact-client and HTTPS-resource refresh policy.")
+    return snapshots
+
+
+def rollback_exact_refresh_policy(token, snapshots):
+    original_profiles, original_policies = snapshots
+    profiles_url = REALM_ADMIN + "/client-policies/profiles"
+    policies_url = REALM_ADMIN + "/client-policies/policies"
+    # Restore existing rules first to de-activate the disposable executor,
+    # then remove the unused profile. Never touch any persistent Realm.
+    replace_admin_doc(policies_url, token, original_policies)
+    replace_admin_doc(profiles_url, token, original_profiles)
+    if (read_json(profiles_url, token) != original_profiles
+            or read_json(policies_url, token) != original_policies):
+        raise RuntimeError("CI_REFRESH_POLICY_ROLLBACK_MISMATCH")
+    print("PASS AUTHCODE: exact refresh client policy rollback preserves prior Realm rules.")
 
 
 def create_user(token, password):
@@ -378,7 +395,7 @@ def main():
         admin = admin_token()
         configure_realm(admin)
         register_client(admin, certificate)
-        activate_exact_refresh_policy(admin)
+        policy_snapshots = activate_exact_refresh_policy(admin)
         user_password = secrets.token_urlsafe(36)
         username = create_user(admin, user_password)
         opener = browser_opener()
@@ -510,6 +527,7 @@ def main():
             print("PASS AUTHCODE: unmarked other OAuth client remains refresh-compatible.")
         finally:
             browser.CLIENT = CLIENT
+        rollback_exact_refresh_policy(admin, policy_snapshots)
         print("CI-ONLY: no real ChatGPT client keys, production data or server changes.")
 
 
