@@ -88,6 +88,20 @@ class RouteSemanticsTests(unittest.TestCase):
         self.assertEqual(result["proxy"], 0)
         self.assertEqual(result["returns_403_or_404"], 1)
 
+    def test_protected_resource_well_known_is_not_mcp_tool_endpoint(self):
+        node = mod.audit.parse(
+            b'location = /.well-known/oauth-protected-resource/api/mcp { return 200; }'
+        )[0]
+        info = mod.route_info(node)
+        self.assertEqual(info["mcp_shape"], "EXACT_OAUTH_DISCOVERY")
+        self.assertNotEqual(info["mcp_shape"], "EXACT_MCP")
+
+    def test_exact_mcp_link_is_not_mcp_tool_endpoint(self):
+        node = mod.audit.parse(
+            b'location = /api/mcp/link { proxy_pass http://127.0.0.1:18082; }'
+        )[0]
+        self.assertEqual(mod.route_info(node)["mcp_shape"], "EXACT_MCP_LINK")
+
     def test_no_server_names_or_paths_in_result(self):
         result = mod.inspect(pair())
         rendered = str(result)
