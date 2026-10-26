@@ -204,6 +204,7 @@ def main():
         phase = "CANONICAL_REFRESH"
         code, renewed = refresh(first)
         if code != 200:
+            print("CLONE_STYLE_CANONICAL_REFRESH_DIAGNOSTIC=" + renewed["error_kind"])
             raise RuntimeError("CI_RESTORED_STYLE_CANONICAL_REFRESH_HTTP_" + str(code))
         verify(renewed)
         second = renewed["refresh_token"]
