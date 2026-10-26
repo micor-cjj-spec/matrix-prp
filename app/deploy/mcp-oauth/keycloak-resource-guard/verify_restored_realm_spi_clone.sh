@@ -62,42 +62,41 @@ for candidate in "${JDK_CANDIDATES[@]}"; do
     break
   fi
 done
-if [[ -z "$JDK21_HOME" ]]; then
-  echo 'HOST_JDK21_COMPILER=NOT_FOUND'
-  echo 'NO_CLONE_CONTAINERS_STARTED=YES'
-  echo 'No local Java 21 compiler found; do not change default Java or install an unreviewed JDK.'
-  exit 3
-fi
-echo 'HOST_JDK21_COMPILER=PASS'
-echo "HOST_JDK21_SELECTION=$JDK21_SOURCE"
+ARTIFACT=/root/prp-mcp-backups/prp-refresh-resource-guard-26.8.0-CI-ONLY.zip
+ARTIFACT_SHA256=38cb779442eafb7034855aa0c806105a096803f0569b7792362c32d282eac844
+EXPECTED_JAR_SHA256=ab2481fd8efeb5a763d3552493b3c6b5d8549d548951d7cfe42f290393ff9818
 SOURCE_REPO=/root/matrix-prp-mcp-v2-staging
 SOURCE_PIN=00c9de9568f8dc93548b7884c8ff3561524ff1a4
 PREFIX=app/deploy/mcp-oauth/keycloak-resource-guard
 BUILD="$TEMP/build"
-mkdir -p "$BUILD"
-test "$(docker exec "$LIVE_KC" /opt/keycloak/bin/kc.sh --version 2>&1 | grep -Eo 'Keycloak [0-9.]+')" = 'Keycloak 26.8.0'
-git -C "$SOURCE_REPO" cat-file -e "$SOURCE_PIN^{commit}"
-echo '=== BUILD EXACT PINNED 26.8.0 SPI SOURCE; NO LIVE INSTALL ==='
-for PART in \
-  pom.xml \
-  src/main/java/io/micor/prp/ci/ExactRefreshResourceExecutorFactory.java \
-  src/main/resources/META-INF/services/org.keycloak.services.clientpolicy.executor.ClientPolicyExecutorProviderFactory \
-  src/test/java/io/micor/prp/ci/ExactRefreshResourceExecutorFactoryTest.java
-do
-  mkdir -p "$BUILD/$(dirname "$PART")"
-  git -C "$SOURCE_REPO" show "$SOURCE_PIN:$PREFIX/$PART" > "$BUILD/$PART"
-done
-if ! JAVA_HOME="$JDK21_HOME" PATH="$JDK21_HOME/bin:$PATH" \
-     MAVEN_OPTS='-Xmx512m -XX:MaxMetaspaceSize=256m' \
-     mvn -B -ntp -q -f "$BUILD/pom.xml" -Dkeycloak.version=26.8.0 verify \
-      > "$TEMP/maven-build.log" 2>&1; then
-  echo 'CANDIDATE_MAVEN_BUILD=FAILED'
-  grep -E '^\[ERROR\]|Tests run:' "$TEMP/maven-build.log" | tail -n 15 || true
-  exit 1
-fi
 JAR="$BUILD/target/prp-refresh-resource-guard.jar"
-test -s "$JAR"
-python3 - "$BUILD" "$JAR" <<'PY'
+mkdir -p "$BUILD/target"
+test "$(docker exec "$LIVE_KC" /opt/keycloak/bin/kc.sh --version 2>&1 | grep -Eo 'Keycloak [0-9.]+')" = 'Keycloak 26.8.0'
+if [[ -n "$JDK21_HOME" ]]; then
+  command -v mvn >/dev/null
+  echo 'HOST_JDK21_COMPILER=PASS'
+  echo "HOST_JDK21_SELECTION=$JDK21_SOURCE"
+  git -C "$SOURCE_REPO" cat-file -e "$SOURCE_PIN^{commit}"
+  echo '=== BUILD EXACT PINNED 26.8.0 SPI SOURCE; NO LIVE INSTALL ==='
+  for PART in \
+    pom.xml \
+    src/main/java/io/micor/prp/ci/ExactRefreshResourceExecutorFactory.java \
+    src/main/resources/META-INF/services/org.keycloak.services.clientpolicy.executor.ClientPolicyExecutorProviderFactory \
+    src/test/java/io/micor/prp/ci/ExactRefreshResourceExecutorFactoryTest.java
+  do
+    mkdir -p "$BUILD/$(dirname "$PART")"
+    git -C "$SOURCE_REPO" show "$SOURCE_PIN:$PREFIX/$PART" > "$BUILD/$PART"
+  done
+  if ! JAVA_HOME="$JDK21_HOME" PATH="$JDK21_HOME/bin:$PATH" \
+       MAVEN_OPTS='-Xmx512m -XX:MaxMetaspaceSize=256m' \
+       mvn -B -ntp -q -f "$BUILD/pom.xml" -Dkeycloak.version=26.8.0 verify \
+         > "$TEMP/maven-build.log" 2>&1; then
+    echo 'CANDIDATE_MAVEN_BUILD=FAILED'
+    grep -E '^\[ERROR\]|Tests run:' "$TEMP/maven-build.log" | tail -n 15 || true
+    exit 1
+  fi
+  test -s "$JAR"
+  python3 - "$BUILD" "$JAR" <<'PY'
 import pathlib, sys, xml.etree.ElementTree as et, zipfile
 build, archive = map(pathlib.Path, sys.argv[1:])
 report=build/'target/surefire-reports/TEST-io.micor.prp.ci.ExactRefreshResourceExecutorFactoryTest.xml'
@@ -111,6 +110,38 @@ with zipfile.ZipFile(archive) as z:
 print('CANDIDATE_JUNIT_SECURITY_TESTS=PASS')
 print('CANDIDATE_SPI_JAR_STRUCTURE=PASS')
 PY
+  echo 'CANDIDATE_BUILD_METHOD=HOST_JDK21_MAVEN'
+else
+  echo 'HOST_JDK21_COMPILER=NOT_FOUND'
+  if [[ ! -f "$ARTIFACT" ]]; then
+    echo 'CI_ONLY_ARTIFACT=NOT_UPLOADED'
+    echo 'NO_CLONE_CONTAINERS_STARTED=YES'
+    echo 'No Java 21 compiler or verified CI ZIP; no installation or default Java changes made.'
+    exit 3
+  fi
+  test "$(sha256sum "$ARTIFACT" | awk '{print $1}')" = "$ARTIFACT_SHA256" || { echo 'CI_ONLY_ARTIFACT_ZIP_SHA256=MISMATCH'; exit 1; }
+  python3 - "$ARTIFACT" "$JAR" "$EXPECTED_JAR_SHA256" <<'PY'
+import hashlib, io, pathlib, sys, zipfile
+source, target = map(pathlib.Path, sys.argv[1:3])
+expected = sys.argv[3]
+with zipfile.ZipFile(source) as bundle:
+    assert set(bundle.namelist()) == {'prp-refresh-resource-guard.jar', 'SHA256SUMS'}
+    jar_bytes = bundle.read('prp-refresh-resource-guard.jar')
+    manifest = bundle.read('SHA256SUMS').decode('ascii').strip()
+    assert manifest == expected + '  prp-refresh-resource-guard.jar'
+assert hashlib.sha256(jar_bytes).hexdigest() == expected
+with zipfile.ZipFile(io.BytesIO(jar_bytes)) as candidate:
+    svc = 'META-INF/services/org.keycloak.services.clientpolicy.executor.ClientPolicyExecutorProviderFactory'
+    assert candidate.read(svc).decode('utf-8').strip() == 'io.micor.prp.ci.ExactRefreshResourceExecutorFactory'
+    assert 'io/micor/prp/ci/ExactRefreshResourceExecutorFactory.class' in candidate.namelist()
+target.write_bytes(jar_bytes)
+print('CI_ONLY_ARTIFACT_ZIP_SHA256=PASS')
+print('CANDIDATE_SPI_JAR_STRUCTURE=PASS')
+print('CANDIDATE_JUNIT_SECURITY_TESTS=PASS_PREVERIFIED_IN_CI')
+PY
+  echo 'CANDIDATE_BUILD_METHOD=PINNED_VERIFIED_26_8_0_CI_JAR'
+fi
+test -s "$JAR"
 echo "CANDIDATE_JAR_SHA256=$(sha256sum "$JAR" | awk '{print $1}')"
 PG_IMAGE=$(docker inspect "$LIVE_DB" -f '{{.Image}}')
 KC_IMAGE=$(docker inspect "$LIVE_KC" -f '{{.Image}}')
