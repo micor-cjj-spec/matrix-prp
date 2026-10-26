@@ -104,9 +104,12 @@ def classify(root=ROOT, conf_dir=CONFIG_DIR, nginx_run=None):
             inventory = re.findall(
                 r"^# configuration file (.+):$",
                 inspected.stdout.decode("utf-8", errors="replace"), re.M)
-            expected = list(sources)
-            expected.append(str(conf_dir / "micor.top.conf"))
-            expected.append(str(conf_dir / "prp-mcp-test.conf"))
+            # Mirror the original verifier exactly: overwriting an
+            # existing inventory key must NOT move its list position.
+            expected_hashes = dict(sources)
+            for name, source_name in CANDIDATES.items():
+                expected_hashes[str(conf_dir / name)] = candidates[source_name]
+            expected = list(expected_hashes)
             if inventory == expected:
                 result["nginx_config_inventory"] = "ORDER_AND_PATHS_MATCH_MANIFEST"
             else:
