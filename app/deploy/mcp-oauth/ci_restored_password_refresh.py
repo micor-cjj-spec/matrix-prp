@@ -59,6 +59,7 @@ def form_grant(data, *, revocation=False):
     return code, json.loads(content) if content else None
 
 def main():
+    global phase
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
         raise RuntimeError("DISPOSABLE_GITHUB_RUNNER_ONLY")
     phase = "ADMIN_TOKEN"
