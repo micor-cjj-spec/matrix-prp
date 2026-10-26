@@ -75,3 +75,20 @@ jobs:
           # signed JWT client auth, offline refresh rotation and revocation.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_jwt_authcode_refresh.py
+
+      - name: Hash verified isolated SPI artifact
+        run: |
+          set -euo pipefail
+          cd app/deploy/mcp-oauth/keycloak-resource-guard/target
+          test -s prp-refresh-resource-guard.jar
+          sha256sum prp-refresh-resource-guard.jar > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Retain verified CI-only SPI artifact for isolated restore testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: prp-refresh-resource-guard-CI-ONLY
+          path: |
+            app/deploy/mcp-oauth/keycloak-resource-guard/target/prp-refresh-resource-guard.jar
+            app/deploy/mcp-oauth/keycloak-resource-guard/target/SHA256SUMS
+          retention-days: 3
+          if-no-files-found: error
