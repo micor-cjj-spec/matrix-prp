@@ -609,7 +609,7 @@ except (AssertionError, HTTPError, URLError, RuntimeError, OSError,
     cause = str(exc) if isinstance(exc, RuntimeError) else ""
     if cause in safe_messages:
         category = cause
-    elif cause.startswith("RESTORED_PASSWORD_TEST_GRANT_HTTP_") and cause[32:].isdigit():
+    elif cause.startswith("RESTORED_PASSWORD_TEST_GRANT_HTTP_") and cause.rsplit("_", 1)[-1].isdigit():
         category = "SYNTHETIC_PASSWORD_GRANT_HTTP_" + cause.rsplit("_", 1)[-1]
     elif cause.startswith("RESTORED_CORRECT_REFRESH_HTTP_") and cause.rsplit("_", 1)[-1].isdigit():
         category = "CANONICAL_REFRESH_HTTP_" + cause.rsplit("_", 1)[-1]
