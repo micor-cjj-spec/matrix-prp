@@ -10,6 +10,7 @@ EXACT = {
     "/api/auth/login": "POST",
     "/api/users/me": "GET",
     "/api/mcp/clients": "GET POST",
+    "/api/mcp/clients/pairing": "POST",
     "/api/mcp/clients/revoke": "POST",
     "/api/mcp/identity": "GET",
     "/api/mcp/identity/tickets": "POST",
