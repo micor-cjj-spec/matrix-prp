@@ -59,7 +59,9 @@ jobs:
       - name: Verify read-only B2 evidence inventory cannot approve installation
         run: |
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_b2_evidence_inventory.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_diagnose_live_nginx_guard.py' -v
           python3 -m py_compile app/deploy/mcp-oauth/keycloak-resource-guard/b2_evidence_inventory.py
+          python3 -m py_compile app/deploy/mcp-oauth/keycloak-resource-guard/diagnose_live_nginx_guard.py
       - name: Select Java 21 for disposable provider build
         uses: actions/setup-java@v4
         with:
