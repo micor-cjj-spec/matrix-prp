@@ -149,6 +149,17 @@ def main():
                     "Conflicting signed OAuth client claims": "CLIENT_CLAIMS_CONFLICT",
                     "JWT issuer mismatch": "ISSUER_MISMATCH",
                     "JWT RS256 signature failed": "JWT_SIGNATURE_FAILED",
+                    "Unknown or ambiguous JWKS signing key": "JWKS_KEY_NOT_FOUND",
+                    "Unacceptable OAuth RSA signing key": "JWKS_KEY_INVALID",
+                    "Invalid RSA signature length": "JWT_SIGNATURE_LENGTH",
+                    "Expired or missing OAuth access token": "JWT_EXPIRY",
+                    "Future or missing OAuth issue time": "JWT_ISSUED_AT",
+                    "Expected trusted RS256 access token": "JWT_ALGORITHM",
+                    "Malformed compact access token": "JWT_FORMAT",
+                    "Malformed JWT claims": "JWT_CLAIMS_FORMAT",
+                    "Malformed OAuth JWKS": "JWKS_FORMAT",
+                    "JWT subject missing": "JWT_SUBJECT",
+                    "Invalid external OAuth access token or JWKS": "JWT_INVALID_FIELDS",
                 }
                 print("CLONE_STYLE_JWT_DIAGNOSTIC=" + categories.get(str(failure), "OTHER_SIGNED_JWT_FAILURE"))
                 raise
