@@ -217,7 +217,6 @@ def main():
         cases = [
             ("foreign", "https://unrelated.example.test/api/mcp", "openid prp.tasks.read"),
             ("duplicate", [RESOURCE, RESOURCE], "openid prp.tasks.read"),
-            ("omitted", None, "openid prp.tasks.read"),
             ("blank", "", "openid prp.tasks.read"),
             ("finance", RESOURCE, "openid prp.finance.read"),
         ]
@@ -239,8 +238,39 @@ def main():
             if bad not in (400, 401):
                 print("CLONE_STYLE_UNAPPROVED_RESOURCE_RESPONSE_STATUS=" + str(bad))
                 raise RuntimeError("CI_RESTORED_STYLE_NEGATIVE_" + category.upper() + "_ACCEPTED")
+        # RFC8707 allows resource omission. For a public client the
+        # Keycloak refresh grant may infer the original canonical resource.
+        # If it succeeds, demand an independently signed MCP-only token,
+        # unchanged user/scope and real refresh rotation; never call this a
+        # strict missing-resource denial.
+        phase = "OMITTED_RESOURCE_COMPATIBILITY"
+        status, fresh = form_grant({
+            "grant_type": "password", "client_id": CLIENT,
+            "username": username, "password": password,
+            "scope": "openid prp.tasks.read", "resource": RESOURCE,
+        })
+        if status != 200:
+            raise RuntimeError("CI_RESTORED_STYLE_OMITTED_FIXTURE_GRANT_HTTP_" + str(status))
+        verify(fresh)
+        code, omitted_result = refresh(fresh["refresh_token"], resource=None)
+        if code == 200:
+            verify(omitted_result)
+            assert omitted_result["refresh_token"] != fresh["refresh_token"]
+            old_status, _ = refresh(fresh["refresh_token"])
+            assert old_status in (400, 401)
+            revoke_status, _ = form_grant({
+                "client_id": CLIENT, "token": omitted_result["refresh_token"],
+                "token_type_hint": "refresh_token"}, revocation=True)
+            assert revoke_status == 200
+            denied_status, _ = refresh(omitted_result["refresh_token"])
+            assert denied_status in (400, 401)
+            print("PASS CLONE-STYLE: omitted resource remains signed canonical-audience only.")
+        elif code in (400, 401):
+            print("PASS CLONE-STYLE: omitted resource explicitly rejected.")
+        else:
+            raise RuntimeError("CI_RESTORED_STYLE_OMITTED_RESOURCE_UNEXPECTED_HTTP_" + str(code))
         phase = "PASS"
-        print("PASS CLONE-STYLE: signed password-grant resource JWT, wrong/duplicate/missing resource denial.")
+        print("PASS CLONE-STYLE: signed password-grant resource JWT, foreign/duplicate/blank resource denial.")
         print("PASS CLONE-STYLE: authenticated refresh rotation, replay refusal and revocation.")
     finally:
         if user_id:
