@@ -156,6 +156,12 @@ def prepare(sources, target):
                 raise ValueError("UNREWRITTEN_ACCESS_LOG")
             if name == "error_log" and arg != "stderr warn":
                 raise ValueError("UNREWRITTEN_ERROR_LOG")
+            if name in ("proxy_pass", "grpc_pass", "uwsgi_pass",
+                        "fastcgi_pass", "scgi_pass"):
+                if ("$" not in arg and
+                        not re.fullmatch(r"https?://(?:127\\.0\\.0\\.1|\\[::1\\])(?::\\d+)?(?:/[^\\s]*)?", arg) and
+                        not re.fullmatch(r"(?:127\\.0\\.0\\.1|\\[::1\\]):\\d+", arg)):
+                    raise ValueError("UNREWRITTEN_PROXY_UPSTREAM")
         return rewritten
 
     for name in ("main", "test"):
