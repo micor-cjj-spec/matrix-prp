@@ -46,7 +46,17 @@ def form_grant(data, *, revocation=False):
         content = conn.read(200001)
     if len(content) > 200000:
         raise RuntimeError("CI_RESTORED_STYLE_RESPONSE_OVERSIZE")
-    return code, json.loads(content) if code == 200 and content else None
+    if code != 200:
+        # Return only a safe, finite RFC OAuth error code; never log the
+        # error_description, user credentials, token or response body.
+        try:
+            error = json.loads(content).get("error")
+        except (ValueError, TypeError, AttributeError):
+            error = None
+        allowed = {"invalid_grant", "invalid_scope", "invalid_request",
+                   "invalid_target", "unauthorized_client", "invalid_client"}
+        return code, {"error_kind": error if error in allowed else "UNCLASSIFIED"}
+    return code, json.loads(content) if content else None
 
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
@@ -125,6 +135,7 @@ def main():
             "scope": "openid prp.tasks.read", "resource": RESOURCE,
         })
         if status != 200:
+            print("CLONE_STYLE_INITIAL_GRANT_DIAGNOSTIC=" + issued["error_kind"])
             raise RuntimeError("CI_RESTORED_STYLE_PASSWORD_GRANT_HTTP_" + str(status))
         verify(issued)
         first = issued["refresh_token"]
