@@ -390,11 +390,20 @@ try:
             "publicClient": True,
             "standardFlowEnabled": False,
             "implicitFlowEnabled": False,
-            "directAccessGrantsEnabled": False,
+            "directAccessGrantsEnabled": True,
             "serviceAccountsEnabled": False,
+            "fullScopeAllowed": False,
             "redirectUris": [],
             "webOrigins": [],
+            "optionalClientScopes": ["prp.tasks.read"],
             "attributes": {"prp.ci.refresh-resource-guard": "enabled"},
+            "protocolMappers": [{
+                "name": "CI restored-only exact MCP audience",
+                "protocol": "openid-connect",
+                "protocolMapper": "oidc-audience-mapper",
+                "config": {"included.custom.audience": resource,
+                           "id.token.claim": "false", "access.token.claim": "true"},
+            }],
         })
         candidates=api(root + "/clients?clientId=" + probe, token=token)
         exact_probe=[x for x in candidates if x.get("clientId")==probe]
@@ -455,23 +464,17 @@ try:
         # restored, internal-network clone. It is not a recommended PRP
         # user login flow. AuthCode+PKCE/private_key_jwt are tested in CI.
         client_path = root + "/clients/" + created_probe
-        disposable_client = api(client_path, token=token)
-        assert disposable_client.get("clientId") == probe
-        disposable_client["directAccessGrantsEnabled"] = True
-        disposable_client["fullScopeAllowed"] = False
-        disposable_client["optionalClientScopes"] = ["prp.tasks.read"]
-        disposable_client["protocolMappers"] = [{
-            "name": "CI restored-only exact MCP audience",
-            "protocol": "openid-connect",
-            "protocolMapper": "oidc-audience-mapper",
-            "config": {"included.custom.audience": resource,
-                       "id.token.claim": "false", "access.token.claim": "true"},
-        }]
-        api(client_path, token=token, method="PUT", payload=disposable_client)
         reread_client = api(client_path, token=token)
+        assert reread_client.get("clientId") == probe
         assert reread_client.get("directAccessGrantsEnabled") is True
         assert reread_client.get("fullScopeAllowed") is False
         assert reread_client.get("attributes", {}).get("prp.ci.refresh-resource-guard") == "enabled"
+        restored_mappers = api(client_path + "/protocol-mappers/models", token=token)
+        exact_mappers = [m for m in restored_mappers
+                         if m.get("name") == "CI restored-only exact MCP audience"]
+        assert len(exact_mappers) == 1
+        assert exact_mappers[0].get("config", {}).get("included.custom.audience") == resource
+        print("CLONE_RESTORED_SYNTHETIC_AUDIENCE_MAPPER=PASS")
 
         endpoint = "/realms/prp-mcp/protocol/openid-connect/token"
         jwks = api("/realms/prp-mcp/protocol/openid-connect/certs")
@@ -564,6 +567,9 @@ try:
         # before removing the policy, profile and temporary client.
         if created_user is not None:
             api(root + "/users/" + created_user, token=token, method="DELETE")
+            remaining_users = api(root + "/users?username=" + synthetic_user + "&exact=true", token=token)
+            assert not any(u.get("username") == synthetic_user for u in remaining_users)
+            print("CLONE_RESTORED_SYNTHETIC_USER_REMOVED=YES")
         if old_realm is not None:
             api(root, token=token, method="PUT", payload=old_realm)
             current = api(root, token=token)
