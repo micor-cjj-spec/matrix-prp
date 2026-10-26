@@ -70,6 +70,7 @@ class V2ZoneOverlayTests(unittest.TestCase):
         with patch.object(mod.syntax, "inspect_sources", return_value=candidate_sources), \
              patch.object(mod.lineage, "inspect", return_value=trace_report), \
              patch.object(mod.lineage, "collect", return_value=actual_set), \
+             patch.object(mod.lineage, "category", return_value="NGINX_CONF_D"), \
              patch.object(mod.lineage, "safe_read", return_value=SOURCE):
             out = mod.find_verified_source()
         self.assertEqual(out[1], active_path)
