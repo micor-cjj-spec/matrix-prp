@@ -89,7 +89,7 @@ public final class ExactRefreshResourceExecutorFactory implements ClientPolicyEx
             return "https".equals(uri.getScheme())
                 && uri.getHost() != null && uri.getHost().equals(uri.getHost().toLowerCase())
                 && uri.getUserInfo() == null && uri.getQuery() == null && uri.getFragment() == null
-                && uri.getPort() == -1 && "/api/mcp".equals(uri.getPath())
+                && uri.getPort() == -1 && "/api/mcp".equals(uri.getRawPath())
                 && uri.toASCIIString().equals(resource) && !resource.contains("*");
         } catch (RuntimeException invalid) {
             return false;
