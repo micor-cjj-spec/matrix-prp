@@ -131,6 +131,47 @@ def configure_realm(token):
     print("PASS AUTHCODE: disposable Realm enables refresh rotation and read-only scopes.")
 
 
+def activate_exact_refresh_policy(token):
+    """Attach CI-only SPI to the real Keycloak refresh event for the throwaway client.
+
+    Never replace existing policy collections with a test fixture. Keycloak's
+    synthetic realm is thrown away after this GitHub Actions workflow.
+    """
+    profiles_url = REALM_ADMIN + "/client-policies/profiles"
+    policies_url = REALM_ADMIN + "/client-policies/policies"
+    profiles = read_json(profiles_url, token)
+    policies = read_json(policies_url, token)
+    profile_name = "ci-strict-refresh-resource"
+    policy_name = "ci-strict-refresh-resource-only"
+    if profile_name in {x.get("name") for x in profiles.get("profiles", [])}:
+        raise RuntimeError("CI_REFRESH_PROFILE_ALREADY_REGISTERED")
+    if policy_name in {x.get("name") for x in policies.get("policies", [])}:
+        raise RuntimeError("CI_REFRESH_POLICY_ALREADY_REGISTERED")
+    profiles["profiles"].append({
+        "name": profile_name,
+        "executors": [{"executor": "prp-ci-refresh-resource-guard", "configuration": {}}],
+    })
+    replace_admin_doc(profiles_url, token, profiles)
+    policies["policies"].append({
+        "name": policy_name,
+        "enabled": True,
+        "conditions": [{"condition": "any-client", "configuration": {}}],
+        "profiles": [profile_name],
+    })
+    replace_admin_doc(policies_url, token, policies)
+    actual_profiles = read_json(profiles_url, token)
+    actual_policies = read_json(policies_url, token)
+    matches = [x for x in actual_profiles.get("profiles", []) if x.get("name") == profile_name]
+    enabled = [x for x in actual_policies.get("policies", []) if x.get("name") == policy_name
+               and x.get("enabled") is True]
+    if len(matches) != 1 or len(enabled) != 1:
+        raise RuntimeError("CI_REFRESH_RESOURCE_POLICY_NOT_PERSISTED")
+    if not any(x.get("executor") == "prp-ci-refresh-resource-guard"
+               for x in matches[0].get("executors", [])):
+        raise RuntimeError("CI_REFRESH_RESOURCE_SPI_NOT_INSTALLED")
+    print("PASS AUTHCODE: real disposable Keycloak refresh-policy executor installed.")
+
+
 def create_user(token, password):
     username = "ci-jwt-browser-" + secrets.token_hex(5)
     value = {
@@ -317,6 +358,7 @@ def main():
         admin = admin_token()
         configure_realm(admin)
         register_client(admin, certificate)
+        activate_exact_refresh_policy(admin)
         user_password = secrets.token_urlsafe(36)
         username = create_user(admin, user_password)
         opener = browser_opener()
