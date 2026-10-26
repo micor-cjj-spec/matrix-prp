@@ -35,6 +35,27 @@ jobs:
         run: |
           bash -n app/deploy/mcp-oauth/keycloak-resource-guard/preflight_restored_realm_host.sh
           bash -n app/deploy/mcp-oauth/keycloak-resource-guard/verify_restored_realm_spi_clone.sh
+          python3 - <<'CHECK_RESTORED_PY'
+          from pathlib import Path
+          source = Path("app/deploy/mcp-oauth/keycloak-resource-guard/verify_restored_realm_spi_clone.sh")
+          data = source.read_text().splitlines()
+          blocks = []
+          collecting = None
+          for number, line in enumerate(data, 1):
+              if collecting is not None:
+                  if line == "PY":
+                      blocks.append(collecting)
+                      collecting = None
+                  else:
+                      collecting.append(line)
+              elif "<<'PY'" in line:
+                  collecting = []
+          assert collecting is None, "Unclosed Python shell heredoc"
+          assert len(blocks) >= 3, "Required Python safety/Realm verifiers missing"
+          for index, body in enumerate(blocks):
+              compile("\n".join(body) + "\n", f"{source}#heredoc-{index}", "exec")
+          print("RESTORED_CLONE_PYTHON_HEREDOC_SYNTAX=PASS")
+          CHECK_RESTORED_PY
       - name: Select Java 21 for disposable provider build
         uses: actions/setup-java@v4
         with:
