@@ -172,6 +172,89 @@ class IsolatedSyntaxSafetyTests(unittest.TestCase):
         self.assertEqual(result["candidate_req_defined"], 0)
         self.assertEqual(result["candidate_req_missing_definitions"], 1)
 
+    def test_existing_active_zone_restored_without_touching_original(self):
+        base = self.root / "etc/nginx"
+        confd = base / "conf.d"
+        confd.mkdir(parents=True)
+        root = base / "nginx.conf"
+        root.write_text("events {}\nhttp { include " + str(confd / "*.conf") + "; }\n")
+        original = (
+            "limit_req_zone $binary_remote_addr zone=approved_zone:10m rate=5r/s;\n"
+            "server { return 403; }\n"
+        )
+        active = confd / "security.conf"
+        active.write_text(original)
+        (self.root / "main.conf").write_text("server { limit_req zone=approved_zone burst=2; }\n")
+        (self.root / "test.conf").write_text(
+            "limit_req zone=approved_zone burst=3;\n"
+            "limit_req_zone $binary_remote_addr zone=other_zone:10m rate=2r/s;\n"
+        )
+        definition, scanned = mod.recover_single_active_rate_limit(
+            self.root, root=root, base=base)
+        self.assertEqual(definition,
+                         "limit_req_zone $binary_remote_addr zone=approved_zone:10m rate=5r/s;")
+        self.assertEqual(scanned, 2)
+        self.assertEqual(active.read_text(), original)
+        self.assertNotIn("server", definition)
+        self.assertNotIn("burst", definition)
+
+    def test_original_zone_rate_and_key_are_not_rewritten(self):
+        base = self.root / "etc/nginx"
+        base.mkdir(parents=True)
+        root = base / "nginx.conf"
+        original = "limit_req_zone $remote_addr zone=approved_zone:16m rate=9r/m;\n"
+        root.write_text("events {}\nhttp {\n" + original + "}\n")
+        (self.root / "main.conf").write_text("limit_req zone=approved_zone burst=4;\n")
+        (self.root / "test.conf").write_text("")
+        definition, _ = mod.recover_single_active_rate_limit(
+            self.root, root=root, base=base)
+        self.assertEqual(definition, original.strip())
+
+    def test_duplicate_active_zone_definition_blocks(self):
+        base = self.root / "etc/nginx"
+        confd = base / "conf.d"
+        confd.mkdir(parents=True)
+        root = base / "nginx.conf"
+        root.write_text("http { include " + str(confd / "*.conf") + "; }\n")
+        for label in ("a", "b"):
+            (confd / (label + ".conf")).write_text(
+                "limit_req_zone $binary_remote_addr zone=x:10m rate=5r/s;\n")
+        (self.root / "main.conf").write_text("limit_req zone=x burst=1;\n")
+        (self.root / "test.conf").write_text("")
+        with self.assertRaisesRegex(ValueError, "EXPECTED_EXACTLY_ONE_ACTIVE_ZONE_DEFINITION"):
+            mod.recover_single_active_rate_limit(self.root, root=root, base=base)
+
+    def test_zone_with_unreviewed_extra_token_blocks(self):
+        base = self.root / "etc/nginx"
+        base.mkdir(parents=True)
+        root = base / "nginx.conf"
+        root.write_text("limit_req_zone $binary_remote_addr "
+                        "zone=x:10m rate=5r/s sync;\n")
+        (self.root / "main.conf").write_text("limit_req zone=x burst=1;\n")
+        (self.root / "test.conf").write_text("")
+        with self.assertRaisesRegex(ValueError, "MATCHING_RATE_LIMIT_DEFINITION_UNREVIEWED"):
+            mod.recover_single_active_rate_limit(self.root, root=root, base=base)
+
+    def test_zone_not_defined_blocks_without_synthesizing(self):
+        base = self.root / "etc/nginx"
+        base.mkdir(parents=True)
+        root = base / "nginx.conf"
+        root.write_text("events {}\n")
+        (self.root / "main.conf").write_text("limit_req zone=absent burst=2;\n")
+        (self.root / "test.conf").write_text("")
+        with self.assertRaisesRegex(ValueError, "EXPECTED_EXACTLY_ONE_ACTIVE_ZONE_DEFINITION"):
+            mod.recover_single_active_rate_limit(self.root, root=root, base=base)
+
+    def test_escaped_include_aborts_before_sandbox_nginx_test(self):
+        base = self.root / "etc/nginx"
+        base.mkdir(parents=True)
+        root = base / "nginx.conf"
+        root.write_text("http { include /etc/shadow; }\n")
+        (self.root / "main.conf").write_text("limit_req zone=x burst=1;\n")
+        (self.root / "test.conf").write_text("")
+        with self.assertRaisesRegex(ValueError, "UNTRUSTED_NGINX_INCLUDE_PATTERN"):
+            mod.recover_single_active_rate_limit(self.root, root=root, base=base)
+
     def test_input_symlink_refused(self):
         target = self.root / "regular.conf"
         target.write_bytes(MAIN)
