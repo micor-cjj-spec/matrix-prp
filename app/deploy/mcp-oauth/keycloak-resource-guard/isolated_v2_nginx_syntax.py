@@ -140,7 +140,7 @@ def prepare(sources, target):
         rewritten = DIRECTIVE.sub(replace, source)
         # Reject even compact inline forms that the conservative line parser
         # did not rewrite; never let nginx -t reach a production key or log.
-        for token in re.finditer(r"(?:^|[;{}])[ \t]*([a-zA-Z_][\w]*)[ \t]+([^;{}\n]*);", rewritten, re.M):
+        for token in re.finditer(r"(?:(?<=^)|(?<=[;{}]))[ \t]*([a-zA-Z_][\w]*)[ \t]+([^;{}\n]*);", rewritten, re.M):
             name, arg = token.group(1), token.group(2).strip()
             if name in BLOCKED or name.startswith(("lua_", "perl_")):
                 raise ValueError("UNSUPPORTED_OR_INLINE_DIRECTIVE_" + name)
