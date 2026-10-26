@@ -512,6 +512,7 @@ try:
         if initial_status != 200:
             raise RuntimeError("RESTORED_PASSWORD_TEST_GRANT_HTTP_" + str(initial_status))
         subject = verify_signed_access(initial)
+        assert subject == created_user, "Issued access token belongs to another user"
         assert isinstance(initial.get("refresh_token"), str)
         first_refresh = initial["refresh_token"]
         print("CLONE_RESTORED_INITIAL_SIGNED_RESOURCE_JWT=PASS")
@@ -594,8 +595,30 @@ try:
     print("CLONE_RESTORED_SPI_STATIC_COMPATIBILITY=PASS")
 
 except (AssertionError, HTTPError, URLError, RuntimeError, OSError,
-        ValueError, KeyError, TypeError, IndexError):
-    print("CLONE_MAPPER_REHEARSAL=FAILED")
+        ValueError, KeyError, TypeError, IndexError) as exc:
+    # A fixed diagnostic category is safe; arbitrary exception strings and
+    # HTTP bodies can include authorization or realm configuration details.
+    safe_messages = {
+        "RESTORED_WRONG_RESOURCE_REFRESH_ACCEPTED",
+        "RESTORED_DUPLICATE_RESOURCE_REFRESH_ACCEPTED",
+        "RESTORED_MISSING_RESOURCE_REFRESH_ACCEPTED",
+        "RESTORED_FINANCE_SCOPE_ESCALATION_ACCEPTED",
+        "RESTORED_ROTATED_REFRESH_REPLAY_ACCEPTED",
+        "RESTORED_REVOKED_REFRESH_ACCEPTED",
+    }
+    cause = str(exc) if isinstance(exc, RuntimeError) else ""
+    if cause in safe_messages:
+        category = cause
+    elif cause.startswith("RESTORED_PASSWORD_TEST_GRANT_HTTP_") and cause[32:].isdigit():
+        category = "SYNTHETIC_PASSWORD_GRANT_HTTP_" + cause.rsplit("_", 1)[-1]
+    elif cause.startswith("RESTORED_CORRECT_REFRESH_HTTP_") and cause.rsplit("_", 1)[-1].isdigit():
+        category = "CANONICAL_REFRESH_HTTP_" + cause.rsplit("_", 1)[-1]
+    elif isinstance(exc, HTTPError):
+        category = "CLONE_KEYCLOAK_ADMIN_OR_TOKEN_HTTP_" + str(exc.code)
+    else:
+        category = "CLONE_ASSERTION_OR_API_FAILURE"
+    print("CLONE_REHEARSAL=FAILED")
+    print("CLONE_REHEARSAL_DIAGNOSTIC=" + category)
     print("No credentials, OAuth tokens or response bodies printed.")
     sys.exit(1)
 PY
