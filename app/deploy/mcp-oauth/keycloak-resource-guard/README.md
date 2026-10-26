@@ -33,20 +33,23 @@ read back by the integration test:
 This is the **synthetic fixture**, not the official ChatGPT ID or real PRP
 URL. The Java module no longer hardcodes either identity.
 
-In the disposable CI, a Client Policy applies to all clients, but the executor
-acts only on its **configured exact target client** and only on
-`TOKEN_REFRESH`. It rejects missing, duplicate, blank or noncanonical
-`resource` parameters with `invalid_target`. It never prints or persists
-JWTs, cookies, assertions or refresh tokens.
+In the disposable CI, the Client Policy is now additionally selected by
+Keycloak's **built-in `client-attributes` condition**. The synthetic client
+is marked with `prp.ci.refresh-resource-guard=enabled`, and this condition
+is read back via authenticated Admin REST. A second unmarked client is
+exercised independently; only the marked, exact configured target
+client is affected, and only during `TOKEN_REFRESH`. It rejects missing,
+duplicate, blank or noncanonical `resource` parameters with
+`invalid_target`. It never prints or persists JWTs, cookies, assertions
+or refresh tokens.
 
-**Fail-closed behavior:** a missing/invalid executor configuration rejects
-*every* refresh request that reaches this policy, including unrelated
-clients, rather than silently skipping security checks. This is acceptable
-only inside a disposable CI Realm. It is a concrete reason **not to apply
-this any-client policy to the shared Keycloak Realm**. A production-ready
-policy must be narrowly targeted via a separately reviewed built-in Keycloak
-condition, must have a rollback transaction and existing-client regression,
-and must reject invalid configuration before installation.
+**Fail-closed behavior:** invalid executor configuration rejects all refresh
+requests that *reach this executor*. A matching-client condition limits the
+blast radius, but an administrator could misconfigure/remove the client
+marker or executor, so stronger installed-policy provenance validation and
+recovery remain necessary before touching a shared Realm. The disposable CI
+also exercises restoring the previously existing policy and profile objects
+after testing the additional profile/condition.
 
 Keycloak currently rejects resource-omitted refresh with HTTP 400 even without
 our executor's help. A real ChatGPT OAuth connection must therefore prove
@@ -56,7 +59,7 @@ because a synthetic CI client sends that parameter.
 
 ## Tests
 
-The workflow runs Maven JUnit tests **before** loading the JAR into an
+The workflow runs seven Maven JUnit tests **before** loading the JAR into an
 ephemeral Keycloak. The tests cover real SPI configuration binding,
 canonical URI normalization pitfalls, exact client scoping, duplicate
 resource values, missing parameters and malformed configuration.
