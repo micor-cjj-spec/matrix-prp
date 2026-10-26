@@ -1,57 +1,84 @@
-# Keycloak 26.8.1 Client Policy resource refresh proof-of-concept
+# Keycloak 26.8.1: PRP MCP refresh resource policy candidate
 
-**CI-ONLY. This is not reviewed production code. Do not install this JAR on the
-shared staging/production Realm.** No deployment scripts reference it.
+**Unreleased CI-only implementation. Do not install into an active test,
+shared Realm, or production server.** The GitHub Actions workflow builds and
+mounts the JAR only into a disposable Keycloak 26.8.1 Docker container; the
+container and credentials are destroyed afterward. No deployment scripts
+reference this module.
 
-## Precisely observed failure
+## Problem and boundaries
 
-With stock Keycloak 26.8.0 and 26.8.1, the synthetic Authorization Code +
-PKCE S256 + signed `private_key_jwt` flow issues an RSA-verified MCP-audience
-access token. A subsequent `refresh_token` request with a different `resource`
-returns HTTP 200 even though only the canonical PRP audience is granted.
-The newly issued JWT still has the canonical MCP audience, with no foreign
-resource audience. This does **not** demonstrate cross-resource token leakage,
-but violates the stricter PRP local authorization-server deny policy.
+On stock Keycloak 26.8.0 and 26.8.1, a synthetic signed-client-JWT,
+Authorization Code + PKCE S256 flow successfully refreshes even with
+an unapproved alternate `resource` parameter. The newly signed access
+token retains **only** the original canonical PRP MCP URI Audience, not
+the foreign resource; this is **not** evidence of cross-resource access.
+PRP nonetheless requires the stricter **deny noncanonical refresh input**
+policy. This is a PRP-specific release gate, not a universal RFC 8707 MUST.
 
-## Isolated SPI proof
+## Current Keycloak Client Policy Executor
 
-The Java 21 Maven artifact implements Keycloak's actual
-`ClientPolicyExecutorProviderFactory` SPI, and uses the real
-`TokenRefreshContext.getParams()` API. The GitHub Actions job builds the
-JAR, mounts it into an isolated, disposable Keycloak 26.8.1 container,
-then registers a synthetic profile and client policy via Admin REST.
-The policy is CI-only and the implementation changes behavior **only** when
-`TokenRefreshContext` belongs to `ci-authcode-private-jwt`.
+The Java 21 Maven module implements Keycloak 26.8.1
+`ClientPolicyExecutorProviderFactory`, `setupConfiguration`, and the real
+`TokenRefreshContext.getParams()` token-refresh event.
 
-* A single explicit `resource` exactly equal to
-  `https://prp.staging.example.org/api/mcp` is allowed.
-* Zero explicit `resource` values leave the original resource on refresh;
-  but Keycloak 26.8.1 itself rejects resource-omitted refresh with HTTP 400;
-  the client must send the canonical resource on every refresh.
-* Any other explicit resource or a multi-resource request throws
-  `invalid_target` before refresh is issued.
-* Existing invalid signed assertions, unauthorized finance scope, replay
-  after rotation and revocation remain rejected.
-* The provider does not accept or log real ChatGPT keys, production tokens,
-  or PRP user credentials.
+The actual client-policy executor has two **typed, persisted** string inputs,
+read back by the integration test:
 
-The test must verify read-back of the policy, actual invalid-resource denial,
-real positive token refresh, RSA signature, audience, rotation, replay, and
-revocation. A successful JAR build alone is not sufficient.
+| Configuration | Example in disposable CI | Constraint |
+|---|---|---|
+| `target-client-id` | `ci-authcode-private-jwt` | Exact, nonempty ID, no wildcards |
+| `allowed-resource` | `https://prp.staging.example.org/api/mcp` | Exact HTTPS host and raw `/api/mcp` path; no other port, encoded alias, query, fragment, wildcard or userinfo |
 
-## Not yet sufficient for active Keycloak
+This is the **synthetic fixture**, not the official ChatGPT ID or real PRP
+URL. The Java module no longer hardcodes either identity.
 
-Before any production-grade implementation: remove CI-hardcoded identifiers;
-make client and allowed resources an audited typed configuration; require an
-explicit policy selection for the exact ChatGPT client; provide unit/negative
-tests for duplicate `resource` parameters, policy precedence, missing/invalid
-client configuration, and other clients' regression. Verify the compiled
-provider on an isolated restoration of the actual active Realm and existing
-clients, including signing and rollback, and independently satisfy B2,
-Nginx/Host/SNI, staging acceptance, user binding, authorization and
-ChatGPT-created OAuth token requests. Do not assume real ChatGPT sends
-`resource` on each refresh until observed in controlled tests.
+In the disposable CI, a Client Policy applies to all clients, but the executor
+acts only on its **configured exact target client** and only on
+`TOKEN_REFRESH`. It rejects missing, duplicate, blank or noncanonical
+`resource` parameters with `invalid_target`. It never prints or persists
+JWTs, cookies, assertions or refresh tokens.
 
-Official API basis: Keycloak 26.8.1 client policy executor SPI,
+**Fail-closed behavior:** a missing/invalid executor configuration rejects
+*every* refresh request that reaches this policy, including unrelated
+clients, rather than silently skipping security checks. This is acceptable
+only inside a disposable CI Realm. It is a concrete reason **not to apply
+this any-client policy to the shared Keycloak Realm**. A production-ready
+policy must be narrowly targeted via a separately reviewed built-in Keycloak
+condition, must have a rollback transaction and existing-client regression,
+and must reject invalid configuration before installation.
+
+Keycloak currently rejects resource-omitted refresh with HTTP 400 even without
+our executor's help. A real ChatGPT OAuth connection must therefore prove
+that it sends the canonical `resource` on refresh, or use another separately
+reviewed, compatible server policy. Never claim ChatGPT compatibility merely
+because a synthetic CI client sends that parameter.
+
+## Tests
+
+The workflow runs Maven JUnit tests **before** loading the JAR into an
+ephemeral Keycloak. The tests cover real SPI configuration binding,
+canonical URI normalization pitfalls, exact client scoping, duplicate
+resource values, missing parameters and malformed configuration.
+Integration tests use actual Admin REST policy configuration/read-back,
+real signed private-key JWT assertions, user PKCE authorization code,
+canonical resource refresh, wrong resource/finance scope rejection,
+refresh rotation, replay denial and token revocation.
+
+## Remaining GO gates
+
+1. Independent non-CI review of the candidate JAR with a target-only policy,
+   configuration validation, rollback and all 13 restored Realm client checks.
+2. Complete legitimate B2 approved install / fresh recovery evidence,
+   unchanged Nginx Host/SNI/Authority gate and per-route public pairing
+   approval. Do **not** synthesize missing receipts.
+3. Real ChatGPT OAuth signed client and redirect testing, PKCE, refresh
+   resource compatibility, token rotation/revocation, owner linking and
+   authenticated read-only `prp_tasks_list`.
+4. Only then consider a controlled separate V2 test deployment; never
+   change production PRP, legacy Keycloak, original MySQL or write flag from
+   this CI artifact.
+
+API basis: Keycloak 26.8.1 client-policy executor SPI,
 `org.keycloak.services.clientpolicy.context.TokenRefreshContext`,
-and RFC 8707 §2.2 (per-server resource policy).
+RFC 8707 §2.2.
