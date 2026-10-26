@@ -89,6 +89,10 @@ def category(path, base):
 def collect(start_paths, *, base=Path("/etc/nginx")):
     """Bounded include walker; aborts entire scan on any unknown include."""
     base = base.resolve(strict=True)
+    # The standard Let's Encrypt Nginx options snippet may be referenced by
+    # the pinned review vhost. Permit only that one .conf; never traverse keys.
+    le_option = (Path("/etc/letsencrypt/options-ssl-nginx.conf")
+                 if str(base) == "/etc/nginx" else None)
     visited = {}
     stack = list(start_paths)
     budget = 0
@@ -99,7 +103,9 @@ def collect(start_paths, *, base=Path("/etc/nginx")):
             continue
         if resolved != base / "nginx.conf" and resolved.suffix not in (".conf", ".types"):
             raise ValueError("INCLUDE_UNREVIEWED_FILE_TYPE")
-        if not resolved.is_relative_to(base):
+        is_le_options = (le_option is not None and
+                         resolved == le_option.resolve(strict=False))
+        if not resolved.is_relative_to(base) and not is_le_options:
             raise ValueError("INCLUDE_OUTSIDE_NGINX_TREE")
         if len(visited) >= MAX_FILES:
             raise ValueError("INCLUDE_FILE_COUNT_EXCEEDED")
@@ -114,7 +120,8 @@ def collect(start_paths, *, base=Path("/etc/nginx")):
                 raise ValueError("UNSAFE_INCLUDE_PATTERN")
             if not pattern.startswith("/"):
                 pattern = str(base / pattern)
-            if not (pattern == str(base) or pattern.startswith(str(base) + "/")):
+            if not (pattern == str(base) or pattern.startswith(str(base) + "/") or
+                    (le_option is not None and pattern == str(le_option))):
                 raise ValueError("INCLUDE_OUTSIDE_NGINX_TREE")
             expanded = sorted(glob.glob(pattern))
             if len(expanded) > MAX_FILES:
@@ -147,7 +154,10 @@ def inspect(sources=None, *, active_root=Path("/etc/nginx/nginx.conf"),
         # Only scan Nginx-controlled, regular configuration dependencies.
         paths = []
         for pattern in review_includes:
-            if not pattern.startswith(str(base) + "/") or ".." in pattern:
+            if (not (pattern.startswith(str(base) + "/") or
+                      (str(base) == "/etc/nginx" and
+                       pattern == "/etc/letsencrypt/options-ssl-nginx.conf"))
+                    or ".." in pattern):
                 raise ValueError("CANDIDATE_INCLUDE_NOT_APPROVED")
             paths.extend(Path(p) for p in sorted(glob.glob(pattern)))
         if not paths:
