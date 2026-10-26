@@ -56,10 +56,10 @@ def route_info(location):
         "rewrite": sum(x[0] in ("rewrite", "try_files", "error_page")
                        for x in nodes),
         "mcp_shape": (
-            "EXACT_MCP" if mode == "=" and path.endswith("/api/mcp") else
             "EXACT_OAUTH_DISCOVERY" if mode == "=" and
             (path.startswith("/.well-known/") or "/.well-known/" in path) else
-            "EXACT_MCP_LINK" if mode == "=" and path.endswith("/api/mcp/link") else
+            "EXACT_MCP" if mode == "=" and path == "/api/mcp" else
+            "EXACT_MCP_LINK" if mode == "=" and path == "/api/mcp/link" else
             "OTHER"
         ),
     }
