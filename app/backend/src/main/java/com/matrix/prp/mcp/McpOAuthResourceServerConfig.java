@@ -89,9 +89,24 @@ public class McpOAuthResourceServerConfig {
      */
     static OAuth2TokenValidator<Jwt> jwtValidator(String issuer, String resource) {
         OAuth2TokenValidator<Jwt> issuerAndLifetime = JwtValidators.createDefaultWithIssuer(issuer);
-        OAuth2TokenValidator<Jwt> audience = jwt -> jwt.getAudience().contains(resource)
-            ? OAuth2TokenValidatorResult.success()
-            : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Wrong MCP token audience", null));
+        // A token for PRP and an unrelated API must not be treated as a
+        // PRP-only bearer merely because the canonical URI is one audience.
+        // Permit only the resource itself and the same issuer's OIDC userinfo
+        // endpoint (a conventional supplemental audience). Never accept an
+        // arbitrary HTTPS audience or Keycloak's internal resource-client ID.
+        OAuth2TokenValidator<Jwt> audience = jwt -> {
+            List<String> values = jwt.getAudience();
+            String userInfo = issuer + "/protocol/openid-connect/userinfo";
+            String conventionalUserInfo = issuer + "/userinfo";
+            boolean safe = values != null && values.contains(resource)
+                && values.stream().allMatch(value -> value != null
+                    && (resource.equals(value) || userInfo.equals(value)
+                        || conventionalUserInfo.equals(value)));
+            return safe
+                ? OAuth2TokenValidatorResult.success()
+                : OAuth2TokenValidatorResult.failure(
+                    new OAuth2Error("invalid_token", "Invalid MCP token audience set", null));
+        };
         return jwt -> {
             var validated = issuerAndLifetime.validate(jwt);
             return validated.hasErrors() ? validated : audience.validate(jwt);
