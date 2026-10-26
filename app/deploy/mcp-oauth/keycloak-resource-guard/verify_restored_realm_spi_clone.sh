@@ -451,7 +451,10 @@ try:
         synthetic_password = secrets.token_urlsafe(36)
         api(root + "/users", token=token, method="POST", payload={
             "username": synthetic_user, "enabled": True,
-            "emailVerified": True, "requiredActions": [],
+            "emailVerified": True,
+            "email": synthetic_user + "@example.invalid",
+            "firstName": "Disposable", "lastName": "Refresh Clone",
+            "requiredActions": [],
             "credentials": [{"type": "password", "value": synthetic_password,
                              "temporary": False}],
         })
