@@ -57,6 +57,16 @@ jobs:
             docker rm -f prp-mcp-keycloak-ci >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
+          # Reproduce the host's root-private Maven output mode (umask 077),
+          # then ensure the disposable non-root Keycloak process may read the
+          # provider mounted read-only. All credentials and DB files stay private.
+          jar=app/deploy/mcp-oauth/keycloak-resource-guard/target/prp-refresh-resource-guard.jar
+          test -s "$jar"
+          chmod 0600 "$jar"
+          test "$(stat -c '%a' "$jar")" = 600
+          chmod 0444 "$jar"
+          test "$(stat -c '%a' "$jar")" = 444
+          echo 'CI_PROVIDER_PRIVATE_TO_READONLY_MOUNT_PERMISSION=PASS'
           # Both 26.8.0 (current host) and 26.8.1 (earlier CI) must pass.
           # Never ignore resource denial, signed token verification or rollback.
           docker run --rm -d \
