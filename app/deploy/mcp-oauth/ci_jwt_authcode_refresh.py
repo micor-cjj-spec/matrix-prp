@@ -243,8 +243,9 @@ def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None,
             key, issuer=CLIENT, subject=CLIENT,
             replace_signature=bad_auth,
         ),
-        "resource": resource,
     }
+    if resource is not None:
+        data["resource"] = resource
     if grant == "authorization_code":
         data.update({"code": code, "code_verifier": verifier,
                      "redirect_uri": CALLBACK})
@@ -425,9 +426,26 @@ def main():
             raise RuntimeError("OLD_OFFLINE_REFRESH_REPLAY_ACCEPTED")
         print("PASS AUTHCODE: offline refresh with signed client JWT, rotation and replay denial.")
 
-        revoke(opener, key, second_refresh)
+        # A client may omit RFC 8707's optional resource on refresh.
+        # Accept only if the resulting access JWT remains tied to the
+        # original resource and the refresh token rotates again.
+        omitted_status, omitted = exchange(opener, key, grant="refresh_token",
+                                           refresh=second_refresh, resource=None)
+        if omitted_status != 200 or not omitted:
+            raise RuntimeError("REFRESH_RESOURCE_OMISSION_HTTP_" + str(omitted_status))
+        verify_access(omitted, jwks, subject=sub)
+        last_refresh = omitted.get("refresh_token")
+        if not isinstance(last_refresh, str) or not last_refresh or last_refresh == second_refresh:
+            raise RuntimeError("OMITTED_RESOURCE_REFRESH_NOT_ROTATED")
+        old_second_status, _ = exchange(opener, key, grant="refresh_token",
+                                        refresh=second_refresh)
+        if old_second_status not in (400, 401):
+            raise RuntimeError("OMITTED_RESOURCE_OLD_TOKEN_REPLAY_ACCEPTED")
+        print("PASS AUTHCODE: omitted refresh resource preserves canonical audience and rotation.")
+
+        revoke(opener, key, last_refresh)
         revoked_status, _ = exchange(opener, key, grant="refresh_token",
-                                     refresh=second_refresh)
+                                     refresh=last_refresh)
         if revoked_status not in (400, 401):
             raise RuntimeError("REVOKED_OFFLINE_REFRESH_ACCEPTED")
         print("PASS AUTHCODE: refresh revocation blocks renewed access.")
