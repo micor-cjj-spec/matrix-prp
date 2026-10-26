@@ -285,6 +285,96 @@ def inspect_limit_zones(sandbox_root):
     return result
 
 
+def recover_single_active_rate_limit(sandbox, *, root=Path("/etc/nginx/nginx.conf"),
+                                     base=Path("/etc/nginx")):
+    """Recover an *existing* exact zone definition, never create a replacement.
+
+    Both candidate and active configs are bounded read-only. Only a narrowly
+    validated directive is copied into the disposable Nginx http block.
+    Unknown syntax, include provenance, zone keys/rates and duplicates block.
+    """
+    req_zone = re.compile(r"(?m)^[ \t]*limit_req_zone[ \t]+([^;{}\n]*);")
+    req_use = re.compile(r"(?m)^[ \t]*limit_req[ \t]+([^;{}\n]*);")
+    zone = re.compile(r"(?:^|\s)zone=([A-Za-z0-9_.-]+)(?::\d+[kKmMgG])?(?:\s|$)")
+    definitions, references = set(), set()
+    sandbox_files = [sandbox / "main.conf", sandbox / "test.conf"]
+    sandbox_files += sorted(sandbox.glob("include-*.conf"))
+    for file in sandbox_files:
+        body = read_regular(file).decode("utf-8")
+        for m in req_zone.finditer(body):
+            match = zone.search(" " + m.group(1) + " ")
+            if not match:
+                raise ValueError("INVALID_CANDIDATE_LIMIT_DEFINITION")
+            definitions.add(match.group(1))
+        for m in req_use.finditer(body):
+            match = zone.search(" " + m.group(1) + " ")
+            if not match:
+                raise ValueError("INVALID_CANDIDATE_LIMIT_REFERENCE")
+            references.add(match.group(1))
+    missing = references - definitions
+    if len(missing) != 1:
+        raise ValueError("EXPECTED_EXACTLY_ONE_MISSING_REQUEST_ZONE")
+    missing_name = next(iter(missing))
+
+    base = base.resolve(strict=True)
+    allowed_options = (Path("/etc/letsencrypt/options-ssl-nginx.conf")
+                       if str(base) == "/etc/nginx" else None)
+    include_re = re.compile(r"(?m)^[ \t]*include[ \t]+([^;{}\n]*);")
+    exact_zone = re.compile(
+        r"limit_req_zone\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+"
+        r"zone=([A-Za-z0-9_.-]+):([1-9][0-9]*[kKmM])\s+"
+        r"rate=([1-9][0-9]*)r/([sm]);", re.I)
+    queue = [root]
+    visited = set()
+    total_size = 0
+    match_list = []
+
+    while queue:
+        path = Path(queue.pop())
+        resolved = path.resolve(strict=True)
+        is_options = (allowed_options is not None and
+                      resolved == allowed_options.resolve(strict=False))
+        if not resolved.is_relative_to(base) and not is_options:
+            raise ValueError("UNTRUSTED_NGINX_INCLUDE_OUTSIDE_ALLOWED_ROOT")
+        if resolved in visited:
+            continue
+        if len(visited) >= 120:
+            raise ValueError("ACTIVE_NGINX_INCLUDE_LIMIT")
+        visited.add(resolved)
+        data = read_regular(resolved)
+        total_size += len(data)
+        if total_size > 6 * MAX_SIZE:
+            raise ValueError("ACTIVE_NGINX_INCLUDE_TOTAL_BYTES_LIMIT")
+        body = data.decode("utf-8")
+        stripped = "\n".join(line.split("#", 1)[0] for line in body.splitlines())
+        for hit in req_zone.finditer(stripped):
+            raw = "limit_req_zone " + hit.group(1).strip() + ";"
+            exact = exact_zone.fullmatch(raw)
+            if exact and exact.group(2) == missing_name:
+                match_list.append(raw)
+            elif re.search(r"(?:^|\s)zone=" + re.escape(missing_name) + r"(?::|\s|$)", raw):
+                raise ValueError("MATCHING_RATE_LIMIT_DEFINITION_UNREVIEWED")
+        for hit in include_re.finditer(stripped):
+            pattern = hit.group(1).strip()
+            if (not pattern or
+                any(x in pattern for x in ("$", "\\", '"', "'", "..", "\r"))):
+                raise ValueError("UNREVIEWED_INCLUDE_PATTERN")
+            if not pattern.startswith("/"):
+                pattern = str(base / pattern)
+            if not (pattern.startswith(str(base) + "/") or
+                    (allowed_options is not None and pattern == str(allowed_options))):
+                raise ValueError("UNTRUSTED_NGINX_INCLUDE_PATTERN")
+            paths = sorted(glob.glob(pattern))
+            if len(paths) > 120:
+                raise ValueError("UNBOUNDED_NGINX_INCLUDE_GLOB")
+            if not paths and not any(c in pattern for c in "*?["):
+                raise ValueError("MISSING_REQUIRED_NGINX_INCLUDE")
+            queue.extend(paths)
+    if len(match_list) != 1:
+        raise ValueError("EXPECTED_EXACTLY_ONE_ACTIVE_ZONE_DEFINITION")
+    return match_list[0], len(visited)
+
+
 def execute():
     os.umask(0o077)
     sources = inspect_sources()
@@ -301,13 +391,14 @@ def execute():
         if ssl.returncode:
             raise ValueError("SYNTHETIC_TLS_CREATION_FAILED")
         counts = prepare(sources, temp)
+        active_zone_definition, active_files_scanned = recover_single_active_rate_limit(temp)
         conf = temp / "nginx.conf"
         conf.write_text(
             "worker_processes 1;\n"
             "pid " + str(temp / "nginx.pid") + ";\n"
             "error_log " + str(temp / "nginx-error.log") + " warn;\n"
             "events { worker_connections 16; }\n"
-            "http {\n  include " + str(temp / "main.conf") + ";\n"
+            "http {\n  " + active_zone_definition + "\n  include " + str(temp / "main.conf") + ";\n"
             "  include " + str(temp / "test.conf") + ";\n}\n", encoding="utf-8")
         run = subprocess.run(
             [nginx, "-t", "-p", str(temp) + "/", "-c", str(conf),
@@ -330,6 +421,8 @@ def execute():
                 "status": "ISOLATED_NGINX_SYNTAX_FAILED",
                 "sanitized_error": diagnosis,
                 "limit_zone_inventory": zones,
+                "existing_rate_limit_definition_restored_in_sandbox": True,
+                "active_nginx_config_files_scanned": active_files_scanned,
                 "exit_code": run.returncode,
                 "diagnostics": {
                     "unknown_directive": "unknown directive" in stderr,
@@ -345,6 +438,8 @@ def execute():
             "status": "ISOLATED_NGINX_SYNTAX_PASSED",
             "exit_code": 0, "transformed": counts,
             "synthetic_tls_only": True,
+            "existing_rate_limit_definition_restored_in_sandbox": True,
+            "active_nginx_config_files_scanned": active_files_scanned,
             "network_or_http_acceptance_tested": False,
             "nginx_install_or_reload": False, "release_approved": False,
         }
