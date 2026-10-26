@@ -149,7 +149,10 @@ def activate_exact_refresh_policy(token):
         raise RuntimeError("CI_REFRESH_POLICY_ALREADY_REGISTERED")
     profiles["profiles"].append({
         "name": profile_name,
-        "executors": [{"executor": "prp-ci-refresh-resource-guard", "configuration": {}}],
+        "executors": [{"executor": "prp-ci-refresh-resource-guard", "configuration": {
+            "target-client-id": CLIENT,
+            "allowed-resource": RESOURCE,
+        }}],
     })
     replace_admin_doc(profiles_url, token, profiles)
     policies["policies"].append({
@@ -166,10 +169,12 @@ def activate_exact_refresh_policy(token):
                and x.get("enabled") is True]
     if len(matches) != 1 or len(enabled) != 1:
         raise RuntimeError("CI_REFRESH_RESOURCE_POLICY_NOT_PERSISTED")
-    if not any(x.get("executor") == "prp-ci-refresh-resource-guard"
-               for x in matches[0].get("executors", [])):
-        raise RuntimeError("CI_REFRESH_RESOURCE_SPI_NOT_INSTALLED")
-    print("PASS AUTHCODE: real disposable Keycloak refresh-policy executor installed.")
+    executed = [x for x in matches[0].get("executors", [])
+                if x.get("executor") == "prp-ci-refresh-resource-guard"]
+    if len(executed) != 1 or executed[0].get("configuration") != {
+            "target-client-id": CLIENT, "allowed-resource": RESOURCE}:
+        raise RuntimeError("CI_REFRESH_RESOURCE_SPI_CONFIG_NOT_PERSISTED")
+    print("PASS AUTHCODE: persisted exact-client and HTTPS-resource refresh policy.")
 
 
 def create_user(token, password):
