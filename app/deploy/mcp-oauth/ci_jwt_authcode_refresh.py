@@ -208,9 +208,9 @@ def create_user(token, password):
     return username
 
 
-def register_client(token, certificate):
+def register_client(token, certificate, *, client_id=CLIENT, guarded=True):
     value = {
-        "clientId": CLIENT,
+        "clientId": client_id,
         "name": "Ephemeral CI authcode private-key-JWT refresh",
         "enabled": True,
         "protocol": "openid-connect",
@@ -231,7 +231,7 @@ def register_client(token, certificate):
             "jwt.credential.certificate": certificate,
             "token.endpoint.auth.signing.alg": "RS256",
             "pkce.code.challenge.method": "S256",
-            "prp.ci.refresh-resource-guard": "enabled",
+            **({"prp.ci.refresh-resource-guard": "enabled"} if guarded else {}),
         },
         "protocolMappers": [{
             "name": "CI resource indicator only",
@@ -253,13 +253,13 @@ def register_client(token, certificate):
 
 
 def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None,
-             bad_auth=False, resource=RESOURCE, scope=SCOPE):
+             bad_auth=False, resource=RESOURCE, scope=SCOPE, client_id=CLIENT):
     data = {
         "grant_type": grant,
-        "client_id": CLIENT,
+        "client_id": client_id,
         "client_assertion_type": ASSERTION_TYPE,
         "client_assertion": assertion(
-            key, issuer=CLIENT, subject=CLIENT,
+            key, issuer=client_id, subject=client_id,
             replace_signature=bad_auth,
         ),
     }
@@ -289,12 +289,12 @@ def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None,
     return 200, values
 
 
-def verify_access(value, jwks, *, subject=None):
+def verify_access(value, jwks, *, subject=None, client_id=CLIENT):
     bearer = value.get("access_token")
     if not isinstance(bearer, str):
         raise RuntimeError("ACCESS_TOKEN_ABSENT")
     try:
-        check_token(bearer, jwks, issuer=ISSUER, resource=RESOURCE, client_id=CLIENT)
+        check_token(bearer, jwks, issuer=ISSUER, resource=RESOURCE, client_id=client_id)
     except ValueError as exc:
         if str(exc) != "JWT audience must contain exact MCP resource":
             raise
@@ -354,11 +354,11 @@ def classify_unapproved_refresh(status, response, jwks, *, subject, prior_refres
     return "CANONICAL_AUDIENCE_ONLY_NO_ROTATION_PROOF"
 
 
-def revoke(opener, key, refresh):
+def revoke(opener, key, refresh, *, client_id=CLIENT):
     data = {
-        "client_id": CLIENT,
+        "client_id": client_id,
         "client_assertion_type": ASSERTION_TYPE,
-        "client_assertion": assertion(key, issuer=CLIENT, subject=CLIENT),
+        "client_assertion": assertion(key, issuer=client_id, subject=client_id),
         "token": refresh,
         "token_type_hint": "refresh_token",
     }
@@ -475,6 +475,41 @@ def main():
         if revoked_status not in (400, 401):
             raise RuntimeError("REVOKED_OFFLINE_REFRESH_ACCEPTED")
         print("PASS AUTHCODE: refresh revocation blocks renewed access.")
+
+        # Real Keycloak non-target regression: another signed-JWT browser
+        # client with NO policy marker must keep its normal refresh ability.
+        # It is registered after policy activation to expose accidental policy
+        # application on CLIENT CRUD and authorization, not only refresh.
+        unrelated_client = "ci-other-private-jwt"
+        register_client(admin, certificate, client_id=unrelated_client, guarded=False)
+        browser.CLIENT = unrelated_client
+        try:
+            other_code, other_verifier = browser.code_pkce(
+                opener, username, user_password, SCOPE)
+            other_status, other_tokens = exchange(
+                opener, key, grant="authorization_code", code=other_code,
+                verifier=other_verifier, client_id=unrelated_client)
+            if other_status != 200 or not other_tokens:
+                raise RuntimeError("OTHER_CLIENT_AUTHCODE_HTTP_" + str(other_status))
+            other_subject = verify_access(
+                other_tokens, jwks, client_id=unrelated_client)
+            other_first = other_tokens.get("refresh_token")
+            if not isinstance(other_first, str) or not other_first:
+                raise RuntimeError("OTHER_CLIENT_REFRESH_MISSING")
+            other_status, other_refreshed = exchange(
+                opener, key, grant="refresh_token", refresh=other_first,
+                client_id=unrelated_client)
+            if other_status != 200 or not other_refreshed:
+                raise RuntimeError("OTHER_CLIENT_REFRESH_HTTP_" + str(other_status))
+            verify_access(other_refreshed, jwks, subject=other_subject,
+                          client_id=unrelated_client)
+            other_second = other_refreshed.get("refresh_token")
+            if not isinstance(other_second, str) or other_second == other_first:
+                raise RuntimeError("OTHER_CLIENT_REFRESH_NOT_ROTATED")
+            revoke(opener, key, other_second, client_id=unrelated_client)
+            print("PASS AUTHCODE: unmarked other OAuth client remains refresh-compatible.")
+        finally:
+            browser.CLIENT = CLIENT
         print("CI-ONLY: no real ChatGPT client keys, production data or server changes.")
 
 
