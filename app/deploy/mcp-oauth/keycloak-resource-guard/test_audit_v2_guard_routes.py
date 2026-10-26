@@ -23,9 +23,10 @@ server {{
 class RouteInventorySafetyTests(unittest.TestCase):
     def test_exact_pinned_staging_route_aggregate(self):
         main = vhost("micor.top", "http://127.0.0.1:11000")
-        test = (vhost("prp-test.micor.top")+
-                b"# synthetic V2 route\n"
-                b"location = /api/mcp/link { proxy_pass http://127.0.0.1:18082; }\n")
+        test = vhost("prp-test.micor.top").replace(
+            b"    location /other",
+            b"    location = /api/mcp/link { proxy_pass http://127.0.0.1:18082; }\n    location /other"
+        )
         result = audit.inspect({"review_main":main, "review_test":test})
         self.assertEqual(result["status"], "PINNED_V2_ROUTE_SURFACE_INVENTORIED")
         self.assertEqual(result["candidate_main"]["listen_directives"], 4)
@@ -52,7 +53,10 @@ class RouteInventorySafetyTests(unittest.TestCase):
 
     def test_active_legacy_mcp_target_in_review_refused(self):
         main = vhost("micor.top","http://127.0.0.1:11000")
-        test = vhost("prp-test.micor.top")+b"\nproxy_pass http://127.0.0.1:18081;\n"
+        test = vhost("prp-test.micor.top").replace(
+            b"    location /other",
+            b"    proxy_pass http://127.0.0.1:18081;\n    location /other"
+        )
         with self.assertRaisesRegex(ValueError,"V2_BACKEND_TARGET_DRIFT"):
             audit.inspect({"review_main":main,"review_test":test})
 
@@ -64,8 +68,10 @@ class RouteInventorySafetyTests(unittest.TestCase):
     def test_no_network_or_host_info_ever_output(self):
         result = audit.inspect({
             "review_main":vhost("private.micor.top","http://127.0.0.1:11000"),
-            "review_test":vhost("private.micor.top")+
-                          b"location = /api/mcp/link { proxy_pass http://127.0.0.1:18082; }\n"
+            "review_test":vhost("private.micor.top").replace(
+                b"    location /other",
+                b"    location = /api/mcp/link { proxy_pass http://127.0.0.1:18082; }\n    location /other"
+            )
         })
         rendered = str(result)
         self.assertNotIn("private.micor.top",rendered)
