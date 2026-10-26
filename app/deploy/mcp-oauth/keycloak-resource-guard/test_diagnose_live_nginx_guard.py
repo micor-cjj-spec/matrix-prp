@@ -44,7 +44,10 @@ class ReadOnlyNginxGuardTest(unittest.TestCase):
         self.assertTrue(capture_output)
         self.assertFalse(check)
         assert timeout <= 15
-        expected = list(self.sources) + [str(self.conf / name) for name in guard.CANDIDATES]
+        expected_hashes = dict(self.sources)
+        for name, source in guard.CANDIDATES.items():
+            expected_hashes[str(self.conf / name)] = self.manifest[source]
+        expected = list(expected_hashes)
         out = "".join("# configuration file " + n + ":\n" for n in expected)
         return subprocess.CompletedProcess(cmd, 0, out.encode(), b"SECRET=do-not-print")
 
@@ -105,6 +108,21 @@ class ReadOnlyNginxGuardTest(unittest.TestCase):
                                                b"# configuration file /unknown.conf:\n", b"")
         doc = guard.classify(self.root, self.conf, extra)
         self.assertEqual(doc["nginx_config_inventory"], "INVENTORY_OR_ORDER_DRIFT")
+        self.assert_no_approval(doc)
+
+    def test_existing_vhost_keys_keep_manifest_order(self):
+        # The original gate uses dict.update semantics. Do not add duplicate
+        # vhost paths or silently accept a different nginx -T order.
+        live_path = str(self.conf / "micor.top.conf")
+        self.sources = {live_path: sha(b"historical-source"), **self.sources}
+        manifest_path = self.hostguard / "candidate-manifest.safe.json"
+        parsed = json.loads(manifest_path.read_text())
+        parsed["source_hashes"] = self.sources
+        manifest_path.write_text(json.dumps(parsed))
+        for name, source in guard.CANDIDATES.items():
+            (self.conf / name).write_bytes((self.hostguard / source).read_bytes())
+        doc = self.inspect()
+        self.assertEqual(doc["nginx_config_inventory"], "ORDER_AND_PATHS_MATCH_MANIFEST")
         self.assert_no_approval(doc)
 
     def test_missing_manifest_fails_closed(self):
