@@ -72,7 +72,7 @@ def classified_browser_request(opener, url, *, data=None, bearer=None, form=Fals
     body = None
     if data is not None:
         if form:
-            body = urlencode(data).encode()
+            body = urlencode(data, doseq=True).encode()
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         else:
             body = json.dumps(data).encode()
@@ -410,6 +410,20 @@ def main():
                 subject=sub, prior_refresh=first_refresh)
             print("NEGATIVE RESOURCE DIAGNOSTIC=" + kind)
             raise RuntimeError("WRONG_REFRESH_RESOURCE_ACCEPTED")
+        # A form with duplicate resource keys is not an exact single
+        # resource even when one copy names the allowed MCP endpoint.
+        duplicate_status, _ = exchange(
+            opener, key, grant="refresh_token", refresh=first_refresh,
+            resource=[RESOURCE, "https://not-prp.staging.example.org/api/mcp"])
+        if duplicate_status not in (400, 401):
+            raise RuntimeError("DUPLICATE_REFRESH_RESOURCE_ACCEPTED")
+        blank_status, _ = exchange(
+            opener, key, grant="refresh_token", refresh=first_refresh,
+            resource="")
+        if blank_status not in (400, 401):
+            raise RuntimeError("BLANK_REFRESH_RESOURCE_ACCEPTED")
+        print("PASS AUTHCODE: duplicate and blank refresh resource values denied.")
+
         wrong_scope_status, _ = exchange(
             opener, key, grant="refresh_token", refresh=first_refresh,
             scope="openid offline_access prp.finance.read")
