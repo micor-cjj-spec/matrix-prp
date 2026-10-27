@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.matrix.prp.auth.model.UserProfile;
 import com.matrix.prp.tasks.entity.TaskEntity;
 import com.matrix.prp.tasks.mapper.TaskMapper;
@@ -55,8 +56,8 @@ class TaskReadProducerBoundaryTests {
         assertThat(sql).hasSize(2);
         assertThat(sql.get(0).getSqlSegment().toLowerCase()).contains("user_id", "limit 20");
         assertThat(sql.get(1).getSqlSegment().toLowerCase()).contains("user_id", "status", "limit 20");
-        assertThat(sql.get(0).getParamNameValuePairs().values()).contains(12001L).doesNotContain(12002L);
-        assertThat(sql.get(1).getParamNameValuePairs().values()).contains(12002L, "todo").doesNotContain(12001L);
+        assertThat(((AbstractWrapper<?, ?, ?>) sql.get(0)).getParamNameValuePairs().values()).contains(12001L).doesNotContain(12002L);
+        assertThat(((AbstractWrapper<?, ?, ?>) sql.get(1)).getParamNameValuePairs().values()).contains(12002L, "todo").doesNotContain(12001L);
     }
 
     @Test
