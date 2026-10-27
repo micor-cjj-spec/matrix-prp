@@ -78,7 +78,10 @@ class McpFirstPartyOidcLinkTests {
         when(db.queryForObject(
             eq("SELECT id FROM prp_users WHERE id=? FOR UPDATE"),
             eq(Long.class), eq(7L))).thenReturn(7L);
-        when(db.queryForObject(anyString(), eq(Integer.class), eq(7L))).thenReturn(0);
+        when(db.query(
+            contains("SELECT state_hash FROM prp_mcp_oidc_link_flows"),
+            any(org.springframework.jdbc.core.RowMapper.class), eq(7L)))
+            .thenReturn(java.util.List.of());
     }
 
     @Test
@@ -186,9 +189,9 @@ class McpFirstPartyOidcLinkTests {
         operations.verify(db).update(
             contains("DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 DAY)"),
             eq(7L));
-        operations.verify(db).queryForObject(
-            contains("SELECT COUNT(*) FROM prp_mcp_oidc_link_flows"),
-            eq(Integer.class), eq(7L));
+        operations.verify(db).query(
+            contains("LIMIT 3 FOR UPDATE"),
+            any(org.springframework.jdbc.core.RowMapper.class), eq(7L));
         operations.verify(db).update(
             startsWith("INSERT INTO prp_mcp_oidc_link_flows"),
             any(Object[].class));
@@ -197,8 +200,10 @@ class McpFirstPartyOidcLinkTests {
     @Test
     void threeActiveFlowsPreventFourthOneAndDoNotInsertState() {
         authorizedOwner();
-        when(db.queryForObject(anyString(), eq(Integer.class), eq(7L)))
-            .thenReturn(3);
+        when(db.query(
+            contains("SELECT state_hash FROM prp_mcp_oidc_link_flows"),
+            any(org.springframework.jdbc.core.RowMapper.class), eq(7L)))
+            .thenReturn(java.util.List.of("hash-1", "hash-2", "hash-3"));
         assertThatThrownBy(() -> service.begin("correct-password"))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("Too many pending identity link requests");
