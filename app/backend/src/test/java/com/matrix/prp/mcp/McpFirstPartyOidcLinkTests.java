@@ -14,6 +14,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import java.time.Instant;
+import java.util.List;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -97,6 +100,42 @@ class McpFirstPartyOidcLinkTests {
     }
 
     @Test
+    void signedIdTokenCannotClaimWrongAuthorizedPartyEvenWithOneAudience() {
+        Jwt noAzp = idToken(List.of(FIRST_PARTY), null);
+        Jwt expectedAzp = idToken(List.of(FIRST_PARTY), FIRST_PARTY);
+        Jwt wrongAzp = idToken(List.of(FIRST_PARTY), "another-oauth-client");
+        Jwt wrongAudience = idToken(List.of("another-oauth-client"), FIRST_PARTY);
+        Jwt multipleMissingAzp = idToken(
+            List.of(FIRST_PARTY, "another-audience"), null);
+        Jwt multipleCorrectAzp = idToken(
+            List.of(FIRST_PARTY, "another-audience"), FIRST_PARTY);
+        assertThat(McpFirstPartyOidcLinkService.validFirstPartyIdTokenAudience(
+            noAzp, FIRST_PARTY)).isTrue();
+        assertThat(McpFirstPartyOidcLinkService.validFirstPartyIdTokenAudience(
+            expectedAzp, FIRST_PARTY)).isTrue();
+        assertThat(McpFirstPartyOidcLinkService.validFirstPartyIdTokenAudience(
+            wrongAzp, FIRST_PARTY)).isFalse();
+        assertThat(McpFirstPartyOidcLinkService.validFirstPartyIdTokenAudience(
+            wrongAudience, FIRST_PARTY)).isFalse();
+        assertThat(McpFirstPartyOidcLinkService.validFirstPartyIdTokenAudience(
+            multipleMissingAzp, FIRST_PARTY)).isFalse();
+        assertThat(McpFirstPartyOidcLinkService.validFirstPartyIdTokenAudience(
+            multipleCorrectAzp, FIRST_PARTY)).isTrue();
+    }
+
+    private static Jwt idToken(List<String> audiences, String azp) {
+        var jwt = Jwt.withTokenValue("test-only-id-token")
+            .header("alg", "RS256")
+            .issuer(ISSUER)
+            .subject("test-only-subject")
+            .audience(audiences)
+            .issuedAt(Instant.now().minusSeconds(5))
+            .expiresAt(Instant.now().plusSeconds(60));
+        if (azp != null) jwt.claim("azp", azp);
+        return jwt.build();
+    }
+
+    @Test
     void beginRequiresExplicitChatgptConsentAndCorrectPrpPassword() {
         assertThatThrownBy(() -> service.begin("correct-password"))
             .isInstanceOf(ResponseStatusException.class);
@@ -125,8 +164,9 @@ class McpFirstPartyOidcLinkTests {
             .doesNotContain("prp.finance")
             .doesNotContain("prp.write")
             .doesNotContain("correct-password");
-        verify(db, times(1)).update(startsWith(
-            "INSERT INTO prp_mcp_oidc_link_flows"), any(Object[].class));
+        verify(db, times(1)).update(
+            contains("DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE)"),
+            any(Object[].class));
     }
 
     @Test
