@@ -120,6 +120,61 @@ class StagingIsolationTests(unittest.TestCase):
                 write_secrets_file(output, make_config(
                     "prp-test.micor.top", "auth-test.micor.top", "stage_admin"))
 
+    def test_rendered_compose_rejects_second_public_port_and_internal_exposure(self):
+        # Pure in-memory regression: never start Docker or open staging secrets.
+        from copy import deepcopy
+        from check_rendered_compose import validate
+
+        settings = self.values
+        compose = {
+            "services": {
+                "mysql": {},
+                "backend": {"environment": {
+                    "MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_ENABLED": "false",
+                    "MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_CLIENT_ID":
+                        settings["PRP_STAGE_FIRST_PARTY_CLIENT_ID"],
+                    "MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_REDIRECT_URI":
+                        settings["PRP_STAGE_FIRST_PARTY_REDIRECT_URI"],
+                    "MATRIX_PRP_MCP_WRITE_ENABLED": "false",
+                }},
+                "gateway": {
+                    "build": {"args": {
+                        "VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT":
+                            settings["PRP_STAGE_AUTH_ISSUER"] +
+                            "/protocol/openid-connect/auth",
+                    }},
+                    "ports": [{
+                        "published": "18081", "target": 8080,
+                        "host_ip": "127.0.0.1",
+                    }],
+                },
+            },
+        }
+        validate(compose, settings)
+
+        mutations = {
+            "second_public_gateway_port": lambda d: d["services"]["gateway"]["ports"].append(
+                {"published": "18083", "target": 8080, "host_ip": "0.0.0.0"}),
+            "second_loopback_gateway_port": lambda d: d["services"]["gateway"]["ports"].append(
+                {"published": "18083", "target": 8080, "host_ip": "127.0.0.1"}),
+            "backend_public_port": lambda d: d["services"]["backend"].update(
+                {"ports": [{"published": "18084", "target": 8080, "host_ip": "0.0.0.0"}]}),
+            "mysql_public_port": lambda d: d["services"]["mysql"].update(
+                {"ports": [{"published": "3306", "target": 3306, "host_ip": "0.0.0.0"}]}),
+            "host_network": lambda d: d["services"]["backend"].update(
+                {"network_mode": "host"}),
+            "unreviewed_service": lambda d: d["services"].update(
+                {"additional": {"ports": [{"published": "80", "host_ip": "0.0.0.0"}]}}),
+            "wrong_gateway_target": lambda d: d["services"]["gateway"]["ports"][0].update(
+                {"target": 8081}),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(case=name):
+                altered = deepcopy(compose)
+                mutate(altered)
+                with self.assertRaises(AssertionError):
+                    validate(altered, settings)
+
     def test_template_and_compose_do_not_reference_production_database(self):
         root = Path(__file__).resolve().parent
         compose = (root / "compose.yaml").read_text()
