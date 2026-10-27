@@ -111,9 +111,10 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
         # Nginx limit_except GET implicitly admits HEAD; this review
         # generator must explicitly deny HEAD for every GET-only location.
         self.assertEqual(reviewed.count('if ($request_method !~ "'), 18)
-        self.assertEqual(reviewed.count('if ($request_method !~ "^(?:GET)$")'), 16)
-        self.assertEqual(reviewed.count('if ($request_method !~ "^(?:GET|POST)$")'), 1)
-        self.assertEqual(reviewed.count('if ($request_method !~ "^(?:POST)$")'), 1)
+        reviewed_verbs = list(READONLY_LINK_EXACT.values()) + list(READONLY_LINK_REGEX.values())
+        for verb_set in ("GET", "POST", "GET POST"):
+            pattern = 'if ($request_method !~ "^(?:' + "|".join(verb_set.split()) + ')$")'
+            self.assertEqual(reviewed.count(pattern), reviewed_verbs.count(verb_set))
         self.assertNotIn('if ($request_method !~ "', render_approval_routes('/tmp/ca.pem'))
 
     def test_mutation_method_walled_to_exact_endpoint(self):
