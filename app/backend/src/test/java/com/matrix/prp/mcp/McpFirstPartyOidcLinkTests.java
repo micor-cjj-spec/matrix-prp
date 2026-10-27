@@ -154,7 +154,7 @@ class McpFirstPartyOidcLinkTests {
             return java.util.List.of(mapper.mapRow(rs, 0));
         });
         when(db.update(startsWith("UPDATE prp_mcp_oidc_link_flows"),
-                       any(), any())).thenReturn(1, 0);
+                       any(Object[].class))).thenReturn(1, 0);
         when(outbound.postForObject(anyString(), any(), eq(java.util.Map.class)))
             .thenThrow(new org.springframework.web.client.ResourceAccessException("synthetic-failure"));
         String state = "S".repeat(43);
@@ -181,7 +181,7 @@ class McpFirstPartyOidcLinkTests {
             return java.util.List.of(mapper.mapRow(rs, 0));
         });
         when(db.update(startsWith("UPDATE prp_mcp_oidc_link_flows"),
-                       any(), any())).thenReturn(1);
+                       any(Object[].class))).thenReturn(1);
         when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of());
         assertThatThrownBy(() -> service.finish("S".repeat(43), "code", ISSUER))
             .isInstanceOf(ResponseStatusException.class);
