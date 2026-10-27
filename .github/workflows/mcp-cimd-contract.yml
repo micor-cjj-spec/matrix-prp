@@ -64,7 +64,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run typecheck
-          node --experimental-strip-types --test scripts/oidc-callback-path.test.mjs
+          node --experimental-strip-types --test scripts/oidc-callback-path.test.mjs scripts/mcp-oidc-authorize-url.test.mjs
 
   # External read-only evidence; never substitutes for a real OAuth login,
   # managed client policy, isolated restore, or release approval.
