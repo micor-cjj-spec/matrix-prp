@@ -353,6 +353,9 @@ def main():
     if denied[0] != 200 or not denied[1].get("result", {}).get("isError"):
         raise RuntimeError("Finance scope unexpectedly granted by read-only client")
     print("PASS E2E: MCP initialize, tools/list, tasks read, finance permission denied.")
+    if os.environ.get("MCP_E2E_FIRST_PARTY") == "true":
+        ci_first_party_link_e2e.verify_unlink_invalidates_pending(
+            sys.modules[__name__], opener, prp_jwt, bearer, prp_password)
     if os.environ.get('MCP_E2E_CRUD') == 'true':
         import ci_crud_flow
         ci_crud_flow.run(sys.modules[__name__], opener, prp_jwt, prp_password, user_password)
