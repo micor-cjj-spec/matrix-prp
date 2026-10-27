@@ -41,6 +41,9 @@ public class McpIdentityLinkService {
     private final McpClientGrantService grants;
     private final String issuer;
     private final SecureRandom random = new SecureRandom();
+    @Value("${matrix-prp.mcp.oauth.first-party-link.enabled:false}")
+    private boolean firstPartyOidcLinkEnabled;
+
 
     public McpIdentityLinkService(JdbcTemplate db, UserStore users,
                                   PasswordEncoder passwords, LoginAttemptLimiter attempts,
@@ -206,6 +209,13 @@ public class McpIdentityLinkService {
         attempts.recordSuccess("mcp-identity-unlink", account.username());
         db.update("DELETE FROM prp_mcp_identity_links WHERE user_id=? AND issuer=?", owner, issuer);
         db.update("DELETE FROM prp_mcp_link_tickets WHERE user_id=? AND consumed_at IS NULL", owner);
+        // When the separately gated V28 PKCE flow is enabled, invalidating
+        // the identity also invalidates every in-flight first-party callback.
+        // Do not access V28 in older installations where the feature is OFF.
+        if (firstPartyOidcLinkEnabled) {
+            db.update("UPDATE prp_mcp_oidc_link_flows SET consumed_at=CURRENT_TIMESTAMP " +
+                      "WHERE user_id=? AND consumed_at IS NULL", owner);
+        }
     }
 
     private static String hash(String value) {
