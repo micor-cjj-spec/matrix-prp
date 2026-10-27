@@ -154,6 +154,11 @@ def verify_concurrent_flow_limit(flow, prp_bearer, prp_password):
     with ThreadPoolExecutor(max_workers=6) as pool:
         statuses = list(pool.map(one_request, range(6)))
     if statuses.count(200) != 3 or statuses.count(429) != 3:
-        raise RuntimeError("CONCURRENT_PKCE_OWNER_LOCK_OR_THREE_FLOW_CAP_FAILED")
+        # HTTP status-count diagnostics only. No OAuth code, token, state,
+        # response body, request identifier or PRP user ID is logged.
+        counts = ",".join(
+            str(status) + "x" + str(statuses.count(status))
+            for status in sorted(set(statuses)))
+        raise RuntimeError("CONCURRENT_PKCE_CAP_FAILED_HTTP_" + counts)
     print("PASS E2E FIRST-PARTY CONCURRENCY: exactly 3 accepted, 3 rate-limited " +
           "among 6 same-owner simultaneous requests; no OAuth material logged.")
