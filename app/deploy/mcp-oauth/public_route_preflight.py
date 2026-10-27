@@ -33,9 +33,8 @@ def canonical_resource(value):
             or uri.port not in (None, 443) or uri.query or uri.fragment
             or uri.path != "/api/mcp"):
         raise ValueError("PRP MCP must be published at https://<host>/api/mcp")
-    if (uri.hostname != "prp-test.micor.top" or
-            value != STAGING_RESOURCE):
-        raise ValueError("Refusing unapproved MCP URL; fixed staging only")
+    if uri.hostname in ("micor.top", "www.micor.top"):
+        raise ValueError("Refusing production PRP domain; staging only")
     return value.rstrip("/")
 
 
@@ -47,8 +46,8 @@ def metadata_uri(resource):
 
 def inspect(resource, issuer, fetch):
     expected = canonical_resource(resource)
-    if issuer != STAGING_ISSUER:
-        raise ValueError("Refusing unexpected OAuth issuer; fixed staging only")
+    if not issuer.startswith("https://") or urlsplit(issuer).query or urlsplit(issuer).fragment:
+        raise ValueError("Explicit HTTPS OAuth issuer required")
     well_known = metadata_uri(expected)
     metadata_status, metadata_headers, metadata = fetch(well_known, "GET", None)
     if metadata_status != 200 or metadata_headers.get("content-type", "").split(";")[0] != "application/json":
@@ -126,6 +125,8 @@ def main():
     parser.add_argument("--resource", required=True)
     parser.add_argument("--issuer", required=True)
     args = parser.parse_args()
+    if args.resource != STAGING_RESOURCE or args.issuer != STAGING_ISSUER:
+        parser.error("Only fixed PRP test environment can be probed externally")
     outcome = inspect(args.resource, args.issuer, https_fetch)
     print(json.dumps(outcome, indent=2))
     print("Public OAuth discovery and unauthenticated denial passed; no login/token/tool data checked.")
