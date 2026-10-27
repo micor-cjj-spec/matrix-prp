@@ -18,7 +18,7 @@ EXACT = {
 }
 REGEX = {
     r"^/prp/me/mcp-approve/" + UUID + "$": "GET",
-    r"^/prp/assets/[A-Za-z0-9_-]+\.(js|css|woff2|woff|ttf|svg|png|webp|ico)$": "GET",
+    r"^/prp/assets/[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.(js|css|woff2|woff|ttf|svg|png|webp|ico)$": "GET",
     r"^/api/mcp/approval/drafts/" + UUID + "$": "GET",
     r"^/api/mcp/approval/drafts/" + UUID + "/(approve|reject)$": "POST",
 }
@@ -48,6 +48,12 @@ READONLY_LINK_EXACT.update({
     "/prp/me/mcp-link/callback": "GET",
     "/api/mcp/identity/oidc/start": "POST",
     "/api/mcp/identity/oidc/finish": "POST",
+    # Referenced by the built Vue HTML or registered on secure startup.
+    # Expose only exact GETs, never a generic /prp/** or broad API proxy.
+    "/prp/favicon.svg": "GET",
+    "/prp/icon.svg": "GET",
+    "/prp/manifest.webmanifest": "GET",
+    "/prp/sw.js": "GET",
 })
 READONLY_LINK_REGEX = {
     pattern: REGEX[pattern] for pattern in REGEX
