@@ -20,6 +20,9 @@ REQUIRED_METHODS = {
     "/api/mcp/identity/tickets": "POST",
     "/api/mcp/identity/unlink": "POST",
     "/api/mcp/link": "POST",
+    "/prp/me/mcp-link/callback": "GET",
+    "/api/mcp/identity/oidc/start": "POST",
+    "/api/mcp/identity/oidc/finish": "POST",
 }
 
 
@@ -34,20 +37,24 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
             "/prp/me/mcp-approve", "/prp/", "/api/mcp",
         ):
             self.assertNotIn(excluded, READONLY_LINK_EXACT)
-        self.assertTrue(set(READONLY_LINK_EXACT).issubset(EXACT))
+        self.assertEqual(set(READONLY_LINK_EXACT).difference(EXACT), {
+            "/prp/me/mcp-link/callback",
+            "/api/mcp/identity/oidc/start",
+            "/api/mcp/identity/oidc/finish",
+        })
         self.assertTrue(set(READONLY_LINK_REGEX).issubset(REGEX))
 
     def test_rendered_proxy_remains_private_secure_and_noncacheable(self):
         rendered = render_readonly_link_routes("/tmp/reviewed-ca.pem")
-        self.assertEqual(rendered.count("location = "), 10)
+        self.assertEqual(rendered.count("location = "), 13)
         self.assertEqual(rendered.count('location ~ "'), 1)
-        self.assertEqual(rendered.count("proxy_ssl_verify on;"), 11)
-        self.assertEqual(rendered.count("proxy_ssl_name prp-test.micor.top;"), 11)
-        self.assertEqual(rendered.count("proxy_pass https://127.0.0.1:18443;"), 11)
-        self.assertEqual(rendered.count("if ($prp_stage_origin_ok = 0) { return 403; }"), 11)
-        self.assertEqual(rendered.count('access_log off;'), 11)
-        self.assertEqual(rendered.count('proxy_cache off;'), 11)
-        self.assertEqual(rendered.count('Referrer-Policy "no-referrer"'), 11)
+        self.assertEqual(rendered.count("proxy_ssl_verify on;"), 14)
+        self.assertEqual(rendered.count("proxy_ssl_name prp-test.micor.top;"), 14)
+        self.assertEqual(rendered.count("proxy_pass https://127.0.0.1:18443;"), 14)
+        self.assertEqual(rendered.count("if ($prp_stage_origin_ok = 0) { return 403; }"), 14)
+        self.assertEqual(rendered.count('access_log off;'), 14)
+        self.assertEqual(rendered.count('proxy_cache off;'), 14)
+        self.assertEqual(rendered.count('Referrer-Policy "no-referrer"'), 14)
         self.assertIn("PENDING REVIEW ONLY", rendered)
         self.assertNotIn("location = /api/tasks", rendered)
         self.assertNotIn("location = /api/mcp ", rendered)
