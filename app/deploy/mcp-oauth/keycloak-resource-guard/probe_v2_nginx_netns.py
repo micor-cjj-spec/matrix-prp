@@ -229,6 +229,7 @@ def child_run(parent_namespace, *, edge_matrix=False):
                     fail = type(exc).__name__
                 new_hits = len(server.hits) - before
                 checks[label] = {
+                    "http_method": method,
                     "status_code": code, "synthetic_upstream_hits": new_hits,
                     "expected_http_code": list(expected),
                     "transport_failure_type": fail,
@@ -255,9 +256,20 @@ def child_run(parent_namespace, *, edge_matrix=False):
                           expected=(421,), hits=0)
                 # Distinguish URI normalization behavior from bypass claims.
                 # If an alias reaches 18082, the edge gate fails for review.
+                # GET might be rejected by an exact MCP method guard
+                # *after* Nginx has normalized an alias. Compare a real GET
+                # to the canonical endpoint; never assume a 405 means safe.
+                check("edge_canonical_get_control", path="/api/mcp",
+                      method="GET", expected=(405,), hits=0)
                 for label, path in EDGE_CANONICAL_ALIASES:
-                    check(label, path=path,
+                    check(label, path=path, method="GET",
                           expected=(400, 403, 404, 421), hits=0)
+                    # MCP tools use POST; this is the discriminating request.
+                    # Any method-alias hit on the synthetic 18082 must remain
+                    # REVIEW_REQUIRED. Never rewrite the guard automatically.
+                    check(label.replace("edge_alias_", "edge_post_alias_"),
+                          path=path, method="POST",
+                          expected=(400, 403, 404, 405, 421), hits=0)
             try:
                 with tls_socket("127.0.0.1", socket.AF_INET, 443, HOST,
                                 root / "cert.pem", offer_h2=True) as h2:
@@ -288,6 +300,14 @@ def child_run(parent_namespace, *, edge_matrix=False):
                 "edge_canonical_aliases_entering_mock_v2": (
                     sum(checks[label]["synthetic_upstream_hits"] > 0
                         for label, _ in EDGE_CANONICAL_ALIASES)
+                    if edge_matrix else None),
+                "edge_post_aliases_entering_mock_v2": (
+                    sum(checks[label.replace("edge_alias_", "edge_post_alias_")]
+                        ["synthetic_upstream_hits"] > 0
+                        for label, _ in EDGE_CANONICAL_ALIASES)
+                    if edge_matrix else None),
+                "canonical_get_method_control_status": (
+                    checks["edge_canonical_get_control"]["status_code"]
                     if edge_matrix else None),
                 "synthetic_backend_total_requests": len(server.hits),
                 "network_interfaces": "LO_ONLY",
