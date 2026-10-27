@@ -159,7 +159,8 @@ class McpFirstPartyOidcLinkTests {
             .thenThrow(new org.springframework.web.client.ResourceAccessException("synthetic-failure"));
         String state = "S".repeat(43);
         assertThatThrownBy(() -> service.finish(state, "synthetic-code", ISSUER))
-            .isInstanceOf(ResponseStatusException.class);
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("First-party Keycloak identity verification failed");
         verify(outbound, times(1)).postForObject(anyString(), any(), eq(java.util.Map.class));
         // A second request for the same state must not call Keycloak again.
         assertThatThrownBy(() -> service.finish(state, "synthetic-code", ISSUER))
