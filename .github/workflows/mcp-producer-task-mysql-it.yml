@@ -6,6 +6,7 @@ on:
       - test/mcp-authcode-privatejwt-refresh-20261024
     paths:
       - "app/backend/src/test/java/com/matrix/prp/TaskReadProducerDatabaseIT.java"
+      - "app/backend/src/test/java/com/matrix/prp/ProducerTaskDelegationMysqlProofIT.java"
       - "app/backend/src/main/java/com/matrix/prp/tasks/**"
       - "app/backend/src/main/java/com/matrix/prp/auth/**"
       - "app/backend/src/main/resources/db/migration/**"
@@ -55,6 +56,7 @@ jobs:
           export MATRIX_PRP_BOOTSTRAP_USERNAME="ci_producer_admin"
           export MATRIX_PRP_BOOTSTRAP_PASSWORD="$(openssl rand -hex 24)"
           export MATRIX_PRP_FLYWAY_ENABLED="true"
+          export PRP_CI_DISPOSABLE_DB_ONLY="YES"
           export MATRIX_PRP_MCP_ENABLED="false"
           export MATRIX_PRP_MCP_OAUTH_ENABLED="false"
           export MATRIX_PRP_MCP_WRITE_ENABLED="false"
@@ -84,6 +86,7 @@ jobs:
           echo "CI_PRODUCER_REAL_MYSQL_NEW_EMPTY_DB_READY=YES"
           cd app/backend
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=TaskReadProducerDatabaseIT test
+          ./mvnw -B -ntp -Dtest=TaskReadProducerDatabaseIT,ProducerTaskDelegationMysqlProofIT test
           echo "CI_ONLY_MYSQL_TWO_SYNTHETIC_OWNERS_NO_PRODUCTION_PRP=YES"
+          echo "DISPOSABLE_DATABASE_CONCURRENT_JTI_AND_REVOKE_EPOCH_PROOF=YES"
           echo "NO_PRODUCER_ENDPOINT_NO_LIVE_DATA_NO_KEYCLOAK_NO_DEPLOYMENT=YES"
