@@ -78,7 +78,7 @@ class V2NetnsRuntimeTests(unittest.TestCase):
              patch.object(mod.os, "readlink", return_value="net:[111]"), \
              patch.object(mod.subprocess, "run", return_value=fake):
             report = mod.parent_run(edge_matrix=True)
-        self.assertEqual(report["blocker"], "ISOLATED_CHILD_EXIT_MISMATCH")
+        self.assertEqual(report["blocker"], "ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH")
         self.assertFalse(report["release_approved"])
 
     def test_preflight_failure_never_executes_unshare(self):
@@ -100,7 +100,7 @@ class V2NetnsRuntimeTests(unittest.TestCase):
              patch.object(mod.os,"readlink",return_value="net:[111]"), \
              patch.object(mod.subprocess,"run",return_value=fake):
             report = mod.parent_run()
-        self.assertEqual(report["blocker"],"ISOLATED_CHILD_EXIT_MISMATCH")
+        self.assertEqual(report["blocker"],"ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH")
 
     def test_child_refuses_equal_parent_namespace(self):
         with patch.object(mod.os,"readlink",return_value="net:[111]"), \
@@ -109,11 +109,33 @@ class V2NetnsRuntimeTests(unittest.TestCase):
                 mod.require_own_namespace("net:[111]")
 
     def test_child_refuses_any_non_loopback_interface_before_ip_changes(self):
-        with patch.object(mod.os,"readlink",return_value="net:[222]"), \
+        with patch.object(mod.os,"readlink",side_effect=lambda path: "net:[222]" if path == "/proc/self/ns/net" else "net:[111]"), \
              patch.object(mod.socket,"if_nameindex",return_value=[(1,"lo"),(2,"eth0")]), \
              patch.object(mod.subprocess,"run",side_effect=AssertionError("ran")):
             with self.assertRaisesRegex(ValueError,"NON_LOOPBACK_INTERFACE"):
                 mod.require_own_namespace("net:[111]")
+
+    def test_init_namespace_matches_child_is_blocked_before_socket_access(self):
+        with patch.object(mod.os, "readlink",
+                          side_effect=lambda path: "net:[222]"), \
+             patch.object(mod.socket, "if_nameindex",
+                          side_effect=AssertionError("interfaces read")):
+            with self.assertRaisesRegex(
+                    ValueError, "PID1_NETWORK_NAMESPACE_NOT_ISOLATED"):
+                mod.require_own_namespace("net:[111]")
+
+    def test_parent_denies_wrong_mode_even_when_exit_zero(self):
+        fake = types.SimpleNamespace(
+            returncode=0, stdout=json.dumps({"status": mod.STATUS_READY}),
+            stderr="")
+        with patch.object(mod.netns, "check_host",
+                          return_value={"status": "ISOLATED_NETNS_PREFLIGHT_READY"}), \
+             patch.object(mod.shutil, "which", return_value="/mock/unshare"), \
+             patch.object(mod.os, "readlink", return_value="net:[111]"), \
+             patch.object(mod.subprocess, "run", return_value=fake):
+            report = mod.parent_run(edge_matrix=True)
+        self.assertEqual(report["blocker"], "ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH")
+        self.assertFalse(report["release_approved"])
 
     def test_report_status_is_not_production_approval(self):
         self.assertNotIn("PUBLIC", mod.STATUS_READY)
