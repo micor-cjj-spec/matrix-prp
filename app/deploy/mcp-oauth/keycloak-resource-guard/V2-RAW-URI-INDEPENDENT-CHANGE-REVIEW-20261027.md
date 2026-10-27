@@ -73,6 +73,8 @@ Operator logs are reported evidence, **not** an independent signature or a fresh
 
 ### G4 — actual ChatGPT task-read acceptance (current status: **NOT PROVEN**)
 
+**2026-10-27 live Realm prerequisite inventory is now PASS for client/scope counts** (13 pre-existing clients, unique `prp-mcp`, `basic`/`offline_access`/`prp.tasks.read` all PRESENT; both exact OAuth clients MISSING). See [`G0-EXACT-CLIENT-DELTA-REVIEW-20261027.md`](G0-EXACT-CLIENT-DELTA-REVIEW-20261027.md) for operator-observed evidence, exact proposed client-only delta, outstanding policy/mapper/rollback checks, and explicit NO-GO. Scope *existence* is not a proof of client assignment or a B2 authorization.
+
 #### 2026-10-27 operator read-only baseline: OAuth clients are absent
 
 The operator ran read-only SQL against the **existing** isolated Keycloak
