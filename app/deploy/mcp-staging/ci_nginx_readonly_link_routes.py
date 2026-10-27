@@ -29,6 +29,9 @@ class MockHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.answer()
 
+    def do_HEAD(self):
+        self.answer()
+
     def answer(self):
         # No response body from any real user. Do not print request URI or
         # OAuth parameters; this is a synthetic mock.
@@ -178,6 +181,11 @@ def main():
                 ("/api/mcp/identity/oidc/start", "GET"),
             ):
                 assert_result(path, method, allowed=False)
+            # Nginx limit_except GET also admits HEAD; the mock must
+            # implement HEAD so a forwarded request cannot hide as 501.
+            for path in ("/prp/login", "/prp/sw.js", "/api/mcp/clients",
+                         "/api/users/me"):
+                assert_result(path, method="HEAD", allowed=False)
             assert_result("/prp/login", host="unrelated.invalid", allowed=False)
             assert_result("/api/mcp/identity/oidc/start", "POST",
                           origin="https://evil.example", allowed=False)
