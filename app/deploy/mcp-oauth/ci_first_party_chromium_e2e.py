@@ -10,6 +10,7 @@ import json
 import os
 from urllib.parse import urlsplit
 from oauth_token_check import _b64url
+from ci_browser_route_review import Audit, require_review_coverage
 
 from playwright.sync_api import sync_playwright
 
@@ -48,9 +49,11 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
         })();""" % json.dumps(prp_bearer))
         page = context.new_page()
         seen_origins = set()
+        route_audit = Audit()
         start_statuses = []
         page.on("request", lambda req: seen_origins.add(
             urlsplit(req.url).scheme + "://" + urlsplit(req.url).netloc))
+        page.on("request", lambda req: route_audit.record(req.method, req.url))
         # Status-only diagnostic; never capture request/response body or URI
         # query because authorization codes and states are sensitive.
         page.on("response", lambda response: start_statuses.append(response.status)
@@ -106,6 +109,8 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
                             """localStorage.setItem('matrix-prp-token',
                                'ci-invalid-prp-session')""")
                     negative_page = expired.new_page()
+                    negative_page.on("request", lambda req:
+                                     route_audit.record(req.method, req.url))
                     navs = []
                     negative_page.on("framenavigated", lambda frame:
                         navs.append(frame.url) if frame == negative_page.main_frame
@@ -129,6 +134,8 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
                         raise RuntimeError("EXPIRED_SESSION_REDIRECT_LEAK")
                 finally:
                     expired.close()
+            stage = "G0_BROWSER_REQUEST_ALLOWLIST"
+            require_review_coverage(route_audit)
         except Exception:
             # Never log the raw browser URL or OAuth requests. Report only
             # static stage, first-party start response class and current host.
