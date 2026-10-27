@@ -13,6 +13,7 @@ on:
       - "app/backend/src/main/java/com/matrix/prp/config/SecurityConfig.java"
       - "app/backend/src/main/java/com/matrix/prp/mcp/PrpMcpTools.java"
       - "app/backend/src/test/java/com/matrix/prp/TaskReadProducerBoundaryTests.java"
+      - "app/backend/src/test/java/com/matrix/prp/ProducerTaskDelegationCryptoProofTests.java"
       - "app/backend/pom.xml"
       - ".github/workflows/mcp-production-task-read-contract.yml"
   workflow_dispatch:
@@ -36,7 +37,7 @@ jobs:
           echo 'PRODUCER_REVIEW_ONLY_NO_API_NO_REAL_DATA_NO_DEPLOYMENT=YES'
 
   actual-owner-sql:
-    name: Existing MyBatis task read owner/limit boundaries, synthetic identities
+    name: Existing owner SQL + test-only signed owner delegation, synthetic identities
     runs-on: ubuntu-24.04
     timeout-minutes: 13
     steps:
@@ -49,9 +50,10 @@ jobs:
           java-version: '21'
           cache: maven
           cache-dependency-path: app/backend/pom.xml
-      - name: Run only synthetic owner SQL wrapper tests (no MySQL, API, or deployment)
+      - name: Run owner SQL and RSA-signed delegation denial tests (no HTTP, DB, or deployment)
         working-directory: app/backend
         run: |
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=TaskReadProducerBoundaryTests test
+          ./mvnw -B -ntp -Dtest=TaskReadProducerBoundaryTests,ProducerTaskDelegationCryptoProofTests test
           echo 'REAL_MYBATIS_QUERY_OWNER_BOUNDARY_WITH_MOCK_MAPPER_ONLY=YES'
+          echo 'SIGNED_DELEGATION_CRYPTO_PROOF_TEST_ONLY_NO_SERVICE_IDENTITY=YES'
