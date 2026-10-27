@@ -34,11 +34,8 @@ def build(sources=None):
     for key in required:
         if digest(sources[key]) != pins.FILES[key][1]:
             raise ValueError("REVIEW_ONLY_SOURCE_SHA256_MISMATCH")
-    if sources["review_main"] != sources["active_main"]:
-        # This may legitimately differ in some deployments; it is *not* an
-        # installation gate. Don't assert equality that the pinned pair lacks.
-        pass
-
+    # The active files are used only for SHA lineage verification; the
+    # new candidate is derived exclusively from the pinned review-only pair.
     guarded_test, overlay = rawguard.overlay(sources["review_test"])
     if digest(sources["review_test"]) != pins.FILES["review_test"][1]:
         raise ValueError("REVIEW_TEST_SOURCE_DRIFT")
@@ -46,7 +43,7 @@ def build(sources=None):
         raise ValueError("RAW_URI_GUARD_NOT_APPLIED")
     # Reconcile total transformed bytes with the two added deterministic
     # guards; a different rewrite, reordered directive or deleted line blocks.
-    paths, selected = rawguard.exact_locations_and_targets(sources["review_test"])
+    _, selected = rawguard.exact_locations_and_targets(sources["review_test"])
     if len(selected) != 2 or overlay["raw_uri_guards_inserted_in_disposable_vhost"] != 2:
         raise ValueError("PROTECTED_ROUTE_COUNT_DRIFT")
     artifacts = {
