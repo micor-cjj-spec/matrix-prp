@@ -201,6 +201,28 @@ def run_edge_checks(check):
               expected=(400, 403, 404, 405, 421), hits=0)
 
 
+def run_raw_uri_protocol_compat_checks(check):
+    """Validate both advertised exact entrypoints, not merely alias rejection.
+
+    The in-namespace upstream is synthetic: 200 here proves routing only,
+    not real OAuth metadata validity or authenticated MCP semantics.
+    """
+    check("compat_metadata_discovery_get",
+          path="/.well-known/oauth-protected-resource/api/mcp",
+          method="GET", expected=(200,), hits=1,
+          extra_headers={"Accept": "application/json"})
+    check("compat_metadata_discovery_query_rejected",
+          path="/.well-known/oauth-protected-resource/api/mcp?probe=1",
+          method="GET", expected=(404,), hits=0)
+    check("compat_mcp_post_query_rejected",
+          path="/api/mcp?probe=1", method="POST",
+          expected=(404,), hits=0,
+          extra_headers={"Content-Type": "application/json"})
+    check("compat_mcp_get_query_rejected",
+          path="/api/mcp?probe=1", method="GET",
+          expected=(404,), hits=0)
+
+
 def child_run(parent_namespace, *, edge_matrix=False, raw_guard=False):
     os.umask(0o077)
     require_own_namespace(parent_namespace)
@@ -274,6 +296,8 @@ def child_run(parent_namespace, *, edge_matrix=False, raw_guard=False):
                   verify_name=False, expected=(421,))
             if edge_matrix or raw_guard:
                 run_edge_checks(check)
+            if raw_guard:
+                run_raw_uri_protocol_compat_checks(check)
             try:
                 with tls_socket("127.0.0.1", socket.AF_INET, 443, HOST,
                                 root / "cert.pem", offer_h2=True) as h2:
@@ -319,6 +343,9 @@ def child_run(parent_namespace, *, edge_matrix=False, raw_guard=False):
                     checks["edge_canonical_get_control"]["status_code"]
                     if (edge_matrix or raw_guard) else None),
                 "synthetic_backend_total_requests": len(server.hits),
+                "mcp_discovery_metadata_schema_verified": False,
+                "real_mcp_protocol_compatibility_verified": False,
+                "raw_uri_compatibility_matrix_executed": raw_guard,
                 "network_interfaces": "LO_ONLY",
                 "default_routes": 0,
                 "nginx_syntax_in_namespace_passed": True,
