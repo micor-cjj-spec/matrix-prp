@@ -47,8 +47,8 @@ services:
       # Explicit opt-in after independently reviewed Keycloak public client,
       # browser callback routes, and real subject agreement. Defaults OFF.
       MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_ENABLED: ${PRP_STAGE_FIRST_PARTY_LINK_ENABLED:-false}
-      MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_CLIENT_ID: ${PRP_STAGE_FIRST_PARTY_CLIENT_ID:-prp-first-party-link}
-      MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_REDIRECT_URI: ${PRP_STAGE_FIRST_PARTY_REDIRECT_URI:-https://prp-test.micor.top/prp/me/mcp-link/callback}
+      MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_CLIENT_ID: ${PRP_STAGE_FIRST_PARTY_CLIENT_ID:-}
+      MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_REDIRECT_URI: ${PRP_STAGE_FIRST_PARTY_REDIRECT_URI:-}
       MATRIX_PRP_AI_SPRING_AI_ENABLED: "false"
       MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED: "false"
       MATRIX_PRP_VIDEO_ROOT: /data/video
