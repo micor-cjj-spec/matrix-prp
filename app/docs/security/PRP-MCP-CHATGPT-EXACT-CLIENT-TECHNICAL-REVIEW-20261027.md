@@ -128,3 +128,16 @@ Before replacing the official JWKS URL with an unrelated temporary CI certificat
 **Updated finding:** `P0-4` has one verified RFC 9207 no-login error response, not every authorization/error mode. The public official JWKS egress prerequisite is verified at the **network namespace** level only. **Still missing:** actual Keycloak JVM fetching/verifying OpenAI-managed JWKS under live TLS trust, real OpenAI-signed client assertion, real ChatGPT callback, per-user account Subject in the live Realm, reviewed routes, and two independent B2 approval/restore receipts.
 
 **Release decision unchanged:** `LIVE_OAUTH=UNVERIFIED`, `B2=NO-GO`; PR #113 remains Draft; no host/production Nginx or Keycloak writes.
+
+## 2026-10-27 — 首方绑定安全复核与签署门禁待办
+
+**隔离环境新证据：** [PRP Java/OAuth 契约 CI 40463600050](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40463600050) **4 jobs SUCCESS**；[真实一次性 Keycloak/MySQL/PRP E2E 40463540580](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40463540580) **SUCCESS**（该 E2E 执行了生产代码对应的提交，但在后来新增的单元测试提交之前）。这不包含真实 ChatGPT Token。
+
+两项独立审查后的代码收敛：
+
+1. `McpFirstPartyOidcLinkService.validFirstPartyIdTokenAudience` 除了验证第一方 OAuth Client ID 必须在 ID Token `aud` 中，还验证**一旦 `azp` 存在，必须与第一方 Client ID 一致**；多个 `aud` 时 `azp` 仍为强制。原代码在单一 `aud` 场景可能接受错误 `azp`。六项本地 token 数据结构的正反断言已进入 Java CI。
+2. 一次性 PKCE 的五分钟 `expires_at` 使用 `DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE)`，之后的过期检查继续由 **相同 MySQL 时钟**决定，不再受 Java 主机或数据库容器时区差异影响。真实 MySQL 8.4 E2E 保持通过。
+
+**尚未得到的真实现场证据和独立授权没有减少：** 真实活跃 Realm 的 13 个旧客户端不变性、两个精确批准的新增 Client/Policy 配置、ChatGPT 官方签名客户端断言在 Keycloak JVM 内的有效验证、两个客户端签发同一用户 Subject 的一致性、公网 Nginx Host/SNI/IPv6/HTTP2 与回滚、新鲜 B2 恢复凭证、用户亲自完成 OAuth 的只读 `prp_tasks_list`。
+
+**裁定：** PR #113 只作为 **Draft 安全验证候选**；严格维持 `B2=NO-GO` 与 `LIVE_CHATGPT_TASKS=UNVERIFIED`，禁止将上述 CI 输出自动转换成 `approved-install.safe.json`、`fresh-b2-restore.safe.json` 或生产安装许可。
