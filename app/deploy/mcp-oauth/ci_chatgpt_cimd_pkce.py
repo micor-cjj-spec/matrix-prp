@@ -284,7 +284,10 @@ def install_exact_preregistered(token):
             "protocol": "openid-connect",
             "protocolMapper": "oidc-audience-mapper",
             "config": {
-                "included.client.audience": "matrix-prp-mcp-resource",
+                # Exact HTTPS resource audience, not the internal bearer
+                # client's identifier. Token claims must still be verified
+                # from a real isolated authorization-code exchange.
+                "included.custom.audience": RESOURCE,
                 "id.token.claim": "false",
                 "access.token.claim": "true",
             },
