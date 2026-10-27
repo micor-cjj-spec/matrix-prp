@@ -7,6 +7,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import com.matrix.prp.auth.model.UserProfile;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -34,6 +39,32 @@ class McpFirstPartyOwnerMappingTests {
         when(users.findById(7L)).thenReturn(Optional.of(
             new UserAccount(7, "owner", "Owner", "hashed", false, true)));
         when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.tasks.read"));
+    }
+
+    @AfterEach
+    void clearSession() {
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void unlinkCancelsOnlyWhenV28FirstPartyLinkFeatureIsEnabled() {
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                new UserProfile(7, "owner", "Owner"), null, List.of()));
+        when(encoder.matches("owner-password", "hashed")).thenReturn(true);
+
+        // Default off: old V27 installations have no V28 table.
+        links.unlink("owner-password");
+        verify(db, never()).update(startsWith("UPDATE prp_mcp_oidc_link_flows"),
+            any(Object[].class));
+
+        // Enabling the feature must invalidate any pending OIDC flow as part
+        // of the same owner-authenticated unlink transaction.
+        ReflectionTestUtils.setField(links, "firstPartyOidcLinkEnabled", true);
+        links.unlink("owner-password");
+        verify(db, times(1)).update(
+            startsWith("UPDATE prp_mcp_oidc_link_flows"),
+            eq(7L));
     }
 
     @Test
