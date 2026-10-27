@@ -78,7 +78,7 @@ class PreparedV2RawUriReviewTests(unittest.TestCase):
         generated, report = self.prepare()
         for dest in (self.root / "misc",
                      self.root / "review-only-v2-guard-rawuri" / "etc",
-                     Path("/etc/nginx/conf.d/review-only-v2-guard-rawuri")):
+                     self.root.parent / "review-only-v2-guard-outside"):
             with self.subTest(dest=str(dest)):
                 with self.assertRaises(ValueError):
                     mod.create_review(dest, generated, report, root=self.root)
