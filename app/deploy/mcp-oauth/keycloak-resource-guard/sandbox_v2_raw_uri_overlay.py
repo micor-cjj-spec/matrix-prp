@@ -20,9 +20,21 @@ def exact_locations_and_targets(raw):
     """Validate all exact locations and identify exactly two V2 routes."""
     tree = audit.parse(raw)
     exact_paths, protected = [], []
-    for server in tree:
-        if server[0] != "server" or server[2] is None:
-            raise ValueError("UNEXPECTED_CANDIDATE_CONFIG_LAYOUT")
+    # nginx http-level sibling directives (for example limit_req_zone,
+    # map, or limit_conn_zone) are allowed by the pinned candidate's
+    # already-passed nginx -t; they are not server blocks.
+    servers = [node for node in tree if node[0] == "server"]
+    if len(servers) != 2 or any(node[2] is None for node in servers):
+        raise ValueError("UNEXPECTED_CANDIDATE_SERVER_LAYOUT")
+    for sibling in tree:
+        if sibling[0] == "server":
+            continue
+        # Never silently skip an out-of-server proxy or location.
+        if any(node[0] in ("location", "proxy_pass", "grpc_pass",
+                           "uwsgi_pass", "fastcgi_pass", "scgi_pass", "server")
+               for node in audit.walk([sibling])):
+            raise ValueError("UNEXPECTED_DIRECTIVE_OUTSIDE_SERVER")
+    for server in servers:
         for node in audit.walk(server[2]):
             name, args, children = node
             if name != "location" or not args or args[0] != "=":
