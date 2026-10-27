@@ -190,10 +190,18 @@ public class McpFirstPartyOidcLinkService {
         db.update("DELETE FROM prp_mcp_oidc_link_flows " +
             "WHERE user_id=? AND expires_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 DAY)",
             owner);
-        Integer count = db.queryForObject(
-            "SELECT COUNT(*) FROM prp_mcp_oidc_link_flows WHERE user_id=? " +
-            "AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP", Integer.class, owner);
-        if (count != null && count >= 3)
+        // A normal COUNT(*) here is a REPEATABLE READ consistent snapshot:
+        // earlier consent/user SELECTs already fixed that snapshot before
+        // this transaction acquired the PRP owner row lock. Six concurrent
+        // requests were all accepted in real MySQL CI. Force an InnoDB
+        // *locking current read* AFTER owner-row serialization, and cap
+        // result rows at three so old snapshots cannot bypass the quota.
+        List<String> currentActive = db.query(
+            "SELECT state_hash FROM prp_mcp_oidc_link_flows WHERE user_id=? " +
+            "AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP " +
+            "LIMIT 3 FOR UPDATE",
+            (rs, row) -> rs.getString(1), owner);
+        if (currentActive.size() >= 3)
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                 "Too many pending identity link requests");
         String state = randomToken(32);
