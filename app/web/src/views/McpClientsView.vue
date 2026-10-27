@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { beginFirstPartyOidcLink } from '@/api/mcpFirstPartyOidc'
 import {
   authorizeMcpClient, listMcpClients, mcpScopes, revokeMcpClient,
   type McpClientGrant,
@@ -13,6 +14,9 @@ import {
 
 const clients = ref<McpClientGrant[]>([])
 const identities = ref<McpIdentityLink[]>([])
+const firstPartyPassword = ref('')
+const firstPartyBusy = ref(false)
+const firstPartyError = ref('')
 const pairClientId = ref('')
 const pairPassword = ref('')
 const unlinkPassword = ref('')
@@ -37,6 +41,27 @@ async function refresh() {
 async function refreshIdentities() {
   try { identities.value = await listMcpIdentityLinks() }
   catch { identities.value = [] }
+}
+
+async function beginOidcLink() {
+  if (!firstPartyPassword.value || firstPartyBusy.value) return
+  firstPartyBusy.value = true
+  firstPartyError.value = ''
+  try {
+    const authorizeUrl = await beginFirstPartyOidcLink(firstPartyPassword.value)
+    firstPartyPassword.value = ''
+    // Never send a PRP password, client secret or access token to the IdP.
+    // Redirect only to the reviewed Keycloak issuer's HTTPS authorization URL.
+    const endpoint = new URL(authorizeUrl)
+    if (endpoint.protocol !== 'https:' || !endpoint.pathname.endsWith('/protocol/openid-connect/auth')) {
+      throw new Error('unexpected-oidc-url')
+    }
+    window.location.assign(endpoint.toString())
+  } catch {
+    firstPartyPassword.value = ''
+    firstPartyError.value = '无法启动 Keycloak 绑定：请先批准 ChatGPT 的读取任务权限，核对 PRP 密码，并确认第一方 OAuth 功能已启用。'
+    firstPartyBusy.value = false
+  }
 }
 
 async function issueTicket() {
@@ -131,7 +156,25 @@ onMounted(() => { void refresh(); void refreshIdentities() })
         </el-form>
       </el-card>
       <el-card shadow="never" class="section">
-        <template #header>关联 PRP 与外部 OAuth 账号</template>
+        <template #header>推荐：在 PRP 中通过 Keycloak 安全绑定账号</template>
+        <p>先在上方为 <code>https://chatgpt.com/oauth/client.json</code> 批准“读取任务”权限。
+          然后使用 PRP 密码确认，由 PRP 直接跳转到独立的 Keycloak 登录页面验证你的身份。
+          完成后返回 PRP，整个过程无需向聊天窗口发送密码、OAuth Token 或关联码。</p>
+        <el-alert type="info" :closable="false" title="此功能须由管理员独立启用第一方 Keycloak 客户端、回调及专用路由；当前服务器未部署。"
+          class="section" />
+        <el-form label-position="top" @submit.prevent="beginOidcLink">
+          <el-form-item label="再次输入 PRP 密码确认身份绑定">
+            <el-input v-model="firstPartyPassword" type="password" show-password
+              autocomplete="current-password" maxlength="256" />
+          </el-form-item>
+          <el-button type="primary" :disabled="!firstPartyPassword || firstPartyBusy"
+            :loading="firstPartyBusy" native-type="submit">使用 Keycloak 验证并绑定</el-button>
+        </el-form>
+        <el-alert v-if="firstPartyError" type="error" :closable="false"
+          :title="firstPartyError" class="section" />
+      </el-card>
+      <el-card shadow="never" class="section">
+        <template #header>旧版：手动生成一次性关联码（仅用于受控联调）</template>
         <p>先完成上方客户端授权，然后创建一次性关联码。外部 OAuth 客户端必须使用其已验证的 Bearer Token 调用 PRP 的 <code>POST /api/mcp/link</code> 完成关联。</p>
         <el-form label-position="top" @submit.prevent="issueTicket">
           <el-form-item label="待关联的客户端 ID（必须与上方已批准的客户端一致）">
