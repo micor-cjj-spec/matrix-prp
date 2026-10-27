@@ -34,6 +34,7 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -157,6 +158,7 @@ public class McpFirstPartyOidcLinkService {
         return audience.size() == 1 || clientId.equals(azp);
     }
 
+    @Transactional
     public Begin begin(String password) {
         long owner = CurrentUser.id();
         if (!grants.grantedScopes(owner, CHATGPT_CLIENT_ID).contains("prp.tasks.read"))
@@ -172,6 +174,22 @@ public class McpFirstPartyOidcLinkService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PRP reauthentication failed");
         }
         attempts.recordSuccess("mcp-first-party-link", account.username());
+        // Serialize concurrent starts for the same PRP owner BEFORE counting
+        // live flows. Without this row lock several parallel requests can all
+        // see count<3 and bypass the intended three-flow cap.
+        Long lockedOwner = db.queryForObject(
+            "SELECT id FROM prp_users WHERE id=? FOR UPDATE", Long.class, owner);
+        if (lockedOwner == null || lockedOwner != owner)
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "PRP owner changed");
+        // Keep stale secrets out of persistent MySQL. Expired flows cannot be
+        // used again; redact their verifier/nonce now, and clean very old
+        // records opportunistically for this owner without a background job.
+        db.update("UPDATE prp_mcp_oidc_link_flows SET code_verifier='', oidc_nonce='' " +
+            "WHERE user_id=? AND expires_at <= CURRENT_TIMESTAMP " +
+            "AND (code_verifier<>'' OR oidc_nonce<>'')", owner);
+        db.update("DELETE FROM prp_mcp_oidc_link_flows " +
+            "WHERE user_id=? AND expires_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 DAY)",
+            owner);
         Integer count = db.queryForObject(
             "SELECT COUNT(*) FROM prp_mcp_oidc_link_flows WHERE user_id=? " +
             "AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP", Integer.class, owner);
@@ -219,7 +237,8 @@ public class McpFirstPartyOidcLinkService {
         // Claim first in an autocommitted statement; a failed token exchange
         // must never make the flow reusable. No transaction wraps this method.
         int consumed = db.update("UPDATE prp_mcp_oidc_link_flows " +
-            "SET consumed_at=CURRENT_TIMESTAMP WHERE state_hash=? AND user_id=? " +
+            "SET consumed_at=CURRENT_TIMESTAMP, code_verifier='', oidc_nonce='' " +
+            "WHERE state_hash=? AND user_id=? " +
             "AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP",
             sha256(state), owner);
         if (consumed != 1)
