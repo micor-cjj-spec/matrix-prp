@@ -225,6 +225,19 @@ def run_raw_uri_protocol_compat_checks(check):
           expected=(404,), hits=0)
 
 
+def pin_verified_review_vhosts(sources, verified_main, verified_test):
+    """Keep verified candidate bytes separate from route inventory metrics."""
+    if set(sources) != {"active_main", "active_test",
+                        "review_main", "review_test"}:
+        raise ValueError("PINNED_REVIEW_SOURCE_SET_DRIFT")
+    if not verified_main or not verified_test:
+        raise ValueError("PINNED_REVIEW_VHOST_BYTES_MISSING")
+    staging = dict(sources)
+    staging["review_main"] = verified_main
+    staging["review_test"] = verified_test
+    return staging
+
+
 def child_run(parent_namespace, *, edge_matrix=False, raw_guard=False,
               pinned_review=False):
     os.umask(0o077)
@@ -254,9 +267,9 @@ def child_run(parent_namespace, *, edge_matrix=False, raw_guard=False,
         # Reuse the same sanitizer and disposable Nginx wrapper as previous
         # tests; in pinned-review mode these bytes come from the actual
         # verified files, not a freshly generated overlay.
-        test_sources = dict(sources)
-        if pinned_review:
-            test_sources["review_main"], test_sources["review_test"] = (verified_main, verified_test)
+        test_sources = (pin_verified_review_vhosts(
+            sources, verified_main, verified_test)
+            if pinned_review else dict(sources))
         config, counts, active_files, raw_report = make_nginx_configuration(
             test_sources, root, nginx, raw_guard=raw_guard)
         # No host 18082 reachable: this synthetic upstream belongs solely to
