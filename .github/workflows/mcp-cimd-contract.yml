@@ -1,7 +1,7 @@
 name: PRP ChatGPT CIMD contract (offline)
 on:
   push:
-    branches: [fix/mcp-cimd-readonly-audit-20261024]
+    branches: [fix/mcp-cimd-readonly-audit-20261024, test/mcp-authcode-privatejwt-refresh-20261024]
   pull_request:
     branches: [feat/mcp-public-acceptance-20261024]
 permissions:
@@ -24,7 +24,7 @@ jobs:
         working-directory: app/backend
         run: |
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=McpOAuthSecurityTests,McpOAuthAdvertisedScopesTests test
+          ./mvnw -B -ntp -Dtest=McpOAuthSecurityTests,McpOAuthTaskIsolationTests,McpOAuthAdvertisedScopesTests,McpOAuthCanonicalResourceTests,McpOAuthJwtValidationTests,McpOAuthClientIdentityTests,McpActivationGuardTests test
   cimd-contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
