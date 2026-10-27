@@ -145,13 +145,13 @@ def configure(token):
     print("PASS CIMD: two isolated profiles and policies active in disposable Keycloak.")
 
 
-def auth_request(method):
+def auth_request(method, *, scope="openid"):
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     state = secrets.token_urlsafe(24)
     params = {
         "client_id": CLIENT, "response_type": "code", "redirect_uri": REDIRECT,
-        "scope": "openid", "state": state, "resource": RESOURCE,
+        "scope": scope, "state": state, "resource": RESOURCE,
     }
     if method == "S256":
         params.update({"code_challenge_method": "S256", "code_challenge": challenge})
@@ -187,8 +187,8 @@ def auth_request(method):
     return status, error, location, diagnostic
 
 
-def require_pkce_result(mode):
-    status, error, location, diagnostic = auth_request(mode)
+def require_pkce_result(mode, *, scope="openid"):
+    status, error, location, diagnostic = auth_request(mode, scope=scope)
     if mode == "S256":
         # 200 login page or an internal Keycloak redirect to its login route.
         internal = location.startswith(BASE + "/realms/prp-mcp/") or location.startswith("/realms/prp-mcp/")
@@ -215,7 +215,23 @@ def verify_persisted(token):
         raise RuntimeError("CIMD_CLIENT_S256_NOT_PERSISTED")
     if client.get("redirectUris") != [REDIRECT]:
         raise RuntimeError("CIMD_CLIENT_CALLBACK_MISMATCH")
-    print("PASS CLIENT: exact callback and persisted S256 verified.")
+    if client.get("publicClient") is not False or client.get("fullScopeAllowed") is not False:
+        raise RuntimeError("CIMD_CLIENT_SCOPE_OR_AUTH_BROADENED")
+    from urllib.parse import quote
+    internal_id = client.get("id")
+    if not isinstance(internal_id, str) or not internal_id:
+        raise RuntimeError("CIMD_CLIENT_INTERNAL_ID_MISSING")
+    endpoint = REALM_ADMIN + "/clients/" + quote(internal_id, safe="") + "/optional-client-scopes"
+    status, _, raw = request(endpoint, bearer=token)
+    if status != 200:
+        raise RuntimeError("CIMD_CLIENT_OPTIONAL_SCOPE_READ_FAILED")
+    optional = json.loads(raw)
+    if not isinstance(optional, list):
+        raise RuntimeError("CIMD_CLIENT_OPTIONAL_SCOPE_NOT_ARRAY")
+    names = {s.get("name") for s in optional if isinstance(s, dict)}
+    if names != {"prp.tasks.read", "offline_access"}:
+        raise RuntimeError("CIMD_CLIENT_TASK_OFFLINE_SCOPE_MISMATCH")
+    print("PASS CLIENT: exact callback, S256 and limited task/offline optional scopes verified.")
 
 
 
@@ -257,7 +273,7 @@ def install_exact_preregistered(token):
         "redirectUris": [REDIRECT],
         "webOrigins": [],
         "defaultClientScopes": ["basic"],
-        "optionalClientScopes": ["prp.tasks.read"],
+        "optionalClientScopes": ["prp.tasks.read", "offline_access"],
         "attributes": {
             "use.jwks.url": "true",
             "jwks.url": "https://chatgpt.com/oauth/jwks.json",
@@ -329,6 +345,12 @@ def main():
         disable_dynamic_cimd_after_preregistration(token)
         require_pkce_result("S256")
         verify_persisted(token)
+        # A bare 'openid' probe is insufficient: ChatGPT's actual grant
+        # requests both optional offline_access and PRP task-read scope.
+        # This verifies only the authorization/login entry; no user login,
+        # consent, code exchange or real ChatGPT assertion is simulated.
+        require_pkce_result("S256", scope="openid offline_access prp.tasks.read")
+        print("PASS PREREG: real three-scope authorization reaches login entry without OAuth error.")
         for mode in ("missing", "plain"):
             require_pkce_result(mode)
             print("PASS PREREG: " + mode + " PKCE rejected on exact client.")
