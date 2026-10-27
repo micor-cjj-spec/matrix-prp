@@ -9,6 +9,7 @@ E2E verifies the CA chain, not this browser automation.
 import json
 import os
 from urllib.parse import urlsplit
+from oauth_token_check import _b64url
 
 from playwright.sync_api import sync_playwright
 
@@ -34,7 +35,7 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
     stage = "CHROMIUM_START"
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, args=[
-            "--no-sandbox", "--disable-dev-shm-usage"])
+            "--no-sandbox", "--disable-dev-shm-usage", "--no-proxy-server"])
         # CI-only certificate trust exception; never use this with live PRP.
         context = browser.new_context(ignore_https_errors=True,
                                       service_workers="block")
@@ -75,7 +76,7 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
                 page.get_by_role("button", name="Accept").click(timeout=3000)
             except Exception:
                 try:
-                    page.locator('input[name="accept"]').click(timeout=1000)
+                    page.locator('input[name="accept"], button[name="accept"], #kc-accept').first.click(timeout=1000)
                 except Exception:
                     pass
             stage = "PRP_CALLBACK_SUCCESS"
@@ -97,8 +98,12 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
     links = flow.json_response(flow.request(
         opener, PRP + "/api/mcp/identity", bearer=prp_bearer),
         "Account mapping after Chromium callback").get("data")
-    if not isinstance(links, list) or len(links) != 1:
-        raise RuntimeError("BROWSER_OIDC_SUBJECT_NOT_LINKED")
+    signed_mcp_subject = json.loads(_b64url(
+        oauth_bearer.split(".")[1])).get("sub")
+    if (not isinstance(links, list) or len(links) != 1
+            or links[0].get("issuer") != flow.ISSUER
+            or links[0].get("subject") != signed_mcp_subject):
+        raise RuntimeError("BROWSER_OIDC_SUBJECT_NOT_LINKED_TO_MCP_IDENTITY")
     result = flow.jsonrpc(opener, oauth_bearer, 73, "tools/call",
                           {"name": "prp_tasks_list", "arguments": {}})
     if result[0] != 200 or result[1].get("error") or             result[1].get("result", {}).get("isError"):
