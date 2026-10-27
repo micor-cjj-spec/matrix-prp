@@ -116,8 +116,27 @@ def _render_routes(trusted_ca, port, exact, regex, *, tls_upstream):
 """)
     blocks = ["# PENDING REVIEW ONLY: do not include in live Nginx.\n"]
     for path, verbs in exact.items():
-        blocks.append("location = " + path + " {\n    limit_except " + verbs + " { deny all; }\n" + common + "}\n")
+        # Nginx matches normalized $uri. This must also validate the
+        # ORIGINAL request target, otherwise percent-encoded aliases can
+        # reach an exact location. The optional query is required by the
+        # OAuth callback (code/state/iss); only the PATH is pinned here.
+        canonical = ""
+        if not tls_upstream:
+            pattern = "^" + re.escape(path) + r"(?:\?.*)?$"
+            canonical = ('    if ($request_uri !~ "' + pattern
+                         + '") { return 404; }\n')
+        blocks.append("location = " + path + " {\n    limit_except " + verbs
+                      + " { deny all; }\n" + canonical + common + "}\n")
     # Quote regexes because canonical UUID quantifiers contain braces.
     for path, verbs in regex.items():
-        blocks.append('location ~ "' + path + '" {\n    limit_except ' + verbs + ' { deny all; }\n' + common + '}\n')
+        canonical = ""
+        if not tls_upstream:
+            # The raw, undecoded URL has the same single-segment asset
+            # grammar. A normalized, encoded or path-aliased URL must fail.
+            pattern = path[:-1] + r"(?:\?.*)?$"
+            canonical = ('    if ($request_uri !~ "' + pattern
+                         + '") { return 404; }\n')
+        blocks.append('location ~ "' + path + '" {\n    limit_except '
+                      + verbs + ' { deny all; }\n' + canonical
+                      + common + '}\n')
     return "\n".join(blocks)
