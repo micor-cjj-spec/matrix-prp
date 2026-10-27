@@ -1,0 +1,34 @@
+name: PRP MCP producer-side task read architecture (source only)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/mcp-staging/producer_task_read.review.json"
+      - "app/deploy/mcp-staging/G0-C-PRODUCTION-TASK-READ-BRIDGE-REVIEW-20261027.md"
+      - "app/deploy/mcp-staging/test_producer_task_read_contract.py"
+      - "app/backend/src/main/java/com/matrix/prp/tasks/**"
+      - "app/backend/src/main/java/com/matrix/prp/auth/security/CurrentUser.java"
+      - "app/backend/src/main/java/com/matrix/prp/config/SecurityConfig.java"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/PrpMcpTools.java"
+      - ".github/workflows/mcp-production-task-read-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Inspect source-only producer task read contract (no server)
+        run: |
+          python3 -m json.tool app/deploy/mcp-staging/producer_task_read.review.json > /dev/null
+          python3 -m py_compile app/deploy/mcp-staging/test_producer_task_read_contract.py
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_producer_task_read_contract.py -v
+          echo 'PRODUCER_REVIEW_ONLY_NO_API_NO_REAL_DATA_NO_DEPLOYMENT=YES'
