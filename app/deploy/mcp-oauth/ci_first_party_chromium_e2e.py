@@ -93,6 +93,42 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
                 raise RuntimeError("BROWSER_OAUTH_CALLBACK_URL_NOT_SCRUBBED")
             if seen_origins.difference({PRP, ISSUER_ORIGIN}):
                 raise RuntimeError("BROWSER_UNEXPECTED_THIRD_PARTY_REQUEST")
+            stage = "EXPIRED_PRP_SESSION_CALLBACK_SANITIZATION"
+            # Two real Chromium loads with fake test-only callback parameters:
+            # absent and deliberately invalid PRP sessions. Startup 401
+            # handling must never redirect to /login?redirect=...code/state.
+            for stored in (None, "ci-invalid-prp-session"):
+                expired = browser.new_context(ignore_https_errors=True,
+                                              service_workers="block")
+                try:
+                    if stored is not None:
+                        expired.add_init_script(
+                            """localStorage.setItem('matrix-prp-token',
+                               'ci-invalid-prp-session')""")
+                    negative_page = expired.new_page()
+                    navs = []
+                    negative_page.on("framenavigated", lambda frame:
+                        navs.append(frame.url) if frame == negative_page.main_frame
+                        else None)
+                    synthetic = (
+                        PRP + "/prp/me/mcp-link/callback?code=ci-code"
+                        + "&state=" + "S" * 43
+                        + "&iss=" + flow.ISSUER)
+                    negative_page.goto(synthetic, wait_until="domcontentloaded",
+                                       timeout=30000)
+                    negative_page.wait_for_function(
+                        "() => location.search === ''", timeout=15000)
+                    # Give the profile lookup its chance to fire 401.
+                    negative_page.wait_for_timeout(1200)
+                    if negative_page.url != PRP + "/prp/me/mcp-link/callback":
+                        raise RuntimeError("EXPIRED_SESSION_CALLBACK_REDIRECTED")
+                    if any(
+                        ("/login" in url and ("code=" in url or "state=" in url))
+                        for url in navs
+                    ):
+                        raise RuntimeError("EXPIRED_SESSION_REDIRECT_LEAK")
+                finally:
+                    expired.close()
         except Exception:
             # Never log the raw browser URL or OAuth requests. Report only
             # static stage, first-party start response class and current host.
