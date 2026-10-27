@@ -1,7 +1,28 @@
 # ChatGPT → PRP 只读 MCP：首次身份绑定与最小公网路由评审（2026-10-27）
 
-> **结论：P0 ACCOUNT BOOTSTRAP CODE CANDIDATE; ISOLATED END-TO-END UNVERIFIED. NO-GO for real ChatGPT task reads.**
-> 本文及 `render_readonly_link_routes` 仅为评审候选；无发布许可、不改动 Nginx/Keycloak/PRP、不开放 B2、不发放收据、不代表真实 ChatGPT OAuth 登录或 `prp_tasks_list` 已成功。
+> **最新有效结论（2026-10-27，PR #113）：`FIRST_PARTY_CODE=CI_VERIFIED`；`DISPOSABLE_BROWSER_PKCE=PASSED`；`REAL_NGINX_EXACT_ROUTE=PASSED_IN_CI`；`LIVE_V2_DEPLOYED=NO`；`REAL_CHATGPT_OAUTH=UNVERIFIED`；`REAL_PRP_TASKS=NOT_CONNECTED`；`G0/B2=NO-GO`。**
+> 本页保留早期设计和阶段性失败记录，**以下早期“尚未实现 / E2E 未验证”描述只对当时提交生效**，不得覆盖本页最新状态。尚未取得实际主机发布批准，也没有改动现有 V2、Keycloak、Nginx 或生产数据库。
+
+## 当前可复核的验证证据（不是发布许可）
+
+| 目标 | 当前证据 | 尚不能证明 |
+| --- | --- | --- |
+| 第一方 PRP 账号绑定，Keycloak PKCE、身份关联、撤销 | [一次性 Keycloak+MySQL+Java E2E](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40505801787) **SUCCESS** | 真实 ChatGPT 用户已绑定 |
+| Vue 页面及浏览器实际请求白名单 | [Chromium browser E2E](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40521640441) **SUCCESS**；[最新 Chromium 回归](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40525308360) **SUCCESS** | 实际公网 TLS、iPhone Safari 及当前 V2 已部署 |
+| CI Docker 产物和新数据库 | [最终 OCI 镜像](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40507755945)、[全新 MySQL + V28](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40510048879) 均 **SUCCESS** | 历史 V2 数据库与 V24 冲突已解决 |
+| Nginx 精确原始 URI 与方法限制 | [真实 Nginx 14 个合法 + 18 个拒绝](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40530589102) **SUCCESS** | 原六文件公网 Nginx 的 TLS/SNI/HTTP2/IPv6 已安装 |
+| OAuth/CIMD 契约 | [最新离线契约 CI](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40530589230) **SUCCESS** | 活跃 Realm 已登记两个客户端，或者 ChatGPT 真实 `private_key_jwt` 成功 |
+| 主机资源隔离 | 经操作者反馈，`18083` 当时无占用、旧网关均在且测试资源满足最低阈值 | G0、B2 已签署或端口永久保留 |
+
+**联调目标不可混淆：** 旧 Staging `18081`、已运行但缺少第一方绑定功能的 V2 `18082`、CI 证明能够在**空库**启动但未安装的 NewDB 候选 `18083` 是三个不同状态。待评审浏览器路由指向 V2 `18082`，**不是** NewDB `18083`；NewDB 不包含用户当前生产 PRP 任务。详见 [G0 环境与数据目标决策](G0-NEWDB-V2-TOPOLOGY-DECISION-20261027.md)、[G0 最小公网路由评审](G0-BROWSER-STATIC-ROUTE-SURFACE-20261027.md) 和 [Flyway 历史迁移冲突](../../docs/technical/mcp-flyway-lineage-reconciliation.md)。
+
+**唯一合理的实际发布顺序：** 独立 G0-A（可选的本机隔离 NewDB、功能默认关闭）→ **独立** G0-B/B2（原审批控制器要求的授权、备份恢复、活跃 Keycloak 精确客户端、选择唯一目标后审核 Nginx 实际变更）→ G0-C（经授权接入**真正 PRP 用户的任务数据**）→ 在 ChatGPT 中实际授权并调用 `prp_tasks_list`（最多 20 条，必须检验归属、撤销和超范围拒绝）。若未取得真实批准，停止在代码/评审阶段，**不要创建收据或绕过门禁**。
+
+---
+
+## 历史设计与逐步验收记录（按当时状态保留）
+
+
 
 ## 真实调用链的确认
 
