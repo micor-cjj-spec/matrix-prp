@@ -163,3 +163,15 @@ CI 先用 `VITE_APP_BASE=/prp/` 构建真实 Vue 页面，通过一次性 HTTPS 
 **当前可关闭的隔离测试验收：** `FIRST_PARTY_CHROMIUM_DISPOSABLE_E2E=PASSED`，`EXPIRED_SESSION_CALLBACK_NEGATIVE=PASSED`。
 
 **仍未验证的线上发布前条件：** iPhone Safari 真机表现、线上首方 Client/ChatGPT Client 的签名 `sub` 一致性、OpenAI 真实 `private_key_jwt`、受控外部 Nginx Host/SNI/raw-URI/IPv6/HTTP2 验收、B2 独立审批和恢复双凭证。生产环境保持不变，`LIVE_CHATGPT_TASKS=UNVERIFIED`、`B2=NO-GO`。
+
+## 2026-10-27 07:20 UTC — 真实 MySQL 并发 PKCE 配额漏洞与修复
+
+**发现：** 在一次性 MySQL 8.4、Keycloak 26.8.0、PRP Java 21、HTTPS 代理的真实测试环境，六个并行 `POST /api/mcp/identity/oidc/start` 均返回 HTTP 200；经只返回聚合数值的数据库查询证实，`prp_mcp_oidc_link_flows` 至少有 **6 条仍有效的 pending state**（总 8 条中此前两条已消费）。日志 `CONCURRENT_PKCE_CAP_FAILED_HTTP_200x6_DB_TOTAL_ACTIVE_MIN_MAX_8_6_299_300` 来自 [失败 CI 40465768608](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40465768608)。这是真实配额缺陷，不能把旧的 3 流程限制测试当作通过。
+
+**原因：** `McpFirstPartyOidcLinkService.begin` 在 `@Transactional` 开始后先执行 consent、owner 等普通读，InnoDB `REPEATABLE READ` 的一致性快照可能在取得 `prp_users FOR UPDATE` 排它行锁**之前**建立；之后普通 `SELECT COUNT(*)` 继续使用过期快照，六个串行持锁事务仍可能各自读取到旧的零条状态。
+
+**修复：** 保留用户行锁，并把三流程配额检查改为 `SELECT state_hash ... LIMIT 3 FOR UPDATE` **锁定当前读**；读已提交的最新 pending 状态，触及 3 条立即 429，不使用旧快照的非锁定 COUNT。新增六并发真实 MySQL 验收；[修复版 E2E CI 40465988250](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40465988250) **SUCCESS**，以及 [Java/前端/OAuth 契约 CI 40466095499](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40466095499) **SUCCESS**。CI 测试身份、数据库均随 Runner 销毁，没有访问活跃数据库。
+
+**秘密最小化：** 完成 `/finish` 时在一次性状态消费 SQL 中同时清空 `code_verifier` 和 `oidc_nonce`；主动 `/unlink` 时清空未完成状态的这两个字段；合法用户下一次发起绑定前，清空已过期记录的临时秘密，并删除该用户名下一天以前的陈旧记录。**注意**：机会式按用户清理不保证长时间不登录的旧账号记录会立即清理完毕，正式运行仍需单独设计受控的周期性垃圾回收及可审计的保留期。
+
+**发布边界不变：** 这是修复一个真实并发漏洞和数据最小化缺口，**不是**额外的 Nginx、Keycloak、B2 安装审批或真实 ChatGPT OAuth 验收。PR #113 保持 Draft；原安全控制器及 13 个活跃客户端没有在本轮修改。ChatGPT `prp_tasks_list` 真实连接仍未得到验证。
