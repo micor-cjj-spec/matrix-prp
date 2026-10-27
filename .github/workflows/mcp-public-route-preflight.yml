@@ -2,7 +2,11 @@ name: PRP public OAuth route preflight (read-only)
 run-name: PRP public OAuth preflight · ${{ github.sha }}
 on:
   push:
-    branches: [feat/mcp-public-acceptance-20261024]
+    branches: [feat/mcp-public-acceptance-20261024, test/mcp-authcode-privatejwt-refresh-20261024]
+    paths:
+      - "app/deploy/mcp-oauth/public_route_preflight.py"
+      - "app/deploy/mcp-oauth/test_public_route_preflight.py"
+      - ".github/workflows/mcp-public-route-preflight.yml"
 permissions:
   contents: read
 concurrency:
@@ -17,6 +21,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Assert public preflight cannot use credentials or unsafe URLs
+        working-directory: app/deploy/mcp-oauth
+        run: python3 -m unittest -v test_public_route_preflight.py
       - name: Probe public protected-resource metadata and unauthenticated denial
         run: |
           python3 app/deploy/mcp-oauth/public_route_preflight.py \
