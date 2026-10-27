@@ -55,30 +55,47 @@ READONLY_LINK_REGEX = {
 }
 
 
-def render_readonly_link_routes(trusted_ca, port=18443):
-    """Generate narrower review-only link routes; NEVER installed by CI."""
-    return _render_routes(trusted_ca, port, READONLY_LINK_EXACT, READONLY_LINK_REGEX)
+def render_readonly_link_routes(port=18082):
+    """V2-only minimal browser/link routes, review ONLY, never installed.
+
+    18443 is NOT a V2 upstream: its prp-test vhost currently forwards to
+    the older 18081 stage and its separate database. Route directly to the
+    explicitly observed 18082 V2 HTTP loopback gateway; the outer reviewed
+    public Nginx TLS vhost terminates HTTPS. Not a deployment authorization.
+    """
+    if type(port) is not int or port != 18082:
+        raise ValueError("V2_READONLY_ROUTES_REQUIRE_EXACT_18082")
+    return _render_routes(None, port, READONLY_LINK_EXACT,
+                          READONLY_LINK_REGEX, tls_upstream=False)
 
 
 def render_approval_routes(trusted_ca, port=18443):
-    """Preserve the existing full review-only approval candidate unchanged."""
-    return _render_routes(trusted_ca, port, EXACT, REGEX)
+    """Preserve the earlier full approval/write-family review artifact."""
+    return _render_routes(trusted_ca, port, EXACT, REGEX, tls_upstream=True)
 
 
-def _render_routes(trusted_ca, port, exact, regex):
+def _render_routes(trusted_ca, port, exact, regex, *, tls_upstream):
     if not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535:
         raise ValueError("INVALID_LOOPBACK_PORT")
-    if not re.fullmatch(r"/[A-Za-z0-9/_.-]+\.pem", trusted_ca) or "/../" in trusted_ca:
-        raise ValueError("INVALID_REVIEWED_CA_PATH")
-    common = """    if ($prp_stage_origin_ok = 0) { return 403; }
+    if tls_upstream:
+        if not isinstance(trusted_ca, str) or not re.fullmatch(
+                r"/[A-Za-z0-9/_.-]+\\.pem", trusted_ca) or "/../" in trusted_ca:
+            raise ValueError("INVALID_REVIEWED_CA_PATH")
+        upstream = (
+            "    proxy_pass https://127.0.0.1:%d;\\n"
+            "    proxy_ssl_verify on;\\n"
+            "    proxy_ssl_trusted_certificate %s;\\n"
+            "    proxy_ssl_server_name on;\\n"
+            "    proxy_ssl_name prp-test.micor.top;\\n"
+        ) % (port, trusted_ca)
+    else:
+        if port != 18082 or trusted_ca is not None:
+            raise ValueError("V2_REVIEW_LOOPBACK_UPSTREAM_MISMATCH")
+        upstream = "    proxy_pass http://127.0.0.1:18082;\\n"
+    common = ("""    if ($prp_stage_origin_ok = 0) { return 403; }
     client_max_body_size 8k;
     access_log off;
-    proxy_pass https://127.0.0.1:%d;
-    proxy_ssl_verify on;
-    proxy_ssl_trusted_certificate %s;
-    proxy_ssl_server_name on;
-    proxy_ssl_name prp-test.micor.top;
-    proxy_set_header Host prp-test.micor.top;
+""" + upstream + """    proxy_set_header Host prp-test.micor.top;
     proxy_set_header X-Forwarded-Host prp-test.micor.top;
     proxy_set_header X-Forwarded-Proto https;
     proxy_set_header X-Forwarded-For $remote_addr;
@@ -90,7 +107,7 @@ def _render_routes(trusted_ca, port, exact, regex):
     add_header Cache-Control "no-store" always;
     add_header Referrer-Policy "no-referrer" always;
     add_header X-Content-Type-Options "nosniff" always;
-""" % (port, trusted_ca)
+""")
     blocks = ["# PENDING REVIEW ONLY: do not include in live Nginx.\n"]
     for path, verbs in exact.items():
         blocks.append("location = " + path + " {\n    limit_except " + verbs + " { deny all; }\n" + common + "}\n")
