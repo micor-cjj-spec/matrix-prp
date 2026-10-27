@@ -36,6 +36,60 @@ class StagingIsolationTests(unittest.TestCase):
         self.assertNotEqual(self.values["PRP_STAGE_DB_PASSWORD"],
                             self.values["PRP_STAGE_ADMIN_PASSWORD"])
 
+    def test_first_party_pkce_remains_disabled_and_pinned_to_stage_host(self):
+        self.assertEqual(self.values["PRP_STAGE_FIRST_PARTY_LINK_ENABLED"], "false")
+        self.assertEqual(self.values["PRP_STAGE_FIRST_PARTY_CLIENT_ID"], "prp-first-party-link")
+        self.assertEqual(self.values["PRP_STAGE_FIRST_PARTY_REDIRECT_URI"],
+                         "https://prp-test.micor.top/prp/me/mcp-link/callback")
+        self.assertFalse(check(self.values)["first_party_enabled"])
+        from pathlib import Path
+        root = Path(__file__).parent
+        compose = (root / "compose.yaml").read_text()
+        dockerfile = (root / "Dockerfile.web").read_text()
+        self.assertIn("MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_ENABLED:", compose)
+        self.assertIn("MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_CLIENT_ID:", compose)
+        self.assertIn("MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_REDIRECT_URI:", compose)
+        self.assertIn("VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT:", compose)
+        self.assertIn("${PRP_STAGE_AUTH_ISSUER:?}/protocol/openid-connect/auth", compose)
+        self.assertIn("ARG VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT", dockerfile)
+
+    def test_first_party_fails_closed_without_mcp_and_independent_client_review(self):
+        self.values["PRP_STAGE_FIRST_PARTY_LINK_ENABLED"] = "true"
+        with self.assertRaisesRegex(ValueError, "requires MCP and OAuth"):
+            check(self.values)
+        self.values["PRP_STAGE_MCP_ENABLED"] = "true"
+        self.values["PRP_STAGE_OAUTH_ENABLED"] = "true"
+        self.assertTrue(check(self.values)["first_party_enabled"])
+        for key, bad in (
+            ("PRP_STAGE_FIRST_PARTY_LINK_ENABLED", "yes"),
+            ("PRP_STAGE_FIRST_PARTY_CLIENT_ID", "https://chatgpt.com/oauth/client.json"),
+            ("PRP_STAGE_FIRST_PARTY_REDIRECT_URI",
+             "https://micor.top/prp/me/mcp-link/callback"),
+            ("PRP_STAGE_FIRST_PARTY_REDIRECT_URI",
+             "https://prp-test.micor.top/prp/me/mcp-link/callback?code=bad"),
+            ("PRP_STAGE_FIRST_PARTY_REDIRECT_URI",
+             "https://auth-test.micor.top/prp/me/mcp-link/callback"),
+        ):
+            with self.subTest(setting=key, rejected=bad):
+                candidate = self.values.copy()
+                candidate[key] = bad
+                with self.assertRaises(ValueError):
+                    check(candidate)
+        for missing in ("PRP_STAGE_FIRST_PARTY_CLIENT_ID",
+                        "PRP_STAGE_FIRST_PARTY_REDIRECT_URI"):
+            with self.subTest(missing=missing):
+                candidate = self.values.copy()
+                candidate.pop(missing)
+                with self.assertRaisesRegex(ValueError, "required"):
+                    check(candidate)
+
+    def test_legacy_staging_config_can_stay_off_without_new_settings(self):
+        for key in ("PRP_STAGE_FIRST_PARTY_LINK_ENABLED",
+                    "PRP_STAGE_FIRST_PARTY_CLIENT_ID",
+                    "PRP_STAGE_FIRST_PARTY_REDIRECT_URI"):
+            self.values.pop(key, None)
+        self.assertFalse(check(self.values)["first_party_enabled"])
+
     def test_fails_closed_on_real_production_host(self):
         self.values["PRP_STAGE_PUBLIC_HOST"] = "micor.top"
         self.values["PRP_STAGE_PUBLIC_URL"] = "https://micor.top"
