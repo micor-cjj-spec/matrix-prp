@@ -41,6 +41,38 @@ The latest operator execution used
 It did not mutate the Realm, create any clients, grant consent, perform
 OAuth sign-in or contact actual ChatGPT.
 
+## Real B2 evidence inventory — 2026-10-27 (operator-reported)
+
+The original `b2_evidence_inventory.py` was read directly from the
+SHA-pinned PR #113 commit
+`1f6914d9aa52195a9197e3f3d0185accd73485e0`
+with `git show`, without modifying the V2 Git worktree. Its reported
+**metadata-only** outcome was:
+
+| B2 field | Actual reported value | Correct interpretation |
+| --- | --- | --- |
+| `host_guard_directory` | `METADATA_OK_UNVERIFIED` | Parent directory metadata acceptable, not signed approval |
+| `approved_install` | `MISSING` | No independently issued install/acceptance receipt at its required path |
+| `fresh_b2_restore` | `MISSING` | No fresh independently issued recovery/restore receipt |
+| `snapshot_dump` | `PRESENT_METADATA_ONLY_UNVERIFIED` | File existence/permissions, **not** verified hash or a fresh restore |
+| `operator_restore_test` | `PASSED_SEPARATELY_OPERATOR_REPORTED_NOT_A_B2_RECEIPT` | Historical isolated operator report, not a valid release receipt |
+| `b2_authorization` | `BLOCKED_UNTIL_INDEPENDENT_REVIEW` | No permission to alter active Realm or Nginx |
+| `deployment_permitted` | `false` | Stop: no deploy, install or silent gate bypass |
+
+**Next real-world dependency:** an authorized independent G0 reviewer
+and the designated original recovery/install controllers, not a
+re-run of the unchanged inventory. The reviewer first approves a
+precisely scoped, reversible proposed transaction. The authorized
+recovery process independently verifies/attests a fresh restore and
+the original approved installer independently supplies genuine
+installation acceptance as defined by its own controller.
+Do **not** fabricate, prepopulate, copy or backdate either JSON
+receipt; do not edit the controller's expected hashes to force
+acceptance. Whether either document is expected before or after
+a controlled installation is determined only by the original
+versioned release-controller contract, not by this review note.
+Until the legitimate process issues/accepts them, B2 stays NO-GO.
+
 ## Proposed minimal delta — not an install command
 
 **Only two create-only clients**, as described by
