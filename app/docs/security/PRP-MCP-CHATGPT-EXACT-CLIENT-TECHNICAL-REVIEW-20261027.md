@@ -105,3 +105,10 @@
 - 真实 MySQL 解绑使尚未用完的 State 失效，原已可用的 JWT 后续 MCP 请求 401；拒绝密码错误、Issuer 不符、State 重放和授权撤销。
 
 **此项只关闭“隔离开发与受控 E2E 测试”范围内的 P0 代码验收缺口。** 还须验证真实 ChatGPT 预注册客户端的 `iss/sub/azp`、真实 OpenAI 凭证、第一方浏览器路由在 Safari/Chrome 中的实际安全表现，以及经审批的公网回调和 B2 控制器；不能用合成 Keycloak 客户端身份映射来冒充 ChatGPT 授权成功。Nginx/Keycloak 原有正式运行环境未修改，发布判定继续 **NO-GO**。
+
+## 2026-10-27 — 完整 Vue/Chromium 浏览器与过期回调安全负例
+
+已获得全新 disposable Chromium、Keycloak 26.8.0、MySQL 8.4、PRP Java 21 + Nginx 的真正浏览器端到端 SUCCESS 证据：
+[40459821556](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40459821556)（正常账号绑定并调用任务）和 [40460981578](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40460981578)（进一步验证无 PRP 会话/会话过期时不会通过登录重定向泄露回调 `code/state`）。离线前端路径单元测试与 OAuth 契约亦在 [40461031062](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40461031062) 全通过。
+
+该证据已进一步关闭首次绑定**隔离代码**的 Chromium E2E 风险，不能替代真实 ChatGPT 授权、官方 OpenAI 密钥断言、生产 Keycloak 的 `sub` 一致性、Safari/iOS 验证和受控 Nginx/B2 批准。正式 Keycloak、PRP 和 Nginx 未修改，PR #113 仍 Draft，**发布结论继续 NO-GO**。
