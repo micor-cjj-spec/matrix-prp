@@ -7,6 +7,8 @@ never visits production, never prints passwords, codes, state or OAuth tokens.
 """
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from urllib.parse import parse_qs, urlsplit
 
 from oauth_token_check import _b64url
@@ -123,3 +125,29 @@ def verify_unlink_invalidates_pending(flow, opener, prp_bearer, oauth_bearer,
         raise RuntimeError("FIRST_PARTY_UNLINK_DID_NOT_REVOKE_MCP_ACCESS")
     print("PASS E2E FIRST-PARTY UNLINK: pending state rejected, DB owner link gone, " +
           "previously valid signed MCP bearer denied on next request.")
+
+
+def verify_concurrent_flow_limit(flow, prp_bearer, prp_password):
+    """Real InnoDB locking proof: 6 simultaneous starts may create only 3 flows."""
+    if (os.environ.get("GITHUB_ACTIONS") != "true"
+            or os.environ.get("MCP_E2E_FIRST_PARTY") != "true"
+            or not os.environ.get("RUNNER_TEMP")):
+        raise RuntimeError("PARALLEL_PKCE_DISPOSABLE_ONLY")
+    ready = Barrier(6)
+    url = PRP + "/api/mcp/identity/oidc/start"
+
+    def one_request(_):
+        local_opener = flow.browser_opener()
+        ready.wait(timeout=10)
+        result = flow.request(local_opener, url, bearer=prp_bearer,
+                              data={"password": prp_password})
+        # Only status leaves the thread. No state/nonce/verifier or response
+        # body is retained, printed or passed to another test.
+        return result[0]
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        statuses = list(pool.map(one_request, range(6)))
+    if statuses.count(200) != 3 or statuses.count(429) != 3:
+        raise RuntimeError("CONCURRENT_PKCE_OWNER_LOCK_OR_THREE_FLOW_CAP_FAILED")
+    print("PASS E2E FIRST-PARTY CONCURRENCY: exactly 3 accepted, 3 rate-limited " +
+          "among 6 same-owner simultaneous requests; no OAuth material logged.")
