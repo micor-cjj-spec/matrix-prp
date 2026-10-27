@@ -315,20 +315,24 @@ def main():
                               "password": prp_password}), "Owner client consent")
     if grant.get("data", {}).get("status") != "ACTIVE":
         raise RuntimeError("PRP owner did not authorize read-only OAuth client")
-    ticket = json_response(request(opener, "https://prp-e2e.localhost/api/mcp/identity/tickets",
-        bearer=prp_jwt, data={"clientId": CLIENT, "password": prp_password}),
-        "Owner one-use link ticket").get("data", {}).get("code")
-    if not isinstance(ticket, str) or len(ticket) != 43:
-        raise RuntimeError("PRP owner linking ticket invalid")
-    linked = json_response(request(opener, RESOURCE + "/link", bearer=bearer,
-        data={"ticket": ticket}), "Verified OAuth identity link")
-    if not linked.get("data", {}).get("newlyLinked"):
-        raise RuntimeError("OAuth issuer/subject link did not complete")
-    # A ticket must be consumed exactly once.
-    replay = request(opener, RESOURCE + "/link", bearer=bearer, data={"ticket": ticket})
-    if replay[0] not in (409,):
-        raise RuntimeError("One-time identity ticket replay was not rejected")
-    print("PASS E2E: owner password reauthentication, client grant, one-time account link + replay block.")
+    if os.environ.get("MCP_E2E_FIRST_PARTY") == "true":
+        import ci_first_party_link_e2e
+        ci_first_party_link_e2e.run(
+            sys.modules[__name__], opener, bearer, prp_jwt, prp_password, user_password)
+    else:
+        ticket = json_response(request(opener, "https://prp-e2e.localhost/api/mcp/identity/tickets",
+            bearer=prp_jwt, data={"clientId": CLIENT, "password": prp_password}),
+            "Owner one-use link ticket").get("data", {}).get("code")
+        if not isinstance(ticket, str) or len(ticket) != 43:
+            raise RuntimeError("PRP owner linking ticket invalid")
+        linked = json_response(request(opener, RESOURCE + "/link", bearer=bearer,
+            data={"ticket": ticket}), "Verified OAuth identity link")
+        if not linked.get("data", {}).get("newlyLinked"):
+            raise RuntimeError("OAuth issuer/subject link did not complete")
+        replay = request(opener, RESOURCE + "/link", bearer=bearer, data={"ticket": ticket})
+        if replay[0] not in (409,):
+            raise RuntimeError("One-time identity ticket replay was not rejected")
+        print("PASS E2E: owner password reauthentication, client grant, one-time account link + replay block.")
 
     init = jsonrpc(opener, bearer, 2, "initialize", {
         "protocolVersion": PROTOCOL, "capabilities": {},
