@@ -1,0 +1,33 @@
+name: PRP MCP fresh-MySQL deployment review (no start)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/mcp-staging/compose.newdb.review.yaml"
+      - "app/deploy/mcp-staging/check_newdb_review.py"
+      - "app/deploy/mcp-staging/test_newdb_review.py"
+      - "app/deploy/mcp-staging/check_env.py"
+      - "app/deploy/mcp-staging/prepare_env.py"
+      - ".github/workflows/mcp-newdb-review-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review-fresh-db-shape:
+    name: Render fresh-db Compose privately and reject old MySQL/ports
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate Python safety checks (no Compose up)
+        run: |
+          python3 -m py_compile app/deploy/mcp-staging/check_newdb_review.py app/deploy/mcp-staging/test_newdb_review.py
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_newdb_review.py -v
+      - name: Verify real resolved Compose without writing any host state
+        run: python3 app/deploy/mcp-staging/check_newdb_review.py
