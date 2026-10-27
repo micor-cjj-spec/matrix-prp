@@ -66,6 +66,7 @@ server {
         proxy_set_header Host prp-e2e.localhost;
         proxy_set_header X-Forwarded-Host prp-e2e.localhost;
         proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Port 443;
         proxy_read_timeout 45s;
         proxy_buffering off;
     }
@@ -249,6 +250,13 @@ export MATRIX_PRP_MCP_ALLOWED_ORIGINS="https://prp-e2e.localhost"
 export MATRIX_PRP_MCP_OAUTH_ISSUER="https://auth-e2e.localhost/realms/prp-mcp"
 export MATRIX_PRP_MCP_OAUTH_JWK_SET_URI="https://auth-e2e.localhost/realms/prp-mcp/protocol/openid-connect/certs"
 export MATRIX_PRP_MCP_OAUTH_RESOURCE="https://prp-e2e.localhost/api/mcp"
+if [[ "${MCP_E2E_CHROMIUM:-false}" == "true" ]]; then
+  # Behind this exact disposable TLS proxy, CORS must compare the externally
+  # requested HTTPS origin rather than the internal HTTP upstream. This is
+  # not an origin allowlist expansion and must not be applied indiscriminately
+  # to services exposed without a trusted reverse proxy.
+  export SERVER_FORWARD_HEADERS_STRATEGY=framework
+fi
 if [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" ]]; then
   export MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_ENABLED="true"
   export MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_CLIENT_ID="prp-first-party-link"
