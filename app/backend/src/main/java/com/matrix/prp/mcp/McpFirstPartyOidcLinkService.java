@@ -11,7 +11,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -136,14 +135,26 @@ public class McpFirstPartyOidcLinkService {
         decoder.setJwtValidator(jwt -> {
             var validated = standard.validate(jwt);
             if (validated.hasErrors()) return validated;
-            List<String> aud = jwt.getAudience();
-            if (!aud.contains(firstPartyClient)
-                    || (aud.size() > 1 && !firstPartyClient.equals(jwt.getClaimAsString("azp"))))
+            if (!validFirstPartyIdTokenAudience(jwt, firstPartyClient))
                 return OAuth2TokenValidatorResult.failure(new OAuth2Error(
                     "invalid_token", "Invalid first-party ID token audience", null));
             return OAuth2TokenValidatorResult.success();
         });
         this.idTokenDecoder = decoder;
+    }
+
+    /**
+     * Bind even a single-audience ID token to our fixed first-party client.
+     * OpenID Connect requires azp to identify the authorized party whenever
+     * present; a valid issuer signature alone does not make a wrong-azp token
+     * safe for this PRP linking client.
+     */
+    static boolean validFirstPartyIdTokenAudience(Jwt jwt, String clientId) {
+        List<String> audience = jwt.getAudience();
+        if (audience == null || !audience.contains(clientId)) return false;
+        String azp = jwt.getClaimAsString("azp");
+        if (azp != null && !clientId.equals(azp)) return false;
+        return audience.size() == 1 || clientId.equals(azp);
     }
 
     public Begin begin(String password) {
@@ -170,10 +181,13 @@ public class McpFirstPartyOidcLinkService {
         String state = randomToken(32);
         String nonce = randomToken(32);
         String verifier = randomToken(48);
+        // Use the SAME MySQL clock for issue/expiry and WHERE expiry checks.
+        // JVM/container timezone or clock skew must not lengthen the PKCE
+        // validity period or invalidate it immediately after creation.
         db.update("INSERT INTO prp_mcp_oidc_link_flows " +
             "(state_hash,user_id,code_verifier,oidc_nonce,expires_at) " +
-            "VALUES (?,?,?,?,?)", sha256(state), owner, verifier, nonce,
-            java.sql.Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+            "VALUES (?,?,?,?,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE))",
+            sha256(state), owner, verifier, nonce);
         String challenge = Base64.getUrlEncoder().withoutPadding()
             .encodeToString(digest(verifier));
         String url = UriComponentsBuilder.fromUriString(authorizationEndpoint)
