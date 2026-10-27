@@ -73,6 +73,10 @@ Operator logs are reported evidence, **not** an independent signature or a fresh
 
 ### G4 — actual ChatGPT task-read acceptance (current status: **NOT PROVEN**)
 
+> **2026-10-27 compatibility finding:** Ephemeral Keycloak **26.8.0 and 26.8.1** both rejected the official ChatGPT *native* CIMD metadata field `token_endpoint_auth_methods_supported`. [Isolated CI 40446785882](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40446785882) instead demonstrated that a **separately pre-registered exact client** (after disabling the disposable dynamic interception policy) could reach the login screen with an S256 request for `openid offline_access prp.tasks.read`, with exact task/offline optional scopes and missing/plain PKCE denied. **No real token exchange or ChatGPT signed assertion occurred.** Any use of this alternative requires a distinct active-Realm change review and fresh approvals; these CI settings may not be installed verbatim.
+
+
+
 - [ ] CIMD discovery and client resolution are demonstrated against the **actual** Keycloak container, including its egress to official ChatGPT metadata/JWKS.
 - [ ] Exact client ID `https://chatgpt.com/oauth/client.json`, redirect `https://chatgpt.com/connector_platform_oauth_redirect`, signed `private_key_jwt` verification (if selected), `openid offline_access prp.tasks.read` policy, S256 challenge and verification, resource audience, refresh/replay controls are validated without weakening unrelated clients.
 - [ ] A real user-authorized ChatGPT sign-in links only the intended PRP account; a read-only `prp_tasks_list` returns at most 20 **that owner's** tasks. Wrong-user requests, revoked grants, and write scopes remain denied. No secrets/tokens/cookies are captured in the review log.
