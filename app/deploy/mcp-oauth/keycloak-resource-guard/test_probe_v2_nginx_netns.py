@@ -69,6 +69,35 @@ class V2NetnsRuntimeTests(unittest.TestCase):
         self.assertIn(("edge_wrong_host_mcp", "/api/mcp"), mod.EDGE_WRONG_HOST)
         self.assertIn(("edge_alias_pct_letter", "/api/%6dcp"), mod.EDGE_CANONICAL_ALIASES)
 
+    def test_raw_uri_protocol_matrix_requires_canonical_metadata_and_query_denial(self):
+        requests = {}
+        def spy(label, **kwargs):
+            requests[label] = kwargs
+        mod.run_raw_uri_protocol_compat_checks(spy)
+        self.assertEqual(len(requests), 4)
+        metadata = requests["compat_metadata_discovery_get"]
+        self.assertEqual(metadata["method"], "GET")
+        self.assertEqual(metadata["path"],
+                         "/.well-known/oauth-protected-resource/api/mcp")
+        self.assertEqual(metadata["expected"], (200,))
+        self.assertEqual(metadata["hits"], 1)
+        for label in ("compat_metadata_discovery_query_rejected",
+                      "compat_mcp_post_query_rejected",
+                      "compat_mcp_get_query_rejected"):
+            with self.subTest(label=label):
+                request = requests[label]
+                self.assertIn("?", request["path"])
+                self.assertEqual(request["expected"], (404,))
+                self.assertEqual(request["hits"], 0)
+        self.assertEqual(
+            requests["compat_mcp_post_query_rejected"]["method"], "POST")
+
+    def test_raw_uri_protocol_matrix_never_tests_real_auth(self):
+        self.assertFalse("TOKEN" in mod.STATUS_RAW)
+        self.assertFalse("AUTH" in mod.STATUS_RAW)
+        self.assertFalse("PUBLIC" in mod.STATUS_RAW)
+        self.assertFalse("DEPLOY" in mod.STATUS_RAW)
+
     def test_edge_get_and_post_aliases_are_both_probed(self):
         calls = []
         def spy(label, **kwargs):
