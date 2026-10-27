@@ -30,7 +30,7 @@ class BrowserRouteReviewTests(unittest.TestCase):
             ("GET", "/prp/favicon.svg"),
             ("GET", "/prp/icon.svg"),
             ("GET", "/prp/manifest.webmanifest"),
-            ("GET", "/prp/admin.js"),
+            ("GET", "/prp/sw.js"),
         ):
             with self.subTest(path=path):
                 self.assertIs(classify(method, "https://prp-e2e.localhost" + path), True)
@@ -39,7 +39,7 @@ class BrowserRouteReviewTests(unittest.TestCase):
             ("GET", "/api/mcp/identity/oidc/start"),
             ("GET", "/api/tasks"),
             ("GET", "/prp/"),
-            ("GET", "/prp/sw.js"),
+            ("GET", "/prp/admin.js"),
             ("GET", "/prp/api/mcp"),
             ("POST", "/api/mcp/approval/drafts/00000000-0000-0000-0000-000000000000"),
             ("GET", "/prp/assets/../../.env"),
