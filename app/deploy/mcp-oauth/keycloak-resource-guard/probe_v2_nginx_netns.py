@@ -27,6 +27,27 @@ import preflight_v2_netns as netns
 
 HOST = "prp-test.micor.top"
 STATUS_READY = "ISOLATED_V2_LOOPBACK_HTTP_ACCEPTANCE_PASSED"
+STATUS_EDGE = "ISOLATED_V2_EDGE_HOST_AND_PATH_MATRIX_PASSED"
+
+# Literal, reviewed test cases only. No arbitrary caller input, no DNS queries.
+EDGE_WRONG_HOST = (
+    ("edge_wrong_host_mcp", "/api/mcp"),
+    ("edge_wrong_host_link", "/api/mcp/link"),
+    ("edge_wrong_host_discovery", "/.well-known/oauth-protected-resource/api/mcp"),
+    ("edge_wrong_host_auth_metadata", "/.well-known/oauth-authorization-server"),
+    ("edge_wrong_host_slash", "/api/mcp/"),
+    ("edge_wrong_host_encoded", "/api/%6dcp"),
+    ("edge_wrong_host_wrong_prefix", "/prp/api/mcp"),
+)
+EDGE_CANONICAL_ALIASES = (
+    ("edge_alias_slash", "/api/mcp/"),
+    ("edge_alias_extra", "/api/mcp/extra"),
+    ("edge_alias_wrong_prefix", "/prp/api/mcp"),
+    ("edge_alias_double_slash", "//api/mcp"),
+    ("edge_alias_pct_letter", "/api/%6dcp"),
+    ("edge_alias_pct_slash", "/api/mcp%2F"),
+    ("edge_alias_dot_segments", "/api/../api/mcp"),
+)
 
 class MockMcpHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -155,7 +176,7 @@ def make_nginx_configuration(sources, root, nginx):
         raise ValueError("ISOLATED_NGINX_SYNTAX_RECHECK_FAILED")
     return cfg, counts, count
 
-def child_run(parent_namespace):
+def child_run(parent_namespace, *, edge_matrix=False):
     os.umask(0o077)
     require_own_namespace(parent_namespace)
     sources = sandbox.inspect_sources()
@@ -224,6 +245,17 @@ def child_run(parent_namespace):
             # An incorrect SNI must not reach our synthetic MCP backend.
             check("wrong_sni_correct_host", sni="untrusted.invalid",
                   verify_name=False, expected=(421,))
+            if edge_matrix:
+                # Exercise candidate Host rules against routes with differing
+                # exact, prefix and regex precedence. All must fail 421.
+                for label, path in EDGE_WRONG_HOST:
+                    check(label, path=path, host="untrusted.invalid",
+                          expected=(421,), hits=0)
+                # Distinguish URI normalization behavior from bypass claims.
+                # If an alias reaches 18082, the edge gate fails for review.
+                for label, path in EDGE_CANONICAL_ALIASES:
+                    check(label, path=path,
+                          expected=(400, 403, 404, 421), hits=0)
             try:
                 with tls_socket("127.0.0.1", socket.AF_INET, 443, HOST,
                                 root / "cert.pem", offer_h2=True) as h2:
@@ -244,9 +276,17 @@ def child_run(parent_namespace):
                           if k != "h2_alpn_only") and
                       checks["h2_alpn_only"]["selected_alpn"] != "handshake_failure")
             return {
-                "status": STATUS_READY if passed else
-                          "ISOLATED_V2_LOOPBACK_HTTP_ACCEPTANCE_FAILED",
+                "status": ((STATUS_EDGE if edge_matrix else STATUS_READY)
+                           if passed else
+                           ("ISOLATED_V2_EDGE_HOST_OR_PATH_REVIEW_REQUIRED"
+                            if edge_matrix else
+                            "ISOLATED_V2_LOOPBACK_HTTP_ACCEPTANCE_FAILED")),
                 "checks": checks,
+                "edge_matrix_executed": edge_matrix,
+                "edge_canonical_aliases_entering_mock_v2": (
+                    sum(checks[label]["synthetic_upstream_hits"] > 0
+                        for label, _ in EDGE_CANONICAL_ALIASES)
+                    if edge_matrix else None),
                 "synthetic_backend_total_requests": len(server.hits),
                 "network_interfaces": "LO_ONLY",
                 "default_routes": 0,
@@ -273,7 +313,7 @@ def child_run(parent_namespace):
             server.server_close()
             thread.join(timeout=3)
 
-def parent_run():
+def parent_run(*, edge_matrix=False):
     pre = netns.check_host()
     if pre["status"] != "ISOLATED_NETNS_PREFLIGHT_READY":
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
@@ -284,7 +324,8 @@ def parent_run():
         result = subprocess.run(
             [shutil.which("unshare"), "--net", "--fork", "--kill-child",
              sys.executable, "-B", str(Path(__file__).resolve()),
-             "--isolated-child", namespace],
+             "--isolated-child", namespace] +
+            (["edge"] if edge_matrix else []),
             capture_output=True, text=True, timeout=55)
     except subprocess.TimeoutExpired:
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
@@ -300,17 +341,22 @@ def parent_run():
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
                 "blocker": "ISOLATED_CHILD_REPORT_INVALID",
                 "release_approved": False}
-    if result.returncode and child.get("status") == STATUS_READY:
+    if result.returncode and child.get("status") in (STATUS_READY, STATUS_EDGE):
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
                 "blocker": "ISOLATED_CHILD_EXIT_MISMATCH", "release_approved": False}
     return child
 
 if __name__ == "__main__":
     try:
-        if sys.argv[1:2] == ["--isolated-child"] and len(sys.argv) == 3:
-            report = child_run(sys.argv[2])
+        if sys.argv[1:2] == ["--isolated-child"] and (
+                len(sys.argv) == 3 or
+                (len(sys.argv) == 4 and sys.argv[3] == "edge")):
+            report = child_run(sys.argv[2],
+                               edge_matrix=(len(sys.argv) == 4))
         elif len(sys.argv) == 1:
             report = parent_run()
+        elif sys.argv[1:] == ["--edge-matrix"]:
+            report = parent_run(edge_matrix=True)
         else:
             raise ValueError("INVALID_INVOCATION")
     except (ValueError, OSError, RuntimeError, subprocess.SubprocessError,
@@ -323,5 +369,5 @@ if __name__ == "__main__":
             "release_approved": False,
         }
     print(json.dumps(report, indent=2, sort_keys=True))
-    if report["status"] != STATUS_READY:
+    if report["status"] not in (STATUS_READY, STATUS_EDGE):
         sys.exit(2)
