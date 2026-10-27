@@ -184,6 +184,23 @@ if [[ "${MCP_E2E_CHROMIUM:-false}" == "true" ]]; then
   test -s app/web/dist/index.html || {
     echo "FAIL CHROMIUM E2E: built Vue index missing." >&2; exit 1;
   }
+  # Inspect the actual built Vite output, not the SPA fallback 200 response.
+  # A successful route GET can be index.html even when the Vue route is absent.
+  web_assets=app/web/dist/assets
+  test -d "$web_assets" || {
+    echo "FAIL CHROMIUM E2E: review-branch Vue assets missing." >&2; exit 1;
+  }
+  for marker in \
+    '/me/mcp-link/callback' \
+    '/mcp/identity/oidc/start' \
+    '/mcp/identity/oidc/finish'
+  do
+    if ! grep -rFq -- "$marker" "$web_assets"; then
+      echo "FAIL CHROMIUM E2E: first-party route/API marker missing from built JS." >&2
+      exit 1
+    fi
+  done
+  echo "PASS E2E ARTIFACT: real built Vue contains first-party callback/start/finish markers."
   python3 - "$tmp/nginx/default.conf" <<'PY_BROWSER_NGINX'
 from pathlib import Path
 import sys
@@ -233,6 +250,25 @@ echo "E2E TLS: disposable Java certificate trust configured."
   ./mvnw -B -ntp -DskipTests package > "$tmp/java-build.log" 2>&1
 )
 echo "E2E PRP: Java 21 JAR built from review branch."
+# Verify the ZIP central directory of the exact freshly built Spring Boot JAR.
+# Never use literal grep over opaque compressed bytes as presence/absence proof.
+if [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" ]]; then
+  prp_jar=app/backend/target/matrix-prp-backend-0.0.1-SNAPSHOT.jar
+  jar tf "$prp_jar" > "$tmp/review-jar-entries.txt"
+  for klass in McpFirstPartyOidcLinkController McpFirstPartyOidcLinkService; do
+    if ! grep -Fxq "BOOT-INF/classes/com/matrix/prp/mcp/${klass}.class" "$tmp/review-jar-entries.txt"; then
+      echo "FAIL E2E ARTIFACT: built backend missing first-party OIDC class." >&2
+      exit 1
+    fi
+  done
+  if ! grep -Fxq \
+      "BOOT-INF/classes/db/migration/V28__mcp_first_party_oidc_link_flows.sql" \
+      "$tmp/review-jar-entries.txt"; then
+    echo "FAIL E2E ARTIFACT: built backend missing first-party OIDC migration." >&2
+    exit 1
+  fi
+  echo "PASS E2E ARTIFACT: newly built Spring Boot JAR contains both OIDC classes and V28 migration."
+fi
 export MATRIX_PRP_DB_URL="jdbc:mysql://127.0.0.1:13306/matrix_prp_mcp_e2e?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai"
 export MATRIX_PRP_DB_USER="prp_e2e"
 export MATRIX_PRP_DB_PASSWORD="$database_user"
