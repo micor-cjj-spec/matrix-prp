@@ -8,6 +8,7 @@ on:
       - "app/deploy/mcp-staging/compose.newdb.review.yaml"
       - "app/deploy/mcp-staging/check_newdb_review.py"
       - "app/deploy/mcp-staging/test_newdb_review.py"
+      - "app/deploy/mcp-staging/ci_smoke_newdb_review.sh"
       - "app/deploy/mcp-staging/check_env.py"
       - "app/deploy/mcp-staging/prepare_env.py"
       - ".github/workflows/mcp-newdb-review-contract.yml"
@@ -31,3 +32,20 @@ jobs:
           python3 -m unittest discover -s app/deploy/mcp-staging -p test_newdb_review.py -v
       - name: Verify real resolved Compose without writing any host state
         run: python3 app/deploy/mcp-staging/check_newdb_review.py
+
+  real-disposable-newdb:
+    name: Launch only disposable fresh-schema Java/Vue/MySQL with MCP OFF
+    needs: review-fresh-db-shape
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Confirm isolated runner and shell syntax without deployment
+        run: |
+          bash -n app/deploy/mcp-staging/ci_smoke_newdb_review.sh
+          test "${GITHUB_ACTIONS}" = true
+          test -n "${RUNNER_TEMP}"
+      - name: Build/start only runner-owned candidate, assert Flyway V28, then destroy only its own volumes
+        run: bash app/deploy/mcp-staging/ci_smoke_newdb_review.sh
