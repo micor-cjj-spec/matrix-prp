@@ -73,6 +73,9 @@ Operator logs are reported evidence, **not** an independent signature or a fresh
 
 ### G4 — actual ChatGPT task-read acceptance (current status: **NOT PROVEN**)
 
+> **New disposable Keycloak evidence (2026-10-27):** [Dual-version Keycloak CI 40462309500](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40462309500) verified that the **pre-registered exact client** retained its official ChatGPT JWKS URL, that a separate TLS-validating interpreter inside the container's **network namespace** could reach the public OpenAI JWKS, and that a forged private_key_jwt was denied as `invalid_client`. A real Keycloak authorization **prompt=none** error callback carried exact `iss` and `state` in both 26.8.0 and 26.8.1. **Limits:** this does not demonstrate successful Keycloak JVM JWKS retrieval/real OpenAI JWT verification, all RFC 9207 error forms, a real ChatGPT connection, active 13-client Realm parity, or full public-route acceptance. These validations do **not** grant B2 installation authorization.
+
+
 > **2026-10-27 compatibility finding:** Ephemeral Keycloak **26.8.0 and 26.8.1** both rejected the official ChatGPT *native* CIMD metadata field `token_endpoint_auth_methods_supported`. [Isolated CI 40446785882](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40446785882) instead demonstrated that a **separately pre-registered exact client** (after disabling the disposable dynamic interception policy) could reach the login screen with an S256 request for `openid offline_access prp.tasks.read`, with exact task/offline optional scopes and missing/plain PKCE denied. **No real token exchange or ChatGPT signed assertion occurred.** Any use of this alternative requires a distinct active-Realm change review and fresh approvals; these CI settings may not be installed verbatim.
 
 
