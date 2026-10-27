@@ -48,8 +48,14 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
         })();""" % json.dumps(prp_bearer))
         page = context.new_page()
         seen_origins = set()
+        start_statuses = []
         page.on("request", lambda req: seen_origins.add(
             urlsplit(req.url).scheme + "://" + urlsplit(req.url).netloc))
+        # Status-only diagnostic; never capture request/response body or URI
+        # query because authorization codes and states are sensitive.
+        page.on("response", lambda response: start_statuses.append(response.status)
+                if urlsplit(response.url).path == "/api/mcp/identity/oidc/start"
+                else None)
         try:
             stage = "OPEN_PRP_MCP_GRANTS"
             page.goto(PRP + "/prp/me/mcp-clients",
@@ -88,8 +94,17 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
             if seen_origins.difference({PRP, ISSUER_ORIGIN}):
                 raise RuntimeError("BROWSER_UNEXPECTED_THIRD_PARTY_REQUEST")
         except Exception:
-            # Browser exception messages often include complete authorization
-            # codes, state or URLs. Suppress them in all public runner logs.
+            # Never log the raw browser URL or OAuth requests. Report only
+            # static stage, first-party start response class and current host.
+            current = urlsplit(page.url).hostname
+            current_class = ("KEYCLOAK" if current == "auth-e2e.localhost"
+                else "PRP" if current == "prp-e2e.localhost"
+                else "OTHER")
+            start_class = ("NONE" if not start_statuses else
+                "_".join(str(x) for x in start_statuses[-2:]))
+            print("BROWSER_CI_DIAGNOSTIC=" + stage
+                  + "_START_STATUS_" + start_class
+                  + "_PAGE_" + current_class)
             raise RuntimeError("FIRST_PARTY_BROWSER_E2E_FAILED_AT_" + stage) from None
         finally:
             context.close()
