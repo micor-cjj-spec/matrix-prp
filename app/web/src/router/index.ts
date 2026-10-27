@@ -115,6 +115,14 @@ const router = createRouter({
       meta: { requiresAuth: true, title: 'MCP 客户端授权' },
     },
     {
+      path: '/me/mcp-link/callback',
+      name: 'mcp-first-party-link-callback',
+      component: () => import('@/views/McpOidcCallbackView.vue'),
+      // Callback must NOT be redirected to login while it carries OAuth code
+      // or state. The component scrubs URL immediately, then checks PRP auth.
+      meta: { title: 'Keycloak 账号绑定回调' },
+    },
+    {
       path: '/me/mcp-approve/:draftId',
       name: 'mcp-draft-approval',
       component: () => import('@/views/McpApprovalView.vue'),
