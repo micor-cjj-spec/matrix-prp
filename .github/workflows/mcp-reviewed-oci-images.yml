@@ -10,6 +10,8 @@ on:
       - "app/web/package*.json"
       - "app/web/src/**"
       - "app/web/scripts/**"
+      - "app/scripts/**"
+      - "app/config/feature-registry.json"
       - "app/deploy/mcp-staging/Dockerfile.web"
       - "app/deploy/mcp-staging/Dockerfile.backend"
       - "app/deploy/mcp-staging/nginx.conf.template"
