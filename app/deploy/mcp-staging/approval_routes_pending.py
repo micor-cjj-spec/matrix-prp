@@ -123,8 +123,13 @@ def _render_routes(trusted_ca, port, exact, regex, *, tls_upstream):
         canonical = ""
         if not tls_upstream:
             pattern = "^" + re.escape(path) + r"(?:\?.*)?$"
+            # Nginx's limit_except GET *also permits HEAD*. Enforce the
+            # actual method against the exact reviewed verb set here.
+            allowed_methods = "|".join(verbs.split())
             canonical = ('    if ($request_uri !~ "' + pattern
-                         + '") { return 404; }\n')
+                         + '") { return 404; }\n'
+                         + '    if ($request_method !~ "^(?:'
+                         + allowed_methods + ')$") { return 405; }\n')
         blocks.append("location = " + path + " {\n    limit_except " + verbs
                       + " { deny all; }\n" + canonical + common + "}\n")
     # Quote regexes because canonical UUID quantifiers contain braces.
@@ -134,8 +139,11 @@ def _render_routes(trusted_ca, port, exact, regex, *, tls_upstream):
             # The raw, undecoded URL has the same single-segment asset
             # grammar. A normalized, encoded or path-aliased URL must fail.
             pattern = path[:-1] + r"(?:\?.*)?$"
+            allowed_methods = "|".join(verbs.split())
             canonical = ('    if ($request_uri !~ "' + pattern
-                         + '") { return 404; }\n')
+                         + '") { return 404; }\n'
+                         + '    if ($request_method !~ "^(?:'
+                         + allowed_methods + ')$") { return 405; }\n')
         blocks.append('location ~ "' + path + '" {\n    limit_except '
                       + verbs + ' { deny all; }\n' + canonical
                       + common + '}\n')
