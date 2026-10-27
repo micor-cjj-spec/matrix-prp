@@ -179,6 +179,36 @@ class V2NetnsRuntimeTests(unittest.TestCase):
             report = mod.parent_run(raw_guard=True)
         self.assertEqual(report["blocker"], "ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH")
 
+    def test_pinned_review_sources_use_verified_bytes_not_route_inventory(self):
+        originals = {
+            "active_main": b"active main",
+            "active_test": b"active test",
+            "review_main": b"original review main",
+            "review_test": b"original review test",
+        }
+        before = originals.copy()
+        real_main = b"verified persisted main"
+        real_test = b"verified persisted rawuri test"
+        selected = mod.pin_verified_review_vhosts(
+            originals, real_main, real_test)
+        self.assertEqual(originals, before)
+        self.assertEqual(selected["active_main"], before["active_main"])
+        self.assertEqual(selected["active_test"], before["active_test"])
+        self.assertEqual(selected["review_main"], real_main)
+        self.assertEqual(selected["review_test"], real_test)
+        self.assertIsInstance(selected["review_test"], bytes)
+        # A route-metrics dict is not a candidate vhost file.
+        self.assertNotEqual(selected["review_test"], {"v2_proxy_directives": 2})
+
+    def test_pinned_review_source_drift_blocks(self):
+        with self.assertRaisesRegex(ValueError, "PINNED_REVIEW_SOURCE_SET_DRIFT"):
+            mod.pin_verified_review_vhosts({"review_test": b"other"}, b"a", b"b")
+        with self.assertRaisesRegex(ValueError, "PINNED_REVIEW_VHOST_BYTES_MISSING"):
+            mod.pin_verified_review_vhosts({
+                "active_main": b"a", "active_test": b"b",
+                "review_main": b"c", "review_test": b"d",
+            }, b"a", b"")
+
     def test_pinned_review_mode_rechecks_persisted_bytes_before_unshare(self):
         calls = []
         expected_receipt = {"status": mod.STATUS_PINNED, "release_approved": False}
