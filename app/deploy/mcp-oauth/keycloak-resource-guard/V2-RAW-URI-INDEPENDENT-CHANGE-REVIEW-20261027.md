@@ -97,6 +97,27 @@ these inspections.
 
 **Concrete pending client-registration review (not installation):**
 
+The Draft branch also contains a **read-only, no-network, no-write** review
+generator: `app/deploy/mcp-oauth/review_exact_client_registrations.py`.
+It emits a wrapper marked `deployable=false` and `not_a_keycloak_import=true`,
+containing **only** the two create-only candidate representations below.
+It is **not** a Realm import, an Admin REST command, approval, or a signed B2
+receipt. Local review command only:
+
+```bash
+python3 -B app/deploy/mcp-oauth/review_exact_client_registrations.py
+```
+
+The companion `test_review_exact_client_registrations.py` rejects scope,
+callback, JWT-authenticator, S256, audience and JWKS expansion at the source
+contract level. A passing test does **not** prove the actual Keycloak Realm
+already has the referenced optional scopes, providers, egress or TLS paths.
+An independent operator must first compare the candidate with the actual
+13-client Realm and existing policy/profile inventory, record the G0/B2
+change authorization, and preserve the signed restoration process.
+
+
+
 1. **First-party PRP browser client:** exact ID `prp-first-party-link`;
    public Authorization Code client, **S256 required**, callback only
    `https://prp-test.micor.top/prp/me/mcp-link/callback`,
