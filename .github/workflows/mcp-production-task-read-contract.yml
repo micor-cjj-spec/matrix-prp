@@ -12,6 +12,8 @@ on:
       - "app/backend/src/main/java/com/matrix/prp/auth/security/CurrentUser.java"
       - "app/backend/src/main/java/com/matrix/prp/config/SecurityConfig.java"
       - "app/backend/src/main/java/com/matrix/prp/mcp/PrpMcpTools.java"
+      - "app/backend/src/test/java/com/matrix/prp/TaskReadProducerBoundaryTests.java"
+      - "app/backend/pom.xml"
       - ".github/workflows/mcp-production-task-read-contract.yml"
   workflow_dispatch:
 
@@ -32,3 +34,24 @@ jobs:
           python3 -m py_compile app/deploy/mcp-staging/test_producer_task_read_contract.py
           python3 -m unittest discover -s app/deploy/mcp-staging -p test_producer_task_read_contract.py -v
           echo 'PRODUCER_REVIEW_ONLY_NO_API_NO_REAL_DATA_NO_DEPLOYMENT=YES'
+
+  actual-owner-sql:
+    name: Existing MyBatis task read owner/limit boundaries, synthetic identities
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run only synthetic owner SQL wrapper tests (no MySQL, API, or deployment)
+        working-directory: app/backend
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp -Dtest=TaskReadProducerBoundaryTests test
+          echo 'REAL_MYBATIS_QUERY_OWNER_BOUNDARY_WITH_MOCK_MAPPER_ONLY=YES'
