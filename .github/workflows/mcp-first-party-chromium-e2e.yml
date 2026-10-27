@@ -5,6 +5,8 @@ on:
     branches:
       - test/mcp-authcode-privatejwt-refresh-20261024
     paths:
+      - "app/backend/src/main/java/com/matrix/prp/mcp/McpFirstPartyOidcLinkService.java"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/McpIdentityLinkService.java"
       - "app/web/src/views/McpClientsView.vue"
       - "app/web/src/views/McpOidcCallbackView.vue"
       - "app/web/src/api/mcpFirstPartyOidc.ts"
