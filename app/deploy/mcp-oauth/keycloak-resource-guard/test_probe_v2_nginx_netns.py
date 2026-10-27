@@ -69,6 +69,40 @@ class V2NetnsRuntimeTests(unittest.TestCase):
         self.assertIn(("edge_wrong_host_mcp", "/api/mcp"), mod.EDGE_WRONG_HOST)
         self.assertIn(("edge_alias_pct_letter", "/api/%6dcp"), mod.EDGE_CANONICAL_ALIASES)
 
+    def test_edge_get_and_post_aliases_are_both_probed(self):
+        calls = []
+        def spy(label, **kwargs):
+            calls.append((label, kwargs))
+        mod.run_edge_checks(spy)
+        self.assertEqual(len(calls), len(mod.EDGE_WRONG_HOST)
+                         + 1 + len(mod.EDGE_CANONICAL_ALIASES) * 2)
+        control = [k for k, _ in calls if k == "edge_canonical_get_control"]
+        self.assertEqual(control, ["edge_canonical_get_control"])
+        for label, path in mod.EDGE_CANONICAL_ALIASES:
+            get = [kw for key, kw in calls if key == label]
+            post = [kw for key, kw in calls
+                    if key == label.replace("edge_alias_", "edge_post_alias_")]
+            self.assertEqual(len(get), 1)
+            self.assertEqual(len(post), 1)
+            self.assertEqual(get[0]["path"], path)
+            self.assertEqual(post[0]["path"], path)
+            self.assertEqual(get[0]["method"], "GET")
+            self.assertEqual(post[0]["method"], "POST")
+            self.assertEqual(get[0]["hits"], 0)
+            self.assertEqual(post[0]["hits"], 0)
+            self.assertNotIn(200, post[0]["expected"])
+            self.assertNotIn(405, get[0]["expected"])
+
+    def test_wrong_host_matrix_never_uses_trusted_host(self):
+        calls = []
+        mod.run_edge_checks(lambda label, **kw: calls.append((label, kw)))
+        for label, _ in mod.EDGE_WRONG_HOST:
+            entry = [kw for key, kw in calls if key == label]
+            self.assertEqual(len(entry), 1)
+            self.assertEqual(entry[0]["host"], "untrusted.invalid")
+            self.assertEqual(entry[0]["expected"], (421,))
+            self.assertEqual(entry[0]["hits"], 0)
+
     def test_nonzero_edge_result_does_not_claim_success(self):
         fake = types.SimpleNamespace(
             returncode=2, stdout=json.dumps({"status": mod.STATUS_EDGE}), stderr="")
