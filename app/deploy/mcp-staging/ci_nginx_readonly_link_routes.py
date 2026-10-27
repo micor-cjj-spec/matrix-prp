@@ -189,7 +189,7 @@ def main():
             assert_result("/prp/login", host="unrelated.invalid", allowed=False)
             assert_result("/api/mcp/identity/oidc/start", "POST",
                           origin="https://evil.example", allowed=False)
-            print("PASS REVIEW NGINX: 14 denied alias, method, Host, Origin and API probes.")
+            print("PASS REVIEW NGINX: 18 denied alias, HEAD/method, Host, Origin and API probes.")
             print("NO_ACTIVE_NGINX_NO_REAL_KEYCLOAK_NO_EXISTING_V2_OR_DB_CHANGE=YES")
     finally:
         if daemon is not None:
