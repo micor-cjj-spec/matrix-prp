@@ -96,6 +96,38 @@ finance, wellness or MCP writing is proposed. The existing 13 clients,
 policies, Realm defaults, user identities and signing keys must stay
 unchanged unless separately reviewed. No full Realm import is proposed.
 
+## V2 browser route upstream lineage correction — review-only
+
+Source inspection found that the earlier
+`render_readonly_link_routes("/path/to/ca.pem")`
+had used the older generic `18443` TLS upstream. In the persistent
+OAuth staging Compose, that public-facing private TLS container's
+`prp-test.micor.top` host forwards to
+`prp-mcp-stage-gateway-1:8080`, which belongs to the **separate**
+older `18081` database environment, not the desired V2 `18082`.
+This is a real *source-level route lineage error* in the **uninstalled**
+review candidate, not evidence that a live misrouting occurred.
+
+The newer Draft branch `render_readonly_link_routes()` pins the
+13 precisely named routes plus the assets regex to the observed
+`http://127.0.0.1:18082` V2 loopback target and explicitly rejects
+alternate `18081` or `18443` choices. Existing, broader
+`render_approval_routes` was not modified to target V2 and
+**must not** be installed for task-read-only linking. V2 HTTP
+loopback requires an already-verified public HTTPS front end;
+an internal loopback `200` would not prove public TLS or an
+actual built SPA/OIDC feature.
+
+Before any operator change, independently verify the *actual* V2
+gateway image and its database association, fixed `/prp/login`,
+`/prp/me/mcp-clients`, `/prp/me/mcp-link/callback`,
+`/api/mcp/identity/oidc/start` and `finish` routes,
+noncanonical path denials, and exact user authorization. Current
+deployed V2 may predate the PR #113 browser implementation.
+Do not silently swap the old 18443 TLS ingress for V2,
+install this candidate, or enable bootstrap until G0/B2 and
+a separate browser-route decision are complete.
+
 ## Explicit blockers before authorization
 
 - [ ] Independent G0 reviewer and accountable host operator identified;
