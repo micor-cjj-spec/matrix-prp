@@ -179,6 +179,73 @@ class V2NetnsRuntimeTests(unittest.TestCase):
             report = mod.parent_run(raw_guard=True)
         self.assertEqual(report["blocker"], "ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH")
 
+    def test_pinned_review_mode_rechecks_persisted_bytes_before_unshare(self):
+        calls = []
+        expected_receipt = {"status": mod.STATUS_PINNED, "release_approved": False}
+        actual = (b"trusted main", b"trusted test", {"review_test_candidate_sha256": "fixed"})
+        def runner(args, **kwargs):
+            calls.append((args, kwargs))
+            return types.SimpleNamespace(
+                returncode=0, stdout=json.dumps(expected_receipt), stderr="")
+        with patch.object(mod.netns, "check_host",
+                          return_value={"status": "ISOLATED_NETNS_PREFLIGHT_READY"}), \
+             patch.object(mod.sandbox, "inspect_sources",
+                          return_value={"review_main": b"main"}) as sources, \
+             patch.object(mod.verified_review, "checked_files",
+                          return_value={"from": "actual on disk"}) as files, \
+             patch.object(mod.verified_review, "verify_artifact",
+                          return_value=actual) as verify, \
+             patch.object(mod.shutil, "which", return_value="/mock/unshare"), \
+             patch.object(mod.os, "readlink", return_value="net:[111]"), \
+             patch.object(mod.subprocess, "run", side_effect=runner):
+            result = mod.parent_run(pinned_review=True)
+        self.assertEqual(result["status"], mod.STATUS_PINNED)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0][-3:],
+                         ["--isolated-child", "net:[111]", "pinned-review"])
+        self.assertEqual(calls[0][0][:4],
+                         ["/mock/unshare", "--net", "--fork", "--kill-child"])
+        self.assertEqual(verify.call_count, 1)
+        self.assertEqual(files.call_count, 1)
+        self.assertEqual(sources.call_count, 1)
+        self.assertLessEqual(calls[0][1]["timeout"], 55)
+
+    def test_pinned_review_tampered_file_prevents_unshare(self):
+        with patch.object(mod.netns, "check_host",
+                          return_value={"status": "ISOLATED_NETNS_PREFLIGHT_READY"}), \
+             patch.object(mod.verified_review, "checked_files",
+                          side_effect=ValueError("REVIEW_DIRECTORY_CONTENTS_DRIFT")), \
+             patch.object(mod.subprocess, "run",
+                          side_effect=AssertionError("must not run unshare")):
+            with self.assertRaisesRegex(ValueError, "REVIEW_DIRECTORY_CONTENTS_DRIFT"):
+                mod.parent_run(pinned_review=True)
+
+    def test_pinned_review_wrong_exit_or_mode_is_blocked(self):
+        fake = types.SimpleNamespace(
+            returncode=0, stdout=json.dumps({"status": mod.STATUS_RAW}),
+            stderr="")
+        with patch.object(mod.netns, "check_host",
+                          return_value={"status": "ISOLATED_NETNS_PREFLIGHT_READY"}), \
+             patch.object(mod.verified_review, "checked_files",
+                          return_value={"from": "disk"}), \
+             patch.object(mod.sandbox, "inspect_sources",
+                          return_value={"review_main": b"old"}), \
+             patch.object(mod.verified_review, "verify_artifact",
+                          return_value=(b"main", b"test", {})), \
+             patch.object(mod.os, "readlink", return_value="net:[111]"), \
+             patch.object(mod.shutil, "which", return_value="/mock/unshare"), \
+             patch.object(mod.subprocess, "run", return_value=fake):
+            result = mod.parent_run(pinned_review=True)
+        self.assertEqual(result["status"], "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED")
+        self.assertEqual(result["blocker"], "ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH")
+        self.assertFalse(result["release_approved"])
+
+    def test_pinned_review_cannot_claim_oauth_or_public_acceptance(self):
+        self.assertIn("PINNED_REVIEW_HTTP", mod.STATUS_PINNED)
+        self.assertNotIn("OAUTH", mod.STATUS_PINNED)
+        self.assertNotIn("PUBLIC", mod.STATUS_PINNED)
+        self.assertNotIn("DEPLOY", mod.STATUS_PINNED)
+
     def test_preflight_failure_never_executes_unshare(self):
         with patch.object(mod.netns,"check_host",
                           return_value={"status":"ISOLATED_NETNS_PREFLIGHT_BLOCKED",
