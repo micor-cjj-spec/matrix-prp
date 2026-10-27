@@ -8,6 +8,7 @@ never visits production, never prints passwords, codes, state or OAuth tokens.
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
+import subprocess
 from threading import Barrier
 from urllib.parse import parse_qs, urlsplit
 
@@ -127,6 +128,37 @@ def verify_unlink_invalidates_pending(flow, opener, prp_bearer, oauth_bearer,
           "previously valid signed MCP bearer denied on next request.")
 
 
+def disposable_state_counts():
+    """Return numeric aggregates only, directly from our fresh MySQL Docker."""
+    if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
+        raise RuntimeError("DISPOSABLE_AGGREGATE_PROBE_ONLY")
+    query = (
+        "SELECT COUNT(*), "
+        "COALESCE(SUM(consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP),0), "
+        "COALESCE(MIN(TIMESTAMPDIFF(SECOND,CURRENT_TIMESTAMP,expires_at)),0), "
+        "COALESCE(MAX(TIMESTAMPDIFF(SECOND,CURRENT_TIMESTAMP,expires_at)),0) "
+        "FROM prp_mcp_oidc_link_flows "
+        "WHERE user_id=(SELECT id FROM prp_users WHERE username='stage_admin');"
+    )
+    # The container already holds its throwaway MYSQL_PASSWORD env; no real
+    # password appears in a command line or public CI log.
+    cmd = ["docker", "exec", "prp-ci-real-mysql", "sh", "-c",
+           'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --protocol=TCP '
+           '-h 127.0.0.1 -u prp_e2e -D matrix_prp_mcp_e2e '
+           '--batch --skip-column-names -e "$1"', "_", query]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                check=False, timeout=15)
+        if result.returncode:
+            return "UNVERIFIED"
+        numbers = [int(n) for n in result.stdout.strip().split()]
+        if len(numbers) != 4:
+            return "UNVERIFIED"
+        return "_".join(str(n) for n in numbers)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return "UNVERIFIED"
+
+
 def verify_concurrent_flow_limit(flow, prp_bearer, prp_password):
     """Real InnoDB locking proof: 6 simultaneous starts may create only 3 flows."""
     if (os.environ.get("GITHUB_ACTIONS") != "true"
@@ -159,6 +191,7 @@ def verify_concurrent_flow_limit(flow, prp_bearer, prp_password):
         counts = ",".join(
             str(status) + "x" + str(statuses.count(status))
             for status in sorted(set(statuses)))
-        raise RuntimeError("CONCURRENT_PKCE_CAP_FAILED_HTTP_" + counts)
+        raise RuntimeError("CONCURRENT_PKCE_CAP_FAILED_HTTP_" + counts
+                           + "_DB_TOTAL_ACTIVE_MIN_MAX_" + disposable_state_counts())
     print("PASS E2E FIRST-PARTY CONCURRENCY: exactly 3 accepted, 3 rate-limited " +
           "among 6 same-owner simultaneous requests; no OAuth material logged.")
