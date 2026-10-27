@@ -115,6 +115,35 @@ client['optionalClientScopes']=['prp.tasks.read','prp.write.create','prp.write.s
 with open(p,'w') as f:json.dump(realm,f)
 PY
 fi
+if [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" ]]; then
+  # Separate, public PKCE-only first-party PRP client: NOT ChatGPT's identity.
+  # This is confined to the brand-new disposable Keycloak Realm import.
+  python3 - "$tmp/keycloak-realm.json" <<'PY_FIRST_PARTY'
+import copy, json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    realm = json.load(f)
+synthetic = next(x for x in realm["clients"] if x["clientId"] == "prp-pkce-probe")
+first = copy.deepcopy(synthetic)
+first["clientId"] = "prp-first-party-link"
+first["name"] = "CI-only PRP first-party user identity verification"
+first["redirectUris"] = ["https://prp-e2e.localhost/prp/me/mcp-link/callback"]
+first["webOrigins"] = []
+first["publicClient"] = True
+first["standardFlowEnabled"] = True
+first["implicitFlowEnabled"] = False
+first["directAccessGrantsEnabled"] = False
+first["serviceAccountsEnabled"] = False
+first["fullScopeAllowed"] = False
+first["defaultClientScopes"] = ["basic"]
+first["optionalClientScopes"] = []
+first["protocolMappers"] = []
+first["attributes"] = {"pkce.code.challenge.method": "S256"}
+realm["clients"].append(first)
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(realm, f)
+PY_FIRST_PARTY
+fi
 cp "$tmp/keycloak-realm.json" "$tmp/import/prp-mcp-realm.json"
 docker run --rm -d --name prp-ci-real-keycloak \
   -p 127.0.0.1:18080:8080 \
@@ -165,6 +194,11 @@ export MATRIX_PRP_MCP_ALLOWED_ORIGINS="https://prp-e2e.localhost"
 export MATRIX_PRP_MCP_OAUTH_ISSUER="https://auth-e2e.localhost/realms/prp-mcp"
 export MATRIX_PRP_MCP_OAUTH_JWK_SET_URI="https://auth-e2e.localhost/realms/prp-mcp/protocol/openid-connect/certs"
 export MATRIX_PRP_MCP_OAUTH_RESOURCE="https://prp-e2e.localhost/api/mcp"
+if [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" ]]; then
+  export MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_ENABLED="true"
+  export MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_CLIENT_ID="prp-first-party-link"
+  export MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_REDIRECT_URI="https://prp-e2e.localhost/prp/me/mcp-link/callback"
+fi
 export MATRIX_PRP_AI_SPRING_AI_ENABLED="false"
 export MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED="false"
 java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
