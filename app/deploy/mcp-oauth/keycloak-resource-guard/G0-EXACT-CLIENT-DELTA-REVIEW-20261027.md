@@ -230,6 +230,48 @@ This is an **implementation and change-review plan only**. It
 creates no released artifacts, backup receipts, staging databases or
 new public routes; it does not declare any next G0/B2 gate passed.
 
+## Fresh-MySQL candidate: host preflight is NOT release authority (2026-10-27)
+
+PR #113 now includes a **source-only** NewDB Compose review candidate,
+`app/deploy/mcp-staging/compose.newdb.review.yaml`:
+`prp-mcp-newdb-review`, distinct MySQL database
+`matrix_prp_mcp_newdb_review`, project-namespaced volumes/networks,
+strict loopback gateway `127.0.0.1:18083`, opt-in
+`newdb-review` Compose profile, and all MCP/OAuth/first-party/write flags
+hard-coded `false`. This is not installed on the operator host.
+
+**CI evidence:** [40510048879](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40510048879)
+used an ephemeral GitHub project with fresh MySQL, Java 21 PRP and Vue/Nginx.
+It proved health, Host and API-path constraints, the canonical
+**V24 vocal → V25 drafts → V26 grants → V27 links → V28 OIDC**
+Flyway scripts, and the new OIDC table on an *empty* database.
+CI explicitly destroyed only its own temporary project and volumes.
+This does NOT establish backward compatibility of the existing V2
+database or permission to change any persistent host.
+
+`app/deploy/mcp-staging/host_newdb_readonly_inventory.py` is a
+separate **host-side read-only review**. It queries Linux
+`/proc/net/tcp` and `/proc/net/tcp6`, coarse available RAM/disk
+and only Docker **name listings** (`ps -a`, `volume ls`, `network ls`).
+It flags any port-18083 listener, conflicting
+`prp-mcp-newdb-review` project artifacts, missing known V2/legacy
+gateway container names, low review resources or unobservable Docker/TCP
+facts. No secrets, inspected container environment, DB table records,
+Host credentials, private paths, IP inventories or original container
+metadata are printed.
+
+A no-collision result is explicitly
+`NO_COLLISION_OBSERVED_REVIEW_ONLY`, **not**
+`approved-install.safe.json`, `fresh-b2-restore.safe.json`, a
+rollout/rollback verification or G0 sign-off. Point-in-time port
+availability cannot reserve that port. Resource thresholds are
+preliminary, not a load/capacity test. Before any real host
+deployment, an authorized operator still must independently review
+Docker engine membership, limits, storage capacity, exact
+source commit/image digests, test-only service access and the
+existing V2/MySQL preservation plan; follow the original G0/B2
+controllers and do not install from this note.
+
 ## Explicit blockers before authorization
 
 - [ ] Independent G0 reviewer and accountable host operator identified;
