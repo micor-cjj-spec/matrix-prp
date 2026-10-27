@@ -6,6 +6,7 @@ secrets, or create files. This is *not* a G0/B2 approval or deployment gate.
 No Docker inspect Config.Env and no output of private Docker metadata.
 """
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -20,6 +21,7 @@ EXPECTED_EXISTING = (
 )
 READ_ONLY_DOCKER_COMMANDS = {
     "containers": ("docker", "ps", "-a", "--format", "{{.Names}}"),
+    "published_ports": ("docker", "ps", "--format", "{{.Ports}}"),
     "volumes": ("docker", "volume", "ls", "--format", "{{.Name}}"),
     "networks": ("docker", "network", "ls", "--format", "{{.Name}}"),
 }
@@ -58,6 +60,21 @@ def port_state(proc4, proc6):
     return "LISTENER_PRESENT" if PORT in occupied else "NO_LISTENER_AT_INVENTORY_TIME"
 
 
+def docker_port_state(lines):
+    """Catch published TCP ports even if Docker disabled userland-proxy.
+
+    In that configuration a host /proc TCP LISTEN socket can be absent
+    while iptables DNAT still reserves the exposed Docker published port.
+    Never print the source Docker port lists.
+    """
+    if lines is None:
+        return "UNKNOWN_DOCKER_QUERY"
+    return ("PUBLISHED_PORT_PRESENT" if any(
+        re.search(r"(?<![0-9])18083->[0-9]+/tcp\\b", text)
+        for text in lines
+    ) else "NO_DOCKER_TCP_PUBLISH_AT_INVENTORY_TIME")
+
+
 def inventory_state(names, prefix):
     if names is None:
         return "UNKNOWN_DOCKER_QUERY"
@@ -66,9 +83,11 @@ def inventory_state(names, prefix):
     return "NONE_DETECTED"
 
 
-def analyze(proc4, proc6, containers, volumes, networks, mem_bytes, disk_bytes):
+def analyze(proc4, proc6, containers, volumes, networks, mem_bytes, disk_bytes,
+            published_ports=None):
     """Return only coarse metadata, never actual unrelated container names."""
     tcp = port_state(proc4, proc6)
+    published = docker_port_state(published_ports)
     container_status = inventory_state(containers, PROJECT + "-")
     volume_status = inventory_state(volumes, PROJECT + "_")
     network_status = inventory_state(networks, PROJECT + "_")
@@ -86,6 +105,7 @@ def analyze(proc4, proc6, containers, volumes, networks, mem_bytes, disk_bytes):
             else "BELOW_REVIEW_THRESHOLD")
     no_collision = (
         tcp == "NO_LISTENER_AT_INVENTORY_TIME"
+        and published == "NO_DOCKER_TCP_PUBLISH_AT_INVENTORY_TIME"
         and container_status == "NONE_DETECTED"
         and volume_status == "NONE_DETECTED"
         and network_status == "NONE_DETECTED"
@@ -101,6 +121,7 @@ def analyze(proc4, proc6, containers, volumes, networks, mem_bytes, disk_bytes):
         },
         "host_observations": {
             "tcp_port_18083": tcp,
+            "docker_published_tcp_18083": published,
             "project_containers": container_status,
             "project_volumes": volume_status,
             "project_networks": network_status,
@@ -163,6 +184,7 @@ def main():
         read_proc("/proc/net/tcp"), read_proc("/proc/net/tcp6"),
         docker_names("containers"), docker_names("volumes"),
         docker_names("networks"), available_mem_bytes(), free_disk_bytes(),
+        docker_names("published_ports"),
     )
     print(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2))
     # A successful read is NOT a deployment-ready exit code. There is no
