@@ -120,7 +120,7 @@ class ProducerTaskReadContractTests(unittest.TestCase):
     def test_review_has_no_credential_or_real_record_payloads(self):
         text = REVIEW.read_text(encoding="utf-8")
         for prohibited in (
-            "BEGIN PRIVATE KEY", "Bearer eyJ", "passwordHash=\",
+            "BEGIN PRIVATE KEY", "Bearer eyJ", "passwordHash=",
             "root@micor-server", "mysql://root", "127.0.0.1:11000",
         ):
             self.assertNotIn(prohibited, text)
