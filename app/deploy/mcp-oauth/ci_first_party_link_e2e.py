@@ -87,3 +87,39 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
     print("PASS E2E FIRST-PARTY: real HTTPS PRP /start -> Keycloak login/PKCE -> /finish, " +
           "ID-token subject matches separate MCP bearer, task-read allowed, " +
           "wrong password/issuer and replay rejected; no access tokens printed.")
+
+
+def verify_unlink_invalidates_pending(flow, opener, prp_bearer, oauth_bearer,
+                                      prp_password):
+    """Real MySQL check: unlink cannot leave a pending OIDC replay path open."""
+    if (os.environ.get("GITHUB_ACTIONS") != "true"
+            or os.environ.get("MCP_E2E_FIRST_PARTY") != "true"):
+        raise RuntimeError("FIRST_PARTY_DISPOSABLE_CI_ONLY")
+    endpoint = PRP + "/api/mcp/identity/oidc"
+    pending = flow.json_response(flow.request(
+        opener, endpoint + "/start", bearer=prp_bearer,
+        data={"password": prp_password}), "Second, pending PKCE request")
+    auth = pending.get("data", {}).get("authorizeUrl")
+    if not isinstance(auth, str):
+        raise RuntimeError("FIRST_PARTY_PENDING_AUTHORIZATION_MISSING")
+    state = parse_qs(urlsplit(auth).query).get("state", [None])[0]
+    if not isinstance(state, str) or len(state) != 43:
+        raise RuntimeError("FIRST_PARTY_PENDING_STATE_MISSING")
+    flow.json_response(flow.request(
+        opener, PRP + "/api/mcp/identity/unlink", bearer=prp_bearer,
+        data={"password": prp_password}), "Owner unlinks mapped OIDC identity")
+    stale = flow.request(opener, endpoint + "/finish", bearer=prp_bearer,
+                         data={"state": state, "code": "not-an-issued-code",
+                               "iss": flow.ISSUER})
+    if stale[0] != 409:
+        raise RuntimeError("FIRST_PARTY_PENDING_STATE_SURVIVED_UNLINK")
+    links = flow.json_response(flow.request(
+        opener, PRP + "/api/mcp/identity", bearer=prp_bearer),
+        "Owner identity list after unlink").get("data")
+    if links != []:
+        raise RuntimeError("FIRST_PARTY_IDENTITY_REMAINS_AFTER_UNLINK")
+    after = flow.jsonrpc(opener, oauth_bearer, 71, "tools/list", {})
+    if after[0] != 401:
+        raise RuntimeError("FIRST_PARTY_UNLINK_DID_NOT_REVOKE_MCP_ACCESS")
+    print("PASS E2E FIRST-PARTY UNLINK: pending state rejected, DB owner link gone, " +
+          "previously valid signed MCP bearer denied on next request.")
