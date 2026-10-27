@@ -94,3 +94,14 @@
 已经新增的 `render_readonly_link_routes` 仅生成 **10 个精确页面/API 路径 + 1 个静态资源正则**，沿用固定回环 HTTPS、`proxy_ssl_verify on` 服务端证书校验与限定 SNI；**未声称启用双向 mTLS**。 不含任何草稿审批路径、通用 API 或未开发的回调路径；`render_approval_routes` 既有更宽候选保持不变。GitHub Actions 40451039140 的 route generator/合同测试 **10/10 通过**，但测试结果不意味着浏览器配对实现或新路由有安装许可。
 
 **新 P0：ACCOUNT_BOOTSTRAP_BLOCKED。** 实际 Keycloak 配置/13 客户端恢复、B2 双凭证、受控路由变更、真实 ChatGPT 登录和 `prp_tasks_list` 均没有因新代码或该文档自动放行。PR #113 保持 Draft、NO-GO。
+
+## 2026-10-27 — 首次身份绑定完成真实一次性服务 E2E（非 ChatGPT）
+
+独立 CI：https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40456981066（SUCCESS）。
+
+- 将 PRP `V28` 一次性 PKCE 流程、Keycloak 26.8.0、MySQL 8.4、Java 21 和 HTTPS Nginx 在同一全新隔离环境中真实启动；
+- PRP 发起授权、模拟浏览器登录、真实签名 ID Token 验证及保存 `issuer,sub` 的 MySQL 操作已经跑通；
+- `prp-first-party-link` 和另一个**合成** MCP Client `prp-pkce-probe` 登录同一 Keycloak 测试用户，签名 Subject 在该 Realm 中一致；已联通 `prp_tasks_list`，Finance 权限拒绝；
+- 真实 MySQL 解绑使尚未用完的 State 失效，原已可用的 JWT 后续 MCP 请求 401；拒绝密码错误、Issuer 不符、State 重放和授权撤销。
+
+**此项只关闭“隔离开发与受控 E2E 测试”范围内的 P0 代码验收缺口。** 还须验证真实 ChatGPT 预注册客户端的 `iss/sub/azp`、真实 OpenAI 凭证、第一方浏览器路由在 Safari/Chrome 中的实际安全表现，以及经审批的公网回调和 B2 控制器；不能用合成 Keycloak 客户端身份映射来冒充 ChatGPT 授权成功。Nginx/Keycloak 原有正式运行环境未修改，发布判定继续 **NO-GO**。
