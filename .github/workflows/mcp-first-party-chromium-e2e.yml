@@ -10,6 +10,7 @@ on:
       - "app/web/src/api/mcpFirstPartyOidc.ts"
       - "app/web/src/router/index.ts"
       - "app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py"
+      - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
       - "app/deploy/mcp-oauth/ci_pkce_browser.py"
       - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
       - ".github/workflows/mcp-first-party-chromium-e2e.yml"
