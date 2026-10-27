@@ -34,6 +34,53 @@ class V2NetnsRuntimeTests(unittest.TestCase):
         self.assertTrue(kwargs.get("capture_output"))
         self.assertLessEqual(kwargs.get("timeout"), 55)
 
+    def test_edge_mode_uses_only_new_namespace(self):
+        calls = []
+        report = {"status": mod.STATUS_EDGE,
+                  "host_nginx_installed_or_reloaded": False,
+                  "real_mcp_or_prp_backend_accessed": False}
+        def runner(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return types.SimpleNamespace(
+                returncode=0, stdout=json.dumps(report), stderr="")
+        with patch.object(mod.netns, "check_host",
+                          return_value={"status": "ISOLATED_NETNS_PREFLIGHT_READY"}), \
+             patch.object(mod.shutil, "which", side_effect=lambda name: "/mock/" + name), \
+             patch.object(mod.os, "readlink", return_value="net:[112]"), \
+             patch.object(mod.subprocess, "run", side_effect=runner):
+            result = mod.parent_run(edge_matrix=True)
+        self.assertEqual(result["status"], mod.STATUS_EDGE)
+        self.assertEqual(calls[0][0][:4],
+                         ["/mock/unshare", "--net", "--fork", "--kill-child"])
+        self.assertEqual(calls[0][0][-3:], ["--isolated-child", "net:[112]", "edge"])
+
+    def test_edge_matrix_only_fixed_literal_paths(self):
+        for group in (mod.EDGE_WRONG_HOST, mod.EDGE_CANONICAL_ALIASES):
+            labels = [k for k, _ in group]
+            self.assertEqual(len(set(labels)), len(labels))
+            for label, path in group:
+                self.assertTrue(label.startswith("edge_"))
+                self.assertTrue(path.startswith("/"))
+                self.assertTrue(path.isascii())
+                self.assertNotIn("?", path)
+                self.assertNotIn("#", path)
+                self.assertNotIn("\r", path)
+                self.assertNotIn("\n", path)
+        self.assertIn(("edge_wrong_host_mcp", "/api/mcp"), mod.EDGE_WRONG_HOST)
+        self.assertIn(("edge_alias_pct_letter", "/api/%6dcp"), mod.EDGE_CANONICAL_ALIASES)
+
+    def test_nonzero_edge_result_does_not_claim_success(self):
+        fake = types.SimpleNamespace(
+            returncode=2, stdout=json.dumps({"status": mod.STATUS_EDGE}), stderr="")
+        with patch.object(mod.netns, "check_host",
+                          return_value={"status": "ISOLATED_NETNS_PREFLIGHT_READY"}), \
+             patch.object(mod.shutil, "which", return_value="/mock/unshare"), \
+             patch.object(mod.os, "readlink", return_value="net:[111]"), \
+             patch.object(mod.subprocess, "run", return_value=fake):
+            report = mod.parent_run(edge_matrix=True)
+        self.assertEqual(report["blocker"], "ISOLATED_CHILD_EXIT_MISMATCH")
+        self.assertFalse(report["release_approved"])
+
     def test_preflight_failure_never_executes_unshare(self):
         with patch.object(mod.netns,"check_host",
                           return_value={"status":"ISOLATED_NETNS_PREFLIGHT_BLOCKED",
