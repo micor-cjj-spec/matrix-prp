@@ -16,7 +16,7 @@ Three concrete targets are **not interchangeable**:
 | Fresh NewDB candidate | `127.0.0.1:18083` | New project `prp-mcp-newdb-review`, **empty** `matrix_prp_mcp_newdb_review`, separately named MySQL volumes | Not installed on operator host; MCP, OAuth, first-party and writes are **hard-coded OFF** |
 
 The current reviewed `render_readonly_link_routes()` emits
-**14** private HTTP upstream directives to **`127.0.0.1:18082`**.
+**18** private HTTP upstream directives (17 exact paths plus 1 asset pattern) to **`127.0.0.1:18082`**.
 The proposed new `compose.newdb.review.yaml` publishes the gateway
 only on **`127.0.0.1:18083`**. They are purposefully *not connected*.
 The current V2 raw-URI reviewed Nginx candidate also targets 18082,
