@@ -2,6 +2,34 @@
 
 **Not a production deployment.** All Docker Compose ports are bound to `127.0.0.1`. The staging MySQL volume `stage_mysql`, schema `matrix_prp_mcp_stage`, accounts and secrets are separate from production `matrix-mysql / matrix_prp`. OAuth Keycloak runs as a second, separate Compose project. This directory contains *infrastructure source only*: running it requires explicit operator access to a host and public TLS/DNS.
 
+## Existing V2 host is NOT this fresh Compose stack (release blocker)
+
+**Read before any command below.** This README's fresh, separate Compose
+template publishes `127.0.0.1:18081`. The operator-reported V2 host review
+on 2026-10-26, by contrast, found the existing
+`/etc/nginx/conf.d/prp-mcp-test.conf` proxying its MCP/metadata upstream
+to **`127.0.0.1:18082`**. That is an independently staged V2 gateway,
+not evidence that this fresh Compose project is already running there.
+The ports, backing databases, Flyway migration histories and tested
+Nginx/security manifests must **not** be treated as interchangeable.
+
+The `git clone` example below targets the base PR #95 branch for **a brand
+new isolated stack**, not PR #113's first-party OAuth changes. To review
+the latter code without deployment, use the Draft
+`test/mcp-authcode-privatejwt-refresh-20261024` ref in a separate
+read-only checkout. **Do not** run the subsequent `docker compose up`,
+point this Compose at the previously stateful V2 MySQL, or redirect the
+existing public host to `18081` merely to try the new browser flow.
+
+Before any live V2 integration, independently establish current host
+listener ownership, the active six-file Nginx/Host/raw-URI guard baseline,
+the already-approved exact browser login/callback/API route scope, and
+the backing OAuth Realm/account state. Then obtain genuine, separately
+reviewed guard-only authorization and B2 recovery evidence with rollback.
+No CI pass, this README or Draft PR grants such installation permission.
+The existing V2 `18082` path and production services must stay intact
+until those independent gates are met.
+
 ## 1. Prepare the isolated host
 
 Use an empty staging VM or a separately administered host. If co-locating with the real PRP, **do not change** the existing `matrix-prp.service`, Nginx `micor.top` server block, `/var/www/prp`, `/var/lib/matrix-prp-deploy`, `matrix-mysql`, or port `11000`. No production database snapshot, mounted data folder or existing secrets are used.
