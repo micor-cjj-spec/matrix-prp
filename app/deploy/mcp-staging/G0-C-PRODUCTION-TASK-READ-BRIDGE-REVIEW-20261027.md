@@ -38,6 +38,42 @@ The owner-bound list filter and SQL LIMIT are also present in the
 identical task repository files. A separate draft-only single-task get
 method must not be assumed to exist in the live producer.
 
+## Actual task repository Java + fresh MySQL evidence (2026-10-27)
+
+The new `TaskReadProducerBoundaryTests` executes the real
+`TaskService.listLimited` and MyBatis `MyBatisTaskRepository` with
+two *synthetic* `UserProfile` principals and a **mock Mapper**.
+[JUnit CI 40536557572](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40536557572)
+**SUCCESS** (3 tests): generated SQL has its own `user_id` and
+`LIMIT 20`; missing trusted principal and invalid limits fail before
+Mapper access.
+
+The newer `TaskReadProducerDatabaseIT` goes further:
+[disposable real MySQL 8.4 CI 40538367068](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40538367068)
+**SUCCESS** (2 tests, 0 failures/errors). A GitHub-hosted runner
+created a **brand-new local-only** MySQL instance and ran **all 28
+Flyway migrations up to V28**. It inserted 25 tasks for one synthetic
+PRP owner and 3 tasks for another, then verified real SQL result
+partitioning, 20-task limit, status filtering, cross-owner task-ID
+denial, and unauthorized principal denial. The runner used randomized
+one-time MySQL and bootstrap credentials and destroyed its own
+temporary database container. MCP, OAuth and writes remained OFF
+during this test. No existing database or account was accessed.
+
+The newer OCI-only smoke was also re-run after a bounded Nginx
+startup-readiness fix: [40537966987](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40537966987)
+**SUCCESS**. It still did **not** publish or deploy an image.
+
+**Limits of this evidence:** neither Java test proves any service-peer
+mTLS, producer-side verified owner delegation, genuine ChatGPT identity,
+consent UX, revocation-on-read, network ingress, real-data transfer or
+production task access. The MySQL CI emitted a Flyway warning that its
+version had not yet declared support for MySQL 8.4; the migrations did
+complete on this isolated database, but production version
+compatibility remains an independent release assessment.
+The review-only producer endpoint is **NOT IMPLEMENTED** and may not
+be implicitly enabled on the existing server.
+
 ## Candidate architecture B (NOT IMPLEMENTED)
 
 ```text
