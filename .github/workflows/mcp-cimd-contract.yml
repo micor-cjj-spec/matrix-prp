@@ -35,9 +35,9 @@ jobs:
       - name: Test metadata method negotiation and fail-closed discovery
         working-directory: app/deploy/mcp-oauth
         run: python3 -m unittest discover -p 'test_*.py'
-      - name: Verify review-only MCP account-link routes do not expose draft or generic API
+      - name: Verify stage PKCE configuration remains OFF and exactly pinned
         working-directory: app/deploy/mcp-staging
-        run: python3 -m unittest -v test_approval_routes_pending.py test_readonly_link_routes_pending.py
+        run: python3 -m unittest -v test_staging_config.py test_approval_routes_pending.py test_readonly_link_routes_pending.py
 
   # Compile the opt-in first-party OIDC linking UI. No public deployment.
   first-party-link-web:
