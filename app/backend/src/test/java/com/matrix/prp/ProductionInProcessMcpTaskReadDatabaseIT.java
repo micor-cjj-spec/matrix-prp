@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.matrix.prp.auth.model.UserAccount;
 import com.matrix.prp.auth.repository.UserStore;
 import com.matrix.prp.mcp.McpClientGrantService;
-import com.matrix.prp.mcp.McpFirstPartyOidcLinkService;
 import com.matrix.prp.mcp.McpIdentityLinkService;
 import com.matrix.prp.mcp.PrpMcpTools;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
@@ -154,6 +153,26 @@ class ProductionInProcessMcpTaskReadDatabaseIT {
                 .isEqualTo(HttpStatus.UNAUTHORIZED));
         syntheticSignedIdentity(bobSubject, true);
         assertThat(list()).hasSize(3);
+    }
+
+    @Test
+    void taskOnlyOAuthGrantMustNotReachFinanceOrWriteTools() {
+        UserAccount owner = createOwner();
+        String subject = "ci-readonly-" + UUID.randomUUID();
+        linkFromVerifiedSyntheticIssuer(owner, subject);
+        syntheticSignedIdentity(subject, true);
+
+        assertThat(grants.grantedScopes(owner.id(), CLIENT))
+            .containsExactly("prp.tasks.read");
+        assertThatThrownBy(() -> mcp.financeMonth(null))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN));
+        assertThatThrownBy(() -> mcp.prepareTask(
+            "work", "MUST_NOT_CREATE", null, "low", null))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN));
     }
 
     @Test
