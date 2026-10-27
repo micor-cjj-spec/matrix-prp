@@ -96,12 +96,18 @@ def tls_socket(ip, family, port, sni, certfile, *, verify_name=True, offer_h2=Fa
         raise
 
 def http_probe(ip, family, path, host, certfile, *, sni=HOST, method="GET",
-               verify_name=True):
+               verify_name=True, extra_headers=None):
     with tls_socket(ip, family, 443, sni, certfile, verify_name=verify_name) as conn:
         if conn.selected_alpn_protocol() not in ("http/1.1", None):
             raise ValueError("UNEXPECTED_HTTP2_DURING_HTTP11_TEST")
+        extras = extra_headers or {}
+        if any("\r" in key or "\n" in key or "\r" in value or "\n" in value
+               for key, value in extras.items()):
+            raise ValueError("UNSAFE_SYNTHETIC_TEST_HEADER")
+        additional = "".join(f"{key}: {value}\r\n" for key, value in extras.items())
         raw = (f"{method} {path} HTTP/1.1\r\nHost: {host}\r\n"
-               "Connection: close\r\nContent-Length: 0\r\n\r\n").encode("ascii")
+               "Connection: close\r\nContent-Length: 0\r\n"
+               + additional + "\r\n").encode("ascii")
         conn.sendall(raw)
         response = http.client.HTTPResponse(conn)
         response.begin()
@@ -185,22 +191,32 @@ def child_run(parent_namespace):
                 raise ValueError("ISOLATED_NGINX_LISTENER_NOT_READY")
             def check(label, *, addr="127.0.0.1", family=socket.AF_INET,
                       path="/api/mcp", host=HOST, sni=HOST, method="GET",
-                      verify_name=True, expected=(421,), hits=0):
+                      verify_name=True, expected=(421,), hits=0,
+                      extra_headers=None):
                 before = len(server.hits)
-                code, tls_version = http_probe(
-                    addr, family, path, host, root / "cert.pem",
-                    sni=sni, method=method, verify_name=verify_name)
+                code = None
+                fail = None
+                try:
+                    code, _ = http_probe(
+                        addr, family, path, host, root / "cert.pem",
+                        sni=sni, method=method, verify_name=verify_name,
+                        extra_headers=extra_headers)
+                except (OSError, ssl.SSLError, TimeoutError,
+                        http.client.HTTPException) as exc:
+                    fail = type(exc).__name__
                 new_hits = len(server.hits) - before
                 checks[label] = {
                     "status_code": code, "synthetic_upstream_hits": new_hits,
                     "expected_http_code": list(expected),
+                    "transport_failure_type": fail,
                     "passed": code in expected and new_hits == hits,
                 }
             # Positive case: prove the exact MCP location still reaches only
             # our fake 18082, not a real database/application.
             check("exact_mcp_mock", method="POST", expected=(200,), hits=1)
             check("wrong_host_ipv4", host="untrusted.invalid")
-            check("wrong_host_forwarded_spoof", host="untrusted.invalid")
+            check("wrong_host_forwarded_spoof", host="untrusted.invalid",
+                  extra_headers={"X-Forwarded-Host": HOST})
             check("wrong_path_ipv4", path="/prp/api/mcp",
                   expected=(403, 404, 421))
             check("wrong_host_ipv6", addr="::1", family=socket.AF_INET6,
@@ -208,17 +224,25 @@ def child_run(parent_namespace):
             # An incorrect SNI must not reach our synthetic MCP backend.
             check("wrong_sni_correct_host", sni="untrusted.invalid",
                   verify_name=False, expected=(421,))
-            with tls_socket("127.0.0.1", socket.AF_INET, 443, HOST,
-                            root / "cert.pem", offer_h2=True) as h2:
-                negotiated = h2.selected_alpn_protocol()
-            if negotiated not in ("http/1.1", "h2", None):
-                raise ValueError("UNKNOWN_ALPN_SELECTED")
-            checks["h2_alpn_only"] = {
-                "selected_alpn": negotiated or "none",
-                "http2_frames_exercised": False,
-            }
-            passed = all(v["passed"] for k, v in checks.items()
-                         if k != "h2_alpn_only")
+            try:
+                with tls_socket("127.0.0.1", socket.AF_INET, 443, HOST,
+                                root / "cert.pem", offer_h2=True) as h2:
+                    negotiated = h2.selected_alpn_protocol()
+                if negotiated not in ("http/1.1", "h2", None):
+                    raise ValueError("UNKNOWN_ALPN_SELECTED")
+                checks["h2_alpn_only"] = {
+                    "selected_alpn": negotiated or "none",
+                    "http2_frames_exercised": False,
+                }
+            except (OSError, ssl.SSLError, TimeoutError) as exc:
+                checks["h2_alpn_only"] = {
+                    "selected_alpn": "handshake_failure",
+                    "handshake_failure_type": type(exc).__name__,
+                    "http2_frames_exercised": False,
+                }
+            passed = (all(v["passed"] for k, v in checks.items()
+                          if k != "h2_alpn_only") and
+                      checks["h2_alpn_only"]["selected_alpn"] != "handshake_failure")
             return {
                 "status": STATUS_READY if passed else
                           "ISOLATED_V2_LOOPBACK_HTTP_ACCEPTANCE_FAILED",
