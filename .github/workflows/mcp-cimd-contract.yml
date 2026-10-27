@@ -39,6 +39,25 @@ jobs:
         working-directory: app/deploy/mcp-staging
         run: python3 -m unittest -v test_approval_routes_pending.py test_readonly_link_routes_pending.py
 
+  # Compile the opt-in first-party OIDC linking UI. No public deployment.
+  first-party-link-web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: Verify Vue callback and grant-page types
+        working-directory: app/web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+
   # External read-only evidence; never substitutes for a real OAuth login,
   # managed client policy, isolated restore, or release approval.
   cimd-live-metadata:
