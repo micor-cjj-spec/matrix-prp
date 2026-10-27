@@ -23,7 +23,42 @@ REGEX = {
     r"^/api/mcp/approval/drafts/" + UUID + "/(approve|reject)$": "POST",
 }
 
+# Review-only minimal *account bootstrap* surface. Never mix the draft-
+# approval/write family into a task-read-only ChatGPT integration decision.
+# The OAuth link endpoint remains gated by a verified external bearer and a
+# one-use PRP-generated ticket; exposing a route does NOT solve ChatGPT's
+# lack of user-visible bearer / invoke capability.
+READONLY_LINK_EXACT = {
+    path: EXACT[path] for path in (
+        "/prp/login",
+        "/prp/me/mcp-clients",
+        "/api/auth/login",
+        "/api/users/me",
+        "/api/mcp/clients",
+        "/api/mcp/clients/revoke",
+        "/api/mcp/identity",
+        "/api/mcp/identity/tickets",
+        "/api/mcp/identity/unlink",
+        "/api/mcp/link",
+    )
+}
+READONLY_LINK_REGEX = {
+    pattern: REGEX[pattern] for pattern in REGEX
+    if pattern.startswith(r"^/prp/assets/")
+}
+
+
+def render_readonly_link_routes(trusted_ca, port=18443):
+    """Generate narrower review-only link routes; NEVER installed by CI."""
+    return _render_routes(trusted_ca, port, READONLY_LINK_EXACT, READONLY_LINK_REGEX)
+
+
 def render_approval_routes(trusted_ca, port=18443):
+    """Preserve the existing full review-only approval candidate unchanged."""
+    return _render_routes(trusted_ca, port, EXACT, REGEX)
+
+
+def _render_routes(trusted_ca, port, exact, regex):
     if not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535:
         raise ValueError("INVALID_LOOPBACK_PORT")
     if not re.fullmatch(r"/[A-Za-z0-9/_.-]+\.pem", trusted_ca) or "/../" in trusted_ca:
@@ -50,9 +85,9 @@ def render_approval_routes(trusted_ca, port=18443):
     add_header X-Content-Type-Options "nosniff" always;
 """ % (port, trusted_ca)
     blocks = ["# PENDING REVIEW ONLY: do not include in live Nginx.\n"]
-    for path, verbs in EXACT.items():
+    for path, verbs in exact.items():
         blocks.append("location = " + path + " {\n    limit_except " + verbs + " { deny all; }\n" + common + "}\n")
     # Quote regexes because canonical UUID quantifiers contain braces.
-    for path, verbs in REGEX.items():
+    for path, verbs in regex.items():
         blocks.append('location ~ "' + path + '" {\n    limit_except ' + verbs + ' { deny all; }\n' + common + '}\n')
     return "\n".join(blocks)
