@@ -311,3 +311,39 @@ Before any authorized test-only change:
 The earlier CIMD-specific PKCE policy test is still required **if CIMD
 remains the chosen mechanism**; successful static pre-registration does
 not prove dynamic CIMD interoperability.
+
+## Three-scope exact-client authorization-entry review — 2026-10-27
+
+[Disposable Keycloak 26.8.0 and 26.8.1 CI](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40446785882)
+**passed both versions** after extending `ci_chatgpt_cimd_pkce.py` to validate
+the actual requested `openid offline_access prp.tasks.read` scope string.
+
+The logs establish the following **independent outcomes** for both builds:
+
+- **Native dynamic CIMD remains blocked.** Official ChatGPT CIMD includes
+  `token_endpoint_auth_methods_supported`, which the 26.8 parser rejected.
+  Neither version passed the native-CIMD branch. The isolated test never
+  treats this parser failure as client registration acceptance.
+- **Narrow static exact-client alternative reaches authorization entry.**
+  With the disposable dynamic CIMD interception policy disabled, an exact
+  client ID/redirect/JWKS configuration proceeds to the login page for the
+  three-scope S256 request. No user logged in and no authorization code or
+  token was issued; this does **not** verify actual grant contents.
+- The isolated Admin REST readback confirmed the client's permitted optional
+  scopes were **exactly** `prp.tasks.read` and `offline_access`.
+  The `openid` value is the OIDC protocol scope, not a PRP data permission.
+  Task scope remains the only PRP data scope; finance, wellness and all
+  write scopes remain excluded.
+- The same registered client rejected missing and `plain` PKCE requests.
+  The saved client required S256 and its callback was exact.
+- This CI does **not** prove real ChatGPT `private_key_jwt` assertions,
+  login/consent, authorization-code exchange, offline refresh with canonical
+  `resource`, key rotation, real PRP identity linking or tool invocation.
+
+**Decision:** Do not propose native CIMD as a verified 26.8 integration.
+The exact-client pre-registration fallback is a narrower **review candidate**
+only, not an approved active-Realm change. A separate, versioned operator
+transaction, original Nginx+B2 gates, complete rollback, and independent
+review of the active 13-client Realm are mandatory before any installation.
+No synthetic CI artifact or this document may create the two missing
+`*.safe.json` receipts or trigger a rollout.
