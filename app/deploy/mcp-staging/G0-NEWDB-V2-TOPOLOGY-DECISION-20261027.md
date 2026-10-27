@@ -139,14 +139,43 @@ authorization code into a public issue or ordinary chat.
 Place the actual signed approval/restore/rollback receipts only
 where the original protected change process requires.
 
-## 5. Immediate next human action, without an unsafe host script
+## 5. Prioritize the actual user goal: task-data target decision first
 
-Submit **this exact G0-A-only request** to the designated independent
-reviewer with the SHA-pinned PR and no host commands attached. They
-should either authorize the fixed, isolated 18083 local-only experiment
-or reject it with a reason and a specific missing evidence category.
+The objective is **ChatGPT querying the current PRP owner's real
+`prp_tasks_list`**, not merely demonstrating an empty test database.
+Therefore G0-A is **optional**: a fresh local NewDB at 18083 can be
+authorized for isolated operations practice, but this is **not a required
+predecessor** for reviewing the real integration topology.
 
-Only **after** that decision, decide whether B2 needs the separate
-G0-B live OAuth approval and what source-level route/data topology to
-review next. The original B2 NO-GO is not conditional on a chat or
-GitHub CI result. **This document is not a deployment instruction.**
+**Make the read-only target/data decision first, without host changes:**
+
+| Alternative | Data continuity | Main risk and required independent evidence |
+| --- | --- | --- |
+| Preserve/upgrade an isolated V2 owner-data store | Possible only if an authorized transfer from the actual PRP owner data is designed | Historical MCP V24–V26 conflict, table/FK/owner mapping, compatible ChatGPT issuer and real V2 cutover; verify on a separate restored copy |
+| Strictly scoped server-to-server *task read* API from production PRP | Fetches current tasks in place without directly mounting production MySQL | Requires a separately approved production API and service identity, explicit **per-owner authorization**, replay/SSRF prevention, outbound network isolation, audit/revocation, rate limits and response redaction; do not add generic proxy or broad production token |
+| Isolated NewDB 18083 with synthetic tasks | **No** continuity of existing owner tasks | Useful only for disposable/approved lab smoke; cannot be called a live task integration |
+
+The target reviewer should first state: **which owner-data source**,
+**which exact PRP owner identity and authorization mapping**, **which
+approved MCP gateway and front-door port**, **whether production changes
+are allowed in a separate change**, and **the allowed task fields and
+revocation behavior**. No one should supply production credentials,
+account tokens or backup contents in an issue/comment/chat.
+
+Once the precise real-data target is decided, request the necessary
+**separate G0-B/B2 Keycloak and ingress authorization**, including
+original restore receipts and signed release scope. Design/migrate any
+real-data access through G0-C only after its separate data-steward
+approval and verified rollback. Do not conflate plan order with
+permission order: neither the G0-C architecture decision nor a G0-A
+lab run authorizes any live install.
+
+**Only if an isolated local trial is actually desired**, submit the
+fixed G0-A-only `18083` scope to the independent host reviewer. They
+may approve/reject that optional trial separately; MCP and OAuth stay
+OFF. Otherwise, skip that nonessential deployment and focus on the
+data-owner and Keycloak/public ingress reviews needed for the user's
+real task-reading goal.
+
+The original B2 NO-GO is not conditional on GitHub CI or a GitHub PR
+comment. **This document is not a deployment instruction or approval.**
