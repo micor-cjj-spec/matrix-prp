@@ -73,6 +73,70 @@ Operator logs are reported evidence, **not** an independent signature or a fresh
 
 ### G4 — actual ChatGPT task-read acceptance (current status: **NOT PROVEN**)
 
+#### 2026-10-27 operator read-only baseline: OAuth clients are absent
+
+The operator ran read-only SQL against the **existing** isolated Keycloak
+PostgreSQL `keycloak_stage` / Realm `prp-mcp`, and an unauthenticated
+loopback request to V2. Reported outcomes:
+
+| Check | Observed | Interpretation |
+| --- | --- | --- |
+| `127.0.0.1:18082` V2 resource metadata | HTTP 200, canonical resource/issuer, **only `prp.tasks.read`** | V2 advertised permissions match read-only phase |
+| `127.0.0.1:18081` legacy stage metadata | HTTP 200, six read/write advertised scopes | **Not** the task-only V2 acceptance target; presence of advertised scopes does not prove executable writes |
+| V2 unauthenticated MCP `initialize` | HTTP 401 with exact `Bearer resource_metadata="https://prp-test.micor.top/.well-known/oauth-protected-resource/api/mcp"` | Authenticated calls still untested |
+| Keycloak Realm exact client `https://chatgpt.com/oauth/client.json` | **MISSING** | No verified static ChatGPT registration; native CIMD path remains incompatible in disposable 26.8 evidence |
+| Keycloak Realm exact client `prp-first-party-link` | **MISSING** | Independent first-party S256/PKCE browser binding cannot be used as designed |
+
+The Keycloak container, staging PostgreSQL, both PRP test gateways and
+their separate MySQL containers were reported running. The issuer
+discovery was read from the loopback HTTPS stage on `18443` with the
+expected issuer, authorization, token and JWKS URIs; that curl request
+skipped certificate validation, so it is **not** public TLS acceptance.
+No Keycloak, Nginx, B2, database or production mutation occurred in
+these inspections.
+
+**Concrete pending client-registration review (not installation):**
+
+1. **First-party PRP browser client:** exact ID `prp-first-party-link`;
+   public Authorization Code client, **S256 required**, callback only
+   `https://prp-test.micor.top/prp/me/mcp-link/callback`,
+   protocol `openid` only; no implicit, direct-access/password,
+   service account, extra redirects or widened web origins. Keep
+   first-party bootstrap default OFF until route + browser review.
+2. **Actual ChatGPT client:** exact metadata URL
+   `https://chatgpt.com/oauth/client.json`; exact redirect
+   `https://chatgpt.com/connector_platform_oauth_redirect`;
+   select compatible `private_key_jwt` with the official HTTPS JWKS
+   URI `https://chatgpt.com/oauth/jwks.json`, enforce Authorization
+   Code + PKCE S256, disable implicit/password/service account,
+   require consent, restrict PRP data scope to `prp.tasks.read`.
+   Protocol-level `openid` and `offline_access` must be evaluated
+   separately for refresh and revocation; do not grant
+   `prp.finance.read`, `prp.wellness.read` or any `prp.write.*`.
+   Never paste an OpenAI private key or token into the operator or CI
+   environment. Exact-client pre-registration is a **review candidate**
+   because disposable Keycloak 26.8.0/26.8.1 native CIMD still rejects
+   ChatGPT's plural metadata method field.
+3. **Required before any active Realm changes:** independent G0
+   approval of exact target scope, current 13-client
+   policies/profiles/mappers snapshot, verified reversible restoration,
+   original guard/B2 release decision with authentic receipts, and
+   a target-limited operator transaction. Do not install disposable
+   tests verbatim or disable an existing CIMD policy without a distinct
+   impact review.
+4. **Post-approval proof:** verify client readback, S256 missing/plain
+   denial and valid login, true ChatGPT `private_key_jwt` / resource
+   audience / `openid offline_access prp.tasks.read` exchange, actual
+   first-party `(iss,sub)` mapping, refresh/revocation, cross-owner
+   denial, and real ChatGPT `prp_tasks_list` at most 20. Mere HTTP
+   200/401 or CI success is insufficient.
+
+**Decision:** `LIVE_CHATGPT_OAUTH=BLOCKED_MISSING_EXACT_CLIENTS`;
+`FIRST_PARTY_BINDING=BLOCKED_MISSING_CLIENT_AND_ROUTE_REVIEW`;
+`B2=NO-GO`; `PR_113=Draft`. Next gating action is review and
+authorization, **not** a blind Keycloak Admin REST write.
+
+
 > **New disposable Keycloak evidence (2026-10-27):** [Dual-version Keycloak CI 40462309500](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40462309500) verified that the **pre-registered exact client** retained its official ChatGPT JWKS URL, that a separate TLS-validating interpreter inside the container's **network namespace** could reach the public OpenAI JWKS, and that a forged private_key_jwt was denied as `invalid_client`. A real Keycloak authorization **prompt=none** error callback carried exact `iss` and `state` in both 26.8.0 and 26.8.1. **Limits:** this does not demonstrate successful Keycloak JVM JWKS retrieval/real OpenAI JWT verification, all RFC 9207 error forms, a real ChatGPT connection, active 13-client Realm parity, or full public-route acceptance. These validations do **not** grant B2 installation authorization.
 
 
