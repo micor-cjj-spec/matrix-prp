@@ -37,7 +37,7 @@ jobs:
         run: python3 -m unittest discover -p 'test_*.py'
       - name: Verify stage PKCE configuration remains OFF and exactly pinned
         working-directory: app/deploy/mcp-staging
-        run: python3 -m unittest -v test_staging_config.py test_approval_routes_pending.py test_readonly_link_routes_pending.py
+        run: python3 -m unittest -v test_staging_config.py test_approval_routes_pending.py test_readonly_link_routes_pending.py test_render_tls.py
       - name: Render staging Compose privately without launching services
         working-directory: app/deploy/mcp-staging
         run: |
