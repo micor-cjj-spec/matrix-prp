@@ -151,3 +151,15 @@ CI 先用 `VITE_APP_BASE=/prp/` 构建真实 Vue 页面，通过一次性 HTTPS 
 **新增独立边界测试（与上述成功 CI 分开判定）：** 当回调时 PRP 会话过期，不能把 `code/state` 转发给 `/login?redirect=...`。相应安全守卫和浏览器负例已在测试分支提交；**必须等最新负例 CI 完成后才能将其标为通过**。
 
 **阶段状态：** `FIRST_PARTY_CHROMIUM_DISPOSABLE_E2E=PASSED`；`EXPIRED_SESSION_CALLBACK_NEGATIVE=UNVERIFIED_UNTIL_CI`；`LIVE_CHATGPT_TASKS=UNVERIFIED`；`B2=NO-GO`。
+
+## 2026-10-27 06:27 UTC — OAuth callback 失效会话泄露负面测试
+
+新增了 `app/web/src/utils/oidcCallbackPath.ts` 的**精确回调路径识别**：当 PRP 主动检查当前用户遇到 401 时，`main.ts` 不会将尚含 `code/state` 的 Keycloak 回调 `fullPath` 复制进 `/login?redirect=...`；回调 Vue 本身继续在异步操作前清除原地址栏的查询参数并显示登录过期/绑定失败。
+
+- [GitHub Actions 40461031062](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40461031062)：离线 OAuth 契约、后端 Java、前端 Vue 类型检查及**精确回调路径单元测试 PASS**。
+- [GitHub Actions 40460981578](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40460981578)：真正 Vue + Chromium + 一次性 Keycloak/MySQL/Java **SUCCESS**；在已经成功的 PRP 页面绑定之上，Playwright 额外以**无 PRP Session**和**过期/无效 PRP Session**分别加载带人工占位 `code/state` 的回调页面，断言 URL 被清理、保持精确回调路径且没有把 `code/state` 传入 `/login` 导航。测试中的 `code/state` 全为 synthetic，不是 OpenAI 凭证。
+- Chromium 日志再次确认真正 Vue 页面、固定 Keycloak 登录、服务器端 PKCE 回调、映射和 task-read 通过；解绑后 pending state 和旧 bearer 拒绝。
+
+**当前可关闭的隔离测试验收：** `FIRST_PARTY_CHROMIUM_DISPOSABLE_E2E=PASSED`，`EXPIRED_SESSION_CALLBACK_NEGATIVE=PASSED`。
+
+**仍未验证的线上发布前条件：** iPhone Safari 真机表现、线上首方 Client/ChatGPT Client 的签名 `sub` 一致性、OpenAI 真实 `private_key_jwt`、受控外部 Nginx Host/SNI/raw-URI/IPv6/HTTP2 验收、B2 独立审批和恢复双凭证。生产环境保持不变，`LIVE_CHATGPT_TASKS=UNVERIFIED`、`B2=NO-GO`。
