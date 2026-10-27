@@ -134,6 +134,16 @@ def main():
         user_password = secrets.token_urlsafe(40)
         username = e2e.create_user(token, user_password)
         opener = e2e.browser_opener()
+        # All negative grants use the SAME exact pre-registered client ID,
+        # not the separate 'ci-authcode-private-jwt' regression client.
+        wrong_code, unused_verifier = e2e.browser.code_pkce(
+            opener, username, user_password, SCOPE)
+        wrong_code_status, _ = e2e.exchange(
+            opener, key, grant="authorization_code", code=wrong_code,
+            verifier=secrets.token_urlsafe(48), client_id=CLIENT)
+        must_reject(wrong_code_status, "EXACT_BAD_PKCE_VERIFIER")
+        print("PASS EXACT CI: incorrect S256 code verifier rejected on exact client.")
+
         code, verifier = e2e.browser.code_pkce(opener, username, user_password, SCOPE)
         status, tokens = e2e.exchange(
             opener, key, grant="authorization_code", code=code,
@@ -158,6 +168,8 @@ def main():
             ("WRONG_RESOURCE", "https://not-prp.staging.example.org/api/mcp", SCOPE),
             ("EMPTY_RESOURCE", "", SCOPE),
             ("MISSING_RESOURCE", None, SCOPE),
+            ("DUPLICATE_RESOURCE", [
+                RESOURCE, "https://not-prp.staging.example.org/api/mcp"], SCOPE),
             ("FINANCE_SCOPE", RESOURCE, "openid offline_access prp.finance.read"),
         ):
             status, _ = e2e.exchange(opener, key, grant="refresh_token",
