@@ -172,6 +172,64 @@ new-schema tests. No backend rebuild, Compose restart,
 database repair, production merge or public route change is
 permitted by this note.
 
+## 2026-10-27 operator: running V2 backend first-party classes absent
+
+The operator inspected the **running** `prp-mcp-v2-backend-1`
+JAR at `/opt/prp/app.jar` without changing the container or
+printing JAR contents. Both exact Spring Boot archive entry markers
+were reported `NOT_FOUND`:
+
+- `BOOT-INF/classes/com/matrix/prp/mcp/McpFirstPartyOidcLinkController.class`
+- `BOOT-INF/classes/com/matrix/prp/mcp/McpFirstPartyOidcLinkService.class`
+
+Together with the running V2 frontend's three `NOT_FOUND` JavaScript
+markers, this is strong evidence that **both live V2 artifacts predate
+the first-party OIDC account-linking implementation**. The JAR check
+searched ZIP bytes with `grep -aFq`, not an independently parsed ZIP
+central-directory listing; do not overstate it as a complete archive
+attestation. Both reports came from operator-reported read-only
+commands, not from an authenticated ChatGPT session.
+
+### Release/upgrade boundary for real ChatGPT task reads
+
+1. Do not treat the V2 route's `200 text/html` as browser feature
+   readiness. Do not register active OAuth clients or expose a callback
+   solely to test that stale build.
+2. Existing V2 backend, gateway, MySQL and public route remain
+   unchanged. No `docker compose up`, `flyway repair`, image swap,
+   Nginx reload, production migration, Keycloak Admin REST write or
+   PR merge follows from these checks.
+3. In disposable CI or a **separately authorized isolated stack**,
+   rebuild both PR #113 frontend and backend from a pinned source
+   commit; assign a fresh MySQL schema/volume with separate credentials,
+   preserve the existing V2 and old Staging persistent schemas and
+   migration histories, and apply the reviewed clean migration
+   lineage. Avoid using a production database or any populated legacy
+   MCP schema, even as a convenient shortcut.
+4. Prove the actual deployed artifact contains the first-party Vue
+   callback and both backend OIDC classes; keep the feature OFF until
+   reviewed Keycloak client, canonical public routes, owner consent,
+   and HTTPS SNI/Host/Origin are verified. Disposable CI already
+   tests some of these components but does not verify the active
+   V2 running artifact.
+5. Obtain independent G0 and authentic B2 backup/restore/install
+   permissions *before* any active Realm, host, production or
+   existing V2 cutover. Document precise new-stack resources, ports,
+   state isolation, rollback owner, expected code SHA and target
+   image digests in the separate change decision.
+6. After authorization, complete real Keycloak browser PKCE identity
+   linking, genuine ChatGPT OAuth, owner-scoped
+   `prp_tasks_list` at most 20, revoked-token denial and finance/
+   wellness/write denial. A fresh disposable test account is not
+   the existing PRP production user's data. Production data
+   integration, if requested later, needs **separate** permission
+   and identity mapping; never silently point the staging OAuth
+   connector at the production database.
+
+This is an **implementation and change-review plan only**. It
+creates no released artifacts, backup receipts, staging databases or
+new public routes; it does not declare any next G0/B2 gate passed.
+
 ## Explicit blockers before authorization
 
 - [ ] Independent G0 reviewer and accountable host operator identified;
