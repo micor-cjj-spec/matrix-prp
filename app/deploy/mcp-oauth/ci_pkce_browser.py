@@ -317,8 +317,14 @@ def main():
         raise RuntimeError("PRP owner did not authorize read-only OAuth client")
     if os.environ.get("MCP_E2E_FIRST_PARTY") == "true":
         import ci_first_party_link_e2e
-        ci_first_party_link_e2e.run(
-            sys.modules[__name__], opener, bearer, prp_jwt, prp_password, user_password)
+        if os.environ.get("MCP_E2E_CHROMIUM") == "true":
+            import ci_first_party_chromium_e2e
+            ci_first_party_chromium_e2e.run(
+                sys.modules[__name__], opener, bearer, prp_jwt,
+                prp_password, user_password)
+        else:
+            ci_first_party_link_e2e.run(
+                sys.modules[__name__], opener, bearer, prp_jwt, prp_password, user_password)
     else:
         ticket = json_response(request(opener, "https://prp-e2e.localhost/api/mcp/identity/tickets",
             bearer=prp_jwt, data={"clientId": CLIENT, "password": prp_password}),
