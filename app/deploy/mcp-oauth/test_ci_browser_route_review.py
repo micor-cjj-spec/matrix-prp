@@ -26,6 +26,11 @@ class BrowserRouteReviewTests(unittest.TestCase):
             ("GET", "/api/users/me"),
             ("GET", "/prp/assets/McpClientsView-aB29_.js"),
             ("GET", "/prp/assets/base-AZ92.css"),
+            ("GET", "/prp/assets/vendor.element-plus.Az91.js"),
+            ("GET", "/prp/favicon.svg"),
+            ("GET", "/prp/icon.svg"),
+            ("GET", "/prp/manifest.webmanifest"),
+            ("GET", "/prp/admin.js"),
         ):
             with self.subTest(path=path):
                 self.assertIs(classify(method, "https://prp-e2e.localhost" + path), True)
@@ -55,7 +60,7 @@ class BrowserRouteReviewTests(unittest.TestCase):
         audit = Audit()
         audit.record("GET", "https://prp-e2e.localhost/api/users/private/123456"
                      "?jwt=LEAK_TEST")
-        audit.record("GET", "https://prp-e2e.localhost/prp/sw.js")
+        audit.record("GET", "https://prp-e2e.localhost/prp/admin.js")
         sink = StringIO()
         with contextlib.redirect_stdout(sink):
             with self.assertRaisesRegex(
