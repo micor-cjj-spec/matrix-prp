@@ -152,7 +152,7 @@ predecessor** for reviewing the real integration topology.
 | Alternative | Data continuity | Main risk and required independent evidence |
 | --- | --- | --- |
 | Preserve/upgrade an isolated V2 owner-data store | Possible only if an authorized transfer from the actual PRP owner data is designed | Historical MCP V24–V26 conflict, table/FK/owner mapping, compatible ChatGPT issuer and real V2 cutover; verify on a separate restored copy |
-| Strictly scoped server-to-server *task read* API from production PRP | Fetches current tasks in place without directly mounting production MySQL | Requires a separately approved production API and service identity, explicit **per-owner authorization**, replay/SSRF prevention, outbound network isolation, audit/revocation, rate limits and response redaction; do not add generic proxy or broad production token |
+| Strictly scoped server-to-server *task read* API from production PRP | Fetches current tasks in place without directly mounting production MySQL | Requires a separately approved producer endpoint and service identity, explicit **per-owner authorization**, replay/SSRF prevention, outbound network isolation, audit/revocation, rate limits and response redaction; **NOT IMPLEMENTED**. See [G0-C production producer task-read code audit](G0-C-PRODUCTION-TASK-READ-BRIDGE-REVIEW-20261027.md) and [review-only producer contract](producer_task_read.review.json) |
 | Isolated NewDB 18083 with synthetic tasks | **No** continuity of existing owner tasks | Useful only for disposable/approved lab smoke; cannot be called a live task integration |
 
 The target reviewer should first state: **which owner-data source**,
