@@ -5,6 +5,8 @@ import com.matrix.prp.auth.repository.UserStore;
 import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.auth.security.LoginAttemptLimiter;
 import java.net.URI;
+import java.net.HttpURLConnection;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -17,6 +19,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -111,8 +114,23 @@ public class McpFirstPartyOidcLinkService {
         this.identities = identities;
         this.rest = httpBuilder.connectTimeout(Duration.ofSeconds(2))
             .readTimeout(Duration.ofSeconds(5)).build();
+        // The Keycloak token endpoint receives an OAuth authorization CODE.
+        // Neither POST nor JWKS GET may follow an untrusted 30x redirect;
+        // otherwise a misconfigured issuer could forward a code off-origin.
+        var noRedirects = new SimpleClientHttpRequestFactory() {
+            @Override
+            protected void prepareConnection(HttpURLConnection connection, String method)
+                    throws IOException {
+                super.prepareConnection(connection, method);
+                connection.setInstanceFollowRedirects(false);
+            }
+        };
+        noRedirects.setConnectTimeout(2000);
+        noRedirects.setReadTimeout(5000);
+        this.rest.setRequestFactory(noRedirects);
 
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(keyUrl)
+            .restOperations(this.rest)
             .jwsAlgorithm(SignatureAlgorithm.RS256).build();
         var standard = JwtValidators.createDefaultWithIssuer(this.issuer);
         decoder.setJwtValidator(jwt -> {
