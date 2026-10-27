@@ -80,7 +80,7 @@ PRP 首次身份绑定的**现有**另一路径：
 
 ## 2026-10-27: PR #113 中的第一方 PKCE 实现候选（默认关闭）
 
-**源代码已实现、尚未部署、尚未完成真实第一方 Keycloak + PRP MySQL + 浏览器全链路验收。** 本文开头的 `P0 ACCOUNT BOOTSTRAP NOT IMPLEMENTED` 为较早审查时刻的结论，现在应解读为 **`P0_ACCOUNT_BOOTSTRAP=CODE_READY_REQUIRES_ISOLATED_E2E`**；它仍不意味着 ChatGPT 可以读任务。
+**源代码已实现、尚未部署；一次性 Keycloak + PRP MySQL + Java HTTPS 接口的浏览器形态 OAuth 联调已经通过，但真实浏览器前端、正式 Keycloak Client 与 ChatGPT OAuth 均未验收。** 本文开头的 `P0 ACCOUNT BOOTSTRAP NOT IMPLEMENTED` 为较早审查时刻的结论，现在应解读为 **`P0_ACCOUNT_BOOTSTRAP=CODE_READY_REQUIRES_ISOLATED_E2E`**；它仍不意味着 ChatGPT 可以读任务。
 
 提交到测试分支的代码包括：
 
@@ -111,3 +111,23 @@ matrix-prp.mcp.oauth.first-party-link.redirect-uri=https://prp-test.micor.top/pr
 4. 最终 PRP 绑定后仍需真实 ChatGPT OAuth `private_key_jwt`、刷新和 `prp_tasks_list` 验收。B2 两份独立安全凭证缺失，原控制器不可跳过。
 
 **发布状态：`feature.default=OFF`，`PR#113=Draft`，`B2=NO-GO`。** 任何配置属性的示意值不是变更授权。
+
+## 2026-10-27 05:46 UTC — 真实一次性服务 E2E 证据（不包含真实 ChatGPT）
+
+**GitHub Actions:** [40456981066](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40456981066)，独立新 job `PRP first-party OIDC linking real disposable E2E` **SUCCESS**。第一个无解绑增强版的完整通过记录为 [40456652028](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40456652028)。
+
+CI 使用全新 MySQL 8.4、Keycloak 26.8.0、PRP Java 21 后端和 CI 自签 CA 的 HTTPS Nginx，运行真实的 OAuth Authorization Code + S256 token 交换及 PRP V28 MySQL 事务。**浏览器形态驱动器是 Python HTTP+CookieJar+Keycloak 登录表单驱动，不是 Chrome / Safari 图形浏览器。**
+
+**E2E 验收取得的具体证据：**
+
+1. 未绑定的外部 OAuth bearer 调用 MCP 返回 401；PRP Owner 可以只为任务查询批准一个合成 OAuth MCP 客户端，且同时单独授权标识为 `https://chatgpt.com/oauth/client.json` 的客户端 grant（**此步骤没有真实 ChatGPT Token**）。
+2. 只有 PRP 密码正确且上述 grant 存在时才允许 `POST /api/mcp/identity/oidc/start`；它产生服务器端的一次性状态及 PKCE verifier，CI 驱动器**拿不到 verifier**。
+3. 使用另一独立、专门为此次 E2E 新建的公共 S256 客户端 `prp-first-party-link`，真实 Keycloak 登录和回调后执行 PRP `/finish`；PRP 在后端交换 code、验证实际签名的 ID Token 后写入持久 MySQL 映射。
+4. 从 PRP 用户身份接口取回 `(issuer,subject)`，与**单独合成的** MCP 测试客户端 `prp-pkce-probe` 的已验签 Access Token `(issuer,sub)` 比较，**在该一次性 Realm 中一致**。这**不意味着生产 Keycloak 的 pairwise `sub` 已验证，也不证明真正的 ChatGPT Client ID 签发 `sub` 一定相同**。
+5. 账号绑定后 `initialize`、`tools/list`、`prp_tasks_list` 成功，财务工具因没有其授权被拒绝。
+6. 错误 PRP 密码、错误返回 Issuer、重复消费 `state` 被拒绝。**新增强的真实数据库场景：**解绑后尚未完成的 State 被拒绝（409），映射表不再返回该用户关联记录，原先有效的签名 MCP bearer 再次调用即返回 401。
+7. 撤销合成客户端的 grant 后，独立 MCP 测试请求也返回 401。CI 所有数据库、证书、账户和容器随 Runner 结束销毁。
+
+**审核边界与尚存 P0：** 这不验证 iPhone/Safari 或真正的浏览器 SPA 页面工作；不验证 OpenAI 私钥的 `private_key_jwt` 或真实 ChatGPT 两步授权后 `sub`；不证明正式公网独立 vhost、页面静态资源、回调路由、B2 控制器、生产恢复链路已放行。Keycloak 原生 CIMD 元数据字段兼容问题仍未消失；继续采用精确预注册候选审查路线而非假称已安装。生产配置未变、PR #113 保持 Draft、B2 保持 NO-GO，MCP 写入关闭。
+
+**阶段结论：** `P0_ACCOUNT_BOOTSTRAP=DISPOSABLE_E2E_PASSED`，`LIVE_CHATGPT_TASKS=UNVERIFIED`，`B2=NO-GO`。
