@@ -83,13 +83,33 @@ case "$endpoint" in 127.0.0.1:*) ;; *) echo "NON_LOOPBACK_REVIEW_PORT" >&2; exit
 
 # Verify the real FINAL Nginx container serves HTML; this is not proof
 # of SPA client-side routes, which the built-JS checks prove separately.
+# A freshly launched Docker Nginx may reset an initial connection during
+# configuration/DNS initialization. Poll a BOUNDED time, without retrying a
+# permanently incorrect HTTP status as a success. Do not disable Host checks.
 for path in /prp/login /prp/me/mcp-clients /prp/me/mcp-link/callback; do
-  code="$(curl --noproxy '*' -sS -o /dev/null -w '%{http_code}' \
-    --retry 10 --retry-delay 1 --retry-connrefused \
-    --connect-timeout 2 --max-time 6 \
-    -H 'Host: prp-test.micor.top' "http://$endpoint$path")"
-  if [[ "$code" != 200 ]]; then
-    echo "REVIEW_WEB_HTTPS_FRONTED_SPA_PATH_NOT_200" >&2
+  ready=0
+  for attempt in $(seq 1 30); do
+    code="$(curl --noproxy '*' -sS -o /dev/null -w '%{http_code}' \
+      --connect-timeout 2 --max-time 4 \
+      -H 'Host: prp-test.micor.top' "http://$endpoint$path" 2>/dev/null)" || code="000"
+    if [[ "$code" == 200 ]]; then
+      ready=1
+      break
+    fi
+    # Retry only startup/no-response, not a stable 4xx/5xx: the latter
+    # indicates an actual wrong final image, route or backend.
+    if [[ "$code" != 000 ]]; then
+      echo "REVIEW_WEB_PATH_WRONG_HTTP_STATUS=$code" >&2
+      exit 1
+    fi
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$web")" != true ]]; then
+      echo "REVIEW_WEB_GATEWAY_EXITED" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if [[ "$ready" != 1 ]]; then
+    echo "REVIEW_WEB_STARTUP_TIMEOUT_WITHOUT_200" >&2
     exit 1
   fi
 done
