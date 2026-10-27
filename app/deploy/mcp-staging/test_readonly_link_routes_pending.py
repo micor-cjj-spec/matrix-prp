@@ -98,6 +98,122 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
         ):
             self.assertEqual(READONLY_LINK_EXACT[root_resource], "GET")
 
+    def test_nginx_raw_request_uri_guard_must_cover_every_first_party_location(self):
+        rendered = render_readonly_link_routes()
+        # Reject encoded aliases even if Nginx canonicalizes them into
+        # an otherwise exact location. Keep legitimate OAuth query args.
+        self.assertEqual(rendered.count('if ($request_uri !~ "'), 18)
+        self.assertIn(
+            r'^/prp/me/mcp-link/callback(?:\?.*)?
+        rendered = render_readonly_link_routes()
+        for path, verbs in REQUIRED_METHODS.items():
+            self.assertIn(
+                "location = " + path + " {\n    limit_except " + verbs + " { deny all; }",
+                rendered,
+            )
+        self.assertIn("limit_except GET { deny all; }", rendered)
+
+    def test_existing_review_only_full_approval_candidate_unchanged(self):
+        # Refactor must NOT reduce or change the original broader artifact.
+        before = render_approval_routes("/tmp/ca.pem")
+        self.assertEqual(before.count("location = "), len(EXACT))
+        self.assertEqual(before.count('location ~ "'), len(REGEX))
+        self.assertIn('location = /api/mcp/clients', before)
+        self.assertIn("/api/mcp/approval/drafts", before)
+        self.assertNotEqual(before, render_readonly_link_routes())
+
+    def test_reject_legacy_stage_and_oauth_tls_redirects(self):
+        for port in (18081, 18443, -1, 443, 65536, "18082", None, True):
+            with self.subTest(port=port), self.assertRaises(ValueError):
+                render_readonly_link_routes(port)
+        with self.assertRaises(TypeError):
+            render_readonly_link_routes(trusted_ca="/tmp/ca.pem")
+
+    def test_broad_approval_review_unchanged_and_separately_tls_pinned(self):
+        legacy = render_approval_routes("/tmp/ca.pem")
+        self.assertEqual(legacy.count("proxy_pass https://127.0.0.1:18443;"), 14)
+        self.assertEqual(legacy.count("proxy_ssl_verify on;"), 14)
+        self.assertEqual(legacy.count("proxy_ssl_name prp-test.micor.top;"), 14)
+        self.assertNotIn("proxy_pass http://127.0.0.1:18082;", legacy)
+        for bad in ("/tmp/../ca.pem", "/tmp/ca.pem\\n",
+                    "/tmp/ca.pem;proxy_ssl_verify off;", "relative.pem"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                render_approval_routes(bad)
+
+    def test_v2_url_cannot_use_foreign_host_or_broad_api_routes(self):
+        rendered = render_readonly_link_routes()
+        self.assertIn("proxy_set_header Host prp-test.micor.top;", rendered)
+        self.assertIn("proxy_set_header X-Forwarded-Proto https;", rendered)
+        self.assertNotIn("proxy_pass http://127.0.0.1:18081;", rendered)
+        self.assertNotIn("location ^~ /api/", rendered)
+        self.assertNotIn("location = /api/finance", rendered)
+        self.assertNotIn("location = /api/mcp/approval/drafts", rendered)
+
+
+if __name__ == "__main__":
+    unittest.main()
+,
+            rendered,
+        )
+        self.assertIn(
+            r'^/api/mcp/identity/oidc/start(?:\?.*)?
+        rendered = render_readonly_link_routes()
+        for path, verbs in REQUIRED_METHODS.items():
+            self.assertIn(
+                "location = " + path + " {\n    limit_except " + verbs + " { deny all; }",
+                rendered,
+            )
+        self.assertIn("limit_except GET { deny all; }", rendered)
+
+    def test_existing_review_only_full_approval_candidate_unchanged(self):
+        # Refactor must NOT reduce or change the original broader artifact.
+        before = render_approval_routes("/tmp/ca.pem")
+        self.assertEqual(before.count("location = "), len(EXACT))
+        self.assertEqual(before.count('location ~ "'), len(REGEX))
+        self.assertIn('location = /api/mcp/clients', before)
+        self.assertIn("/api/mcp/approval/drafts", before)
+        self.assertNotEqual(before, render_readonly_link_routes())
+
+    def test_reject_legacy_stage_and_oauth_tls_redirects(self):
+        for port in (18081, 18443, -1, 443, 65536, "18082", None, True):
+            with self.subTest(port=port), self.assertRaises(ValueError):
+                render_readonly_link_routes(port)
+        with self.assertRaises(TypeError):
+            render_readonly_link_routes(trusted_ca="/tmp/ca.pem")
+
+    def test_broad_approval_review_unchanged_and_separately_tls_pinned(self):
+        legacy = render_approval_routes("/tmp/ca.pem")
+        self.assertEqual(legacy.count("proxy_pass https://127.0.0.1:18443;"), 14)
+        self.assertEqual(legacy.count("proxy_ssl_verify on;"), 14)
+        self.assertEqual(legacy.count("proxy_ssl_name prp-test.micor.top;"), 14)
+        self.assertNotIn("proxy_pass http://127.0.0.1:18082;", legacy)
+        for bad in ("/tmp/../ca.pem", "/tmp/ca.pem\\n",
+                    "/tmp/ca.pem;proxy_ssl_verify off;", "relative.pem"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                render_approval_routes(bad)
+
+    def test_v2_url_cannot_use_foreign_host_or_broad_api_routes(self):
+        rendered = render_readonly_link_routes()
+        self.assertIn("proxy_set_header Host prp-test.micor.top;", rendered)
+        self.assertIn("proxy_set_header X-Forwarded-Proto https;", rendered)
+        self.assertNotIn("proxy_pass http://127.0.0.1:18081;", rendered)
+        self.assertNotIn("location ^~ /api/", rendered)
+        self.assertNotIn("location = /api/finance", rendered)
+        self.assertNotIn("location = /api/mcp/approval/drafts", rendered)
+
+
+if __name__ == "__main__":
+    unittest.main()
+,
+            rendered,
+        )
+        self.assertIn(
+            r'^/prp/assets/[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*',
+            rendered,
+        )
+        # Original broad TLS review candidate remains unchanged.
+        self.assertNotIn('if ($request_uri !~ "', render_approval_routes("/tmp/ca.pem"))
+
     def test_mutation_method_walled_to_exact_endpoint(self):
         rendered = render_readonly_link_routes()
         for path, verbs in REQUIRED_METHODS.items():
