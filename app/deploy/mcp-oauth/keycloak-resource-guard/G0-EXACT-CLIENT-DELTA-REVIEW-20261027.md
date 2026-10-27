@@ -109,7 +109,7 @@ This is a real *source-level route lineage error* in the **uninstalled**
 review candidate, not evidence that a live misrouting occurred.
 
 The newer Draft branch `render_readonly_link_routes()` pins the
-13 precisely named routes plus the assets regex to the observed
+17 precisely named routes plus the assets regex to the observed
 `http://127.0.0.1:18082` V2 loopback target and explicitly rejects
 alternate `18081` or `18443` choices. Existing, broader
 `render_approval_routes` was not modified to target V2 and
