@@ -10,6 +10,9 @@ on:
       - "app/deploy/mcp-staging/test_newdb_review.py"
       - "app/deploy/mcp-staging/host_newdb_readonly_inventory.py"
       - "app/deploy/mcp-staging/test_host_newdb_readonly_inventory.py"
+      - "app/deploy/mcp-staging/test_newdb_v2_topology_boundary.py"
+      - "app/deploy/mcp-staging/G0-NEWDB-V2-TOPOLOGY-DECISION-20261027.md"
+      - "app/deploy/mcp-staging/approval_routes_pending.py"
       - "app/deploy/mcp-staging/ci_smoke_newdb_review.sh"
       - "app/deploy/mcp-staging/check_env.py"
       - "app/deploy/mcp-staging/prepare_env.py"
@@ -33,6 +36,7 @@ jobs:
           python3 -m py_compile app/deploy/mcp-staging/check_newdb_review.py app/deploy/mcp-staging/test_newdb_review.py
           python3 -m unittest discover -s app/deploy/mcp-staging -p test_newdb_review.py -v
           python3 -m unittest discover -s app/deploy/mcp-staging -p test_host_newdb_readonly_inventory.py -v
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_newdb_v2_topology_boundary.py -v
       - name: Verify real resolved Compose without writing any host state
         run: python3 app/deploy/mcp-staging/check_newdb_review.py
 
