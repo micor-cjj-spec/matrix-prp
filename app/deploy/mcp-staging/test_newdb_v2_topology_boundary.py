@@ -23,7 +23,7 @@ class NewdbV2NoImplicitPromotionTests(unittest.TestCase):
     def test_existing_first_party_review_routes_remain_v2_only(self):
         # These snippets have no authority to touch the new 18083 project.
         self.assertEqual(self.v2_route.count(
-            "proxy_pass http://127.0.0.1:18082;"), 14)
+            "proxy_pass http://127.0.0.1:18082;"), 18)
         self.assertNotIn("proxy_pass http://127.0.0.1:18083;", self.v2_route)
         self.assertNotIn("proxy_pass http://127.0.0.1:18081;", self.v2_route)
         with self.assertRaises(ValueError):
