@@ -24,7 +24,7 @@ jobs:
         working-directory: app/backend
         run: |
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=McpFirstPartyOidcLinkTests,McpOAuthSecurityTests,McpOAuthTaskIsolationTests,McpOAuthAdvertisedScopesTests,McpOAuthCanonicalResourceTests,McpOAuthJwtValidationTests,McpOAuthClientIdentityTests,McpActivationGuardTests test
+          ./mvnw -B -ntp -Dtest=McpFirstPartyOwnerMappingTests,McpFirstPartyOidcLinkTests,McpOAuthSecurityTests,McpOAuthTaskIsolationTests,McpOAuthAdvertisedScopesTests,McpOAuthCanonicalResourceTests,McpOAuthJwtValidationTests,McpOAuthClientIdentityTests,McpActivationGuardTests test
   cimd-contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
