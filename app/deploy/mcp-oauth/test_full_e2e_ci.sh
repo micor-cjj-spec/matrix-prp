@@ -154,11 +154,52 @@ docker run --rm -d --name prp-ci-real-keycloak \
   --features=cimd,resource-indicators \
   --hostname=https://auth-e2e.localhost --proxy-headers=xforwarded >/dev/null
 
+# Chromium UI mode must exercise an actual built Vue SPA at the genuine
+# /prp/ base path. Other existing E2E modes remain backend-only and unchanged.
+web_mount=()
+if [[ "${MCP_E2E_CHROMIUM:-false}" == "true" ]]; then
+  [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" ]] || {
+    echo "Chromium E2E requires the isolated first-party flow" >&2; exit 2;
+  }
+  (
+    cd app/web
+    npm ci --no-audit --no-fund > "$tmp/npm-install.log" 2>&1
+    VITE_APP_BASE=/prp/ VITE_API_BASE=/api \
+      VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT=https://auth-e2e.localhost/realms/prp-mcp/protocol/openid-connect/auth \
+      npm run build > "$tmp/vue-build.log" 2>&1
+  )
+  test -s app/web/dist/index.html
+  python3 - "$tmp/nginx/default.conf" <<'PY_BROWSER_NGINX'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+content = p.read_text()
+old = """    server_name prp-e2e.localhost;
+    ssl_certificate /etc/nginx/certs/leaf.pem;"""
+new = """    server_name prp-e2e.localhost;
+    # Disposable real Vue callback / client management, no generic deployment.
+    location /prp/ {
+        root /usr/share/nginx/html;
+        try_files $uri $uri/ /prp/index.html;
+        add_header Cache-Control "no-store" always;
+        add_header Referrer-Policy "no-referrer" always;
+    }
+    ssl_certificate /etc/nginx/certs/leaf.pem;"""
+if content.count(old) != 1:
+    raise SystemExit("Expected single exact PRP test vhost")
+p.write_text(content.replace(old, new))
+PY_BROWSER_NGINX
+  web_mount=(-v "${PWD}/app/web/dist:/usr/share/nginx/html/prp:ro")
+  echo "E2E Chromium: review-branch Vue build mounted read-only under /prp/."
+fi
+
 docker run --rm --network host \
   -v "$tmp/nginx:/etc/nginx/conf.d:ro" -v "$tmp/certs:/etc/nginx/certs:ro" \
+  "${web_mount[@]}" \
   nginx:1.29-alpine nginx -t >/dev/null
 docker run --rm -d --network host --name prp-ci-real-nginx \
   -v "$tmp/nginx:/etc/nginx/conf.d:ro" -v "$tmp/certs:/etc/nginx/certs:ro" \
+  "${web_mount[@]}" \
   nginx:1.29-alpine >/dev/null
 
 # Create a CI-only truststore, without copying/editing the system JDK.
