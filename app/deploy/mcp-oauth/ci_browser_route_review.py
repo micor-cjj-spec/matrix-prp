@@ -50,7 +50,18 @@ def path_class(method, url):
             return "API_USERS"
         return "API_OTHER"
     if p.startswith("/prp/assets/"):
-        return "SPA_ASSETS"
+        # Diagnostic is an allowlisted *shape*, not a filename, secret or URL.
+        # Helps determine whether the review regex missed a nested, multi-dot
+        # or unusual static asset without logging actual browser paths.
+        tail = p[len("/prp/assets/"):]
+        kind = "NESTED" if "/" in tail else "FLAT"
+        dots = "MULTIDOT" if tail.count(".") > 1 else "SINGLEDOT"
+        extension = tail.rsplit(".", 1)[-1].lower() if "." in tail else ""
+        safe = extension if extension in (
+            "js", "css", "woff2", "woff", "ttf", "svg", "png",
+            "webp", "ico"
+        ) else "OTHER"
+        return "SPA_ASSETS_" + kind + "_" + dots + "_" + safe.upper()
     if p.startswith("/prp/"):
         return "SPA_OTHER"
     return "OTHER_PRP_ORIGIN"
