@@ -74,6 +74,33 @@ compatibility remains an independent release assessment.
 The review-only producer endpoint is **NOT IMPLEMENTED** and may not
 be implicitly enabled on the existing server.
 
+## Test-only signed delegation proof (2026-10-27)
+
+[Java task-owner/cryptographic proof CI 40539725728](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40539725728)
+**SUCCESS**. A new **test-sources-only**
+`app/backend/src/test/java/com/matrix/prp/ProducerTaskDelegationCryptoProofTests.java`
+exercises **seven tests** with randomly created disposable RSA key
+pairs and signed JWTs; the existing SQL owner-filter suite ran three
+more. Real `NimbusJwtDecoder` verifies RSA signature, trusted
+issuer, normal timestamps and exact single producer audience before
+synthetic `(issuer, subject)` → synthetic PRP owner mapping. Tests
+reject invalid signer/issuer/audience, wrong `client_id` or asserted
+service ID, missing `prp.tasks.read`, missing/replayed JTI,
+expired JWT, unlinked/disabled owner and revoked in-memory consent.
+The test suite **10/10 succeeded**. No private key, JWT, owner record
+or credential is checked into the repository.
+
+**Critical production limits:** This proof has no actual issuer service,
+service-to-service authentication, mTLS/certificate binding, consent
+database, atomic shared JTI replay register, accountable producer-side
+PRP owner-link UX or production runtime wiring. In particular, a
+signed `service_id` *claim* **is not proof of the TLS peer**, and the
+test's in-memory `consents` set is **not owner authorization**.
+These must be independently specified, built, reviewed and verified
+before use. **The only implementation is in Java test sources, not
+`src/main`; no endpoint was created or enabled.** This is
+cryptographic feasibility evidence, not a G0-C or B2 approval.
+
 ## Candidate architecture B (NOT IMPLEMENTED)
 
 ```text
