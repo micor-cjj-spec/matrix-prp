@@ -38,6 +38,13 @@ jobs:
       - name: Verify stage PKCE configuration remains OFF and exactly pinned
         working-directory: app/deploy/mcp-staging
         run: python3 -m unittest -v test_staging_config.py test_approval_routes_pending.py test_readonly_link_routes_pending.py
+      - name: Render staging Compose privately without launching services
+        working-directory: app/deploy/mcp-staging
+        run: |
+          secure_dir="$(mktemp -d)"
+          trap 'rm -rf "$secure_dir"' EXIT
+          python3 prepare_env.py --output "$secure_dir/.env" >/dev/null
+          python3 check_rendered_compose.py --env-file "$secure_dir/.env"
 
   # Compile the opt-in first-party OIDC linking UI. No public deployment.
   first-party-link-web:
