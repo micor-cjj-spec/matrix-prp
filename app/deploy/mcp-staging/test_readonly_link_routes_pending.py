@@ -23,6 +23,10 @@ REQUIRED_METHODS = {
     "/prp/me/mcp-link/callback": "GET",
     "/api/mcp/identity/oidc/start": "POST",
     "/api/mcp/identity/oidc/finish": "POST",
+    "/prp/favicon.svg": "GET",
+    "/prp/icon.svg": "GET",
+    "/prp/manifest.webmanifest": "GET",
+    "/prp/sw.js": "GET",
 }
 
 
@@ -41,28 +45,58 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
             "/prp/me/mcp-link/callback",
             "/api/mcp/identity/oidc/start",
             "/api/mcp/identity/oidc/finish",
+            "/prp/favicon.svg",
+            "/prp/icon.svg",
+            "/prp/manifest.webmanifest",
+            "/prp/sw.js",
         })
         self.assertTrue(set(READONLY_LINK_REGEX).issubset(REGEX))
 
     def test_rendered_proxy_remains_private_secure_and_noncacheable(self):
         rendered = render_readonly_link_routes()
-        self.assertEqual(rendered.count("location = "), 13)
+        self.assertEqual(rendered.count("location = "), 17)
         self.assertEqual(rendered.count('location ~ "'), 1)
-        self.assertEqual(rendered.count("proxy_pass http://127.0.0.1:18082;"), 14)
+        self.assertEqual(rendered.count("proxy_pass http://127.0.0.1:18082;"), 18)
         self.assertNotIn("proxy_pass https://127.0.0.1:18443;", rendered)
         self.assertNotIn("proxy_pass http://127.0.0.1:18081;", rendered)
         self.assertNotIn("proxy_ssl_name", rendered)
         self.assertNotIn("proxy_ssl_trusted_certificate", rendered)
         self.assertNotIn("proxy_ssl_verify", rendered)
-        self.assertEqual(rendered.count("if ($prp_stage_origin_ok = 0) { return 403; }"), 14)
-        self.assertEqual(rendered.count('access_log off;'), 14)
-        self.assertEqual(rendered.count('proxy_cache off;'), 14)
-        self.assertEqual(rendered.count('Referrer-Policy "no-referrer"'), 14)
+        self.assertEqual(rendered.count("if ($prp_stage_origin_ok = 0) { return 403; }"), 18)
+        self.assertEqual(rendered.count('access_log off;'), 18)
+        self.assertEqual(rendered.count('proxy_cache off;'), 18)
+        self.assertEqual(rendered.count('Referrer-Policy "no-referrer"'), 18)
         self.assertIn("PENDING REVIEW ONLY", rendered)
         self.assertNotIn("location = /api/tasks", rendered)
         self.assertNotIn("location = /api/mcp ", rendered)
         self.assertNotIn("/api/mcp/approval/drafts", rendered)
         self.assertNotIn("/prp/me/mcp-approve", rendered)
+
+    def test_vite_dotted_asset_names_without_path_aliases(self):
+        import re
+        pattern = next(iter(READONLY_LINK_REGEX))
+        for accepted in (
+            "/prp/assets/vendor.element-plus.B22Q.js",
+            "/prp/assets/index-aB29_.js",
+            "/prp/assets/icons.123.woff2",
+        ):
+            self.assertIsNotNone(re.fullmatch(pattern, accepted))
+        for rejected in (
+            "/prp/assets/foo..js",
+            "/prp/assets/../.env",
+            "/prp/assets/nested/file.12.js",
+            "/prp/assets/%2e%2e.js",
+            "/prp/assets/file.js.map",
+            "/prp/assets/evil.php",
+        ):
+            self.assertIsNone(re.fullmatch(pattern, rejected))
+        for root_resource in (
+            "/prp/favicon.svg",
+            "/prp/icon.svg",
+            "/prp/manifest.webmanifest",
+            "/prp/sw.js",
+        ):
+            self.assertEqual(READONLY_LINK_EXACT[root_resource], "GET")
 
     def test_mutation_method_walled_to_exact_endpoint(self):
         rendered = render_readonly_link_routes()
@@ -91,9 +125,9 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
 
     def test_broad_approval_review_unchanged_and_separately_tls_pinned(self):
         legacy = render_approval_routes("/tmp/ca.pem")
-        self.assertEqual(legacy.count("proxy_pass https://127.0.0.1:18443;"), 14)
-        self.assertEqual(legacy.count("proxy_ssl_verify on;"), 14)
-        self.assertEqual(legacy.count("proxy_ssl_name prp-test.micor.top;"), 14)
+        self.assertEqual(legacy.count("proxy_pass https://127.0.0.1:18443;"), 18)
+        self.assertEqual(legacy.count("proxy_ssl_verify on;"), 18)
+        self.assertEqual(legacy.count("proxy_ssl_name prp-test.micor.top;"), 18)
         self.assertNotIn("proxy_pass http://127.0.0.1:18082;", legacy)
         for bad in ("/tmp/../ca.pem", "/tmp/ca.pem\\n",
                     "/tmp/ca.pem;proxy_ssl_verify off;", "relative.pem"):
