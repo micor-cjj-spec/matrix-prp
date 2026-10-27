@@ -140,6 +140,38 @@ to a real mTLS-authenticated producer request. An approved producer
 must independently build, secure, test and monitor these components
 before any real data access.
 
+## Test-only revoke/read transaction interlock (2026-10-27)
+
+[Disposable real MySQL 40543400617](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40543400617)
+**SUCCESS**, verified from the actual Java log: **5 tests, 0 failures,
+0 errors**, consisting of the two previous real task-owner MySQL tests
+and **three** synthetic delegation/MySQL tests.
+
+New case `inFlightOwnerReadCommitsBeforeConcurrentRevocationCanComplete`
+runs a synthetic owner's real `TaskService.listLimited(..., 20)`
+inside a `TransactionTemplate` transaction with the **same
+MySQL session** holding an InnoDB `SELECT ... FOR SHARE` lock
+on the consent-epoch row. Another thread attempts to revoke/increment
+the consent epoch. The revocation UPDATE cannot commit while that
+pre-authorized reader holds the row lock. Once the reader's
+task-read transaction completes, the revocation commits; the
+previous epoch no longer resolves. This demonstrates one **candidate
+linearization boundary** on an isolated, fresh database without
+HTTP, production keys or a live producer.
+
+**Not a production transaction design.** A long-running database
+transaction cannot safely be left open while calling external
+MCP/OAuth services or waiting on the network. Production design must
+specify the exact read snapshot, cancellation semantics, timeouts,
+lock-wait and deadlock behavior, connection pool capacity, high
+availability and the meaning of an in-flight result if revocation
+was requested earlier but not yet committed. The test uses
+bounded latches with synthetic identity; it does **not** establish
+the timing of a future network request, distributed consent
+storage, cryptographic epoch binding or service-peer authentication.
+Any approved implementation must fail closed when state is unknown,
+rather than use an old cached authorization or a caller-selected owner.
+
 ## Candidate architecture B (NOT IMPLEMENTED)
 
 ```text
