@@ -2,7 +2,7 @@
 # NOT installed or launched by CI. Not the live V2 or legacy staging Compose.
 # Deliberately requires --profile newdb-review for every service.
 # Do not use this artifact as G0/B2 approval or a production deployment manifest.
-# Run with: docker compose --project-name prp-mcp-stage --env-file .env -f compose.yaml up -d --build
+# No host deployment command: requires independent G0/B2 release and backup approval.
 name: prp-mcp-newdb-review
 services:
   mysql:
