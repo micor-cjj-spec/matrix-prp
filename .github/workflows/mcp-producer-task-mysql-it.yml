@@ -52,6 +52,8 @@ jobs:
           db_root="$(openssl rand -hex 24)"
           export MATRIX_PRP_DB_URL="jdbc:mysql://127.0.0.1:13307/matrix_prp_task_producer_ci?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai"
           export MATRIX_PRP_JWT_SECRET="$(openssl rand -hex 48)"
+          export MATRIX_PRP_BOOTSTRAP_USERNAME="ci_producer_admin"
+          export MATRIX_PRP_BOOTSTRAP_PASSWORD="$(openssl rand -hex 24)"
           export MATRIX_PRP_FLYWAY_ENABLED="true"
           export MATRIX_PRP_MCP_ENABLED="false"
           export MATRIX_PRP_MCP_OAUTH_ENABLED="false"
