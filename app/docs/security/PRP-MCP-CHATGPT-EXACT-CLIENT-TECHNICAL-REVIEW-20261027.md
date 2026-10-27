@@ -112,3 +112,19 @@
 [40459821556](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40459821556)（正常账号绑定并调用任务）和 [40460981578](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40460981578)（进一步验证无 PRP 会话/会话过期时不会通过登录重定向泄露回调 `code/state`）。离线前端路径单元测试与 OAuth 契约亦在 [40461031062](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40461031062) 全通过。
 
 该证据已进一步关闭首次绑定**隔离代码**的 Chromium E2E 风险，不能替代真实 ChatGPT 授权、官方 OpenAI 密钥断言、生产 Keycloak 的 `sub` 一致性、Safari/iOS 验证和受控 Nginx/B2 批准。正式 Keycloak、PRP 和 Nginx 未修改，PR #113 仍 Draft，**发布结论继续 NO-GO**。
+
+## 2026-10-27 06:40 UTC — Official ChatGPT JWKS / RFC 9207 isolated evidence
+
+**Keycloak 26.8.0 + 26.8.1 both passed:** [GitHub Actions 40462309500](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40462309500), commit `834b7e16d98e0f01b477271944d9181029a7bc98`.
+
+Before replacing the official JWKS URL with an unrelated temporary CI certificate, the test now independently checks all of these conditions:
+
+1. **Readback of exact ChatGPT pre-registered client:** `clientAuthenticatorType=client-jwt`, `use.jwks.url=true`, literal `jwks.url=https://chatgpt.com/oauth/jwks.json`, exact Client ID and redirect, `fullScopeAllowed=false`.
+2. **OpenAI public JWKS network reachable:** a no-write Python container temporarily joins the disposable Keycloak container's **network namespace**, makes one certificate-validated HTTPS GET of the official public JWKS, ensures public RSA signing keys, and outputs only a bounded PASS code. It does **not** run within the Keycloak JVM or prove that the JVM's separate trust store/HTTP client completed an equivalent fetch.
+3. **Negative signed client assertion:** a non-OpenAI, ephemeral RSA private key signs a `private_key_jwt` with official-format Client ID and an explicitly bogus `kid`. The *real* pre-registered Keycloak token endpoint returns OAuth `invalid_client`. This demonstrates rejection of this untrusted signature; it is **not** proof of successful verification of any real OpenAI signature.
+4. **Real RFC 9207 error response:** a sessionless Authorization Code + S256 + `openid offline_access prp.tasks.read` request with `prompt=none` returns a redirect to the exact registered ChatGPT callback with `error=login_required`, unchanged `state`, and canonical Keycloak `iss`, without code, ID Token or Access Token. This checks one critical error response; it does **not** exhaustively prove `iss` on every possible OAuth error or real ChatGPT callback mode.
+5. The pre-existing test then deliberately substitutes a temporary X.509 key in the disposable client to complete the separate full authorization-code, token audience, refresh, rotation, replay and revoke matrix. **The test key is not an OpenAI key, and the substitution is not a proposed live client configuration.**
+
+**Updated finding:** `P0-4` has one verified RFC 9207 no-login error response, not every authorization/error mode. The public official JWKS egress prerequisite is verified at the **network namespace** level only. **Still missing:** actual Keycloak JVM fetching/verifying OpenAI-managed JWKS under live TLS trust, real OpenAI-signed client assertion, real ChatGPT callback, per-user account Subject in the live Realm, reviewed routes, and two independent B2 approval/restore receipts.
+
+**Release decision unchanged:** `LIVE_OAUTH=UNVERIFIED`, `B2=NO-GO`; PR #113 remains Draft; no host/production Nginx or Keycloak writes.
