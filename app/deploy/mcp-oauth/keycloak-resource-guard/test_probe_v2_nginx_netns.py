@@ -115,6 +115,41 @@ class V2NetnsRuntimeTests(unittest.TestCase):
         self.assertEqual(report["blocker"], "ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH")
         self.assertFalse(report["release_approved"])
 
+    def test_disposable_raw_uri_mode_must_launch_in_new_netns(self):
+        calls = []
+        report = {
+            "status": mod.STATUS_RAW,
+            "sandbox_raw_uri_review_overlay":
+                {"original_candidate_modified": False},
+            "host_nginx_installed_or_reloaded": False,
+        }
+        def fake_runner(argv, **kwargs):
+            calls.append(argv)
+            return types.SimpleNamespace(
+                returncode=0, stdout=json.dumps(report), stderr="")
+        with patch.object(mod.netns, "check_host",
+                          return_value={"status": "ISOLATED_NETNS_PREFLIGHT_READY"}), \
+             patch.object(mod.shutil, "which", side_effect=lambda name: "/mock/" + name), \
+             patch.object(mod.os, "readlink", return_value="net:[333]"), \
+             patch.object(mod.subprocess, "run", side_effect=fake_runner):
+            result = mod.parent_run(raw_guard=True)
+        self.assertEqual(result["status"], mod.STATUS_RAW)
+        self.assertEqual(calls[0][:4],
+                         ["/mock/unshare", "--net", "--fork", "--kill-child"])
+        self.assertEqual(calls[0][-3:], ["--isolated-child", "net:[333]", "raw-uri"])
+
+    def test_disposable_raw_uri_mode_cannot_reuse_edge_success(self):
+        fake = types.SimpleNamespace(
+            returncode=0, stdout=json.dumps({"status": mod.STATUS_EDGE}),
+            stderr="")
+        with patch.object(mod.netns, "check_host",
+                          return_value={"status": "ISOLATED_NETNS_PREFLIGHT_READY"}), \
+             patch.object(mod.shutil, "which", return_value="/mock/unshare"), \
+             patch.object(mod.os, "readlink", return_value="net:[333]"), \
+             patch.object(mod.subprocess, "run", return_value=fake):
+            report = mod.parent_run(raw_guard=True)
+        self.assertEqual(report["blocker"], "ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH")
+
     def test_preflight_failure_never_executes_unshare(self):
         with patch.object(mod.netns,"check_host",
                           return_value={"status":"ISOLATED_NETNS_PREFLIGHT_BLOCKED",
