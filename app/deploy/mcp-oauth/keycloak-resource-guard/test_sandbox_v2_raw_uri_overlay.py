@@ -34,6 +34,44 @@ class RawUriOverlayTests(unittest.TestCase):
         self.assertFalse(report["release_approved"])
         self.assertEqual(SAMPLE.count(b"if ($request_uri"), 0)
 
+    def test_pinned_http_level_siblings_do_not_block_exact_server_review(self):
+        # The real review candidate includes http-level directives beside
+        # its two server blocks. They must remain untouched in the overlay.
+        siblings = (
+            b"limit_req_zone $binary_remote_addr zone=shared:10m rate=5r/s;\n"
+            b"limit_conn_zone $binary_remote_addr zone=conn:10m;\n"
+            b"map $http_host $is_expected { default 0; test.example 1; }\n"
+        )
+        candidate = siblings + SAMPLE
+        transformed, report = mod.overlay(candidate)
+        self.assertTrue(transformed.startswith(siblings))
+        self.assertEqual(report["raw_uri_guards_inserted_in_disposable_vhost"], 2)
+        self.assertEqual(mod.exact_locations_and_targets(candidate)[1],
+                         ["/api/mcp",
+                          "/.well-known/oauth-protected-resource/api/mcp"])
+        self.assertEqual(candidate.count(b"if ($request_uri"), 0)
+
+    def test_third_server_still_blocks_overlay(self):
+        extra = SAMPLE + b"server { listen 8080; return 404; }\n"
+        with self.assertRaisesRegex(ValueError, "UNEXPECTED_CANDIDATE_SERVER_LAYOUT"):
+            mod.overlay(extra)
+
+    def test_outside_server_proxy_cannot_be_skipped(self):
+        drift = (
+            b"upstream unsafe_scope { proxy_pass http://127.0.0.1:18082; }\n"
+            + SAMPLE
+        )
+        with self.assertRaisesRegex(ValueError, "UNEXPECTED_DIRECTIVE_OUTSIDE_SERVER"):
+            mod.overlay(drift)
+
+    def test_outside_server_location_cannot_be_skipped(self):
+        drift = (
+            b"map $http_host $foo { location = /api/mcp { return 200; } }\n"
+            + SAMPLE
+        )
+        with self.assertRaisesRegex(ValueError, "UNEXPECTED_DIRECTIVE_OUTSIDE_SERVER"):
+            mod.overlay(drift)
+
     def test_inclusion_does_not_accept_nonexact_v2_route(self):
         drift = SAMPLE.replace(b"location = /api/mcp {", b"location /api/mcp {")
         with self.assertRaisesRegex(ValueError, "EXACT_TWO_V2_PROXY_LOCATIONS_REQUIRED"):
