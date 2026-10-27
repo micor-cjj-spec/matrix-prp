@@ -54,6 +54,9 @@ class McpFirstPartyOidcLinkTests {
         when(builder.build()).thenReturn(outbound);
         service = service(true, ISSUER, ISSUER + "/protocol/openid-connect/certs",
                           RESOURCE, FIRST_PARTY, CALLBACK);
+        // Constructor configures the mock's no-redirect HTTPS request factory.
+        // Negative tests must count only actual network methods afterwards.
+        clearInvocations(outbound);
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(
                 new UserProfile(7, "owner", "Owner"), null, java.util.List.of()));
