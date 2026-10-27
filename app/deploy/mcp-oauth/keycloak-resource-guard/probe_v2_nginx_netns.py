@@ -343,9 +343,11 @@ def parent_run(*, edge_matrix=False):
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
                 "blocker": "ISOLATED_CHILD_REPORT_INVALID",
                 "release_approved": False}
-    if result.returncode and child.get("status") in (STATUS_READY, STATUS_EDGE):
+    expected_status = STATUS_EDGE if edge_matrix else STATUS_READY
+    if (result.returncode == 0) != (child.get("status") == expected_status):
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
-                "blocker": "ISOLATED_CHILD_EXIT_MISMATCH", "release_approved": False}
+                "blocker": "ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH",
+                "release_approved": False}
     return child
 
 if __name__ == "__main__":
