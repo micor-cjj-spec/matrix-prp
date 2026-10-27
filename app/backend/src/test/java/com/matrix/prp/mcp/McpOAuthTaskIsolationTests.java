@@ -111,9 +111,9 @@ class McpOAuthTaskIsolationTests {
             throws Exception {
         UserAccount ownerOne = users.findByUsername("admin").orElseThrow();
         String otherName = "mcp-owner-" + UUID.randomUUID();
-        UserAccount ownerTwo = users.findById(users.create(
+        UserAccount ownerTwo = users.create(
             otherName, "Synthetic second owner", passwordEncoder.encode("ci-only"),
-            false)).orElseThrow();
+            false);
         String oneMarker = "tenant-one-" + UUID.randomUUID();
         String twoMarker = "tenant-two-" + UUID.randomUUID();
         TaskItem first = createFor(ownerOne, oneMarker);
