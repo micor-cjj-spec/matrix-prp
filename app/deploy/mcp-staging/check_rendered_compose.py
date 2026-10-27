@@ -28,12 +28,22 @@ def validate(compose, config):
         config["PRP_STAGE_AUTH_ISSUER"] + "/protocol/openid-connect/auth"
     ), "STAGE_KEYCLOAK_ISSUER_BUILD_MISMATCH"
     assert backend["MATRIX_PRP_MCP_WRITE_ENABLED"] == "false", "STAGE_MCP_WRITE_MUST_BE_OFF"
-    assert compose["services"]["gateway"]["ports"][0]["published"] == "18081", (
-        "STAGE_GATEWAY_PORT_CHANGED"
-    )
-    assert compose["services"]["gateway"]["ports"][0]["host_ip"] == "127.0.0.1", (
-        "STAGE_GATEWAY_EXPOSED_PUBLICLY"
-    )
+    # Check the entire resolved service/port surface, not just the first
+    # gateway port: a second public port must never pass this release gate.
+    services = compose["services"]
+    assert set(services) == {"mysql", "backend", "gateway"}, "STAGE_UNREVIEWED_SERVICE"
+    for name, service in services.items():
+        assert service.get("network_mode") != "host", "STAGE_HOST_NETWORK_FORBIDDEN"
+        ports = service.get("ports", [])
+        assert isinstance(ports, list), "STAGE_PORTS_INVALID"
+        if name != "gateway":
+            assert not ports, "STAGE_INTERNAL_SERVICE_EXPOSED"
+        else:
+            assert len(ports) == 1, "STAGE_GATEWAY_PORT_COUNT_CHANGED"
+            port = ports[0]
+            assert port["published"] == "18081", "STAGE_GATEWAY_PORT_CHANGED"
+            assert port["target"] == 8080, "STAGE_GATEWAY_TARGET_CHANGED"
+            assert port["host_ip"] == "127.0.0.1", "STAGE_GATEWAY_EXPOSED_PUBLICLY"
 
 
 def main():
