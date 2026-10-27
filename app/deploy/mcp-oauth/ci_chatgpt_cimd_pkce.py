@@ -201,6 +201,47 @@ def require_pkce_result(mode, *, scope="openid"):
             raise RuntimeError("PKCE_" + mode.upper() + "_NOT_ENFORCED_HTTP_" + str(status))
 
 
+def verify_authorization_error_issuer():
+    """RFC 9207: unsolicited prompt=none error callback must identify issuer.
+
+    The error is produced by Keycloak (NO login, NO user code/token). Never
+    follow or print the ChatGPT callback URL or its state.
+    """
+    from urllib.parse import urlencode, urlsplit, parse_qs
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(24)
+    params = {
+        "client_id": CLIENT,
+        "response_type": "code",
+        "redirect_uri": REDIRECT,
+        "scope": "openid offline_access prp.tasks.read",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+        "resource": RESOURCE,
+        "prompt": "none",
+    }
+    status, location, _ = request(AUTH_URL + "?" + urlencode(params))
+    if status != 302:
+        raise RuntimeError("NO_LOGIN_ERROR_RESPONSE_MUST_REDIRECT")
+    callback = urlsplit(location)
+    expected = urlsplit(REDIRECT)
+    if (callback.scheme != "https" or callback.netloc != expected.netloc
+            or callback.path != expected.path or callback.fragment
+            or callback.username or callback.password):
+        raise RuntimeError("ERROR_REDIRECT_TO_UNEXPECTED_ORIGIN")
+    q = parse_qs(callback.query, keep_blank_values=True)
+    if (q.get("state") != [state]
+            or q.get("error") != ["login_required"]
+            or q.get("iss") != [BASE + "/realms/prp-mcp"]):
+        raise RuntimeError("RFC9207_ERROR_CALLBACK_ISS_STATE_MISMATCH")
+    if "code" in q or "access_token" in q or "id_token" in q:
+        raise RuntimeError("ERROR_CALLBACK_CONTAINED_UNEXPECTED_TOKEN")
+    print("PASS RFC9207: prompt=none error redirect preserves state and exact issuer, no token/code.")
+
+
 def verify_persisted(token):
     from urllib.parse import quote
     status, _, body = request(REALM_ADMIN + "/clients?clientId=" + quote(CLIENT, safe=""), bearer=token)
@@ -354,6 +395,7 @@ def main():
         # consent, code exchange or real ChatGPT assertion is simulated.
         require_pkce_result("S256", scope="openid offline_access prp.tasks.read")
         print("PASS PREREG: real three-scope authorization reaches login entry without OAuth error.")
+        verify_authorization_error_issuer()
         for mode in ("missing", "plain"):
             require_pkce_result(mode)
             print("PASS PREREG: " + mode + " PKCE rejected on exact client.")
@@ -361,6 +403,7 @@ def main():
         return
 
     verify_persisted(token)
+    verify_authorization_error_issuer()
     for mode in ("missing", "plain"):
         require_pkce_result(mode)
         print("PASS CIMD: " + mode + " PKCE rejected on registered client.")
