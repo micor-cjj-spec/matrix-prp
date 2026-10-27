@@ -24,6 +24,7 @@ def report(**kwargs):
         "containers": ORIGINAL,
         "volumes": set(),
         "networks": set(),
+        "published_ports": set(),
         "mem_bytes": ABOVE_MEMORY,
         "disk_bytes": ABOVE_DISK,
     }
@@ -57,6 +58,24 @@ class HostNewdbInventoryTests(unittest.TestCase):
         self.assertEqual(got["newdb_host_preflight"],
                          "NO_COLLISION_OBSERVED_REVIEW_ONLY")
 
+    def test_docker_published_port_blocks_without_host_listener(self):
+        for ports in (
+            {"127.0.0.1:18083->8080/tcp"},
+            {"0.0.0.0:18083->8080/tcp, :::18083->8080/tcp"},
+            {"[::]:18083->8080/tcp"},
+        ):
+            with self.subTest(ports=ports):
+                got = report(published_ports=ports)
+                self.assertEqual(got["host_observations"]["docker_published_tcp_18083"],
+                                 "PUBLISHED_PORT_PRESENT")
+                self.assertEqual(got["newdb_host_preflight"],
+                                 "BLOCKED_OR_UNVERIFIED")
+
+    def test_unpublished_or_other_docker_port_does_not_block(self):
+        got = report(published_ports={"8080/tcp", "0.0.0.0:18082->8080/tcp"})
+        self.assertEqual(got["newdb_host_preflight"],
+                         "NO_COLLISION_OBSERVED_REVIEW_ONLY")
+
     def test_unknown_proc_and_unparseable_states_are_blocked(self):
         for value in (None, "bad", HEADER + "\n 0: invalid_line"):
             with self.subTest(proc=value):
@@ -78,7 +97,7 @@ class HostNewdbInventoryTests(unittest.TestCase):
                                  "BLOCKED_OR_UNVERIFIED")
 
     def test_docker_permission_failure_is_unknown_not_free(self):
-        for key in ("containers", "volumes", "networks"):
+        for key in ("containers", "volumes", "networks", "published_ports"):
             with self.subTest(key=key):
                 got = report(**{key: None})
                 self.assertEqual(got["newdb_host_preflight"],
@@ -104,6 +123,7 @@ class HostNewdbInventoryTests(unittest.TestCase):
             h.READ_ONLY_DOCKER_COMMANDS,
             {
                 "containers": ("docker", "ps", "-a", "--format", "{{.Names}}"),
+                "published_ports": ("docker", "ps", "--format", "{{.Ports}}"),
                 "volumes": ("docker", "volume", "ls", "--format", "{{.Name}}"),
                 "networks": ("docker", "network", "ls", "--format", "{{.Name}}"),
             },
