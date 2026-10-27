@@ -45,12 +45,15 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
         self.assertTrue(set(READONLY_LINK_REGEX).issubset(REGEX))
 
     def test_rendered_proxy_remains_private_secure_and_noncacheable(self):
-        rendered = render_readonly_link_routes("/tmp/reviewed-ca.pem")
+        rendered = render_readonly_link_routes()
         self.assertEqual(rendered.count("location = "), 13)
         self.assertEqual(rendered.count('location ~ "'), 1)
-        self.assertEqual(rendered.count("proxy_ssl_verify on;"), 14)
-        self.assertEqual(rendered.count("proxy_ssl_name prp-test.micor.top;"), 14)
-        self.assertEqual(rendered.count("proxy_pass https://127.0.0.1:18443;"), 14)
+        self.assertEqual(rendered.count("proxy_pass http://127.0.0.1:18082;"), 14)
+        self.assertNotIn("proxy_pass https://127.0.0.1:18443;", rendered)
+        self.assertNotIn("proxy_pass http://127.0.0.1:18081;", rendered)
+        self.assertNotIn("proxy_ssl_name", rendered)
+        self.assertNotIn("proxy_ssl_trusted_certificate", rendered)
+        self.assertNotIn("proxy_ssl_verify", rendered)
         self.assertEqual(rendered.count("if ($prp_stage_origin_ok = 0) { return 403; }"), 14)
         self.assertEqual(rendered.count('access_log off;'), 14)
         self.assertEqual(rendered.count('proxy_cache off;'), 14)
@@ -62,7 +65,7 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
         self.assertNotIn("/prp/me/mcp-approve", rendered)
 
     def test_mutation_method_walled_to_exact_endpoint(self):
-        rendered = render_readonly_link_routes("/tmp/ca.pem")
+        rendered = render_readonly_link_routes()
         for path, verbs in REQUIRED_METHODS.items():
             self.assertIn(
                 "location = " + path + " {\n    limit_except " + verbs + " { deny all; }",
@@ -77,16 +80,34 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
         self.assertEqual(before.count('location ~ "'), len(REGEX))
         self.assertIn('location = /api/mcp/clients', before)
         self.assertIn("/api/mcp/approval/drafts", before)
-        self.assertNotEqual(before, render_readonly_link_routes("/tmp/ca.pem"))
+        self.assertNotEqual(before, render_readonly_link_routes())
 
-    def test_fail_closed_ca_path_and_loopback_port(self):
-        for path in ("relative.pem", "/tmp/../ca.pem", "/tmp/ca.pem\n",
-                     "/tmp/ca.pem;proxy_ssl_verify off;"):
-            with self.subTest(path=path), self.assertRaises(ValueError):
-                render_readonly_link_routes(path)
-        for port in (-1, 443, 65536, "18443", True):
+    def test_reject_legacy_stage_and_oauth_tls_redirects(self):
+        for port in (18081, 18443, -1, 443, 65536, "18082", None, True):
             with self.subTest(port=port), self.assertRaises(ValueError):
-                render_readonly_link_routes("/tmp/ca.pem", port)
+                render_readonly_link_routes(port)
+        with self.assertRaises(TypeError):
+            render_readonly_link_routes(trusted_ca="/tmp/ca.pem")
+
+    def test_broad_approval_review_unchanged_and_separately_tls_pinned(self):
+        legacy = render_approval_routes("/tmp/ca.pem")
+        self.assertEqual(legacy.count("proxy_pass https://127.0.0.1:18443;"), 14)
+        self.assertEqual(legacy.count("proxy_ssl_verify on;"), 14)
+        self.assertEqual(legacy.count("proxy_ssl_name prp-test.micor.top;"), 14)
+        self.assertNotIn("proxy_pass http://127.0.0.1:18082;", legacy)
+        for bad in ("/tmp/../ca.pem", "/tmp/ca.pem\\n",
+                    "/tmp/ca.pem;proxy_ssl_verify off;", "relative.pem"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                render_approval_routes(bad)
+
+    def test_v2_url_cannot_use_foreign_host_or_broad_api_routes(self):
+        rendered = render_readonly_link_routes()
+        self.assertIn("proxy_set_header Host prp-test.micor.top;", rendered)
+        self.assertIn("proxy_set_header X-Forwarded-Proto https;", rendered)
+        self.assertNotIn("proxy_pass http://127.0.0.1:18081;", rendered)
+        self.assertNotIn("location ^~ /api/", rendered)
+        self.assertNotIn("location = /api/finance", rendered)
+        self.assertNotIn("location = /api/mcp/approval/drafts", rendered)
 
 
 if __name__ == "__main__":
