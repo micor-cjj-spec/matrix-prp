@@ -137,7 +137,13 @@ def verify_concurrent_flow_limit(flow, prp_bearer, prp_password):
     url = PRP + "/api/mcp/identity/oidc/start"
 
     def one_request(_):
-        local_opener = flow.browser_opener()
+        # Match ci_pkce_browser.main()'s disposable TLS+CookieJar transport.
+        # Give every thread its OWN HTTP opener and cookie jar.
+        context = flow.ssl.create_default_context(
+            cafile=os.environ["MCP_E2E_CA_CERT"])
+        local_opener = flow.build_opener(
+            flow.HTTPSHandler(context=context),
+            flow.HTTPCookieProcessor(flow.CookieJar()), flow.SafeRedirect())
         ready.wait(timeout=10)
         result = flow.request(local_opener, url, bearer=prp_bearer,
                               data={"password": prp_password})
