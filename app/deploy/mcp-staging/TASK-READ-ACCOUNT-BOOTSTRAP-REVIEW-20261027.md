@@ -1,6 +1,6 @@
 # ChatGPT → PRP 只读 MCP：首次身份绑定与最小公网路由评审（2026-10-27）
 
-> **结论：P0 ACCOUNT BOOTSTRAP NOT IMPLEMENTED. NO-GO for real ChatGPT task reads.**
+> **结论：P0 ACCOUNT BOOTSTRAP CODE CANDIDATE; ISOLATED END-TO-END UNVERIFIED. NO-GO for real ChatGPT task reads.**
 > 本文及 `render_readonly_link_routes` 仅为评审候选；无发布许可、不改动 Nginx/Keycloak/PRP、不开放 B2、不发放收据、不代表真实 ChatGPT OAuth 登录或 `prp_tasks_list` 已成功。
 
 ## 真实调用链的确认
@@ -77,3 +77,37 @@ PRP 首次身份绑定的**现有**另一路径：
 - [ ] 最后由用户在 ChatGPT 界面实际执行 `prp_tasks_list`（最多 20 条），而不是仅看隔离 Keycloak OAuth CI。
 
 **Gate:** `P0_LINK_BOOTSTRAP=BLOCKED`, `B2=NO-GO`, `LIVE_CHATGPT_TASKS=UNVERIFIED`; PR #113 继续 Draft。严禁创建假的 `approved-install.safe.json`、`fresh-b2-restore.safe.json` 或绕过受控发布。
+
+## 2026-10-27: PR #113 中的第一方 PKCE 实现候选（默认关闭）
+
+**源代码已实现、尚未部署、尚未完成真实第一方 Keycloak + PRP MySQL + 浏览器全链路验收。** 本文开头的 `P0 ACCOUNT BOOTSTRAP NOT IMPLEMENTED` 为较早审查时刻的结论，现在应解读为 **`P0_ACCOUNT_BOOTSTRAP=CODE_READY_REQUIRES_ISOLATED_E2E`**；它仍不意味着 ChatGPT 可以读任务。
+
+提交到测试分支的代码包括：
+
+- `V28__mcp_first_party_oidc_link_flows.sql`：5 分钟、一次性 `state_hash`、`code_verifier` 和 `oidc_nonce` 数据库记录。Keycloak 用户密码和 OAuth Access Token 不持久化。
+- `McpFirstPartyOidcLinkService`：只有原 PRP 登录 JWT + 再次校验密码 + 已批准 ChatGPT `prp.tasks.read` 才能启动；只对固定第一方客户端执行 `openid` 授权码 + S256，回调核对 state 和 Issuer，状态先消费后换码，ID Token 只在后端验签，固定 OIDC Audience 与 nonce 检查；成功后调用事务式一对一映射。
+- `McpFirstPartyOidcLinkController`：`POST /api/mcp/identity/oidc/start`、`POST /api/mcp/identity/oidc/finish`。两个端点均走**原 PRP 会话 JWT**，不是外部 OAuth JWT，默认不存在。
+- `McpIdentityLinkService.linkFirstPartyOwner`：复用现有映射表、一对一唯一约束及授权撤销防护；发生碰撞或撤销必须拒绝。
+- `McpClientsView.vue` 和 `McpOidcCallbackView.vue`：PRP 绑定按钮从固定测试 Issuer 启动、严格审核返回地址；回调页面同步清除 URL 查询参数后才发认证请求，绝不向 ChatGPT 发送 code、state、Token 或 PRP 密码。
+- `approval_routes_pending.py`：在原审查候选基础上，**独立的**只读绑定候选添加 3 个严格路由（`GET /prp/me/mcp-link/callback`，两个 `POST /api/mcp/identity/oidc/*`）。因此当前该候选是 **13 个 exact paths + 1 个 static asset regex**，不包含草稿写入审批、通用 API 或动态 Keycloak 管理接口。
+
+启动前配置（**示意，不要将其应用到活跃容器**）：
+
+```properties
+matrix-prp.mcp.enabled=true
+matrix-prp.mcp.oauth.enabled=true
+matrix-prp.mcp.oauth.first-party-link.enabled=true
+matrix-prp.mcp.oauth.first-party-link.client-id=prp-first-party-link
+matrix-prp.mcp.oauth.first-party-link.redirect-uri=https://prp-test.micor.top/prp/me/mcp-link/callback
+```
+
+依赖已有固定 issuer `https://auth-test.micor.top/realms/prp-mcp`、固定 JWKS `.../protocol/openid-connect/certs` 以及资源 `https://prp-test.micor.top/api/mcp`。前端浏览器重定向**固定**到该测试 Issuer，错误的主机/路径拒绝。独立 Keycloak client `prp-first-party-link` 必须是 public、Authorization Code enabled、PKCE **S256 required**、精确上述回调、`openid`，不能开启 Password/Implicit/Service Account，不得冒充 ChatGPT；这项客户端注册在当前线上未执行。
+
+### 不能因编译成功而宣称完成的 P0
+
+1. 必须在隔离 MySQL + 真 Keycloak 的同一端到端会话下运行真实 PRP `/start`、浏览器登录/回调 `/finish`，验证**真实签名的 ID Token**、Nonce、State、Audience，以及错误密码、错误回调、多次提交、切换 PRP 用户、同一 Keycloak 身份绑定第二个 PRP 用户、已授权后撤销这些负例。当前 Mockito/unit CI 不等于 E2E。
+2. 以真实测试 Realm 比较第一方客户端和**单独** ChatGPT 客户端签发的同一登录用户的 `sub`。若 Keycloak 配置 pairwise subject 或其它 subject 转换，拒绝直接复用映射；必须设计由管理员审核的跨 client subject 映射，不能猜测。
+3. 回调及前端资源必须经独立变更批准、实际浏览器 HTTPS/SNI/Referrer-Policy/Host 测试；任何 302、跨站资源加载、日志记录若泄露 `code` 或 `state`，都是阻断项。
+4. 最终 PRP 绑定后仍需真实 ChatGPT OAuth `private_key_jwt`、刷新和 `prp_tasks_list` 验收。B2 两份独立安全凭证缺失，原控制器不可跳过。
+
+**发布状态：`feature.default=OFF`，`PR#113=Draft`，`B2=NO-GO`。** 任何配置属性的示意值不是变更授权。
