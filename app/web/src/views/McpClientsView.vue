@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { beginFirstPartyOidcLink } from '@/api/mcpFirstPartyOidc'
+import { checkedFirstPartyAuthorizeUrl } from '@/utils/mcpOidcAuthorizeUrl'
 import {
   authorizeMcpClient, listMcpClients, mcpScopes, revokeMcpClient,
   type McpClientGrant,
@@ -52,22 +53,15 @@ async function beginOidcLink() {
     firstPartyPassword.value = ''
     // Never send a PRP password, client secret or access token to the IdP.
     // Redirect only to the reviewed Keycloak issuer's HTTPS authorization URL.
-    const endpoint = new URL(authorizeUrl)
-    const approvedAuthorizeEndpoint =
-      import.meta.env.VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT
-      || 'https://auth-test.micor.top/realms/prp-mcp/protocol/openid-connect/auth'
-    // The build must pin an exact reviewed issuer; never trust a callback
-    // hostname returned by the server without also checking it in the UI.
-    if (`${endpoint.origin}${endpoint.pathname}` !== approvedAuthorizeEndpoint
-      || endpoint.username || endpoint.password || endpoint.hash
-      || endpoint.searchParams.getAll('state').length !== 1
-      || endpoint.searchParams.getAll('nonce').length !== 1
-      || endpoint.searchParams.get('client_id') !== 'prp-first-party-link'
-      || endpoint.searchParams.get('code_challenge_method') !== 'S256'
-      || endpoint.searchParams.getAll('code_challenge').length !== 1) {
-      throw new Error('unexpected-oidc-url')
-    }
-    window.location.assign(endpoint.toString())
+    // Enforce the pinned HTTPS issuer AND every OAuth/PKCE field before
+    // crossing origins; never fall back to an implicit hardcoded issuer.
+    const reviewedUrl = checkedFirstPartyAuthorizeUrl(
+      authorizeUrl,
+      import.meta.env.VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT,
+      window.location.origin,
+      import.meta.env.BASE_URL,
+    )
+    window.location.assign(reviewedUrl)
   } catch {
     firstPartyPassword.value = ''
     firstPartyError.value = '无法启动 Keycloak 绑定：请先批准 ChatGPT 的读取任务权限，核对 PRP 密码，并确认第一方 OAuth 功能已启用。'
