@@ -7,6 +7,9 @@ import static org.mockito.Mockito.*;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import com.matrix.prp.auth.model.UserProfile;
 import com.matrix.prp.tasks.entity.TaskEntity;
 import com.matrix.prp.tasks.mapper.TaskMapper;
@@ -16,6 +19,7 @@ import com.matrix.prp.tasks.service.TaskService;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -29,6 +33,15 @@ import org.springframework.web.server.ResponseStatusException;
  * A verified producer principal is still a separate UNIMPLEMENTED G0-C gate.
  */
 class TaskReadProducerBoundaryTests {
+    @BeforeAll
+    static void initSyntheticMapperMetadata() {
+        // A mocked TaskMapper never triggers Spring/MyBatis startup; install
+        // the same TableInfo lambda mapping used by the real SQL repository.
+        TableInfoHelper.initTableInfo(
+            new MapperBuilderAssistant(new MybatisConfiguration(), "ci-synthetic-task-repository"),
+            TaskEntity.class);
+    }
+
     private void asOwner(long id) {
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(
