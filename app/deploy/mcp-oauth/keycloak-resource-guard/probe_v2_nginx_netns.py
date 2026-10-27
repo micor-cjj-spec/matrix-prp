@@ -76,6 +76,8 @@ def require_own_namespace(parent_namespace):
     child_namespace = os.readlink("/proc/self/ns/net")
     if child_namespace == parent_namespace:
         raise ValueError("NETWORK_NAMESPACE_NOT_ISOLATED")
+    if os.readlink("/proc/1/ns/net") == child_namespace:
+        raise ValueError("PID1_NETWORK_NAMESPACE_NOT_ISOLATED")
     interfaces = [name for _, name in socket.if_nameindex()]
     if interfaces != ["lo"]:
         raise ValueError("NAMESPACE_CONTAINS_NON_LOOPBACK_INTERFACE")
