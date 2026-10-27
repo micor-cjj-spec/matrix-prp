@@ -82,3 +82,15 @@
 **更强的界限：** `ci_chatgpt_exact_client_authcode.py` 需要 GitHub Actions 隔离运行器、固定 loopback Keycloak 和临时 RSA 文件。脚本中的 Admin REST 客户端修改仅允许一次性 Realm；在没有原始批准和独立恢复签名的情况下，绝不复制这些调用用于线上 Keycloak，更不能把临时证书或合成刷新策略写入生产 Realm。
 
 **总体裁定仍然：CONDITIONALLY VIABLE for further isolated validation / NO-GO for live deployment。**
+
+## 2026-10-27 04:40 UTC — 冷启动身份绑定 P0 与最小只读路由候选
+
+复核 `McpOAuthResourceServerConfig`、`McpToolConfiguration`、`McpIdentityLinkService`、`McpOAuthLinkController` 和 PRP 前端 `McpClientsView.vue` 后确认：
+
+**即便真实 ChatGPT OAuth Access Token 成功，未绑定的 `iss,sub` 仍被拒绝执行 MCP 工具。** 目前前端只能生成 10 分钟的一次性绑定票据，现有完成接口 `POST /api/mcp/link` 必须由已验证 OAuth Bearer 调用；ChatGPT 标准 MCP 工具列表没有用户身份绑定工具，也没有已验证的客户端自动调用该 API 的工作流。此项不是 CI 的 Token 成功能够推断解决的。
+
+独立新文档：`app/deploy/mcp-staging/TASK-READ-ACCOUNT-BOOTSTRAP-REVIEW-20261027.md`；列明优先的**第一方 PRP Keycloak PKCE 绑定流程**（与 ChatGPT OAuth 客户端分离）和备选最小权限冷启动工具，分别需要安全审查与新增实际实现。不得引导用户把票据、密码或 OAuth Token 发到普通聊天或浏览器开发者工具中。
+
+已经新增的 `render_readonly_link_routes` 仅生成 **10 个精确页面/API 路径 + 1 个静态资源正则**，沿用固定回环 HTTPS、`proxy_ssl_verify on` 服务端证书校验与限定 SNI；**未声称启用双向 mTLS**。 不含任何草稿审批路径、通用 API 或未开发的回调路径；`render_approval_routes` 既有更宽候选保持不变。GitHub Actions 40451039140 的 route generator/合同测试 **10/10 通过**，但测试结果不意味着浏览器配对实现或新路由有安装许可。
+
+**新 P0：ACCOUNT_BOOTSTRAP_BLOCKED。** 实际 Keycloak 配置/13 客户端恢复、B2 双凭证、受控路由变更、真实 ChatGPT 登录和 `prp_tasks_list` 均没有因新代码或该文档自动放行。PR #113 保持 Draft、NO-GO。
