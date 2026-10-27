@@ -131,6 +131,51 @@ public class McpIdentityLinkService {
         return new Link(issuer, verifiedSubject, inserted);
     }
 
+    /**
+     * Finish PRP-initiated PKCE linking ONLY after the separate first-party
+     * flow verified the signed Keycloak ID token and consumed its one-time
+     * state. The caller supplies the PRP owner from first-party JWT, never a
+     * browser-provided user ID. Unique DB keys reject concurrent collisions.
+     */
+    @Transactional
+    public boolean linkFirstPartyOwner(long owner, String verifiedIssuer,
+                                       String subject, String intendedClientId) {
+        if (owner <= 0 || !issuer.equals(verifiedIssuer)
+                || subject == null || subject.isBlank() || subject.length() > 255
+                || !McpFirstPartyOidcLinkService.CHATGPT_CLIENT_ID.equals(intendedClientId))
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                "Invalid first-party OIDC linking identity");
+        UserAccount account = users.findById(owner).orElse(null);
+        if (account == null || !account.enabled())
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PRP owner unavailable");
+        if (!grants.grantedScopes(owner, intendedClientId).contains("prp.tasks.read"))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "ChatGPT task permission not approved");
+        List<Long> existingOwner = db.query(
+            "SELECT user_id FROM prp_mcp_identity_links WHERE issuer=? AND subject=? FOR UPDATE",
+            (rs, i) -> rs.getLong(1), issuer, subject);
+        if (!existingOwner.isEmpty() && existingOwner.getFirst() != owner)
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "This OIDC identity is linked to another PRP account");
+        List<String> existingSubject = db.query(
+            "SELECT subject FROM prp_mcp_identity_links WHERE user_id=? AND issuer=? FOR UPDATE",
+            (rs, i) -> rs.getString(1), owner, issuer);
+        if (!existingSubject.isEmpty() && !existingSubject.getFirst().equals(subject))
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "PRP owner already linked to another OIDC identity");
+        if (existingOwner.isEmpty() && existingSubject.isEmpty()) {
+            try {
+                db.update("INSERT INTO prp_mcp_identity_links (issuer,subject,user_id) VALUES (?,?,?)",
+                    issuer, subject, owner);
+            } catch (org.springframework.dao.DuplicateKeyException conflict) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Concurrent OIDC mapping already exists");
+            }
+            return true;
+        }
+        return false;
+    }
+
     /** A verified OAuth issuer + subject, not a client-provided PRP ID, chooses owner. */
     public OptionalLong resolveUserId(String verifiedIssuer, String verifiedSubject) {
         if (!issuer.equals(verifiedIssuer) || verifiedSubject == null || verifiedSubject.isBlank())
