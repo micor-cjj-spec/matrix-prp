@@ -69,6 +69,7 @@ jobs:
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_probe_v2_nginx_netns.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_sandbox_v2_raw_uri_overlay.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_prepare_v2_raw_uri_review.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_verify_v2_raw_uri_review_artifact.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_trace_v2_limit_zone.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_isolated_v2_zone_overlay.py' -v
           python3 -m py_compile app/deploy/mcp-oauth/keycloak-resource-guard/b2_evidence_inventory.py
