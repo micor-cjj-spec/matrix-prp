@@ -6,6 +6,7 @@ on:
       - test/mcp-authcode-privatejwt-refresh-20261024
     paths:
       - "app/backend/src/test/java/com/matrix/prp/TaskReadProducerDatabaseIT.java"
+      - "app/backend/src/test/java/com/matrix/prp/ProductionInProcessMcpTaskReadDatabaseIT.java"
       - "app/backend/src/test/java/com/matrix/prp/ProducerTaskDelegationMysqlProofIT.java"
       - "app/backend/src/main/java/com/matrix/prp/tasks/**"
       - "app/backend/src/main/java/com/matrix/prp/auth/**"
@@ -86,7 +87,8 @@ jobs:
           echo "CI_PRODUCER_REAL_MYSQL_NEW_EMPTY_DB_READY=YES"
           cd app/backend
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=TaskReadProducerDatabaseIT,ProducerTaskDelegationMysqlProofIT test
+          ./mvnw -B -ntp -Dtest=TaskReadProducerDatabaseIT,ProducerTaskDelegationMysqlProofIT,ProductionInProcessMcpTaskReadDatabaseIT test
           echo "CI_ONLY_MYSQL_TWO_SYNTHETIC_OWNERS_NO_PRODUCTION_PRP=YES"
           echo "DISPOSABLE_DATABASE_CONCURRENT_JTI_AND_REVOKE_EPOCH_PROOF=YES"
+          echo "SAME_APP_SAME_DATABASE_MCP_READ_OPTION_REVIEW_ONLY=YES"
           echo "NO_PRODUCER_ENDPOINT_NO_LIVE_DATA_NO_KEYCLOAK_NO_DEPLOYMENT=YES"
