@@ -149,3 +149,22 @@ docker compose --project-name prp-mcp-auth --env-file .env -f compose.yaml down
 Production `main` already applied **V24__vocal_song_library_and_assignments.sql**. The initial MCP staging installation applied a *different* `V24__mcp_write_drafts.sql`, followed by legacy MCP V25 and V26. This branch reconciles **new/fresh** lineage as production vocal V24, MCP drafts V25, grants V26, links V27. SQL bodies for the MCP tables are unchanged; their historical SQL header annotations retain the former version numbers and must not be used as migration identities.
 
 **Do not deploy a newly built backend from this lineage against the existing stateful `matrix_prp_mcp_stage` database.** The old Flyway history is incompatible and should fail validation. Never silently call `flyway repair`, use `clean`, rewrite applied migration history, overwrite the stage volume, or point this checkout at production. Preserve stage data and evidence unchanged until a separately reviewed, independently backed-up synthetic-stage cutover has passed real MySQL tests. See `app/docs/technical/mcp-flyway-lineage-reconciliation.md`.
+
+## PR #113: first-party PRP ↔ Keycloak account bootstrap (review-only, default OFF)
+
+The first-party PRP sign-in flow is **separate** from the official ChatGPT OAuth client. It exists so a user can associate a PRP owner with a verified Keycloak `(iss,sub)` without pasting tokens or tickets into ChatGPT. The code has passed disposable Keycloak 26.8 + MySQL 8.4 + Java 21 + Chromium end-to-end tests, **not** active staging/public ChatGPT acceptance.
+
+The isolated staging Compose source now passes through the following *default-off* environment variables:
+
+| Staging `.env` input | Compose/Vue destination | Guard |
+| --- | --- | --- |
+| `PRP_STAGE_FIRST_PARTY_LINK_ENABLED=false` | `MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_ENABLED` | Disabled unless explicitly enabled after review |
+| `PRP_STAGE_FIRST_PARTY_CLIENT_ID=prp-first-party-link` | `MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_CLIENT_ID` | **Exactly** this separate public Keycloak client ID, never ChatGPT's |
+| `PRP_STAGE_FIRST_PARTY_REDIRECT_URI=https://prp-test.micor.top/prp/me/mcp-link/callback` | `MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_REDIRECT_URI` | Must match the selected **staging** public host, exact path |
+| `PRP_STAGE_AUTH_ISSUER` | Web **build-time** `VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT` = issuer + `/protocol/openid-connect/auth` | Pins the Keycloak URL the browser is allowed to open |
+
+`prepare_env.py` generates a **disabled** state by default. `check_env.py` rejects activating first-party bootstrap unless *both* stage MCP and stage OAuth are enabled, and it validates that the Client ID/Callback are exact. Existing staging `.env` files that omit all three new keys remain disabled and valid. The web image now requires the explicit non-secret pinned authorization URL at build time; this is an artifact of the reviewed Compose build, not an instruction to install a live vhost.
+
+**Important release dependencies that this wiring does not solve:** the first-party public S256-only Keycloak client must be independently registered and checked on the actual desired Realm; the precise PRP callback, login/grant/identity APIs and static assets must be authorized through the separately reviewed Nginx scope (the current V2 raw-URI guard change deliberately does *not* add them); the external TLS chain and HTTPS forwarding trust must be accepted; first-party and actual ChatGPT signed `sub` must be verified to match; actual ChatGPT login, `private_key_jwt`, token refresh and at-most-20 task query must succeed. Do not use a normal browser `/admin` path to manage Keycloak publicly or copy official client private keys to PRP.
+
+**No release authority is implied:** changes in this section are GitHub source-only. B2 remains NO-GO until independent exact-vhost review, real operator approval, authentic `approved-install.safe.json` and new `fresh-b2-restore.safe.json`, all checks by the original controller, and real public acceptance. No installation/reload/Admin REST writes are authorized by this document.
