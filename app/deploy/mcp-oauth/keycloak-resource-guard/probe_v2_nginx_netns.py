@@ -178,6 +178,21 @@ def make_nginx_configuration(sources, root, nginx):
         raise ValueError("ISOLATED_NGINX_SYNTAX_RECHECK_FAILED")
     return cfg, counts, count
 
+def run_edge_checks(check):
+    """Run fixed edge matrix; 405 is never proof that POST is rejected."""
+    for label, path in EDGE_WRONG_HOST:
+        check(label, path=path, host="untrusted.invalid",
+              expected=(421,), hits=0)
+    check("edge_canonical_get_control", path="/api/mcp",
+          method="GET", expected=(405,), hits=0)
+    for label, path in EDGE_CANONICAL_ALIASES:
+        check(label, path=path, method="GET",
+              expected=(400, 403, 404, 421), hits=0)
+        check(label.replace("edge_alias_", "edge_post_alias_"),
+              path=path, method="POST",
+              expected=(400, 403, 404, 405, 421), hits=0)
+
+
 def child_run(parent_namespace, *, edge_matrix=False):
     os.umask(0o077)
     require_own_namespace(parent_namespace)
@@ -249,27 +264,7 @@ def child_run(parent_namespace, *, edge_matrix=False):
             check("wrong_sni_correct_host", sni="untrusted.invalid",
                   verify_name=False, expected=(421,))
             if edge_matrix:
-                # Exercise candidate Host rules against routes with differing
-                # exact, prefix and regex precedence. All must fail 421.
-                for label, path in EDGE_WRONG_HOST:
-                    check(label, path=path, host="untrusted.invalid",
-                          expected=(421,), hits=0)
-                # Distinguish URI normalization behavior from bypass claims.
-                # If an alias reaches 18082, the edge gate fails for review.
-                # GET might be rejected by an exact MCP method guard
-                # *after* Nginx has normalized an alias. Compare a real GET
-                # to the canonical endpoint; never assume a 405 means safe.
-                check("edge_canonical_get_control", path="/api/mcp",
-                      method="GET", expected=(405,), hits=0)
-                for label, path in EDGE_CANONICAL_ALIASES:
-                    check(label, path=path, method="GET",
-                          expected=(400, 403, 404, 421), hits=0)
-                    # MCP tools use POST; this is the discriminating request.
-                    # Any method-alias hit on the synthetic 18082 must remain
-                    # REVIEW_REQUIRED. Never rewrite the guard automatically.
-                    check(label.replace("edge_alias_", "edge_post_alias_"),
-                          path=path, method="POST",
-                          expected=(400, 403, 404, 405, 421), hits=0)
+                run_edge_checks(check)
             try:
                 with tls_socket("127.0.0.1", socket.AF_INET, 443, HOST,
                                 root / "cert.pem", offer_h2=True) as h2:
