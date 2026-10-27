@@ -15,6 +15,10 @@ on:
       - "app/deploy/mcp-oauth/ci_browser_route_review.py"
       - "app/deploy/mcp-oauth/test_ci_browser_route_review.py"
       - "app/deploy/mcp-staging/approval_routes_pending.py"
+      - "app/deploy/mcp-staging/test_first_party_static_files_review.py"
+      - "app/web/index.html"
+      - "app/web/src/main.ts"
+      - "app/web/public/**"
       - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
       - "app/deploy/mcp-oauth/ci_pkce_browser.py"
       - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
@@ -64,5 +68,6 @@ jobs:
           bash -n app/deploy/mcp-oauth/test_full_e2e_ci.sh
           python3 -m py_compile app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py app/deploy/mcp-oauth/ci_pkce_browser.py
           python3 -m unittest discover -s app/deploy/mcp-oauth -p test_ci_browser_route_review.py -v
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_first_party_static_files_review.py -v
       - name: Run Chromium against real local Vue, Keycloak, PRP backend and MySQL
         run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
