@@ -362,6 +362,8 @@ def main():
     if os.environ.get("MCP_E2E_FIRST_PARTY") == "true":
         ci_first_party_link_e2e.verify_unlink_invalidates_pending(
             sys.modules[__name__], opener, prp_jwt, bearer, prp_password)
+        ci_first_party_link_e2e.verify_concurrent_flow_limit(
+            sys.modules[__name__], prp_jwt, prp_password)
     if os.environ.get('MCP_E2E_CRUD') == 'true':
         import ci_crud_flow
         ci_crud_flow.run(sys.modules[__name__], opener, prp_jwt, prp_password, user_password)
