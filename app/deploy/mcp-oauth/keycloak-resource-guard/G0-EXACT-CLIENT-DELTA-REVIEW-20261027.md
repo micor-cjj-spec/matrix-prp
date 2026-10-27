@@ -252,8 +252,8 @@ database or permission to change any persistent host.
 `app/deploy/mcp-staging/host_newdb_readonly_inventory.py` is a
 separate **host-side read-only review**. It queries Linux
 `/proc/net/tcp` and `/proc/net/tcp6`, coarse available RAM/disk
-and only Docker **name listings** (`ps -a`, `volume ls`, `network ls`).
-It flags any port-18083 listener, conflicting
+and only Docker **name/published-port summaries** (`ps -a --format Names`, `ps --format Ports`, `volume ls`, `network ls`).
+It flags any port-18083 host listener **or existing Docker TCP publish** (including Docker installations with no userspace proxy), conflicting
 `prp-mcp-newdb-review` project artifacts, missing known V2/legacy
 gateway container names, low review resources or unobservable Docker/TCP
 facts. No secrets, inspected container environment, DB table records,
