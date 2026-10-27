@@ -75,6 +75,9 @@ class McpFirstPartyOidcLinkTests {
         when(users.findById(7L))
             .thenReturn(Optional.of(new UserAccount(7, "owner", "Owner", "encoded", false, true)));
         when(passwords.matches("correct-password", "encoded")).thenReturn(true);
+        when(db.queryForObject(
+            eq("SELECT id FROM prp_users WHERE id=? FOR UPDATE"),
+            eq(Long.class), eq(7L))).thenReturn(7L);
         when(db.queryForObject(anyString(), eq(Integer.class), eq(7L))).thenReturn(0);
     }
 
@@ -170,6 +173,41 @@ class McpFirstPartyOidcLinkTests {
     }
 
     @Test
+    void beginScrubsExpiredSecretsAndLimitsActiveFlowsUnderOwnerLock() {
+        authorizedOwner();
+        service.begin("correct-password");
+        var operations = inOrder(db);
+        operations.verify(db).queryForObject(
+            eq("SELECT id FROM prp_users WHERE id=? FOR UPDATE"),
+            eq(Long.class), eq(7L));
+        operations.verify(db).update(
+            contains("code_verifier='', oidc_nonce=''"),
+            eq(7L));
+        operations.verify(db).update(
+            contains("DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 DAY)"),
+            eq(7L));
+        operations.verify(db).queryForObject(
+            contains("SELECT COUNT(*) FROM prp_mcp_oidc_link_flows"),
+            eq(Integer.class), eq(7L));
+        operations.verify(db).update(
+            startsWith("INSERT INTO prp_mcp_oidc_link_flows"),
+            any(Object[].class));
+    }
+
+    @Test
+    void threeActiveFlowsPreventFourthOneAndDoNotInsertState() {
+        authorizedOwner();
+        when(db.queryForObject(anyString(), eq(Integer.class), eq(7L)))
+            .thenReturn(3);
+        assertThatThrownBy(() -> service.begin("correct-password"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("Too many pending identity link requests");
+        verify(db, never()).update(
+            startsWith("INSERT INTO prp_mcp_oidc_link_flows"),
+            any(Object[].class));
+    }
+
+    @Test
     void malformedOrUntrustedCallbackIsRejectedBeforeTokenExchange() {
         assertThatThrownBy(() -> service.finish("bad", "code", ISSUER))
             .isInstanceOf(ResponseStatusException.class);
@@ -205,6 +243,9 @@ class McpFirstPartyOidcLinkTests {
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("First-party Keycloak identity verification failed");
         verify(outbound, times(1)).postForObject(anyString(), any(), eq(java.util.Map.class));
+        verify(db, atLeastOnce()).update(
+            contains("code_verifier='', oidc_nonce=''"),
+            any(Object[].class));
         // A second request for the same state must not call Keycloak again.
         assertThatThrownBy(() -> service.finish(state, "synthetic-code", ISSUER))
             .isInstanceOf(ResponseStatusException.class);
