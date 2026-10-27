@@ -42,6 +42,13 @@ READONLY_LINK_EXACT = {
         "/api/mcp/link",
     )
 }
+# Review-only new first-party OIDC browser callback and PRP-authenticated
+# PKCE start/finish APIs. Feature defaults off; separate G0 approval required.
+READONLY_LINK_EXACT.update({
+    "/prp/me/mcp-link/callback": "GET",
+    "/api/mcp/identity/oidc/start": "POST",
+    "/api/mcp/identity/oidc/finish": "POST",
+})
 READONLY_LINK_REGEX = {
     pattern: REGEX[pattern] for pattern in REGEX
     if pattern.startswith(r"^/prp/assets/")
