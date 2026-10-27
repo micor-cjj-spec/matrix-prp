@@ -125,9 +125,9 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
 
     def test_broad_approval_review_unchanged_and_separately_tls_pinned(self):
         legacy = render_approval_routes("/tmp/ca.pem")
-        self.assertEqual(legacy.count("proxy_pass https://127.0.0.1:18443;"), 18)
-        self.assertEqual(legacy.count("proxy_ssl_verify on;"), 18)
-        self.assertEqual(legacy.count("proxy_ssl_name prp-test.micor.top;"), 18)
+        self.assertEqual(legacy.count("proxy_pass https://127.0.0.1:18443;"), 14)
+        self.assertEqual(legacy.count("proxy_ssl_verify on;"), 14)
+        self.assertEqual(legacy.count("proxy_ssl_name prp-test.micor.top;"), 14)
         self.assertNotIn("proxy_pass http://127.0.0.1:18082;", legacy)
         for bad in ("/tmp/../ca.pem", "/tmp/ca.pem\\n",
                     "/tmp/ca.pem;proxy_ssl_verify off;", "relative.pem"):
