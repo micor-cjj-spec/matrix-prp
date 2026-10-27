@@ -131,3 +131,23 @@ CI 使用全新 MySQL 8.4、Keycloak 26.8.0、PRP Java 21 后端和 CI 自签 CA
 **审核边界与尚存 P0：** 这不验证 iPhone/Safari 或真正的浏览器 SPA 页面工作；不验证 OpenAI 私钥的 `private_key_jwt` 或真实 ChatGPT 两步授权后 `sub`；不证明正式公网独立 vhost、页面静态资源、回调路由、B2 控制器、生产恢复链路已放行。Keycloak 原生 CIMD 元数据字段兼容问题仍未消失；继续采用精确预注册候选审查路线而非假称已安装。生产配置未变、PR #113 保持 Draft、B2 保持 NO-GO，MCP 写入关闭。
 
 **阶段结论：** `P0_ACCOUNT_BOOTSTRAP=DISPOSABLE_E2E_PASSED`，`LIVE_CHATGPT_TASKS=UNVERIFIED`，`B2=NO-GO`。
+
+## 2026-10-27 06:20 UTC — 真正 Chromium/Vue 浏览器 E2E 已通过
+
+**证据：** [GitHub Actions 40459821556](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40459821556) — job `Actual Vue/Chromium login and callback with isolated Keycloak/MySQL` **SUCCESS**，对应提交 `7c841c173d36552f75956266cd1fbcc25b4aaf5d`。
+
+CI 先用 `VITE_APP_BASE=/prp/` 构建真实 Vue 页面，通过一次性 HTTPS Nginx 只读提供 `/prp/` 静态资源；Playwright 的**实际 headless Chromium** 在隔离的 MySQL 8.4、Keycloak 26.8.0 和 PRP Java 21 环境中完成：
+
+1. 以预设的一次性 PRP Owner 会话打开 MCP 客户端管理页面并点击 Keycloak 身份绑定按钮；浏览器请求 `/start`、按**构建时固定的授权端点**跳至 Keycloak。
+2. 实际浏览器填写一次性 Keycloak 用户账号密码，并经过其授权页面；Keycloak 向 PRP 回调页面提供授权结果。
+3. Vue 回调页面成功调用 PRP `/finish`，后端使用数据库 PKCE verifier 向真实 Keycloak 交换授权码并验证签名 ID Token；回调成功，**浏览器 URL 的 code/state 查询参数已清除**。
+4. 页面发出的请求只涉及一次性 PRP / Keycloak 两个 origin；CI 驱动在浏览器侧拒绝额外第三方网络目标。
+5. 已保存 Keycloak `iss/sub` 与独立合成 MCP bearer `sub` 一致；外部 synthetic MCP bearer 的 `prp_tasks_list` 可读，Finance 工具无权访问；解绑立即阻断 MCP 和未完成 PKCE state。
+
+**安全边界：** CI Chromium 为了接收一次性自签证书启用 `ignore_https_errors`；Python 及后端真实 E2E 单独验证 TLS CA。不能把浏览器自签证书例外用于正式环境。为处理浏览器同源 API 的 HTTP 403，CI 仅在**固定回环 HTTPS 代理**环境启用 Spring `SERVER_FORWARD_HEADERS_STRATEGY=framework`，未扩张 CORS 白名单；生产需独立评审边界代理与 forwarded-header 信任。
+
+这里的浏览器是真正 Chromium，不是 Safari/iPhone；测试使用**独立合成 MCP 客户端** `prp-pkce-probe`，而非真实 ChatGPT 私钥、Token 或 Session。公网测试 Keycloak/真实 ChatGPT 签发主体一致性仍需核验；生产静态资源、raw-URI Host/SNI/IPv6/HTTP2 守卫和 B2 签署凭证仍缺失。
+
+**新增独立边界测试（与上述成功 CI 分开判定）：** 当回调时 PRP 会话过期，不能把 `code/state` 转发给 `/login?redirect=...`。相应安全守卫和浏览器负例已在测试分支提交；**必须等最新负例 CI 完成后才能将其标为通过**。
+
+**阶段状态：** `FIRST_PARTY_CHROMIUM_DISPOSABLE_E2E=PASSED`；`EXPIRED_SESSION_CALLBACK_NEGATIVE=UNVERIFIED_UNTIL_CI`；`LIVE_CHATGPT_TASKS=UNVERIFIED`；`B2=NO-GO`。
