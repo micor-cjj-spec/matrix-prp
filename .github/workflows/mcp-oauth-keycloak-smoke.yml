@@ -125,6 +125,12 @@ jobs:
           # the temporary CIMD policies and ChatGPT public metadata requests.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_chatgpt_cimd_pkce.py
+          # Verify the registered URL still points to official ChatGPT public
+          # JWKS, test egress from the disposable Keycloak network namespace
+          # and reject an untrusted synthetic signed assertion. This is NOT
+          # proof of a real OpenAI private key or Keycloak JVM TLS fetch.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_chatgpt_official_jwks_probe.py
           # The exact pre-registered ChatGPT client ID/callback can undergo a
           # real disposable browser grant only after substituting a TEMPORARY
           # CI-only signing certificate for the external OpenAI JWKS. This
