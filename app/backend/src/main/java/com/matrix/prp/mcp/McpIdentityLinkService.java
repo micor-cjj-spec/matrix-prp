@@ -213,7 +213,8 @@ public class McpIdentityLinkService {
         // the identity also invalidates every in-flight first-party callback.
         // Do not access V28 in older installations where the feature is OFF.
         if (firstPartyOidcLinkEnabled) {
-            db.update("UPDATE prp_mcp_oidc_link_flows SET consumed_at=CURRENT_TIMESTAMP " +
+            db.update("UPDATE prp_mcp_oidc_link_flows " +
+                      "SET consumed_at=CURRENT_TIMESTAMP, code_verifier='', oidc_nonce='' " +
                       "WHERE user_id=? AND consumed_at IS NULL", owner);
         }
     }
