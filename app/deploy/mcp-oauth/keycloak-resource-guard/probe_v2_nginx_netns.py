@@ -24,10 +24,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import audit_v2_route_semantics as semantics
 import isolated_v2_nginx_syntax as sandbox
 import preflight_v2_netns as netns
+import sandbox_v2_raw_uri_overlay as raw_uri_overlay
 
 HOST = "prp-test.micor.top"
 STATUS_READY = "ISOLATED_V2_LOOPBACK_HTTP_ACCEPTANCE_PASSED"
 STATUS_EDGE = "ISOLATED_V2_EDGE_HOST_AND_PATH_MATRIX_PASSED"
+STATUS_RAW = "ISOLATED_V2_RAW_URI_GUARD_SANDBOX_PASSED"
 
 # Literal, reviewed test cases only. No arbitrary caller input, no DNS queries.
 EDGE_WRONG_HOST = (
@@ -149,7 +151,7 @@ def bound_and_ready(proc):
             time.sleep(0.1)
     return False
 
-def make_nginx_configuration(sources, root, nginx):
+def make_nginx_configuration(sources, root, nginx, *, raw_guard=False):
     result = subprocess.run(
         [shutil.which("openssl"), "req", "-x509", "-newkey", "rsa:2048",
          "-nodes", "-days", "1", "-keyout", str(root / "key.pem"),
@@ -159,6 +161,12 @@ def make_nginx_configuration(sources, root, nginx):
     if result.returncode:
         raise ValueError("SYNTHETIC_TLS_CREATION_FAILED")
     counts = sandbox.prepare(sources, root)
+    raw_report = None
+    if raw_guard:
+        # Mutate only the disposable vhost, NEVER the pinned review pair.
+        temporary = root / "test.conf"
+        protected, raw_report = raw_uri_overlay.overlay(temporary.read_bytes())
+        temporary.write_bytes(protected)
     zone, count = sandbox.recover_single_active_rate_limit(root)
     cfg = root / "nginx.conf"
     cfg.write_text(
@@ -176,7 +184,7 @@ def make_nginx_configuration(sources, root, nginx):
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
     if syntax.returncode:
         raise ValueError("ISOLATED_NGINX_SYNTAX_RECHECK_FAILED")
-    return cfg, counts, count
+    return cfg, counts, count, raw_report
 
 def run_edge_checks(check):
     """Run fixed edge matrix; 405 is never proof that POST is rejected."""
@@ -193,7 +201,7 @@ def run_edge_checks(check):
               expected=(400, 403, 404, 405, 421), hits=0)
 
 
-def child_run(parent_namespace, *, edge_matrix=False):
+def child_run(parent_namespace, *, edge_matrix=False, raw_guard=False):
     os.umask(0o077)
     require_own_namespace(parent_namespace)
     sources = sandbox.inspect_sources()
@@ -211,7 +219,8 @@ def child_run(parent_namespace, *, edge_matrix=False):
 
     with tempfile.TemporaryDirectory(prefix="v2-netns-http-", dir=sandbox.ROOT) as folder:
         root = Path(folder)
-        config, counts, active_files = make_nginx_configuration(sources, root, nginx)
+        config, counts, active_files, raw_report = make_nginx_configuration(
+            sources, root, nginx, raw_guard=raw_guard)
         # No host 18082 reachable: this synthetic upstream belongs solely to
         # the child namespace's lo interface.
         server = ThreadingHTTPServer(("127.0.0.1", 18082), MockMcpHandler)
@@ -263,7 +272,7 @@ def child_run(parent_namespace, *, edge_matrix=False):
             # An incorrect SNI must not reach our synthetic MCP backend.
             check("wrong_sni_correct_host", sni="untrusted.invalid",
                   verify_name=False, expected=(421,))
-            if edge_matrix:
+            if edge_matrix or raw_guard:
                 run_edge_checks(check)
             try:
                 with tls_socket("127.0.0.1", socket.AF_INET, 443, HOST,
@@ -284,26 +293,31 @@ def child_run(parent_namespace, *, edge_matrix=False):
             passed = (all(v["passed"] for k, v in checks.items()
                           if k != "h2_alpn_only") and
                       checks["h2_alpn_only"]["selected_alpn"] != "handshake_failure")
+            expected_status = (STATUS_RAW if raw_guard else
+                               STATUS_EDGE if edge_matrix else STATUS_READY)
+            failed_status = ("ISOLATED_V2_RAW_URI_GUARD_SANDBOX_FAILED"
+                             if raw_guard else
+                             "ISOLATED_V2_EDGE_HOST_OR_PATH_REVIEW_REQUIRED"
+                             if edge_matrix else
+                             "ISOLATED_V2_LOOPBACK_HTTP_ACCEPTANCE_FAILED")
             return {
-                "status": ((STATUS_EDGE if edge_matrix else STATUS_READY)
-                           if passed else
-                           ("ISOLATED_V2_EDGE_HOST_OR_PATH_REVIEW_REQUIRED"
-                            if edge_matrix else
-                            "ISOLATED_V2_LOOPBACK_HTTP_ACCEPTANCE_FAILED")),
+                "status": expected_status if passed else failed_status,
+                "sandbox_raw_uri_review_overlay": raw_report,
+                "hardened_candidate_installed": False,
                 "checks": checks,
-                "edge_matrix_executed": edge_matrix,
+                "edge_matrix_executed": edge_matrix or raw_guard,
                 "edge_canonical_aliases_entering_mock_v2": (
                     sum(checks[label]["synthetic_upstream_hits"] > 0
                         for label, _ in EDGE_CANONICAL_ALIASES)
-                    if edge_matrix else None),
+                    if (edge_matrix or raw_guard) else None),
                 "edge_post_aliases_entering_mock_v2": (
                     sum(checks[label.replace("edge_alias_", "edge_post_alias_")]
                         ["synthetic_upstream_hits"] > 0
                         for label, _ in EDGE_CANONICAL_ALIASES)
-                    if edge_matrix else None),
+                    if (edge_matrix or raw_guard) else None),
                 "canonical_get_method_control_status": (
                     checks["edge_canonical_get_control"]["status_code"]
-                    if edge_matrix else None),
+                    if (edge_matrix or raw_guard) else None),
                 "synthetic_backend_total_requests": len(server.hits),
                 "network_interfaces": "LO_ONLY",
                 "default_routes": 0,
@@ -330,7 +344,7 @@ def child_run(parent_namespace, *, edge_matrix=False):
             server.server_close()
             thread.join(timeout=3)
 
-def parent_run(*, edge_matrix=False):
+def parent_run(*, edge_matrix=False, raw_guard=False):
     pre = netns.check_host()
     if pre["status"] != "ISOLATED_NETNS_PREFLIGHT_READY":
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
@@ -342,7 +356,8 @@ def parent_run(*, edge_matrix=False):
             [shutil.which("unshare"), "--net", "--fork", "--kill-child",
              sys.executable, "-B", str(Path(__file__).resolve()),
              "--isolated-child", namespace] +
-            (["edge"] if edge_matrix else []),
+            (["raw-uri"] if raw_guard else
+             ["edge"] if edge_matrix else []),
             capture_output=True, text=True, timeout=55)
     except subprocess.TimeoutExpired:
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
@@ -358,7 +373,8 @@ def parent_run(*, edge_matrix=False):
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
                 "blocker": "ISOLATED_CHILD_REPORT_INVALID",
                 "release_approved": False}
-    expected_status = STATUS_EDGE if edge_matrix else STATUS_READY
+    expected_status = (STATUS_RAW if raw_guard else
+                       STATUS_EDGE if edge_matrix else STATUS_READY)
     if (result.returncode == 0) != (child.get("status") == expected_status):
         return {"status": "ISOLATED_V2_LOOPBACK_PRECHECK_BLOCKED",
                 "blocker": "ISOLATED_CHILD_EXIT_OR_MODE_MISMATCH",
@@ -369,13 +385,17 @@ if __name__ == "__main__":
     try:
         if sys.argv[1:2] == ["--isolated-child"] and (
                 len(sys.argv) == 3 or
-                (len(sys.argv) == 4 and sys.argv[3] == "edge")):
-            report = child_run(sys.argv[2],
-                               edge_matrix=(len(sys.argv) == 4))
+                (len(sys.argv) == 4 and sys.argv[3] in ("edge", "raw-uri"))):
+            report = child_run(
+                sys.argv[2],
+                edge_matrix=(len(sys.argv) == 4 and sys.argv[3] == "edge"),
+                raw_guard=(len(sys.argv) == 4 and sys.argv[3] == "raw-uri"))
         elif len(sys.argv) == 1:
             report = parent_run()
         elif sys.argv[1:] == ["--edge-matrix"]:
             report = parent_run(edge_matrix=True)
+        elif sys.argv[1:] == ["--raw-uri-candidate"]:
+            report = parent_run(raw_guard=True)
         else:
             raise ValueError("INVALID_INVOCATION")
     except (ValueError, OSError, RuntimeError, subprocess.SubprocessError,
@@ -388,5 +408,5 @@ if __name__ == "__main__":
             "release_approved": False,
         }
     print(json.dumps(report, indent=2, sort_keys=True))
-    if report["status"] not in (STATUS_READY, STATUS_EDGE):
+    if report["status"] not in (STATUS_READY, STATUS_EDGE, STATUS_RAW):
         sys.exit(2)
