@@ -163,12 +163,26 @@ if [[ "${MCP_E2E_CHROMIUM:-false}" == "true" ]]; then
   }
   (
     cd app/web
-    npm ci --no-audit --no-fund > "$tmp/npm-install.log" 2>&1
-    VITE_APP_BASE=/prp/ VITE_API_BASE=/api \
+    if ! npm ci --no-audit --no-fund > "$tmp/npm-install.log" 2>&1; then
+      echo "FAIL CHROMIUM E2E: isolated npm package installation failed." >&2
+      exit 1
+    fi
+    if ! npm run typecheck > "$tmp/vue-typecheck.log" 2>&1; then
+      echo "FAIL CHROMIUM E2E: Vue TypeScript validation failed." >&2
+      grep -E 'error TS[0-9]+|ERROR|Error:' "$tmp/vue-typecheck.log" | head -12 >&2 || true
+      exit 1
+    fi
+    if ! VITE_APP_BASE=/prp/ VITE_API_BASE=/api \
       VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT=https://auth-e2e.localhost/realms/prp-mcp/protocol/openid-connect/auth \
-      npm run build > "$tmp/vue-build.log" 2>&1
+      ./node_modules/.bin/vite build > "$tmp/vue-build.log" 2>&1; then
+      echo "FAIL CHROMIUM E2E: Vue bundle generation failed." >&2
+      grep -E 'error|Error:|failed|Could not resolve' "$tmp/vue-build.log" | head -12 >&2 || true
+      exit 1
+    fi
   )
-  test -s app/web/dist/index.html
+  test -s app/web/dist/index.html || {
+    echo "FAIL CHROMIUM E2E: built Vue index missing." >&2; exit 1;
+  }
   python3 - "$tmp/nginx/default.conf" <<'PY_BROWSER_NGINX'
 from pathlib import Path
 import sys
