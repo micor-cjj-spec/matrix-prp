@@ -101,6 +101,45 @@ before use. **The only implementation is in Java test sources, not
 `src/main`; no endpoint was created or enabled.** This is
 cryptographic feasibility evidence, not a G0-C or B2 approval.
 
+## Disposable concurrent JTI and consent-epoch MySQL proof (2026-10-27)
+
+[Real CI MySQL concurrency and revocation test 40542374007](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40542374007)
+**SUCCESS** (4 total Java tests, 0 failures/errors). The new
+**test-only** `ProducerTaskDelegationMysqlProofIT` ran alongside the
+previous 2-test real SQL task-owner suite using a newly created
+GitHub-runner MySQL 8.4 with the normal V1–V28 migrations.
+
+- The **12 parallel synthetic invocations** sharing one JTI digest
+  produced **exactly one** accepted insert into a MySQL unique-key
+  replay fixture, with all other attempts rejected. A repeat after
+  completion was rejected.
+- A separate **producer-owner consent epoch** fixture proved
+  that a subject's original epoch 7 was rejected immediately after
+  revocation (epoch 8), and **stayed rejected after explicit
+  reauthorization** (epoch 9). Another owner's authorization was
+  unaffected; unknown subjects never resolved to an owner.
+- Both fixture tables existed only inside the **exact disposable
+  `matrix_prp_task_producer_ci` database**, guarded by
+  `GITHUB_ACTIONS=true`, `PRP_CI_DISPOSABLE_DB_ONLY=YES` and
+  `127.0.0.1:13307` URL/schema checks before DDL. They were dropped
+  after testing. No Flyway migration, runtime `src/main` service,
+  Keycloak client, production PRP table or ingress changed.
+
+**This is not a deployable replay/consent design.** The uniqueness
+constraint demonstrates that a *persistent shared* JTI registry can
+serialize simultaneous inserts, **but** the production design still
+requires issuer+client+audience-bound token digest identity, robust
+clock/expiry/cleanup rules, transaction boundaries, lock ordering,
+replica consistency, peak-load limits, and failure policy when the
+registry is unavailable. A revocation racing a task read requires
+explicit atomicity/linearization semantics; this test checks sequential
+revoke/regrant only. The epoch field here is test data, **not a
+cryptographically signed production token claim or authoritative owner
+grant**. Signed token proof and this DB fixture have not been connected
+to a real mTLS-authenticated producer request. An approved producer
+must independently build, secure, test and monitor these components
+before any real data access.
+
 ## Candidate architecture B (NOT IMPLEMENTED)
 
 ```text
