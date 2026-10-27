@@ -106,6 +106,16 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
         self.assertIn('^/prp/assets/', rendered)
         self.assertNotIn('if ($request_uri !~ "', render_approval_routes('/tmp/ca.pem'))
 
+    def test_explicit_method_guard_denies_implicit_nginx_head(self):
+        reviewed = render_readonly_link_routes()
+        # Nginx limit_except GET implicitly admits HEAD; this review
+        # generator must explicitly deny HEAD for every GET-only location.
+        self.assertEqual(reviewed.count('if ($request_method !~ "'), 18)
+        self.assertEqual(reviewed.count('if ($request_method !~ "^(?:GET)$")'), 16)
+        self.assertEqual(reviewed.count('if ($request_method !~ "^(?:GET|POST)$")'), 1)
+        self.assertEqual(reviewed.count('if ($request_method !~ "^(?:POST)$")'), 1)
+        self.assertNotIn('if ($request_method !~ "', render_approval_routes('/tmp/ca.pem'))
+
     def test_mutation_method_walled_to_exact_endpoint(self):
         rendered = render_readonly_link_routes()
         for path, verbs in REQUIRED_METHODS.items():
