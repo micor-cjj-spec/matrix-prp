@@ -128,6 +128,50 @@ Do not silently swap the old 18443 TLS ingress for V2,
 install this candidate, or enable bootstrap until G0/B2 and
 a separate browser-route decision are complete.
 
+## 2026-10-27 V2 deployed gateway artifact — new operator evidence
+
+The operator compared the **running** Docker gateway image digests:
+
+- `prp-mcp-v2-gateway-1`: `sha256:446b521960773e4667281d2f80130eb782d10cb9364de0fb75f267bbb379b1a4`
+- `prp-mcp-stage-gateway-1`: `sha256:cc2a8a236c37b69c4353adafbd4184996599130a6723ed8d7c4a026f0cb48aa6`
+
+These are different images, but image inequality alone does not
+identify their source commit. Three V2 frontend paths
+(`/prp/login`, `/prp/me/mcp-clients`,
+`/prp/me/mcp-link/callback`) each returned `HTTP 200 text/html`
+over the V2 loopback. The Nginx SPA fallback
+`try_files ... /prp/index.html` means these responses **do not**
+prove all Vue routes are present or functional.
+
+The operator then inspected **only** the running V2 container's
+`/usr/share/nginx/html/assets` build files with literal
+`grep -rFq` checks; all three markers were `NOT_FOUND`:
+
+- `/me/mcp-link/callback`
+- `/mcp/identity/oidc/start`
+- `/mcp/identity/oidc/finish`
+
+This is strong evidence that the running V2 Web build predates the
+first-party account bootstrap code or otherwise does not contain the
+expected visible strings. Bundler rewriting/splitting can invalidate
+literal search as absolute proof. **Do not** treat 200 SPA HTML as
+a first-party OIDC acceptance.
+
+**Additional check before proposing any V2 artifact migration:**
+inspect the running V2 backend JAR *read-only* for the new
+`McpFirstPartyOidcLinkController.class` and
+`McpFirstPartyOidcLinkService.class` ZIP entry names, and record
+only FOUND/NOT_FOUND, not JAR contents, credentials or database records.
+An unchanged draft frontend source file is not deployed merely
+because its disposable CI passed. A new backend from PR #113
+MUST NOT be pointed at the current V2/legacy-stage MySQL: see
+`app/docs/technical/mcp-flyway-lineage-reconciliation.md`
+for historical V24 migration collision and the requirement
+for separately approved, independently restored, isolated
+new-schema tests. No backend rebuild, Compose restart,
+database repair, production merge or public route change is
+permitted by this note.
+
 ## Explicit blockers before authorization
 
 - [ ] Independent G0 reviewer and accountable host operator identified;
