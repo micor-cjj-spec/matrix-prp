@@ -87,4 +87,24 @@ Keycloak Admin REST write or Nginx reload.
    disabled, do not merge Draft PR #95/#113 or deploy production until
    a separate explicit release decision.
 
+## Latest V2 raw-URI candidate handoff — 2026-10-27
+
+The operator-reported persisted candidate at
+`/root/prp-mcp-cimd-stage-b/review-only-v2-guard-20261027-rawuri-01`
+passed its fixed-SHA256, isolated Nginx syntax and loopback-only
+HTTP/TLS matrix. The new review-only test-vhost SHA256 is
+`9210c70352be9633bb72de18bb803c72b4629cfa173dd8667d8d091420bbbbfc`;
+the companion main-vhost review SHA256 is unchanged at
+`da227c0f6be8c9342d8830cbbe2e76372e4083bff51768c490a0e60c6b18828b`.
+These are **not** the old guard-only test-vhost hashes and **not** an
+installed six-file active Nginx inventory.
+
+For evidence boundaries, a prechange/postchange acceptance matrix,
+rollback hazards, unresolved public-network tests, actual OAuth gates and
+the required independent G0–G4 decisions, see
+[`V2-RAW-URI-INDEPENDENT-CHANGE-REVIEW-20261027.md`](V2-RAW-URI-INDEPENDENT-CHANGE-REVIEW-20261027.md).
+The latest B2 read-only inventory still reports **both independent
+receipts missing**. No new signed approval, policy install, original
+controller reconciliation or B2 authorization follows from these tests.
+
 This document deliberately provides **no installation command**.
