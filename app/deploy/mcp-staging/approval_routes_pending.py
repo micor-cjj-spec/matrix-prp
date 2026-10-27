@@ -79,19 +79,19 @@ def _render_routes(trusted_ca, port, exact, regex, *, tls_upstream):
         raise ValueError("INVALID_LOOPBACK_PORT")
     if tls_upstream:
         if not isinstance(trusted_ca, str) or not re.fullmatch(
-                r"/[A-Za-z0-9/_.-]+\\.pem", trusted_ca) or "/../" in trusted_ca:
+                r"/[A-Za-z0-9/_.-]+\.pem", trusted_ca) or "/../" in trusted_ca:
             raise ValueError("INVALID_REVIEWED_CA_PATH")
         upstream = (
-            "    proxy_pass https://127.0.0.1:%d;\\n"
-            "    proxy_ssl_verify on;\\n"
-            "    proxy_ssl_trusted_certificate %s;\\n"
-            "    proxy_ssl_server_name on;\\n"
-            "    proxy_ssl_name prp-test.micor.top;\\n"
+            "    proxy_pass https://127.0.0.1:%d;\n"
+            "    proxy_ssl_verify on;\n"
+            "    proxy_ssl_trusted_certificate %s;\n"
+            "    proxy_ssl_server_name on;\n"
+            "    proxy_ssl_name prp-test.micor.top;\n"
         ) % (port, trusted_ca)
     else:
         if port != 18082 or trusted_ca is not None:
             raise ValueError("V2_REVIEW_LOOPBACK_UPSTREAM_MISMATCH")
-        upstream = "    proxy_pass http://127.0.0.1:18082;\\n"
+        upstream = "    proxy_pass http://127.0.0.1:18082;\n"
     common = ("""    if ($prp_stage_origin_ok = 0) { return 403; }
     client_max_body_size 8k;
     access_log off;
