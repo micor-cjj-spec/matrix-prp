@@ -53,10 +53,18 @@ async function beginOidcLink() {
     // Never send a PRP password, client secret or access token to the IdP.
     // Redirect only to the reviewed Keycloak issuer's HTTPS authorization URL.
     const endpoint = new URL(authorizeUrl)
-    if (endpoint.href.split('?')[0] !==
-      'https://auth-test.micor.top/realms/prp-mcp/protocol/openid-connect/auth'
-      || !endpoint.searchParams.has('state')
-      || endpoint.searchParams.get('code_challenge_method') !== 'S256') {
+    const approvedAuthorizeEndpoint =
+      import.meta.env.VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT
+      || 'https://auth-test.micor.top/realms/prp-mcp/protocol/openid-connect/auth'
+    // The build must pin an exact reviewed issuer; never trust a callback
+    // hostname returned by the server without also checking it in the UI.
+    if (`${endpoint.origin}${endpoint.pathname}` !== approvedAuthorizeEndpoint
+      || endpoint.username || endpoint.password || endpoint.hash
+      || endpoint.searchParams.getAll('state').length !== 1
+      || endpoint.searchParams.getAll('nonce').length !== 1
+      || endpoint.searchParams.get('client_id') !== 'prp-first-party-link'
+      || endpoint.searchParams.get('code_challenge_method') !== 'S256'
+      || endpoint.searchParams.getAll('code_challenge').length !== 1) {
       throw new Error('unexpected-oidc-url')
     }
     window.location.assign(endpoint.toString())
