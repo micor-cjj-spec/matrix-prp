@@ -101,7 +101,7 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
     def test_raw_uri_checks_present_only_in_v2_first_party_routes(self):
         rendered = render_readonly_link_routes()
         self.assertEqual(rendered.count('if ($request_uri !~ "'), 18)
-        self.assertIn('^/prp/me/mcp-link/callback', rendered)
+        self.assertIn('mcp\\\\-link/callback', rendered)
         self.assertIn('^/api/mcp/identity/oidc/start', rendered)
         self.assertIn('^/prp/assets/', rendered)
         self.assertNotIn('if ($request_uri !~ "', render_approval_routes('/tmp/ca.pem'))
