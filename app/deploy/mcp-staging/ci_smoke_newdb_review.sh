@@ -72,7 +72,7 @@ mysql_version=$("${compose[@]}" exec -T mysql sh -c \
 }
 # Prove this is the NEW, corrected branch schema (not old MCP V24).
 lineage=$("${compose[@]}" exec -T mysql sh -c \
-  'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B matrix_prp_mcp_newdb_review -e "SELECT CONCAT(version, CHAR(9), script) FROM flyway_schema_history WHERE version IN (24,25,26,27,28) AND success=1 ORDER BY installed_rank;"')
+  'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B matrix_prp_mcp_newdb_review -e "SELECT version, script FROM flyway_schema_history WHERE version IN (24,25,26,27,28) AND success=1 ORDER BY installed_rank;"')
 for entry in \
   $'24\tV24__vocal_song_library_and_assignments.sql' \
   $'25\tV25__mcp_write_drafts.sql' \
