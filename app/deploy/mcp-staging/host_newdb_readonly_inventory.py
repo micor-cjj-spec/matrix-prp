@@ -70,7 +70,7 @@ def docker_port_state(lines):
     if lines is None:
         return "UNKNOWN_DOCKER_QUERY"
     return ("PUBLISHED_PORT_PRESENT" if any(
-        re.search(r"(?<![0-9])18083->[0-9]+/tcp\\b", text)
+        re.search(r"(?<![0-9])18083->[0-9]+/tcp\b", text)
         for text in lines
     ) else "NO_DOCKER_TCP_PUBLISH_AT_INVENTORY_TIME")
 
