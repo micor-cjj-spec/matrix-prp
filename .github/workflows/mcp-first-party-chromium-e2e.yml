@@ -1,0 +1,61 @@
+name: PRP first-party Keycloak Chromium browser E2E (disposable)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/web/src/views/McpClientsView.vue"
+      - "app/web/src/views/McpOidcCallbackView.vue"
+      - "app/web/src/api/mcpFirstPartyOidc.ts"
+      - "app/web/src/router/index.ts"
+      - "app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py"
+      - "app/deploy/mcp-oauth/ci_pkce_browser.py"
+      - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - ".github/workflows/mcp-first-party-chromium-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prp-first-party-chromium-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  disposable-chromium:
+    name: Actual Vue/Chromium login and callback with isolated Keycloak/MySQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      MCP_E2E_FIRST_PARTY: "true"
+      MCP_E2E_CHROMIUM: "true"
+      MCP_E2E_CRUD: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install disposable headless Chromium browser driver
+        run: |
+          python3 -m pip install --no-cache-dir playwright==1.55.0
+          python3 -m playwright install --with-deps chromium
+      - name: Syntax guard browser and CI shell code
+        run: |
+          bash -n app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          python3 -m py_compile app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py app/deploy/mcp-oauth/ci_pkce_browser.py
+      - name: Run Chromium against real local Vue, Keycloak, PRP backend and MySQL
+        run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
