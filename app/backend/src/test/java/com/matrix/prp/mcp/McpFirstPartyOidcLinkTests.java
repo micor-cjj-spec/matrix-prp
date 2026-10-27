@@ -140,6 +140,54 @@ class McpFirstPartyOidcLinkTests {
     }
 
     @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void consumedStateStaysConsumedEvenIfTokenEndpointFails() throws Exception {
+        // Simulate a previously issued, authenticated PRP-owned state.
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.tasks.read"));
+        when(db.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                      any(), any())).thenAnswer(call -> {
+            org.springframework.jdbc.core.RowMapper mapper = call.getArgument(1);
+            java.sql.ResultSet rs = mock(java.sql.ResultSet.class);
+            when(rs.getLong(1)).thenReturn(7L);
+            when(rs.getString(2)).thenReturn("C".repeat(64));
+            when(rs.getString(3)).thenReturn("N".repeat(43));
+            return java.util.List.of(mapper.mapRow(rs, 0));
+        });
+        when(db.update(startsWith("UPDATE prp_mcp_oidc_link_flows"),
+                       any(), any())).thenReturn(1, 0);
+        when(outbound.postForObject(anyString(), any(), eq(java.util.Map.class)))
+            .thenThrow(new org.springframework.web.client.ResourceAccessException("synthetic-failure"));
+        String state = "S".repeat(43);
+        assertThatThrownBy(() -> service.finish(state, "synthetic-code", ISSUER))
+            .isInstanceOf(ResponseStatusException.class);
+        verify(outbound, times(1)).postForObject(anyString(), any(), eq(java.util.Map.class));
+        // A second request for the same state must not call Keycloak again.
+        assertThatThrownBy(() -> service.finish(state, "synthetic-code", ISSUER))
+            .isInstanceOf(ResponseStatusException.class);
+        verify(outbound, times(1)).postForObject(anyString(), any(), eq(java.util.Map.class));
+        verifyNoInteractions(identities);
+    }
+
+    @Test
+    void linkCannotProceedAfterClientAuthorizationRevokedBeforeExchange() throws Exception {
+        when(db.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                      any(), any())).thenAnswer(call -> {
+            org.springframework.jdbc.core.RowMapper<?> mapper = call.getArgument(1);
+            java.sql.ResultSet rs = mock(java.sql.ResultSet.class);
+            when(rs.getLong(1)).thenReturn(7L);
+            when(rs.getString(2)).thenReturn("C".repeat(64));
+            when(rs.getString(3)).thenReturn("N".repeat(43));
+            return java.util.List.of(mapper.mapRow(rs, 0));
+        });
+        when(db.update(startsWith("UPDATE prp_mcp_oidc_link_flows"),
+                       any(), any())).thenReturn(1);
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of());
+        assertThatThrownBy(() -> service.finish("S".repeat(43), "code", ISSUER))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(outbound, identities);
+    }
+
+    @Test
     void noFirstPartySessionCannotReadOrCreatePendingLinkState() {
         SecurityContextHolder.clearContext();
         assertThatThrownBy(() -> service.begin("correct-password"))
