@@ -108,6 +108,38 @@ receipt. Local review command only:
 python3 -B app/deploy/mcp-oauth/review_exact_client_registrations.py
 ```
 
+#### Pre-registration blocker: inspect actual Realm scopes without a write
+
+`app/deploy/mcp-oauth/keycloak-resource-guard/realm_scope_readonly.sql`
+is an operator-reviewed `BEGIN TRANSACTION READ ONLY` query against
+only the existing `prp-mcp` Realm's `realm`, `client` and `client_scope`
+tables. It reports **only** aggregate client count and whether
+`basic`, `offline_access` and `prp.tasks.read` are present. It
+reconfirms that both exact proposed client IDs remain missing (or
+requires a separate shape review if they already exist). It prints
+no account identifiers, token/JWKS material, passwords, mapper JSON or
+client secrets and modifies no database records. A static test in CI
+asserts that it contains SELECT-only statements in a read-only
+transaction.
+
+The operator should review the SQL at an exact pinned PR #113 commit,
+verify the command is aimed at the isolated
+`prp-mcp-oauth-stage-auth-db-1` and `keycloak_stage`, and supply
+SQL on standard input to `psql -X -v ON_ERROR_STOP=1`; **never**
+run it against the production PRP database. If any required scope is
+`MISSING` or `DUPLICATE_REVIEW`, this is **not** a
+client-only registration change: independently review the additional
+Client Scope definition, mappings, consent and rollback before
+any installation. A count differing from the documented 13-client
+baseline must be investigated, not silently overwritten.
+
+The query does not prove Keycloak Admin REST policy/profile state,
+dynamic CIMD interception, public DNS/TLS, correct subject mapper
+behavior, supported authenticator SPI, B2 approval or permission to
+register. These are separate G0/G3 requirements. It is forbidden
+to generate a Realm import or create/update clients merely because
+the SQL passes.
+
 The companion `test_review_exact_client_registrations.py` rejects scope,
 callback, JWT-authenticator, S256, audience and JWKS expansion at the source
 contract level. A passing test does **not** prove the actual Keycloak Realm
