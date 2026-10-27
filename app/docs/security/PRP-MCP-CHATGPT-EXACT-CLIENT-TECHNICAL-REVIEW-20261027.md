@@ -62,3 +62,23 @@
 - **PR #113：保留 Draft；不合并、不部署；MCP writes OFF。**
 
 本文件是评审记录；不可作为 `approved-install.safe.json`、`fresh-b2-restore.safe.json`、管理员授权票据或 B2 cutover 证明。
+
+## 2026-10-27 04:10 UTC — 实际授权码/Refresh 的 CI 新证据
+
+**证据：** [GitHub Actions 40448153185](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40448153185)，Keycloak **26.8.0/26.8.1 双版本均 SUCCESS**，对应提交 `57f8ca691dfbd1bcd1a31befe02e95b18193944a`。
+
+**已证实的技术修复：** 将精确预注册客户端的 Audience Mapper 从 `included.client.audience=matrix-prp-mcp-resource` 修正为 `included.custom.audience=RESOURCE`，并以同一个官方格式的 Client ID `https://chatgpt.com/oauth/client.json` 和回调 `https://chatgpt.com/connector_platform_oauth_redirect`，在短生命周期的一次性 Keycloak Realm 中完成：
+
+- 临时用户的 Keycloak 登录、授权同意、授权码和 S256；错误 `code_verifier` 被拒绝。
+- `private_key_jwt` 客户端认证、签名 Access Token 的 Issuer/Subject/Client ID 和精确 MCP HTTPS `aud` 验证；只含任务读取权限，不授予财务/健康/写入权限。
+- `openid offline_access prp.tasks.read` 的真实授权码换取，签发刷新令牌，错误客户端签名、错误/空/省略/重复 `resource`、财务 Scope 扩张均被拒绝。
+- Refresh Token 轮换、旧 Token 重放和新 Token 吊销验证；单客户端绑定的 refresh-resource 防护 Policy 回滚后保持原状。
+- 保留原 Client ID、Redirect URI、S256 和授权 Scope；完整流程使用真实 Keycloak 26.8 OAuth 端点而非模拟 HTTP 响应。
+
+**不可忽略的真实性差异（仍属 P0）：** 官方 ChatGPT 的远程 JWKS 不可能为测试者生成的 JWT 签名，因此 CI 仅在**一次性 Realm**将该客户端的凭证校验源由 `https://chatgpt.com/oauth/jwks.json` 改成临时 X.509 测试公钥。客户端身份标识相同、凭证源不同。**这不验证任何 OpenAI 真实签名，也不证明实际 ChatGPT 会用同样参数执行授权/刷新。** 不得称为正式 OAuth 端到端成功。
+
+**评审状态更新：** 原 P0-1（完整 Auth Code PKCE 令牌流程）和 P0-2（精确 URI Audience）已取得**隔离、测试凭证条件下**的通过证据；P0-3（Refresh 行为）在相同的临时客户端身份与精确资源策略下通过隔离负面测试。但需用真实 OpenAI 客户端断言、公网完整流程、真实 PRP 用户绑定和生产关联页完成独立验收。G0–G3/B2 没有因这些测试自动放行，原生动态 CIMD 解析阻塞也没有解除。
+
+**更强的界限：** `ci_chatgpt_exact_client_authcode.py` 需要 GitHub Actions 隔离运行器、固定 loopback Keycloak 和临时 RSA 文件。脚本中的 Admin REST 客户端修改仅允许一次性 Realm；在没有原始批准和独立恢复签名的情况下，绝不复制这些调用用于线上 Keycloak，更不能把临时证书或合成刷新策略写入生产 Realm。
+
+**总体裁定仍然：CONDITIONALLY VIABLE for further isolated validation / NO-GO for live deployment。**
