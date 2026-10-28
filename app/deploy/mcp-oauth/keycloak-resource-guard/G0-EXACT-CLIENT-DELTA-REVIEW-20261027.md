@@ -185,6 +185,55 @@ clients, install only exact approved deltas, verify real ChatGPT auth
 and first-party identity linking, run owner task-only MCP reads and
 complete an independently verified rollback plan.
 
+## Historical original-13 recovery clone: new live operator evidence (2026-10-28)
+
+The exact Git SHA `d81826cfaed2e31d5028940fa79f488ca35cb2e2`
+was fetched and executed from Git object on `micor-server` without
+worktree reset. This completed successfully, including an actual
+`PGDMP` restoration of **101 PostgreSQL tables**, private Keycloak
+startup, public signing JWKS parity, original **13-client** presence,
+and both exact ChatGPT / first-party client **create and rollback**.
+The following were printed by the operator's completed run:
+
+```text
+CLONE_KEYCLOAK_READY=YES
+RESTORED_SIGNING_PUBLIC_JWKS_MATCH_LIVE=YES
+CLONE_EXISTING_CLIENTS=13
+RESTORED_13_CLIENT_EXACT_TWO_CREATES=PASS_PRIVATE_CLONE_ONLY
+RESTORED_13_CLIENT_EXACT_TWO_ROLLBACK=PASS_PRIVATE_CLONE_ONLY
+CLONE_RESTORED_13_CLIENT_INVENTORY_PRESERVED=YES
+ACTIVE_REALM_CHANGED=NO
+CLONE_RESTORE_AND_SIGNING_JWKS=PASS
+RESTORED_EXACT_CLIENT_B2_RECEIPT=NOT_ISSUED
+B2_RECOVERY_GATE=NOT_COMPLETED
+CLONE_CLEANUP_RESOURCE_STATUS=0
+CLONE_SCRIPT_EXIT_STATUS=0
+```
+
+The candidate provider JAR hash was
+`ccce0bbdd0f258032b12531698a4da469c48d907550d0457620054d84ff97315`.
+The clone tested task-only signed JWT refresh, forbidden audience/scope
+denial, rotation/replay and revocation, and rolled back temporary
+policies, Realm settings and synthetic users. The whole operator
+script returned success. This is **real historical-backup clone
+evidence, not merely disposable CI**.
+
+The exact existing production/client/policy baseline is still **not
+freshly snapshotted and independently restored**. Do not convert this
+historical clone success into a fictitious recovery receipt, approval
+or live installation. `approved_install` and `fresh_b2_restore`
+were last verified `MISSING`; G0/B2 remain NO-GO. The running PRP
+V24, Keycloak Realm, Nginx, V2 Compose local changes and ChatGPT
+connector remain unchanged. Genuine ChatGPT-signed JWT/PRP pairing
+and `prp_tasks_list` have not yet been tested.
+
+The next accountable steps are to arrange a fresh current-Realm
+backup and independently witnessed restore, verify active client
+policy/profile and public V2 first-party route release baseline,
+then authorize only the reviewed two-client create-only delta
+with an explicit rollback controller. **Do not repeat** historical
+backup and 13-client clone checks unless the source/backup changes.
+
 ## Proposed minimal delta — not an install command
 
 **Only two create-only clients**, as described by
