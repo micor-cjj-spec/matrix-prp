@@ -86,6 +86,14 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
         del a["history"][11]
         self.assertEqual(self.check(a)["reason"], "HISTORY_INSTALL_RANK_GAP_OR_BASELINE")
 
+    def test_json_arrayagg_unordered_rows_still_valid_when_ranks_are_consistent(self):
+        a = self.history()
+        a["history"].reverse()
+        out = self.check(a)
+        self.assertEqual(out["history_rows_checked"], 24)
+        self.assertTrue(out["source_migration_names_match"])
+        self.assertIs(out["deployment_permitted"], False)
+
     def test_duplicate_version_and_install_rank_block(self):
         a = self.history()
         a["history"][10]["version"] = "10"
@@ -97,7 +105,9 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
 
     def test_wrong_install_order_and_gaps_block(self):
         a = self.history()
-        a["history"][7], a["history"][8] = a["history"][8], a["history"][7]
+        a["history"][7]["installed_rank"], a["history"][8]["installed_rank"] = (
+            a["history"][8]["installed_rank"], a["history"][7]["installed_rank"]
+        )
         self.assertEqual(self.check(a)["reason"], "HISTORY_NOT_IN_ASCENDING_INSTALL_ORDER")
         a = self.history()
         a["history"][0]["installed_rank"] = 2
