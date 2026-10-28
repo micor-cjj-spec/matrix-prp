@@ -98,7 +98,7 @@ def backup_parent_ok(path=BACKUP_ROOT):
     if not path.is_dir() or path.is_symlink() or str(path.resolve()) != str(path):
         return False
     stat = path.stat()
-    return stat.st_uid == 0 and (stat.st_mode & 0o077) == 0
+    return stat.st_uid == 0 and (stat.st_mode & 0o777) == 0o700
 
 
 def analyze(*, active, container_status, image, mounts, backup_parent,
