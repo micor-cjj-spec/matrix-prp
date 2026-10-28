@@ -22,6 +22,47 @@ generic SPA fallback can return `200` when the actual JS callback
 handler and backend APIs are absent. There is no reason to attempt
 real ChatGPT OAuth on that V2 build.
 
+## Actual operator V2 container status — 2026-10-28, definitive missing artifacts
+
+The operator executed the **immutable Git source**
+`4d6fba554aa87f83ac5ccd77c07cb76252b16133` from
+`app/deploy/mcp-staging/live_v2_artifact_readonly.py` directly using
+`git show ... | python3 -B -`, without checkout or deployment.
+The complete sanitized stdout is:
+
+```json
+{
+  "artifacts_feature_ready": "BLOCKED_RUNNING_V2_ARTIFACTS_INCOMPLETE",
+  "backend_oidc": "ABSENT",
+  "backend_running": "YES",
+  "docker_state_changed": false,
+  "g0_b2_install_permitted": false,
+  "gateway_oidc": "ABSENT",
+  "gateway_running": "YES",
+  "live_oidc_flow_verified": false,
+  "purpose": "RUNNING_V2_OIDC_ARTIFACTS_READ_ONLY"
+}
+```
+
+The operator's outer shell reached `READ_ONLY_COMPLETE`. Both
+**real running** V2 containers were read, not merely Git source, and
+neither has the required frontend OIDC link route markers nor the
+backend controller/service/V28 runtime archive entries. This
+**confirms**, rather than only suspects, that the currently deployed
+V2 is an older, non-linkable build.
+
+**Hard stop:** An active Keycloak two-client registration alone could
+not enable genuine first-party linking on this V2 build. Do not
+redirect its browser callback, expose new link endpoints, attempt
+ChatGPT connection, or run an unreviewed V28 backend against this
+existing V2 database. The correct next review is the **real owner-data
+target and a data-preserving release path**, followed by independently
+approved image/DB/router cutover, not another Keycloak recovery loop.
+
+There is no new host or Docker mutation and no G0/B2 approval. This
+does not prove the correct new backend would work in production
+without proper migration and owner linking.
+
 ## New metadata-only verification tool
 
 `live_v2_artifact_readonly.py` accepts **no CLI paths or target
