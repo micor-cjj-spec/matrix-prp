@@ -234,6 +234,31 @@ then authorize only the reviewed two-client create-only delta
 with an explicit rollback controller. **Do not repeat** historical
 backup and 13-client clone checks unless the source/backup changes.
 
+## 2026-10-28 current-snapshot restore technical acceptance completed
+
+The exact private-clone `--current-snapshot` run at Git commit
+`cf8471cc70493d45b81115add5f32970fff6871e` **succeeded**.
+Actual restored database had 101 tables and original 13 clients;
+Keycloak served OIDC 200 and its restored public signing JWKS matched
+the active Realm; the two exact ChatGPT and PRP first-party clients
+were successfully created and removed in the clone, with original
+client configuration and policies still intact. Isolated resources
+cleaned and the host script exited 0; active Realm unchanged.
+This **supersedes** older paragraphs in this document that say the
+current snapshot had not been restored yet.
+
+Exact verified evidence, backup SHA and remaining limits are in
+[CURRENT-KEYCLOAK-RESTORE-TECHNICAL-ACCEPTANCE-20261028.md](CURRENT-KEYCLOAK-RESTORE-TECHNICAL-ACCEPTANCE-20261028.md).
+
+This technically closes the **current snapshot restore feasibility**
+question. It does not sign off independent recovery, current live
+client registration, G0/B2 approval, V2 public first-party runtime,
+real ChatGPT private JWT assertions, or owner task reads. Existing
+B2 receipts were last observed missing. No more identical snapshot
+recovery iterations without drift/new independent reviewer condition.
+Proceed with authentic change-control decision, active
+policy/route parity, and exact approved test-Realm registration plan.
+
 ## Proposed minimal delta — not an install command
 
 **Only two create-only clients**, as described by
