@@ -124,7 +124,8 @@ class ReadOnlyV2ArtifactContract(unittest.TestCase):
             probe.scan_jar(archive({"other.jar": jar_bytes(())}))
 
     def test_no_secret_names_or_writes_in_source(self):
-        source = open(probe.__file__, encoding="utf-8").read()
+        from pathlib import Path
+        source = Path(probe.__file__).read_text(encoding="utf-8")
         self.assertNotIn("Config.Env", source)
         for forbidden in ("docker exec", "docker restart", "docker run",
                           "docker cp -", "docker inspect .Config.Env",
