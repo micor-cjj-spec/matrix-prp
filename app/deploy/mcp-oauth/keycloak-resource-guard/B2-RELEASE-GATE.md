@@ -209,6 +209,32 @@ independent controllers accept the actual recovery and install
 transaction. No active client installation or live PRP changes
 follow from the stored backup alone.
 
+## Current snapshot recovery technical result — PASS (operator-reported 2026-10-28)
+
+**Supersedes prior sections stating that the current snapshot was captured
+but not restored.** The operator subsequently ran the exact
+`--current-snapshot` clone script at
+`cf8471cc70493d45b81115add5f32970fff6871e`. Actual PostgreSQL
+restoration: **101 tables**; recovered Keycloak **OIDC 200** and public
+signing JWKS match active; original **13 clients** preserved; exactly
+two reviewed OAuth clients created and rolled back in the **isolated
+clone only**; full synthetic refresh/resource/security checks passed;
+cleanup `0`; script exit `0`. No active Realm was modified.
+
+See [full current-snapshot technical acceptance record](CURRENT-KEYCLOAK-RESTORE-TECHNICAL-ACCEPTANCE-20261028.md)
+for exact operator output labels, source SHA, backup SHA, and evidence
+boundaries. This is **actual current-snapshot technical restoration**,
+not merely the historical rehearsal or CI synthetic fixture.
+
+However `B2_RECOVERY_GATE=NOT_COMPLETED`,
+`RESTORED_EXACT_CLIENT_B2_RECEIPT=NOT_ISSUED`, and the last inventory's
+`approved_install=MISSING` / `fresh_b2_restore=MISSING` remain
+unchanged. **No independent sign-off or release authorization resulted
+from this technical pass.** The authorized original reviewer should
+evaluate and attest this evidence as applicable; the assistant must
+not invent or submit receipts. Do not repeat the same restore loop
+without a new review requirement or observed drift.
+
 ## B2 independent installation / recovery evidence
 
 The pre-existing operator gate expects the following named receipts
