@@ -124,6 +124,10 @@ jobs:
               --admin-user prp-smoke-admin
           # Keycloak stays alive here; only this throwaway instance receives
           # the temporary CIMD policies and ChatGPT public metadata requests.
+          # Real disposable Keycloak: 13 disabled legacy fixtures + two exact
+          # clients + remove only additions; no active Realm/backup involvement.
+          CI_EXACT_CLIENT_PRESERVE=1 MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_exact_client_preservation.py
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_chatgpt_cimd_pkce.py
           # Verify the registered URL still points to official ChatGPT public
