@@ -33,7 +33,7 @@ def valid_host(value: str) -> bool:
 
 def valid_private_key(value: str) -> bool:
     normalized = value.strip()
-    if len(normalized) < 100 or "\\x00" in normalized:
+    if len(normalized) < 100 or "\x00" in normalized:
         return False
     for algorithm in ("OPENSSH", "RSA", "EC", ""):
         label = (algorithm + " " if algorithm else "") + "PRIVATE KEY"
