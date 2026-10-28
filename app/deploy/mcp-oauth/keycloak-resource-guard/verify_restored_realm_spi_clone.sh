@@ -234,6 +234,14 @@ test "$(sha256sum "$REVIEW/candidate.json" | awk '{print $1}')" = a26b7ec0f1739d
 TOKEN_VERIFIER="$TEMP/oauth_token_check.py"
 git -C "$SOURCE_REPO" show "$SOURCE_PIN:app/deploy/mcp-oauth/oauth_token_check.py" > "$TOKEN_VERIFIER"
 chmod 0400 "$TOKEN_VERIFIER"
+# A separate immutable source commit supplies the exact two create-only
+# client proposals for this PRIVATE restored Realm rehearsal. No active
+# Keycloak realm or host configuration may be modified by this check.
+EXACT_CLIENT_REVIEW_PIN=602e2e6a91a2b072fc9f025272081c2f5c04376c
+EXACT_CLIENT_REVIEW_PATH=app/deploy/mcp-oauth/review_exact_client_registrations.py
+git -C "$SOURCE_REPO" cat-file -e "$EXACT_CLIENT_REVIEW_PIN:$EXACT_CLIENT_REVIEW_PATH"
+git -C "$SOURCE_REPO" show "$EXACT_CLIENT_REVIEW_PIN:$EXACT_CLIENT_REVIEW_PATH" > "$TEMP/review_exact_client_registrations.py"
+chmod 0400 "$TEMP/review_exact_client_registrations.py"
 # nsenter changes only network namespace. Python runs on the host FS, but HTTP
 # is restricted to the disposable Keycloak's own 127.0.0.1:8080.
 nsenter -t "$PID" -n -- python3 - "$REVIEW" "$LIVE_KC" "$TOKEN_VERIFIER" <<'PY'
@@ -349,6 +357,108 @@ try:
     assert api(root + "/client-policies/profiles", token=token) == profiles
     assert api(root + "/client-policies/policies", token=token) == policies
     print("CLONE_CLIENT_POLICY_INVENTORY_PRESERVED=YES")
+
+    # The ORIGINAL 13-client snapshot is exercised here, unlike the separate
+    # CI job's 13 disabled synthetic fixtures. The restored copy alone is
+    # writable: api() targets its private 127.0.0.1:8080 network namespace.
+    # A passed rehearsal is NEVER a fresh independent B2 restore receipt.
+    import importlib.util
+    from urllib.parse import quote
+    review_module_file = Path(verifier_file).with_name("review_exact_client_registrations.py")
+    module_spec = importlib.util.spec_from_file_location(
+        "restored_clone_exact_client_candidates", review_module_file)
+    if module_spec is None or module_spec.loader is None:
+        raise RuntimeError("CLONE_PINNED_EXACT_CLIENT_REVIEW_UNAVAILABLE")
+    review_module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(review_module)
+    exact_clients = review_module.client_proposals()
+    assert review_module.validate_proposals(exact_clients)
+    assert len(inventory) == 13, "Historical 13-client restoration drift"
+    original_details = {
+        key: api(root + "/clients/" + quote(key, safe=""), token=token)
+        for key, _ in inventory
+    }
+    before_scopes = api(root + "/client-scopes", token=token)
+    assert {"basic", "offline_access", "prp.tasks.read"}.issubset(
+        {s.get("name") for s in before_scopes})
+    target_ids = {p["clientId"] for p in exact_clients}
+    assert target_ids == {
+        "https://chatgpt.com/oauth/client.json", "prp-first-party-link"}
+    assert not (target_ids & existing_ids) if 'existing_ids' in locals() else (
+        not (target_ids & {c.get("clientId") for c in clients_before}))
+    attempted_names = []
+    try:
+        for proposal in exact_clients:
+            client_name = proposal["clientId"]
+            candidates = api(root + "/clients?clientId=" + quote(client_name, safe=""),
+                             token=token)
+            assert not any(c.get("clientId") == client_name for c in candidates)
+            attempted_names.append(client_name)
+            api(root + "/clients", token=token, method="POST", payload=proposal)
+        with_added = api(root + "/clients?max=100", token=token)
+        assert len(with_added) == len(clients_before) + 2
+        new_map = {c.get("clientId"): c for c in with_added}
+        assert len(new_map) == len(with_added)
+        assert {(c.get("id"), c.get("clientId")) for c in with_added} == (
+            inventory | {(new_map[name]["id"], name) for name in target_ids})
+        for item in exact_clients:
+            name = item["clientId"]
+            key = new_map[name]["id"]
+            doc = api(root + "/clients/" + quote(key, safe=""), token=token)
+            assert doc.get("clientId") == name
+            for prop in ("publicClient", "standardFlowEnabled",
+                         "implicitFlowEnabled", "directAccessGrantsEnabled",
+                         "serviceAccountsEnabled", "fullScopeAllowed",
+                         "consentRequired", "redirectUris", "clientAuthenticatorType"):
+                if prop in item:
+                    assert doc.get(prop) == item[prop], "Clone client shape drift"
+            assert doc.get("attributes", {}).get(
+                "pkce.code.challenge.method") == "S256"
+            for attribute in ("use.jwks.url", "jwks.url"):
+                if attribute in item.get("attributes", {}):
+                    assert doc.get("attributes", {}).get(attribute) == (
+                        item["attributes"][attribute])
+            path = root + "/clients/" + quote(key, safe="")
+            scopes = api(path + "/optional-client-scopes", token=token)
+            defaults = api(path + "/default-client-scopes", token=token)
+            assert {s.get("name") for s in scopes} == set(item["optionalClientScopes"])
+            assert "basic" in {s.get("name") for s in defaults}
+            if name == "https://chatgpt.com/oauth/client.json":
+                mappers = api(path + "/protocol-mappers/models", token=token)
+                found = [m for m in mappers if
+                         m.get("protocolMapper") == "oidc-audience-mapper" and
+                         m.get("config", {}).get("included.custom.audience") == resource and
+                         m.get("config", {}).get("access.token.claim") == "true"]
+                assert len(found) == 1, "Clone exact resource mapper missing"
+        assert all(api(root + "/clients/" + quote(key, safe=""), token=token) == doc
+                   for key, doc in original_details.items())
+        assert api(root + "/client-scopes", token=token) == before_scopes
+        assert api(root + "/client-policies/profiles", token=token) == profiles
+        assert api(root + "/client-policies/policies", token=token) == policies
+        print("RESTORED_13_CLIENT_EXACT_TWO_CREATES=PASS_PRIVATE_CLONE_ONLY")
+    finally:
+        # Attempt list is recorded BEFORE every POST. If a POST commits but
+        # its response is lost, the exact name is still recovered for cleanup.
+        # Never delete a preexisting client, and never target the live Realm.
+        for name in reversed(attempted_names):
+            found = api(root + "/clients?clientId=" + quote(name, safe=""),
+                        token=token)
+            matches = [c for c in found if c.get("clientId") == name]
+            assert len(matches) <= 1, "Clone exact-client identity collision"
+            if matches:
+                key = matches[0].get("id")
+                assert isinstance(key, str) and key
+                api(root + "/clients/" + quote(key, safe=""), token=token,
+                    method="DELETE")
+        after_exact = api(root + "/clients?max=100", token=token)
+        assert {(c.get("id"), c.get("clientId")) for c in after_exact} == inventory
+        assert all(api(root + "/clients/" + quote(key, safe=""), token=token) == doc
+                   for key, doc in original_details.items())
+        assert api(root + "/client-scopes", token=token) == before_scopes
+        assert api(root + "/client-policies/profiles", token=token) == profiles
+        assert api(root + "/client-policies/policies", token=token) == policies
+        print("RESTORED_13_CLIENT_EXACT_TWO_ROLLBACK=PASS_PRIVATE_CLONE_ONLY")
+    print("RESTORED_EXACT_CLIENT_B2_RECEIPT=NOT_ISSUED")
 
     print("=== RESTORED CLONE-ONLY CLIENT POLICY SPI COMPATIBILITY ===")
     # The 13 existing clients remain unchanged. Add one synthetic, disabled-
