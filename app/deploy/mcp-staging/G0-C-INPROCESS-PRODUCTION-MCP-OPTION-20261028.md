@@ -60,6 +60,50 @@ attestation, and is **not** permission to migrate.
 No need to rerun the completed Keycloak recovery or the V2 missing
 marker test absent new evidence. G0/B2 remain NO-GO.
 
+## Production owner-FK DDL metadata now confirmed on live MySQL (2026-10-28)
+
+The operator has completed **both distinct** live production read-only
+preflights on `matrix-mysql` / `matrix_prp` using exact pinned Git
+SQL and the existing authorized login:
+
+1. `production_v24_crc_aggregate_readonly.sql`: **17/17**
+   original V8–V24 migration script names, ranks, success and signed
+   CRC checksums matched the reviewed source; exactly one V7
+   baseline and 18 successful history rows.
+2. `production_v24_mcp_ddl_shape_readonly.sql`: actual
+   `prp_users(id)` is single-column signed BIGINT primary key,
+   InnoDB/nonpartitioned; **zero** proposed five-table collisions,
+   **zero** proposed five-FK-name collisions, zero V25–V28
+   history entries, all 18 history entries successful.
+   Exact decision:
+   `V25_V28_FK_DDL_SHAPE_MATCH_REVIEW_ONLY` with
+   `deployment_permitted=NO`.
+
+This resolves the **known source CRC** and **specific owner FK/DDL
+name** compatibility uncertainties; it does not certify all
+pre-V7 DDL, populated production data semantics, deployed
+JAR/migration source, owner/task preservation through migration,
+restore, public OAuth, or any G0/B2 authorization.
+
+**Next operation must be reviewed independently** because it concerns
+the user's production application and potentially sensitive full
+database data: assess production backup consistency method, complete
+schema scope, secure storage, free disk/memory, expected lock/time
+impact, backup integrity, and reversible application/runtime release.
+Then create and recover an isolated private **production-data clone**,
+verify row digests and owner-task relationships privately (never print
+task data), and test only there V25–V28 and the actual production
+V7-baseline sequence. Keycloak **test** database recovery evidence
+is separate and does not replace a PRP MySQL backup or data recovery
+test. Never use the old isolated V2 schema with conflicting
+historical MCP V24 migrations.
+
+No further identical metadata/Keycloak tests are required unless
+the state or approved code changes. The initial MCP functionality
+should still be **read-only tasks** on original PRP owner data only,
+with feature flags off until authorized deployment. PR remains Draft;
+G0/B2 remain NO-GO.
+
 ## Executive decision
 
 **Prefer independent review of the in-process alternative first,**
