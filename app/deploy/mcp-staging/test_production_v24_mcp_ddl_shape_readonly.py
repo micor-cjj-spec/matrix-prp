@@ -78,7 +78,13 @@ class ProductionMcpDdlReadonlyTests(unittest.TestCase):
         self.assertEqual(len(statements), 5)
         self.assertTrue(all(item.startswith("CREATE TABLE prp_mcp_")
                             for item in statements))
-        self.assertNotRegex(clean, r"(?i)\b(?:UPDATE|DELETE|ALTER|DROP|TRUNCATE|INSERT)\b")
+        # Foreign key ON DELETE CASCADE is valid additive DDL; only DML
+        # *statements* are disallowed, not the DELETE keyword in an FK.
+        for statement in statements:
+            with self.subTest(statement=statement[:36]):
+                self.assertNotRegex(
+                    statement, r"(?im)^\\s*(?:UPDATE|DELETE|INSERT|ALTER|DROP|TRUNCATE)\\b")
+        self.assertEqual(clean.count("ON DELETE CASCADE"), 5)
 
     def test_return_is_review_only_and_fails_closed(self):
         self.assertIn("ELSE 'BLOCKED_OR_UNVERIFIED'", self.sql)
