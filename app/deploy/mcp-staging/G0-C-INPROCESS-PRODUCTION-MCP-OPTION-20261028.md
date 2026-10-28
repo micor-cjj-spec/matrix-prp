@@ -95,6 +95,37 @@ individual scopes; reviewer must independently confirm no configuration
 or alternate chain can bypass the initial tasks-only entitlement.
 No generic business `/api/**` or `/prp/**` gateway location.
 
+## Runtime OAuth tool catalog exposure — tasks only by default
+
+Code review found that `McpToolConfiguration` originally registered
+**all 11 MCP tools**, including finance, wellness and writing, even
+when OAuth resource metadata advertised only `prp.tasks.read`.
+Individual `McpScopeGuard` checks prevented unauthorized execution,
+but the client-visible `tools/list` surface violated the phase-one
+least-privilege *discovery* goal.
+
+The Draft-only fix now selects the tool registry through an explicit,
+fixed **tool name → required advertised OAuth scope** allowlist.
+The default `MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES=prp.tasks.read`
+registers **only** `prp_tasks_list` and `prp_task_get` in OAuth mode.
+Finance, wellness and every write tool are not registered and cannot
+be invoked as a recognized MCP tool. Other categories require
+independent explicit advertised scopes; write scope configuration
+also requires `MATRIX_PRP_MCP_WRITE_ENABLED=true` and actual client
+consent. For every permitted tool the OAuth bearer/grant and
+per-tool owner/scope checks remain required. The old, isolated
+legacy-JWT test mode intentionally retains its original registered
+tool set for backward compatibility; it cannot be activated
+without OAuth in a non-test runtime due to `McpActivationGuard`.
+
+[Spring MockMvc OAuth tools/list plus tool-call regression 40607154558](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40607154558)
+**SUCCESS**: 20 Java tests (including four tool-manifest scope tests
+and six Spring Security tests) show that only the two task tools
+are listed by default; finance/write calls return `Tool not found`
+without touching finance or draft services. This is still a
+**disposable test environment**, not evidence of production
+ChatGPT consent, installed Nginx or a deployed PRP image.
+
 ## Mandatory non-host-changing preparation before any change window
 
 1. Obtain a **fresh read-only production inventory** under the
