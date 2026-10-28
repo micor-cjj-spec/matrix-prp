@@ -31,6 +31,64 @@ the signed BIGINT `prp_users(id)` FK target / 5 MCP table and
 5 foreign-key name collision check. Both still say
 `deployment_permitted=NO`. No need to rerun these absent drift.
 
+## Actual production MySQL consistent-backup metadata SELECT — PASS (2026-10-28)
+
+The operator ran the reviewed, immutable `production_mysql_backup_consistency_readonly.sql`
+from Git commit `f6e5a4dcf4e32dc97e95936d68589daac2624da2`
+against the **live** `matrix-mysql` / `matrix_prp` database.
+
+The first login returned `ERROR 1045 (28000)` and **did not execute
+the SQL**. On a subsequent interactive password attempt, the exact
+same pinned SELECT succeeded and returned:
+
+```text
+schema_match                         YES
+base_tables_visible                  57
+innodb_tables_visible                57
+non_innodb_or_unknown_tables_visible 0
+views_visible                        0
+triggers_visible                     0
+routines_visible                     0
+events_visible                       0
+server_binary_logging                ON
+server_gtid_mode                     OFF
+flyway_history_rows                  18
+decision                             VISIBLE_BASE_TABLE_ENGINES_INNODB_REVIEW_ONLY
+backup_approved                      NO
+deployment_permitted                 NO
+```
+
+This closes the **visible storage-engine mix** question for the current
+login's metadata view: all 57 visible base tables use InnoDB, no
+non-InnoDB tables were visible, the current server reports binary logs
+ON and GTID OFF, and the Flyway history remains V24 with 18 rows.
+The four zero-valued secondary-object counts are only **under the
+current login's visibility/permissions**, *not* independent evidence
+that no views/triggers/routines/events exist. Confirm object completeness
+separately under the intended, authorized backup identity.
+
+Prior operator data already established 3,570 MiB physical MySQL
+data footprint, 34,112 MiB same-filesystem free space, 3,518 MiB
+available memory, source migration checksum parity 17/17 and
+V25–V28 new table/FK name compatibility. No actual PRP database dump,
+off-host copy, or private restored-copy upgrade was carried out.
+
+**Planning decision: source storage engines are compatible with a
+transactional InnoDB logical backup strategy *in principle*.**
+Before any real capture, an authorized DBA/release controller must
+validate the exact backup identity/privileges, password handling,
+concurrent DDL restrictions, binary-log retention/recovery-point
+requirements, GTID OFF-specific handling, encrypted storage outside
+the sole shared filesystem, disk/CPU/IO ceilings, and complete
+trigger/view/routine/event metadata coverage. A `mysqldump`
+command's successful exit is *not* restore evidence. Rehearse an
+isolated restore of authentic production data privately and check
+unchanged owner/task records before any proposed Flyway V25–V28.
+
+The original result remains `backup_approved=NO` and
+`deployment_permitted=NO`. Do not rerun this successful metadata
+query absent source/role/schema changes or a specific reviewer need.
+
 ## Fixed SELECT-only consistency-scope probe
 
 `production_mysql_backup_consistency_readonly.sql` queries
