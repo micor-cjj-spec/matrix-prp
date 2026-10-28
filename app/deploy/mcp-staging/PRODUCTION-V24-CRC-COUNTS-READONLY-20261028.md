@@ -43,6 +43,16 @@ migrations, or a data-loss-free rollback plan. The statement's
 `deployment_permitted=NO` is intentional and remains correct.
 **No production migration or G0/B2 authorization follows.**
 
+**Next scoped compatibility check:** [V25–V28 owner-FK and new-table
+DDL metadata preflight](PRODUCTION-V24-MCP-DDL-READONLY-PREFLIGHT-20261028.md)
+uses a second fixed read-only aggregate SELECT on
+`information_schema` and `flyway_schema_history`. It verifies
+the actual `prp_users(id)` foreign-key target and proposed table/constraint
+name collision conditions, without selecting actual user or task rows.
+The query has passed both source-contract tests and real disposable
+MySQL 8.4 positive/negative CI, but has not run against production.
+A positive result remains `REVIEW_ONLY` and never approves migration.
+
 ## Why this check is different
 
 The owner observed the real `matrix-mysql` `matrix_prp` history:
