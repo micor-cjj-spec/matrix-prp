@@ -192,6 +192,27 @@ was deliberately 3. Nothing was read from the operator's actual
 database. Production checksums, DDL and backup restore must still be
 independently verified and signed before any real upgrade.
 
+## Independent source CRC parity (2026-10-28)
+
+The older Flyway preflight checked only migration version/script names.
+It now **optionally** compares the selected production-history metadata
+with reference CRC32 values computed from SQL files in the **same
+reviewed source checkout**, using `--verify-source-crc`. The candidate
+algorithm was tested against **all 28 real Flyway-installed checksums**
+on a disposable, populated-schema MySQL 8.4
+[CI 40610322642](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40610322642)
+(**SUCCESS**). An exact source CRC match returns **exit 4**, never an
+install authorization; checksum drift/malformed history returns **2**,
+and a name-only match without CRC requested returns **3**.
+The output never contains user data or raw history.
+
+This parity proof does **not** show which SQL migration resources
+are inside the actual installed production JAR. The reviewed branch,
+build artifact, true production `flyway_schema_history`, custom
+placeholders/legacy repair history and backup DDL still need an
+independent lineage review and restored-copy rehearsal. Current
+G0/B2 **NO-GO** remains in force.
+
 ## Mandatory non-host-changing preparation before any change window
 
 1. Obtain a **fresh read-only production inventory** under the
