@@ -119,6 +119,24 @@ jobs:
           }
           python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["decision"] == "V28_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED" and d["deployment_permitted"] is False and d["flyway_checksums_verified"] is False' \
             "$RUNNER_TEMP/prp-v28-history-verdict.synthetic.json"
+          # Compare candidate source CRC against actual Flyway-generated
+          # installed CRC in the SAME temporary MySQL schema. Exit 4 is
+          # verified source-match but STILL NOT RELEASE AUTHORIZATION.
+          set +e
+          python3 ../deploy/mcp-staging/review_production_flyway_history.py \
+            --input "$private_history" --expected-schema matrix_prp_upgrade_ci \
+            --verify-source-crc \
+            > "$RUNNER_TEMP/prp-v28-history-crc.synthetic.json"
+          crc_status=$?
+          set -e
+          test "$crc_status" -eq 4 || {
+            echo 'CI_FLYWAY_ENGINE_CRC_NOT_MATCHING_SOURCE_ALGORITHM' >&2
+            exit 1
+          }
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["decision"] == "V28_SOURCE_CRC_MATCH_REVIEW_ONLY" and d["deployment_permitted"] is False and d["flyway_checksums_verified"] is True' \
+            "$RUNNER_TEMP/prp-v28-history-crc.synthetic.json"
+          rm -f -- "$RUNNER_TEMP/prp-v28-history-crc.synthetic.json"
+          echo 'CI_FLYWAY_SOURCE_CRC_MATCHED_ALL_28_REAL_MYSQL_ROWS_REVIEW_ONLY=YES'
           rm -f -- "$private_history" "$RUNNER_TEMP/prp-v28-history-verdict.synthetic.json"
           echo 'CI_REAL_MYSQL_JSON_METADATA_REVIEW_ONLY_NO_APPROVAL=YES'
           echo 'CI_DISPOSABLE_UPGRADE_NO_HOST_SERVICE_OR_REAL_DATA_MUTATION=YES'
