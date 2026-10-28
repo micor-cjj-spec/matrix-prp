@@ -4,6 +4,58 @@
 > writes, backup, data copy, OAuth activation or Nginx modification is
 > authorized. G0/B2 remain NO-GO; Draft PR #113 is not installed.
 
+## Actual production structure metadata: PASS — 2026-10-28
+
+**This section supersedes later text suggesting that the metadata query
+is still pending.** The operator ran the exact source SQL
+`production_v24_mcp_ddl_shape_readonly.sql` at pinned Git revision
+`e6b7b7903269c76eb584a254919b147801ad8ef7` against the live
+production `matrix-mysql` database `matrix_prp`, using interactive
+password prompting. The reported bounded output was:
+
+```text
+schema_match                       YES
+owner_table_innodb                 1
+owner_signed_bigint_id             1
+owner_id_primary_member            1
+owner_primary_columns              1
+owner_partition_count              0
+proposed_table_name_collisions     0
+proposed_fk_name_collisions        0
+history_rows                       18
+successful_history_rows            18
+proposed_version_history_rows      0
+decision                           V25_V28_FK_DDL_SHAPE_MATCH_REVIEW_ONLY
+deployment_permitted               NO
+```
+
+This **actually verifies** the specific real schema metadata checks
+covered by the query: existing `prp_users(id)` is a compatible
+signed BIGINT, single-column primary key on a nonpartitioned InnoDB
+table; there are no existing tables or FK constraint names colliding
+with the five proposed V25–V28 MCP objects; and V25–V28 have not
+been applied. The last production Flyway CRC review independently
+established a V7 baseline plus **17/17 matching V8–V24 recorded
+source checksums**.
+
+No application/user/task/business rows were selected. No schema
+modification or MySQL backup was attempted.
+
+**Do not infer a migration permit.** This query does not verify
+prebaseline V1–V7 DDL beyond the targeted owner key, whole-data
+backup, cross-table constraints, migrations on the actual populated
+production database, production code provenance, rollback safety,
+independent approvals or real OAuth. `deployment_permitted=NO`
+remains the authoritative disposition. Avoid rerunning these two
+already-passed metadata checks absent source/DB drift.
+
+**Next technical dependency:** independently scoped and authorized
+production MySQL backup/isolated restore (including consistent schema,
+business rows, users/owners, tasks, links, triggers/routines/events
+if applicable), then test exact V25–V28 migrations on the restored
+copy with preservation and rollback checks. Do not run these migrations
+against production or legacy V2 because the metadata count matched.
+
 ## Why this next test is needed
 
 On 2026-10-28 the operator ran the **actual production**
