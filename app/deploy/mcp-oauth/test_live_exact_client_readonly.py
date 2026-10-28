@@ -40,7 +40,7 @@ class KeycloakClientReviewReadOnlyTests(unittest.TestCase):
 
     def test_inner_shell_syntax_and_missing_role_fails_before_psql(self):
         src = SCRIPT.read_text(encoding="utf-8")
-        fragment = src.split('docker exec -i "$PG" sh -ec \'', 1)[1].split("\\n  '\\n", 1)[0]
+        fragment = src.split("docker exec -i \"$PG\" sh -ec '", 1)[1].split("\n  '\n", 1)[0]
         subprocess.run(["sh", "-n"], input=fragment, text=True,
                        capture_output=True, check=True)
         import os
