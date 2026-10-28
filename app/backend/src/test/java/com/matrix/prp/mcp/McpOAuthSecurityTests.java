@@ -123,12 +123,16 @@ class McpOAuthSecurityTests {
         var finance = mvc.perform(mcp("read-only",
             "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"prp_finance_month\",\"arguments\":{}}}"))
             .andExpect(status().isOk()).andReturn();
-        assertThat(finance.getResponse().getContentAsString()).contains("\"isError\":true");
+        assertThat(finance.getResponse().getContentAsString())
+            .contains("\"error\"", "Tool not found: prp_finance_month")
+            .doesNotContain("\"result\"");
 
         var write = mvc.perform(mcp("read-only",
             "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"prp_prepare_task\",\"arguments\":{\"moduleCode\":\"work\",\"title\":\"Forbidden\"}}}"))
             .andExpect(status().isOk()).andReturn();
-        assertThat(write.getResponse().getContentAsString()).contains("\"isError\":true");
+        assertThat(write.getResponse().getContentAsString())
+            .contains("\"error\"", "Tool not found: prp_prepare_task")
+            .doesNotContain("\"result\"");
         verifyNoInteractions(jdbc);
     }
 
