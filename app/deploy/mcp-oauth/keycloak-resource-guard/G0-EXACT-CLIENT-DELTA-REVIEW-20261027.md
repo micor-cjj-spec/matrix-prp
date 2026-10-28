@@ -41,6 +41,59 @@ The latest operator execution used
 It did not mutate the Realm, create any clients, grant consent, perform
 OAuth sign-in or contact actual ChatGPT.
 
+## Live ChatGPT client ID confirmation — 2026-10-28 (read-only user evidence)
+
+On 2026-10-28 the owner removed and recreated the PRP dev-mode plugin,
+retained resource `https://prp-test.micor.top/api/mcp` and OAuth, and
+again received Keycloak **`Client not found.`** before a login screen.
+The owner copied **only** the `client_id` parameter from the real browser
+authorization URL:
+
+```text
+client_id=https%3A%2F%2Fchatgpt.com%2Foauth%2Fclient.json
+Decoded: https://chatgpt.com/oauth/client.json
+```
+
+**This is the exact stable ChatGPT CIMD client ID**, and it matches
+`CHATGPT` in `review_exact_client_registrations.py`; do not invent
+a per-callback ID, create another ChatGPT plugin, or assume the resource
+URL is wrong. A supplied client ID alone does **not** independently
+verify `redirect_uri`, `resource`, `scope`, PKCE or a client
+JWT; these still require separate consented test evidence.
+
+Keycloak's current published MCP integration documentation explicitly
+warns that its built-in CIMD parser can reject ChatGPT metadata because
+of `token_endpoint_auth_methods_supported` compatibility:
+https://www.keycloak.org/securing-apps/mcp-authz-server .
+OpenAI describes the stable client ID, redirect modes and available
+`none`/`private_key_jwt` selection:
+https://developers.openai.com/plugins/build/auth .
+
+**Minimal proposed test-Realm repair (still NOT authorization to install):**
+prefer a **pre-registered, exact-match confidential ChatGPT client**
+using the already source-reviewed `review_exact_client_registrations.py`
+candidate, with official JWKS, private-key JWT, PKCE S256, exact callback,
+task-read-only scope and resource audience. This avoids enabling a
+permissive, domain-wide CIMD registration policy for unrelated users.
+Keep `prp-first-party-link` as a separately reviewed identity-linking
+dependency; do not broaden any of the 13 existing Realm clients,
+policies, subjects or scopes. Check existing clients first so this
+remains **create-only**, never silent replace. After an independently
+approved/test-Realm backup+restore and rollback review, verify real
+ChatGPT authorization code, client assertion, refresh resource,
+one-user PRP identity link and `prp_tasks_list`.
+
+The existing *live* Realm was last counted as 13 clients on 2026-10-27,
+and then the exact client was MISSING. The 2026-10-28 failed login is
+consistent with that state, but **does not replace a fresh authenticated
+read-only Realm inventory**. All user evidence is public/nonsecret ID
+only; OAuth `state`, PKCE verifier, authorization code, tokens and
+credentials must never be pasted into Issues, logs or chat.
+
+The changes remain REVIEW-ONLY in Draft PR #113. G0/B2 remain NO-GO.
+No test Keycloak, host Nginx, PRP production V24, MySQL volume, tokens
+or active plugin configuration was modified by this document.
+
 ## Real B2 evidence inventory — 2026-10-27 (operator-reported)
 
 The original `b2_evidence_inventory.py` was read directly from the
