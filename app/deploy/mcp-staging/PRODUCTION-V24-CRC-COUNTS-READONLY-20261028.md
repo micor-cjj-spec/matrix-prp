@@ -5,6 +5,44 @@
 > Do not post database passwords, source config, checksums, task rows or dumps
 > to GitHub, CI artifacts or chat.
 
+## Production operator verified source CRC parity — 2026-10-28
+
+**This result supersedes the earlier pending/unverified CRC wording below.**
+The operator actually executed the pre-reviewed, SHA-pinned, fixed
+`production_v24_crc_aggregate_readonly.sql` from
+`44af5657d5712056e414c0290e78264e2de035e0` against the existing
+production `matrix-mysql` database `matrix_prp`, using the
+`matrix_prp` login with an interactive password prompt. The *first*
+attempt failed **before SQL execution** because `docker exec -it`
+was invoked from a non-TTY heredoc. The operator reran the query from
+the interactive root shell; actual MySQL table output was:
+
+```text
+schema_match             YES
+history_rows             18
+baseline_rows_matched    1
+observed_sql_rows        17
+source_sql_rows_matched  17
+decision                 SOURCE_CRC_MATCH_REVIEW_ONLY
+deployment_permitted     NO
+```
+
+The successful query validates that all **17 applied V8–V24 Flyway
+migration scripts, names, ranks and signed Flyway CRC values** match
+the pinned candidate source, and that the rank-1 V7 baseline has
+the expected shape. No production business/user/task data, raw
+checksums, connection password or secret was shared; this query
+only read `flyway_schema_history`. This materially reduces migration
+lineage uncertainty; do not re-run the identical CRC test without drift.
+
+**Not proven:** V1–V7 prebaseline DDL, current
+`prp_users(id)` type/engine/PK needed by new foreign keys,
+table/constraint name collisions for V25–V28, currently deployed
+JAR/source equivalence, populated production restore with additive
+migrations, or a data-loss-free rollback plan. The statement's
+`deployment_permitted=NO` is intentional and remains correct.
+**No production migration or G0/B2 authorization follows.**
+
 ## Why this check is different
 
 The owner observed the real `matrix-mysql` `matrix_prp` history:
