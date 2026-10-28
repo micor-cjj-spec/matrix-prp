@@ -5,6 +5,47 @@
 > **not** been exported or restored; Keycloak's successful restoration
 > was a separate *test Keycloak PostgreSQL* database.
 
+## Actual operator resource check — PASS as an estimate (2026-10-28)
+
+The owner ran `production_mysql_clone_capacity_readonly.py` from
+the immutable Draft commit `dd1928543252382c6f836c83c7223dd9e4c09d79`.
+It completed with the external sentinel `READ_ONLY_COMPLETE`.
+The exact bounded non-secret results included:
+
+| Operator-observed attribute | Result |
+| --- | --- |
+| `mysql_running` | `true` |
+| `prp_service_active` | `true` |
+| `mysql_image_allowlisted` / `data_mount_reviewed` | both `true` |
+| `data_footprint_mib` | `3570` |
+| `backup_fs_available_mib` | `34112` |
+| `data_fs_available_mib` | `34112` |
+| `same_backup_and_data_filesystem` | `true` |
+| `mem_available_mib` | `3518` |
+| `backup_parent_root_private` | `true` |
+| `conservative_same_fs_review_requirement_mib` | `14806` |
+| `capacity_envelope` | `CAPACITY_ESTIMATE_REVIEW_ONLY` |
+| `real_backup_performed` / `restore_executed` | both `false` |
+| `database_modified` / `services_restarted` | both `false` |
+| `g0_b2_approval_issued` / `deployment_permitted` | both `false` |
+
+The 34,112 MiB observed free space exceeds the initial 14,806 MiB
+review heuristic by 19,306 MiB, but this is a **physical data volume
+footprint**, not an actual logical backup size or the space needed
+by an independently isolated restored copy under concurrent writes.
+Available RAM 3,518 MiB is a point-in-time observation, not a
+promise of safe concurrent backup/clone load. Backup and data root
+are on the **same filesystem**, so this location alone must not
+count as an independent off-host disaster-recovery copy.
+
+This closes only the **initial resource envelope inventory**.
+No new backup was made and no full PRP MySQL recovery has been tested.
+An authorized operator still needs actual workload/engine/GTID/
+routines/trigger coverage, a private backup destination with independent
+failure domain, encryption/retention rules, and a reversible migration
+rehearsal on a separately isolated clone. **Do not repeat the exact
+capacity test absent resource drift or an operational reviewer need.**
+
 ## Source-only safe preflight
 
 `production_mysql_clone_capacity_readonly.py` inspects only the
