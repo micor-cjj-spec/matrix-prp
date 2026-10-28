@@ -73,7 +73,26 @@ This SQL has offline tests that compare its **exact five table and
 foreign key names** with the actual V25–V28 source. The tests assert
 that the query contains a single fixed SELECT, no SQL mutations,
 non-business-table scope, fail-closed conditions, and permanent
-`deployment_permitted=NO`. Such static CI is **not proof** that
+`deployment_permitted=NO`. **Actual GitHub disposable MySQL 8.4 execution passed** on
+2026-10-28: [legacy V7→V28 and metadata preflight run #40703834019](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40703834019)
+finished **SUCCESS**. The same fixed SQL was executed on an additional
+**synthetic `matrix_prp` schema in the disposable CI container**,
+where the signed BIGINT InnoDB single-column owner PK and 18-row
+pre-V25 history produced a positive metadata verdict. Then two
+negative fixtures passed: a colliding proposed MCP table returned
+`BLOCKED_OR_UNVERIFIED` and unsigned BIGINT owner-ID drift also
+returned `BLOCKED_OR_UNVERIFIED`. CI log confirms
+`CI_REAL_DISPOSABLE_MYSQL_V25_V28_FK_METADATA_POSITIVE_AND_NEGATIVES=PASS`
+and `BUILD SUCCESS`. This validates MySQL syntax and the selected
+positive/negative logic, **not the real production owner schema**.
+
+Offline source-contract tests also passed:
+[Flyway metadata review #40703378373](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40703378373).
+The initial source test mistakenly rejected valid foreign-key
+`ON DELETE CASCADE` syntax; it was corrected to reject actual
+DML statements instead, and the final CI is green.
+
+**Neither synthetic CI nor offline source checks is proof** that
 the SQL has been executed successfully against production MySQL.
 
 ## What a metadata PASS would and would not prove
