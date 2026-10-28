@@ -21,6 +21,7 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
                 {
                     "installed_rank": n,
                     "version": str(n),
+                    "type": "SQL",
                     "script": self.scripts[n],
                     "checksum": (n * 10001) - 333,
                     "success": "PASS",
@@ -28,6 +29,24 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
                 for n in range(1, latest + 1)
             ],
         }
+
+    def legacy_v7_history(self, latest=24):
+        """One V7 Flyway baseline + all subsequent V8+ SQL entries, as on production."""
+        data = self.history(latest)
+        data["history"] = [
+            {
+                "installed_rank": 1,
+                "version": "7",
+                "type": "BASELINE",
+                "script": "<< Flyway Baseline >>",
+                "checksum": None,
+                "success": "PASS",
+            },
+        ] + [
+            {**row, "installed_rank": int(row["version"]) - 6}
+            for row in data["history"][7:]
+        ]
+        return data
 
     def check(self, obj):
         return m.analyze(obj, self.scripts)
@@ -52,6 +71,82 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
         self.assertEqual(out["history_rows_checked"], 28)
         self.assertTrue(out["decision"].startswith("V28_"))
         self.assertIs(out["deployment_permitted"], False)
+
+    def test_real_production_legacy_v7_baseline_to_v24_is_review_only(self):
+        out = self.check(self.legacy_v7_history())
+        self.assertEqual(out["history_rows_checked"], 18)
+        self.assertEqual(out["decision"],
+                         "V24_LEGACY_V7_BASELINE_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED")
+        self.assertIs(out["legacy_baseline_v7"], True)
+        self.assertIs(out["prebaseline_v1_v7_schema_verified"], False)
+        self.assertIs(out["flyway_checksums_verified"], False)
+        self.assertIs(out["deployment_permitted"], False)
+        self.assertEqual(out["g0_b2_authorization"], "NOT_ESTABLISHED")
+
+    def test_legacy_v7_baseline_to_v28_is_still_review_only(self):
+        out = self.check(self.legacy_v7_history(28))
+        self.assertEqual(out["history_rows_checked"], 22)
+        self.assertTrue(out["decision"].startswith("V28_LEGACY_V7_BASELINE_"))
+        self.assertIs(out["deployment_permitted"], False)
+
+    def test_v7_baseline_wrong_script_or_checksum_is_blocked(self):
+        for field, invalid in (("script", "wrong baseline"), ("checksum", 123456)):
+            data = self.legacy_v7_history()
+            data["history"][0][field] = invalid
+            self.assertEqual(self.check(data)["reason"], "UNEXPECTED_FLYWAY_BASELINE")
+
+    def test_v7_baseline_wrong_version_or_rank_is_blocked(self):
+        data = self.legacy_v7_history()
+        data["history"][0]["version"] = "6"
+        self.assertEqual(self.check(data)["reason"], "UNEXPECTED_FLYWAY_BASELINE")
+        data = self.legacy_v7_history()
+        data["history"][0]["installed_rank"] = 2
+        self.assertEqual(self.check(data)["reason"], "UNEXPECTED_FLYWAY_BASELINE")
+
+    def test_v7_baseline_only_and_partial_chains_remain_blocked(self):
+        data = self.legacy_v7_history()
+        data["history"] = data["history"][:1]
+        self.assertEqual(self.check(data)["reason"], "PARTIAL_OR_UNEXPECTED_MIGRATION_CHAIN")
+        data = self.legacy_v7_history()
+        del data["history"][7]
+        for rank, row in enumerate(data["history"], 1):
+            row["installed_rank"] = rank
+        self.assertEqual(self.check(data)["reason"], "PARTIAL_OR_UNEXPECTED_MIGRATION_CHAIN")
+
+    def test_unexpected_types_or_second_baseline_are_blocked(self):
+        data = self.legacy_v7_history()
+        data["history"][1]["type"] = "BASELINE"
+        self.assertEqual(self.check(data)["reason"], "UNEXPECTED_FLYWAY_BASELINE")
+        data = self.legacy_v7_history()
+        data["history"][2]["type"] = "JDBC"
+        self.assertEqual(self.check(data)["reason"], "UNEXPECTED_MIGRATION_TYPE")
+        data = self.history()
+        data["history"][0]["type"] = "BASELINE"
+        self.assertEqual(self.check(data)["reason"], "UNEXPECTED_FLYWAY_BASELINE")
+
+    def test_legacy_v7_crc_checks_only_present_sql_and_never_v1_v7(self):
+        ref = m.source_crc32()
+        data = self.legacy_v7_history()
+        for row in data["history"][1:]:
+            row["checksum"] = ref[int(row["version"])]
+        out = m.analyze(data, self.scripts, verified_source_crc=ref)
+        self.assertEqual(out["decision"], "V24_LEGACY_V7_BASELINE_SOURCE_CRC_MATCH_REVIEW_ONLY")
+        self.assertIs(out["legacy_baseline_v7"], True)
+        self.assertIs(out["prebaseline_v1_v7_schema_verified"], False)
+        self.assertIs(out["deployment_permitted"], False)
+        data["history"][4]["checksum"] ^= 1
+        self.assertEqual(m.analyze(data, self.scripts, verified_source_crc=ref)["reason"],
+                         "MIGRATION_CHECKSUM_DRIFT")
+
+    def test_legacy_v7_cli_can_never_return_release_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.json"
+            data = self.legacy_v7_history()
+            path.write_text(json.dumps(data), encoding="utf-8")
+            sink = StringIO()
+            with contextlib.redirect_stdout(sink):
+                self.assertEqual(m.main(["--input", str(path)]), 3)
+            self.assertIs(json.loads(sink.getvalue())["deployment_permitted"], False)
 
     def test_legacy_staging_v24_drafts_is_blocked(self):
         a = self.history(26)
@@ -208,6 +303,7 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
         self.assertEqual(body.count(";"), 1)
         self.assertTrue(body.upper().startswith("SELECT JSON_OBJECT("))
         self.assertIn("flyway_schema_history", body)
+        self.assertIn("'type', type", body)
         self.assertNotIn("prp_tasks", body)
         self.assertNotIn("prp_users", body)
         for forbidden in ("UPDATE ", "DELETE ", "INSERT ", "ALTER ", "GRANT ",
