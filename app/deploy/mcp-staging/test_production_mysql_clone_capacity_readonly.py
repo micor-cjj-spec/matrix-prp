@@ -160,6 +160,31 @@ class CapacityReadOnlyTest(unittest.TestCase):
         self.assertNotIn("secret", json.dumps(response))
         self.assertFalse(response["deployment_permitted"])
 
+    def test_explicit_args_refused_before_host_inspection(self):
+        import subprocess
+        result = subprocess.run(
+            ["python3", str(Path(p.__file__)), "--help"],
+            capture_output=True, text=True, check=False, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("NO_OPERATOR_PARAMETERS_ACCEPTED", result.stderr)
+        self.assertNotIn("matrix_prp", result.stdout)
+
+    def test_root_private_backup_dir_requires_exact_0700(self):
+        import stat
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "backups"
+            d.mkdir()
+            with patch.object(p.Path, "stat", autospec=True) as fake:
+                fake.return_value = SimpleNamespace(
+                    st_uid=0, st_mode=stat.S_IFDIR | 0o700)
+                self.assertTrue(p.backup_parent_ok(d))
+                fake.return_value = SimpleNamespace(
+                    st_uid=0, st_mode=stat.S_IFDIR | 0o750)
+                self.assertFalse(p.backup_parent_ok(d))
+                fake.return_value = SimpleNamespace(
+                    st_uid=1000, st_mode=stat.S_IFDIR | 0o700)
+                self.assertFalse(p.backup_parent_ok(d))
+
     def test_no_write_or_database_exec_in_review_script(self):
         script = Path(p.__file__).read_text(encoding="utf-8")
         for prohibited in (
