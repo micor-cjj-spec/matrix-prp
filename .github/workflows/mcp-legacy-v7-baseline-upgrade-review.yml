@@ -1,0 +1,133 @@
+name: PRP MCP legacy V7 baseline to V28 (disposable MySQL only)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/src/test/java/com/matrix/prp/ExistingLegacyV7BaselineToMcpV28UpgradeIT.java"
+      - "app/deploy/mcp-staging/review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_flyway_metadata_readonly.sql"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/backend/pom.xml"
+      - ".github/workflows/mcp-legacy-v7-baseline-upgrade-review.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-baseline-upgrade:
+    name: Real isolated MySQL V7 baseline, V8-V28, synthetic owner-preservation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Refuse drift from main's original V1-V24 migration sources
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git show-ref --verify --quiet refs/remotes/origin/main
+          count=0
+          while IFS= read -r path; do
+            name="${path##*/}"
+            [[ "$name" =~ ^V([0-9]+)__.*\.sql$ ]] || continue
+            version="${BASH_REMATCH[1]}"
+            if (( version <= 24 )); then
+              test "$(git rev-parse "origin/main:$path")" = "$(git rev-parse "HEAD:$path")" || {
+                echo 'CI_BASELINE_ORIGINAL_V1_V24_SOURCE_DRIFT' >&2
+                exit 1
+              }
+              count=$((count+1))
+            fi
+          done < <(git ls-tree -r --name-only origin/main -- app/backend/src/main/resources/db/migration/)
+          test "$count" -eq 24
+          echo 'CI_MAIN_V1_V24_MIGRATION_BLOBS_UNCHANGED=YES'
+      - name: Create and dispose an exclusively runner-owned MySQL schema
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != true ||
+                "${RUNNER_OS:-}" != Linux ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            echo 'CI_GITHUB_RUNNER_ONLY' >&2
+            exit 2
+          fi
+          umask 077
+          container="prp-mcp-legacy-v7-${GITHUB_RUN_ID}"
+          private_history="${RUNNER_TEMP}/prp-legacy-v7-history.synthetic.private.json"
+          review_shape="${RUNNER_TEMP}/prp-legacy-v7-shape.synthetic.private.json"
+          review_crc="${RUNNER_TEMP}/prp-legacy-v7-crc.synthetic.private.json"
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            rm -f -- "$private_history" "$review_shape" "$review_crc"
+          }
+          trap cleanup EXIT
+          export MATRIX_PRP_DB_PASSWORD="$(openssl rand -hex 24)"
+          export MATRIX_PRP_DB_USER="prp_upgrade_ci"
+          export PRP_CI_DISPOSABLE_LEGACY_BASELINE_ONLY="YES"
+          export MATRIX_PRP_DB_URL="jdbc:mysql://127.0.0.1:13308/matrix_prp_upgrade_ci?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai"
+          rootpass="$(openssl rand -hex 24)"
+          docker run -d --rm --name "$container" -p 127.0.0.1:13308:3306 \
+            -e MYSQL_ROOT_PASSWORD="$rootpass" \
+            -e MYSQL_DATABASE=matrix_prp_upgrade_ci \
+            -e MYSQL_USER="$MATRIX_PRP_DB_USER" \
+            -e MYSQL_PASSWORD="$MATRIX_PRP_DB_PASSWORD" \
+            mysql:8.4 >/dev/null
+          ready=0
+          for i in $(seq 1 60); do
+            if docker exec -e MYSQL_PWD="$MATRIX_PRP_DB_PASSWORD" "$container" \
+              mysql --protocol=TCP -h 127.0.0.1 -u "$MATRIX_PRP_DB_USER" \
+              -D matrix_prp_upgrade_ci -Nse 'SELECT 1' >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1 || {
+            echo 'CI_DISPOSABLE_LEGACY_MYSQL_NOT_READY' >&2
+            exit 1
+          }
+          cd app/backend
+          chmod +x mvnw
+          ./mvnw -B -ntp -Dtest=ExistingLegacyV7BaselineToMcpV28UpgradeIT test
+
+          # Metadata SELECT only: never log raw Flyway JSON or credentials.
+          docker exec -e MYSQL_PWD="$MATRIX_PRP_DB_PASSWORD" "$container" \
+            mysql -u "$MATRIX_PRP_DB_USER" -D matrix_prp_upgrade_ci \
+            --batch --raw --skip-column-names \
+            -e "$(cat ../deploy/mcp-staging/production_flyway_metadata_readonly.sql)" \
+            > "$private_history"
+          set +e
+          python3 ../deploy/mcp-staging/review_production_flyway_history.py \
+            --input "$private_history" --expected-schema matrix_prp_upgrade_ci \
+            > "$review_shape"
+          shape_status=$?
+          set -e
+          test "$shape_status" -eq 3 || {
+            echo 'CI_LEGACY_V7_BASELINE_SHAPE_NOT_REVIEW_ONLY' >&2
+            exit 1
+          }
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["decision"] == "V28_LEGACY_V7_BASELINE_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED" and d["history_rows_checked"] == 22 and d["legacy_baseline_v7"] is True and d["prebaseline_v1_v7_schema_verified"] is False and d["deployment_permitted"] is False' "$review_shape"
+          set +e
+          python3 ../deploy/mcp-staging/review_production_flyway_history.py \
+            --input "$private_history" --expected-schema matrix_prp_upgrade_ci \
+            --verify-source-crc > "$review_crc"
+          crc_status=$?
+          set -e
+          test "$crc_status" -eq 4 || {
+            echo 'CI_LEGACY_V7_SQL_SOURCE_CRC_MISMATCH' >&2
+            exit 1
+          }
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["decision"] == "V28_LEGACY_V7_BASELINE_SOURCE_CRC_MATCH_REVIEW_ONLY" and d["history_rows_checked"] == 22 and d["legacy_baseline_v7"] is True and d["prebaseline_v1_v7_schema_verified"] is False and d["flyway_checksums_verified"] is True and d["deployment_permitted"] is False and d["g0_b2_authorization"] == "NOT_ESTABLISHED"' "$review_crc"
+          echo 'CI_DISPOSABLE_REAL_MYSQL_V7_BASELINE_V28_SOURCE_CRC_REVIEW_ONLY=YES'
+          echo 'NO_PRODUCTION_DB_OR_APPLICATION_OR_SSH_ACCESS=YES'
