@@ -9,6 +9,8 @@ on:
       - "app/deploy/mcp-staging/review_production_flyway_history.py"
       - "app/deploy/mcp-staging/production_v24_checksum_query.py"
       - "app/deploy/mcp-staging/production_v24_crc_aggregate_readonly.sql"
+      - "app/deploy/mcp-staging/production_v24_mcp_ddl_shape_readonly.sql"
+      - "app/deploy/mcp-staging/test_production_v24_mcp_ddl_shape_readonly.py"
       - "app/deploy/mcp-staging/production_flyway_metadata_readonly.sql"
       - "app/backend/src/main/resources/db/migration/**"
       - "app/backend/pom.xml"
@@ -102,6 +104,42 @@ jobs:
           cd app/backend
           chmod +x mvnw
           ./mvnw -B -ntp -Dtest=ExistingLegacyV7BaselineToMcpV28UpgradeIT test
+
+          # Exercise the exact production-schema metadata SELECT against
+          # a SYNTHETIC, disposable `matrix_prp` schema in this CI-only
+          # MySQL 8.4 container. Nothing is read from an operator host.
+          docker exec -i -e MYSQL_PWD="$rootpass" "$container" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot <<'CI_SYNTHETIC_DDL'
+          CREATE DATABASE matrix_prp;
+          CREATE TABLE matrix_prp.prp_users (
+            id BIGINT NOT NULL PRIMARY KEY
+          ) ENGINE=InnoDB;
+          CREATE TABLE matrix_prp.flyway_schema_history (
+            version VARCHAR(32) NOT NULL, success TINYINT NOT NULL
+          ) ENGINE=InnoDB;
+          INSERT INTO matrix_prp.flyway_schema_history (version, success)
+          VALUES ('7',1),('8',1),('9',1),('10',1),('11',1),('12',1),
+                 ('13',1),('14',1),('15',1),('16',1),('17',1),('18',1),
+                 ('19',1),('20',1),('21',1),('22',1),('23',1),('24',1);
+          CI_SYNTHETIC_DDL
+          # The exact user-facing SQL is neither modified nor rendered
+          # from an untrusted string. Query only the disposable fixture.
+          ddl_probe() {
+            docker exec -e MYSQL_PWD="$rootpass" "$container" \
+              mysql --protocol=TCP -h 127.0.0.1 -uroot \
+              --batch --raw --skip-column-names -D matrix_prp \
+              -e "$(cat ../deploy/mcp-staging/production_v24_mcp_ddl_shape_readonly.sql)"
+          }
+          ddl_probe | python3 -c 'import sys; row=sys.stdin.read().strip().split("\t"); assert row==["YES","1","1","1","1","0","0","0","18","18","0","V25_V28_FK_DDL_SHAPE_MATCH_REVIEW_ONLY","NO"]'
+          docker exec -e MYSQL_PWD="$rootpass" "$container" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            -e 'CREATE TABLE matrix_prp.prp_mcp_write_drafts(id BIGINT PRIMARY KEY) ENGINE=InnoDB'
+          ddl_probe | python3 -c 'import sys; row=sys.stdin.read().strip().split("\t"); assert len(row)==13 and row[6]=="1" and row[11]=="BLOCKED_OR_UNVERIFIED" and row[12]=="NO"'
+          docker exec -e MYSQL_PWD="$rootpass" "$container" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            -e 'DROP TABLE matrix_prp.prp_mcp_write_drafts; ALTER TABLE matrix_prp.prp_users MODIFY id BIGINT UNSIGNED NOT NULL'
+          ddl_probe | python3 -c 'import sys; row=sys.stdin.read().strip().split("\t"); assert len(row)==13 and row[2]=="0" and row[11]=="BLOCKED_OR_UNVERIFIED" and row[12]=="NO"'
+          echo 'CI_REAL_DISPOSABLE_MYSQL_V25_V28_FK_METADATA_POSITIVE_AND_NEGATIVES=PASS'
 
           # Metadata SELECT only: never log raw Flyway JSON or credentials.
           docker exec -e MYSQL_PWD="$MATRIX_PRP_DB_PASSWORD" "$container" \
