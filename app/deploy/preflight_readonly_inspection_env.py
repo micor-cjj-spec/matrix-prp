@@ -33,32 +33,14 @@ def valid_host(value: str) -> bool:
 
 def valid_private_key(value: str) -> bool:
     normalized = value.strip()
-    return (
-        len(normalized) >= 100
-        and normalized.startswith((
-            "-----BEGIN OPENSSH PRIVATE KEY-----",
-            "-----BEGIN RSA PRIVATE KEY-----",
-            "-----BEGIN EC PRIVATE KEY-----",
-            "-----BEGIN PRIVATE KEY-----",
-        ))
-        and normalized.endswith("-----END PRIVATE KEY-----")
-        or (
-            len(normalized) >= 100
-            and normalized.startswith("-----BEGIN OPENSSH PRIVATE KEY-----")
-            and normalized.endswith("-----END OPENSSH PRIVATE KEY-----")
-        )
-        or (
-            len(normalized) >= 100
-            and normalized.startswith("-----BEGIN RSA PRIVATE KEY-----")
-            and normalized.endswith("-----END RSA PRIVATE KEY-----")
-        )
-        or (
-            len(normalized) >= 100
-            and normalized.startswith("-----BEGIN EC PRIVATE KEY-----")
-            and normalized.endswith("-----END EC PRIVATE KEY-----")
-        )
-    )
-
+    if len(normalized) < 100 or "\\x00" in normalized:
+        return False
+    for algorithm in ("OPENSSH", "RSA", "EC", ""):
+        label = (algorithm + " " if algorithm else "") + "PRIVATE KEY"
+        if (normalized.startswith("-----BEGIN " + label + "-----")
+                and normalized.endswith("-----END " + label + "-----")):
+            return True
+    return False
 
 def valid_host_keys(value: str) -> bool:
     # Actual host signature matching is independently enforced later
