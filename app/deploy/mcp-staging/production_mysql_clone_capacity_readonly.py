@@ -73,7 +73,8 @@ def measure_size_mib(source, runner=subprocess.run):
         raise PreflightError("UNVERIFIED_MEASUREMENT_SOURCE")
     # Fixed metadata-only du flags. No shell, no symlink dereference,
     # no traversal across filesystem devices and no DB content read.
-    out = run(["du", "-sk", "-x", "--", str(source)],
+    out = run(["nice", "-n", "15", "ionice", "-c3",
+               "du", "-sk", "-x", "--", str(source)],
               timeout=DU_TIMEOUT, runner=runner)
     match = re.fullmatch(r"([0-9]+)\t[^\n]+", out)
     if not match or int(match.group(1)) < 1:
