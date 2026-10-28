@@ -384,8 +384,8 @@ try:
     target_ids = {p["clientId"] for p in exact_clients}
     assert target_ids == {
         "https://chatgpt.com/oauth/client.json", "prp-first-party-link"}
-    assert not (target_ids & existing_ids) if 'existing_ids' in locals() else (
-        not (target_ids & {c.get("clientId") for c in clients_before}))
+    assert not (target_ids & {c.get("clientId") for c in clients_before}), (
+        "Restored clone exact-client creation collision")
     attempted_names = []
     try:
         for proposal in exact_clients:
