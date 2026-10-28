@@ -34,6 +34,26 @@ its schema: it is a separate, higher-impact change than the previously
 recovered test Keycloak. Do not move old V2/legacy MySQL volumes or
 merge divergent historical V24 files to obtain a superficial PASS.
 
+## Production MySQL storage/capacity preflight prepared — not run on host
+
+Before requesting any authorized MySQL production backup, use the
+reviewed [read-only source-volume/capacity inventory](PRODUCTION-MYSQL-CLONE-CAPACITY-READONLY-20261028.md).
+Its script `production_mysql_clone_capacity_readonly.py` checks exact
+`matrix-mysql` container mount metadata, reports a redacted physical
+data-directory footprint and source/backup filesystem headroom,
+without database login, sensitive rows, data export, or state change.
+The bounded size walk runs at `nice -n 15 ionice -c3` with a 30-second
+timeout and requires an existing root-owned `0700` backup directory.
+
+The initial heuristic is a same-filesystem free-space check of
+3 × observed footprint + 4 GiB and 2 GiB available RAM. It is a
+**planning approximation**, not sufficient proof that logical backup,
+real isolated restore, production workload and write activity are
+safe; separate filesystems or missing metadata require review.
+Its `deployment_permitted=false` and `real_backup_performed=false`
+never change. Offline synthetic host tests do not execute Docker
+against the user server. No host operator result exists yet.
+
 ## Mandatory private production copy workflow, not yet executed
 
 **0. Authorize collection and resource scope.** The legitimate PRP
