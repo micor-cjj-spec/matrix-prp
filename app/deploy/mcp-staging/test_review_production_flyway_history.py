@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 import review_production_flyway_history as m
+import production_v24_checksum_query as v24q
 
 
 class ProductionFlywayHistoryReviewTests(unittest.TestCase):
@@ -294,6 +295,47 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
             self.assertEqual(result["decision"], "V24_SOURCE_CRC_MATCH_REVIEW_ONLY")
             self.assertIs(result["deployment_permitted"], False)
             self.assertIs(result["flyway_checksums_verified"], True)
+
+    def test_production_v24_checksum_aggregate_uses_full_17_source_rows(self):
+        sql = v24q.build_query()
+        crc = m.source_crc32()
+        scripts = m.source_scripts()
+        self.assertEqual(sql.count("UNION ALL"), 16)
+        self.assertEqual(v24q.EXPECTED_SQL_ROWS, 17)
+        for version in range(8, 25):
+            needle = ("SELECT '" + str(version) + "' AS version, '"
+                      + scripts[version] + "' AS script, "
+                      + str(crc[version]) + " AS checksum, "
+                      + str(version - 6) + " AS installed_rank")
+            self.assertIn(needle, sql)
+        self.assertNotIn("'25' AS version", sql)
+        self.assertNotIn("'7' AS version", sql)
+
+    def test_production_v24_aggregate_returns_only_coarse_review_metadata(self):
+        sql = v24q.build_query()
+        self.assertEqual(sql.count(";"), 1)
+        self.assertTrue(sql.startswith("WITH expected AS ("))
+        self.assertIn("FROM flyway_schema_history AS h", sql)
+        self.assertIn("DATABASE() = 'matrix_prp'", sql)
+        self.assertIn("SOURCE_CRC_MATCH_REVIEW_ONLY", sql)
+        self.assertIn("BLOCKED_OR_UNVERIFIED", sql)
+        self.assertIn("'NO' AS deployment_permitted", sql)
+        self.assertIn("COUNT(*)=18", sql)
+        self.assertIn("THEN 1 ELSE 0 END)=17", sql)
+        select_tail = sql[sql.rindex(")\\nSELECT"):] if ")\\nSELECT" in sql else sql.split("\\nSELECT\\n", 1)[-1]
+        self.assertNotIn("e.checksum AS", select_tail)
+        self.assertNotIn("h.checksum AS", select_tail)
+        self.assertNotIn("password", sql.lower())
+        self.assertNotIn("prp_tasks", sql)
+        for forbidden in ("UPDATE ", "DELETE ", "INSERT ", "ALTER ", "GRANT ",
+                          "DROP ", "CREATE ", "REPLACE ", "INTO OUTFILE", "SET PASSWORD"):
+            self.assertNotIn(forbidden, sql.upper())
+
+    def test_production_v24_aggregate_rejects_untrusted_script_name(self):
+        with self.assertRaisesRegex(ValueError, "UNSAFE_SOURCE_SQL_FILENAME"):
+            v24q.sql_literal("V8'; DROP TABLE flyway_schema_history;--")
+        with self.assertRaisesRegex(ValueError, "UNSAFE_SOURCE_SQL_FILENAME"):
+            v24q.sql_literal("bad/migration.sql")
 
     def test_sql_inventory_is_read_only_and_metadata_only(self):
         sql = (Path(__file__).resolve().parent
