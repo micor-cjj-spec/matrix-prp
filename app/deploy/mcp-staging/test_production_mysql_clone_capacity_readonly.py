@@ -126,12 +126,18 @@ class CapacityReadOnlyTest(unittest.TestCase):
                 "Destination": p.MYSQL_DEST, "Source": str(data),
                 "Type": "volume"
             }]).encode())
+            from os import stat as real_stat
+            # pathlib.Path.is_dir also calls os.stat. Keep real metadata
+            # for the fake source, and emulate only the absent host backup root.
+            def fake_stat(path, *args, **kwargs):
+                if str(path) == str(p.BACKUP_ROOT):
+                    return SimpleNamespace(st_dev=real_stat(data).st_dev)
+                return real_stat(path, *args, **kwargs)
             with patch.object(p, "backup_parent_ok", return_value=True), \
                     patch.object(p, "memory_available", return_value=4*p.GIB), \
                     patch.object(p.shutil, "disk_usage",
                                  return_value=SimpleNamespace(free=20*p.GIB)), \
-                    patch.object(p.os, "stat",
-                                 return_value=SimpleNamespace(st_dev=50)):
+                    patch.object(p.os, "stat", side_effect=fake_stat):
                 outcome = p.check(runner=fake)
             self.assertEqual(outcome["capacity_envelope"],
                              "CAPACITY_ESTIMATE_REVIEW_ONLY")
