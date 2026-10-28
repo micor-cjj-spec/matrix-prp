@@ -2,8 +2,28 @@
 # 13-client restored Realm SPI compatibility. Clone ONLY; never live Realm PUT.
 set -Eeuo pipefail
 umask 077
-DUMP=/root/prp-mcp-backups/snapshot-4G42atvf/keycloak-stage.dump
-EXPECTED=0ffedd753d535c80d833e0239789a37ab5a9316f989cfc5697263e38a6951c17
+# Original historical backup remains the default, for repeatability.
+# The opt-in, exact current-snapshot mode is immutable: no arbitrary path,
+# hash, database, or container argument can be supplied from the CLI.
+if [[ $# -eq 0 ]]; then
+  DUMP=/root/prp-mcp-backups/snapshot-4G42atvf/keycloak-stage.dump
+  EXPECTED=0ffedd753d535c80d833e0239789a37ab5a9316f989cfc5697263e38a6951c17
+  CLONE_SNAPSHOT_KIND=HISTORICAL_PINNED
+elif [[ $# -eq 1 && "$1" == --current-snapshot ]]; then
+  DUMP=/root/prp-mcp-backups/keycloak-current-review-ET1EMnba/keycloak-current.dump
+  EXPECTED=52b67c64a8e37679cd5b3999057cd035b2c198ce6e57cf4a7dcbcc494a45e8bd
+  CLONE_SNAPSHOT_KIND=CURRENT_PINNED_AT_2026_10_28
+else
+  echo 'EXACT_SNAPSHOT_MODE_REQUIRED'
+  exit 2
+fi
+# Treat the snapshot as sensitive, root-owned material; do not allow a
+# symlink to redirect the restoration to an unrelated object.
+if [[ -L "$DUMP" || ! -f "$DUMP" ]]; then
+  echo 'PINNED_SNAPSHOT_UNSAFE_OR_MISSING'
+  exit 2
+fi
+echo "CLONE_SNAPSHOT_KIND=$CLONE_SNAPSHOT_KIND"
 LIVE_DB=prp-mcp-oauth-stage-auth-db-1
 LIVE_KC=prp-mcp-oauth-stage-keycloak-1
 TAG="prp-kc-ns-$(date -u +%Y%m%d%H%M%S)-$$"
