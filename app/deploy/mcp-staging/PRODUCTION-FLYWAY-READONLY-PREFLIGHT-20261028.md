@@ -13,10 +13,16 @@ passed genuine original V1–V24 Flyway migration, preserved synthetic
 existing business records, and applied V25–V28. However:
 - The GitHub `main` V1–V24 SQL blobs were equal to this Draft at the
   time of the test. **That is source compatibility only.**
-- The operator's current production MySQL `flyway_schema_history`
-  has **not** been inspected here. Previous manual migration, baseline,
-  failed upgrade or changed checksum would invalidate the synthetic
-  migration proof.
+- **Operator-provided live SELECT evidence (2026-10-28)** established the
+  current production `matrix-mysql` / `matrix_prp` table has **18 successful
+  records**, starting with rank 1 / V7 / type `BASELINE` /
+  `<< Flyway Baseline >>` / NULL checksum, followed by uninterrupted
+  SQL V8–V24. Rank 18 is `V24__vocal_song_library_and_assignments.sql`.
+  This exactly matches the *shape* of the project's documented V7
+  legacy-baseline transition, not the fresh V1–V24 migration shape.
+  **Recorded production SQL checksums have NOT yet been independently
+  compared**, and prebaseline V1–V7 DDL is not attested. No live SQL
+  modification, installation, or copy restore took place.
 - The live *legacy isolated MCP staging* database has an **incompatible**
   V24 MCP drafts lineage; do **not** point the new backend to that volume.
 
@@ -31,7 +37,7 @@ existing business records, and applied V25–V28. However:
 2. Review and run only the single `SELECT JSON_OBJECT(...)` statement in
    [`production_flyway_metadata_readonly.sql`](production_flyway_metadata_readonly.sql).
    The SQL selects `DATABASE()`, migration `installed_rank`,
-   `version`, `script`, `checksum`, and `success`. It does
+   `version`, `type`, `script`, `checksum`, and `success`. It does
    **not** read business tables, passwords or OAuth records, and does
    not issue `UPDATE`, `INSERT`, `ALTER`, or `FLYWAY REPAIR`.
 3. Verify the one JSON result contains **only migration metadata**.
@@ -57,8 +63,9 @@ existing business records, and applied V25–V28. However:
    - **Exit 2**: blocked or malformed history. The report gives a
      bounded reason category, not sensitive row detail.
    - **Exit 3**: version 24 or 28 history *shape and filename
-     sequence* matches the Draft, but Flyway checksums were
-     **not checked** and **no upgrade is approved**.
+     sequence* matches the Draft (either a full fresh V1+ SQL sequence
+     or exactly one rank-1 V7 BASELINE followed by SQL V8+). The
+     Flyway checksums were **not checked** and **no upgrade is approved**.
    - There is deliberately **no exit 0 approval path**.
 
    For an additional **source-checksum diagnostic**, run the **same**
@@ -75,10 +82,13 @@ existing business records, and applied V25–V28. However:
 
    - **Exit 2**: mismatch (including any script CRC change) or invalid
      history; **stop**. No migration permission.
-   - **Exit 4**: all recorded versioned-migration CRCs match the
-     current reviewed **source checkout**, **not** an attested production
-     JAR. This remains `REVIEW_ONLY`, `deployment_permitted=false`,
-     and does **not** approve installation.
+   - **Exit 4**: all *recorded SQL migrations* (V1+ on fresh databases,
+     V8+ after a V7 legacy baseline) match the current reviewed
+     **source checkout**, **not** an attested production JAR.
+     A V7 BASELINE has no checksum; the source CRC comparison can
+     **never** verify its prebaseline V1–V7 schema/DDL. This remains
+     `REVIEW_ONLY`, `deployment_permitted=false`, and does **not**
+     approve installation.
    - **Exit 3**: shape match but checksum comparison **not requested**.
 
    [Actual disposable MySQL parity CI 40610322642](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40610322642)
@@ -100,10 +110,13 @@ existing business records, and applied V25–V28. However:
   `V24__mcp_write_drafts.sql`).
 - An older, incomplete, or partially applied MCP history; any V25–V27
   state without the full V28 expected chain.
-- Failed, baseline-only or unversioned history entries, missing ranks,
-  duplicate versions, reordered installs or unknown scripts.
+- Failed, baseline-only, *unexpected* baseline or unversioned history
+  entries, missing ranks, duplicate versions, reordered installs or
+  unknown scripts. The sole permitted baseline shape is rank-1
+  V7 `BASELINE` / `<< Flyway Baseline >>` / checksum NULL followed
+  by contiguous SQL V8 up to V24 or V28.
 - Wrong schema; MySQL connection failure; invalid metadata export;
-  absent Flyway checksum; any checksum mismatch in the independent
+  absent checksum on any SQL record; any checksum mismatch in the independent
   official Flyway validation.
 - Any environment whose operator cannot attest the origin, backup
   and data recovery process.
@@ -114,6 +127,28 @@ production MySQL volume to force the preflight to pass. Running an
 offline report does not substitute for G0/B2 scope authorization,
 verified independent restore rehearsal, Keycloak registration or a
 real ChatGPT `prp_tasks_list` user-owned data call.
+
+## Production lineage interpretation and hard boundary
+
+The first live production query returned 18 rows / latest V24 / no failures.
+A subsequent live, password-prompted read-only SELECT established the **exact**
+V7 baseline then V8–V24 SQL sequence. These are operator-reported MySQL
+results, not a cryptographically signed independently restored artifact.
+The private V8–V24 Flyway checksums still need a separate offline source-CRC
+review on the approved PR commit.
+
+The offline reviewer has two **non-interchangeable** accepted shapes:
+1. New database with SQL V1…V24 or V1…V28, all checksums present.
+2. Existing production-style database with exactly rank-1 V7 BASELINE,
+   checksum NULL and the default Flyway baseline description, then SQL
+   V8…V24 or V8…V28, all SQL checksums present.
+
+The reviewer must **never** pretend the V7 baseline validated old SQL
+V1–V7, assume their DDL matches, or turn a matching V8–V24 checksum
+into release authorization. Backup recovery, actual production
+`flyway_schema_history` attestation, copied schema review and separately
+approved G0/B2 remain required. Do not create, repair, move, or rewrite
+any database history rows to fit either shape.
 
 ## CI-only proof
 
