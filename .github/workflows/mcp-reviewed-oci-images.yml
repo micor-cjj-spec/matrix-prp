@@ -17,6 +17,8 @@ on:
       - "app/deploy/mcp-staging/nginx.conf.template"
       - "app/deploy/mcp-staging/compose.yaml"
       - "app/deploy/mcp-staging/ci_verify_container_images.sh"
+      - "app/deploy/mcp-staging/verify_oci_migration_jar.py"
+      - "app/deploy/mcp-staging/test_verify_oci_migration_jar.py"
       - ".dockerignore"
       - ".github/workflows/mcp-reviewed-oci-images.yml"
   workflow_dispatch:
@@ -40,6 +42,7 @@ jobs:
       - name: Validate only the disposable review script and safe staging contract
         run: |
           bash -n app/deploy/mcp-staging/ci_verify_container_images.sh
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_verify_oci_migration_jar.py -v
           python3 -m unittest discover -s app/deploy/mcp-staging -p test_staging_config.py -v
           python3 -m unittest discover -s app/deploy/mcp-staging -p test_readonly_link_routes_pending.py -v
       - name: Build and inspect the actual final CI-only OCI images (do not publish)
