@@ -54,6 +54,29 @@ Its `deployment_permitted=false` and `real_backup_performed=false`
 never change. Offline synthetic host tests do not execute Docker
 against the user server. No host operator result exists yet.
 
+## Actual production MySQL capacity review and backup engine inventory (2026-10-28)
+
+The operator ran `production_mysql_clone_capacity_readonly.py`
+and received `CAPACITY_ESTIMATE_REVIEW_ONLY`, observing 3,570 MiB
+physical MySQL data, 34,112 MiB free on the **same filesystem**
+for both data and proposed backup, 3,518 MiB available RAM,
+and a 14,806 MiB conservative capacity threshold. The target
+service/MySQL were running and no backup was made. This is
+**physical resource feasibility**, not independent recovery safety.
+
+An additional fixed [backup consistency/engine/object inventory
+SELECT](PRODUCTION-MYSQL-BACKUP-CONSISTENCY-READONLY-20261028.md)
+is now available and has **passed actual disposable MySQL 8.4
+positive/negative tests**. It reads production table-engine counts,
+metadata-visible views/triggers/routines/events, binary logging and
+GTID mode, without reading business data. Its purpose is to decide
+whether simple transaction-consistent InnoDB logical export is
+*plausible*, not to approve a backup or assert complete
+information_schema visibility. The new query has **not been run on
+production**. Do not take a snapshot until metadata scope, DBA access,
+private backup destination and proper independent authorization
+are reviewed.
+
 ## Mandatory private production copy workflow, not yet executed
 
 **0. Authorize collection and resource scope.** The legitimate PRP
