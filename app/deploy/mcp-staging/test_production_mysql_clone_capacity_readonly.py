@@ -47,7 +47,8 @@ class FakeRunner:
         elif argv == ["docker", "inspect", "--format",
                       "{{json .Mounts}}", p.CONTAINER]:
             out = self.mounts
-        elif argv[:4] == ["du", "-sk", "-x", "--"]:
+        elif argv[:9] == ["nice", "-n", "15", "ionice", "-c3",
+                         "du", "-sk", "-x", "--"]:
             out = b"1000000\t" + str(argv[-1]).encode() + b"\n"
         else:
             raise AssertionError("Unexpected command " + str(argv))
@@ -114,8 +115,9 @@ class CapacityReadOnlyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             value = p.measure_size_mib(Path(tmp), runner=runner)
         self.assertGreater(value, 900)
-        self.assertEqual(runner.commands[0][:4],
-                         ["du", "-sk", "-x", "--"])
+        self.assertEqual(runner.commands[0][:9],
+                         ["nice", "-n", "15", "ionice", "-c3",
+                          "du", "-sk", "-x", "--"])
         self.assertEqual(p.DU_TIMEOUT, 30)
 
     def test_full_check_uses_only_fixed_read_only_commands(self):
@@ -142,7 +144,7 @@ class CapacityReadOnlyTest(unittest.TestCase):
             self.assertEqual(outcome["capacity_envelope"],
                              "CAPACITY_ESTIMATE_REVIEW_ONLY")
             self.assertEqual(len(fake.commands), 5)
-            self.assertTrue(all(x[0] in ("docker", "systemctl", "du")
+            self.assertTrue(all(x[0] in ("docker", "systemctl", "nice")
                                 for x in fake.commands))
             self.assertNotIn(str(data), json.dumps(outcome))
             self.assertNotIn("password", json.dumps(outcome).lower())
