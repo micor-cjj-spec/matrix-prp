@@ -6,6 +6,8 @@ on:
       - test/mcp-authcode-privatejwt-refresh-20261024
     paths:
       - "app/backend/src/test/java/com/matrix/prp/ExistingPrpV24ToMcpV28UpgradeIT.java"
+      - "app/deploy/mcp-staging/review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_flyway_metadata_readonly.sql"
       - "app/backend/src/main/resources/db/migration/**"
       - "app/backend/pom.xml"
       - ".github/workflows/mcp-populated-v24-upgrade-review.yml"
@@ -95,4 +97,28 @@ jobs:
           cd app/backend
           chmod +x mvnw
           ./mvnw -B -ntp -Dtest=ExistingPrpV24ToMcpV28UpgradeIT test
+          # Exercise the EXACT read-only SQL export and offline parser
+          # against the newly upgraded disposable schema; never log raw
+          # MySQL history metadata or credentials. An unverified shape
+          # match MUST return code 3, not a deploy-success exit 0.
+          private_history="$RUNNER_TEMP/prp-v28-history.synthetic.private.json"
+          docker exec -e MYSQL_PWD="$MATRIX_PRP_DB_PASSWORD" "$container" \
+            mysql -u "$MATRIX_PRP_DB_USER" -D matrix_prp_upgrade_ci \
+            --batch --raw --skip-column-names \
+            -e "$(cat ../deploy/mcp-staging/production_flyway_metadata_readonly.sql)" \
+            > "$private_history"
+          set +e
+          python3 ../deploy/mcp-staging/review_production_flyway_history.py \
+            --input "$private_history" --expected-schema matrix_prp_upgrade_ci \
+            > "$RUNNER_TEMP/prp-v28-history-verdict.synthetic.json"
+          verify_status=$?
+          set -e
+          test "$verify_status" -eq 3 || {
+            echo 'CI_OFFLINE_REAL_MYSQL_HISTORY_EXPECTED_UNVERIFIED_EXIT_3' >&2
+            exit 1
+          }
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["decision"] == "V28_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED" and d["deployment_permitted"] is False and d["flyway_checksums_verified"] is False' \
+            "$RUNNER_TEMP/prp-v28-history-verdict.synthetic.json"
+          rm -f -- "$private_history" "$RUNNER_TEMP/prp-v28-history-verdict.synthetic.json"
+          echo 'CI_REAL_MYSQL_JSON_METADATA_REVIEW_ONLY_NO_APPROVAL=YES'
           echo 'CI_DISPOSABLE_UPGRADE_NO_HOST_SERVICE_OR_REAL_DATA_MUTATION=YES'
