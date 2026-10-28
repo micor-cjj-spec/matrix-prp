@@ -152,6 +152,26 @@ any database history rows to fit either shape.
 
 ## CI-only proof
 
+[Actual isolated MySQL legacy V7 baseline to V28 CI 40633804543](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40633804543)
+**SUCCESS** (2026-10-28): inside a freshly created runner-owned
+`mysql:8.4` container, built V1–V7 synthetic legacy-equivalent tables,
+discarded **only that disposable schema's** Flyway history, explicitly
+recorded one default V7 baseline, then applied 17 SQL migrations V8–V24
+and 4 SQL migrations V25–V28. It verified exactly 18 V24 history rows
+and 22 V28 rows, the rank-1 baseline/checksum NULL, preserved
+synthetic users/tasks/finance fingerprints, and verified SQL V8–V28
+source CRC via the same SELECT-only metadata exporter and offline
+reviewer. Results were strictly non-zero REVIEW_ONLY exits 3 and 4,
+`legacy_baseline_v7=true`,
+`prebaseline_v1_v7_schema_verified=false`,
+`deployment_permitted=false`. The CI did **not** access production
+or restore a real production backup.
+
+[Offline V7-baseline strict negative tests 40633544002](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40633544002)
+**SUCCESS**: 27 synthetic tests covering exact baseline shape, tampering,
+missing rows, wrong types, duplicate/out-of-order entries, source CRC
+mismatch, and fail-closed release status.
+
 [Offline negative contract CI](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40609387782)
 ran a synthetic report matrix with failures for baseline/failed
 migration, old stage V24 script, partial history, wrong schema,
