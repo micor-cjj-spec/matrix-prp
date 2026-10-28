@@ -126,6 +126,65 @@ a controlled installation is determined only by the original
 versioned release-controller contract, not by this review note.
 Until the legitimate process issues/accepts them, B2 stays NO-GO.
 
+## Live host acceptance evidence — 2026-10-28 (operator read-only, complete)
+
+**Exact immutable operator scripts:** client/scope inventory from Git
+`cb8bd6fb5f333d2f2db0283981f9f844f36469dc`, and fixed recovery
+preflight / B2 metadata inventory from Git
+`5c5d23ec0c4aa67dd211cf172225bbd415fdac21`. Both ran with
+`READ_ONLY_*_COMPLETE=YES`; neither made a host/DB mutation.
+
+| Verified actual state | Operator output | Scope of evidence |
+| --- | --- | --- |
+| Live Realm | `REALM_MATCH_COUNT=1` | Exact name `prp-mcp` |
+| Existing clients | `EXISTING_REALM_CLIENT_COUNT=13` | Count, not contents or policy safety |
+| ChatGPT official URI client | `MISSING` | Registration absent, no effective CIMD proven |
+| First-party link client | `MISSING` | Required identity linking cannot yet succeed |
+| Client scopes `basic`, `offline_access`, `prp.tasks.read` | All `PRESENT` | Names only, mappers not verified |
+| PRP host service | `PRP_SERVICE=active` | Does not prove V2 readiness |
+| Stage Keycloak and PostgreSQL | Both `running` | Does not prove request routing |
+| Stage Keycloak version | `26.8.0` | Version command captured safely |
+| Historical snapshot | `PINNED_POSTGRES_DUMP=PASS` | Valid expected `PGDMP` header and exact SHA256, **not a fresh restore** |
+| Prior operator restored clone | `PASSED_SEPARATELY_OPERATOR_REPORTED_NOT_A_B2_RECEIPT` | Historical independent container exercise only |
+| `approved_install` receipt | `MISSING` | Explicit B2 block |
+| `fresh_b2_restore` receipt | `MISSING` | Explicit B2 block |
+| Host-guard parent | `METADATA_OK_UNVERIFIED` | Not approval |
+| B2 deployment permission | `false` | **NO-GO** |
+| Resource baseline | `MEM_AVAILABLE_KIB=3592756`, `DISK_AVAILABLE_KIB=35042860` | Point-in-time only |
+| Local V2 Compose | `V2_COMPOSE_LOCAL_CHANGES=PRESENT_DO_NOT_RESET` | Preserve operator edits, do **not** reset |
+| Clone residue | `CLONE_TEST_CONTAINER_RESIDUES=0` | Matching container names only |
+
+**What this closes:** Exact actual ChatGPT
+`client_id=https://chatgpt.com/oauth/client.json` was observed in the
+browser, and the same ID is absent in the active test Realm. The
+pre-registration review candidate matches it. Do not ask the owner to
+rebuild the ChatGPT PRP connector, rerun this successful SQL inventory,
+create duplicate scopes, or repeat the same static B2 metadata check
+without an independently changed recovery/approval state.
+
+**What this does not close:** Current active Realm CIMD policies/profiles,
+scope mapper semantics, a fresh independent restore of actual current
+Realm+signing state, authorized G0+B2 approval, the V2 frontend/backend
+OIDC feature deployment, public callback routing or real ChatGPT
+`private_key_jwt`/token/first-party identity-link acceptance.
+Historical snapshot validity **cannot** be converted into a synthetic
+`fresh-b2-restore.safe.json`; neither missing receipt may be forged,
+copied or backdated. The authorized original controller must decide
+receipt timing and provenance. No live Keycloak client creation, Nginx
+reload, database upgrade, Compose install, project merge or restart
+is authorized by this review.
+
+**Next accountable change, not another diagnostic loop:** Request
+independent recovery/restore approval for the specific current
+`prp-mcp` Realm, its 13 existing clients, policies and signing state;
+request G0/B2 scoped change approval for exactly the two create-only
+client IDs in `review_exact_client_registrations.py` and the required
+V2 route/artifact lineage. Once separately accepted, the controlled
+operator transaction must recheck for collisions, preserve the 13
+clients, install only exact approved deltas, verify real ChatGPT auth
+and first-party identity linking, run owner task-only MCP reads and
+complete an independently verified rollback plan.
+
 ## Proposed minimal delta — not an install command
 
 **Only two create-only clients**, as described by
