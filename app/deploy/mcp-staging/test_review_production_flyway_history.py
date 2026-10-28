@@ -84,11 +84,12 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
     def test_missing_historical_migration_blocks(self):
         a = self.history()
         del a["history"][11]
-        self.assertEqual(self.check(a)["reason"], "PARTIAL_OR_UNEXPECTED_MIGRATION_CHAIN")
+        self.assertEqual(self.check(a)["reason"], "HISTORY_INSTALL_RANK_GAP_OR_BASELINE")
 
     def test_duplicate_version_and_install_rank_block(self):
         a = self.history()
         a["history"][10]["version"] = "10"
+        a["history"][10]["script"] = self.scripts[10]
         self.assertEqual(self.check(a)["reason"], "DUPLICATE_MIGRATION_OR_INSTALL_RANK")
         a = self.history()
         a["history"][10]["installed_rank"] = 10
