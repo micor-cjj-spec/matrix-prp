@@ -57,14 +57,42 @@ existing business records, and applied V25–V28. However:
    - **Exit 2**: blocked or malformed history. The report gives a
      bounded reason category, not sensitive row detail.
    - **Exit 3**: version 24 or 28 history *shape and filename
-     sequence* matches the Draft, but **Flyway checksums remain
-     unverified** and **no upgrade is approved**.
+     sequence* matches the Draft, but Flyway checksums were
+     **not checked** and **no upgrade is approved**.
    - There is deliberately **no exit 0 approval path**.
 
-   A trusted checksum comparison must be separately performed using
-   a genuine Flyway reference from the reviewed built artifact (not
-   a guessed checksum). A later independent review must validate
-   the actual table DDL and full lineage in a **restored copy**.
+   For an additional **source-checksum diagnostic**, run the **same**
+   command with `--verify-source-crc` while using the exact independently
+   reviewed PR #113 Git commit. This computes reference CRC32 values from
+   the checkout's V1–V28 SQL files **without reading any database**,
+   and compares them to the supplied Flyway metadata:
+
+   ```bash
+   python3 app/deploy/mcp-staging/review_production_flyway_history.py \
+     --input /path/to/production-flyway-metadata.private.json \
+     --expected-schema matrix_prp --verify-source-crc
+   ```
+
+   - **Exit 2**: mismatch (including any script CRC change) or invalid
+     history; **stop**. No migration permission.
+   - **Exit 4**: all recorded versioned-migration CRCs match the
+     current reviewed **source checkout**, **not** an attested production
+     JAR. This remains `REVIEW_ONLY`, `deployment_permitted=false`,
+     and does **not** approve installation.
+   - **Exit 3**: shape match but checksum comparison **not requested**.
+
+   [Actual disposable MySQL parity CI 40610322642](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40610322642)
+   **SUCCESS**: all **28** CRCs computed by the offline implementation
+   matched the real Flyway `flyway_schema_history` generated on
+   disposable MySQL 8.4 after real Flyway V24→V28 migration, and the
+   reviewer returned **4**, deliberately not 0. It also preserves the
+   older `--verify-source-crc`-absent behavior (exit 3).
+
+   **No trust shortcut:** verify the reviewed Git commit and deployed
+   artifact SQL contents independently; an arbitrary edited SQL checkout
+   is **not** a trusted CRC reference. A separate independent review
+   must validate the actual production table DDL and full migration
+   lineage against a **restored copy**, and attest backups/rollback.
 
 ## Known errors that must STOP the rollout
 
