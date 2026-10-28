@@ -171,6 +171,27 @@ populated replica before any installation. A production rollback
 must account for post-upgrade writes, not blindly restore an
 older backup over newer records.
 
+## Production Flyway history read-only inventory (2026-10-28)
+
+The last successful populated-schema CI is not evidence of actual
+operator-host history. A **separate, explicitly authorized read-only
+inventory** remains required. Review
+[PRODUCTION-FLYWAY-READONLY-PREFLIGHT-20261028.md](PRODUCTION-FLYWAY-READONLY-PREFLIGHT-20261028.md)
+for a pure `SELECT` statement and a **no-database-client** local
+analyzer. The analyzer rejects wrong V24 staging lineage, failed or
+missing installs, partial MCP history, duplicate versions and wrong
+schema. It intentionally **never validates Flyway CRC checksums** or
+returns a release-approval exit code (2 = blocked, 3 = source-history
+shape matched but still unverified).
+
+[Actual disposable MySQL SQL-export + offline-parser CI 40609653162](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40609653162)
+**SUCCESS**: genuine Flyway metadata query after the simulated
+populated V24 → V28 migration was parsed as `V28_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED`,
+with `deployment_permitted=false`; the expected process status
+was deliberately 3. Nothing was read from the operator's actual
+database. Production checksums, DDL and backup restore must still be
+independently verified and signed before any real upgrade.
+
 ## Mandatory non-host-changing preparation before any change window
 
 1. Obtain a **fresh read-only production inventory** under the
