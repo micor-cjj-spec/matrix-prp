@@ -120,7 +120,9 @@ def main(argv=None):
             "g0_b2_authorization": "NOT_ESTABLISHED",
         }
     print(json.dumps(result, ensure_ascii=True, sort_keys=True, separators=(",", ":")))
-    return 0 if result["decision"].startswith(("V24_", "V28_")) else 2
+    # A shape match is still UNVERIFIED (no trusted Flyway CRC baseline);
+    # non-zero exit prevents accidental use as an install/deploy gate.
+    return 3 if result["decision"].startswith(("V24_", "V28_")) else 2
 
 
 if __name__ == "__main__":
