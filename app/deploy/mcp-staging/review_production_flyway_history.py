@@ -72,12 +72,17 @@ def analyze(data, scripts, expected_schema=SCHEMA_DEFAULT):
         ranks.append(rank)
     if len(set(versions)) != len(versions) or len(set(ranks)) != len(ranks):
         return fail("DUPLICATE_MIGRATION_OR_INSTALL_RANK")
-    if ranks != sorted(ranks) or versions != sorted(versions):
-        return fail("HISTORY_NOT_IN_ASCENDING_INSTALL_ORDER")
-    if ranks != list(range(1, len(ranks) + 1)):
+    # MySQL JSON_ARRAYAGG does not guarantee array element order.
+    # Sort by the trusted installed_rank *value* before comparing order.
+    ordered = sorted(zip(ranks, versions))
+    ordered_ranks = [rank for rank, _ in ordered]
+    ordered_versions = [version for _, version in ordered]
+    if ordered_ranks != list(range(1, len(ranks) + 1)):
         return fail("HISTORY_INSTALL_RANK_GAP_OR_BASELINE")
+    if ordered_versions != sorted(ordered_versions):
+        return fail("HISTORY_NOT_IN_ASCENDING_INSTALL_ORDER")
     latest = max(versions)
-    if latest not in (24, 28) or versions != list(range(1, latest + 1)):
+    if latest not in (24, 28) or ordered_versions != list(range(1, latest + 1)):
         return fail("PARTIAL_OR_UNEXPECTED_MIGRATION_CHAIN")
     return {
         "decision": ("V24_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED"
