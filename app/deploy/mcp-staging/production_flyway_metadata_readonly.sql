@@ -11,6 +11,7 @@ SELECT JSON_OBJECT(
      JSON_OBJECT(
        'installed_rank', installed_rank,
        'version', version,
+       'type', type,
        'script', script,
        'checksum', checksum,
        'success', IF(success = 1, 'PASS', 'FAIL')
