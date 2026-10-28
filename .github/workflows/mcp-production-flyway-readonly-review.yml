@@ -1,0 +1,31 @@
+name: PRP MCP production Flyway metadata review contract (offline only)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/mcp-staging/review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/test_review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_flyway_metadata_readonly.sql"
+      - "app/backend/src/main/resources/db/migration/**"
+      - ".github/workflows/mcp-production-flyway-readonly-review.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-review:
+    name: Reject history drift without server/database access
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Compile and run synthetic migration history diagnostics
+        run: |
+          python3 -m py_compile app/deploy/mcp-staging/review_production_flyway_history.py app/deploy/mcp-staging/test_review_production_flyway_history.py
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_review_production_flyway_history.py -v
+          echo 'OFFLINE_REVIEW_NO_PRODUCTION_DB_SQL_EXECUTION=YES'
