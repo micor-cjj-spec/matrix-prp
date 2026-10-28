@@ -147,7 +147,7 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
             path.write_text(json.dumps(self.history()), encoding="utf-8")
             sink = StringIO()
             with contextlib.redirect_stdout(sink):
-                self.assertEqual(m.main(["--input", str(path)]), 0)
+                self.assertEqual(m.main(["--input", str(path)]), 3)
             out = json.loads(sink.getvalue())
             self.assertTrue(out["decision"].startswith("V24_"))
             self.assertIs(out["deployment_permitted"], False)
