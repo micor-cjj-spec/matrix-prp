@@ -15,7 +15,7 @@ for c in "$LIVE_KC" "$LIVE_DB"; do
 done
 printf 'KEYCLOAK_IMAGE_NAME=%s\n' "$(docker inspect "$LIVE_KC" -f '{{.Config.Image}}' 2>/dev/null || echo UNKNOWN)"
 # Keycloak may print JAVA_OPTS information before the version line.
-# The original '| head -n 2' pipeline could SIGPIPE under pipefail.
+# The old two-line output limit could SIGPIPE under pipefail.
 # Read command output once without raw stdout/stderr disclosure; only
 # emit a validated version number. Do not stop subsequent backup checks.
 version_text=$(docker exec "$LIVE_KC" /opt/keycloak/bin/kc.sh --version 2>/dev/null) || version_text=""
