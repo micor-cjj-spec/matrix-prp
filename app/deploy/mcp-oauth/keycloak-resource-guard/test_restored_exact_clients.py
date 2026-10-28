@@ -128,6 +128,33 @@ class RestoredExactTwoClientTests(unittest.TestCase):
         self.assertIn("finally:", self.code)
         self.assertNotIn("auth-test.micor.top/admin", self.code)
 
+    def test_current_snapshot_is_exactly_pinned_and_explicitly_selected(self):
+        self.assertIn("elif [[ $# -eq 1 && \"$1\" == --current-snapshot ]]; then",
+                      self.script)
+        self.assertIn(
+            "DUMP=/root/prp-mcp-backups/keycloak-current-review-ET1EMnba/keycloak-current.dump",
+            self.script)
+        self.assertIn(
+            "EXPECTED=52b67c64a8e37679cd5b3999057cd035b2c198ce6e57cf4a7dcbcc494a45e8bd",
+            self.script)
+        self.assertIn("CLONE_SNAPSHOT_KIND=CURRENT_PINNED_AT_2026_10_28",
+                      self.script)
+        self.assertIn("CLONE_SNAPSHOT_KIND=HISTORICAL_PINNED",
+                      self.script)
+        self.assertIn("CURRENT_SNAPSHOT_PRIVATE_PERMISSIONS_REQUIRED",
+                      self.script)
+        self.assertIn('stat -c \'%u:%a\' -- "$DUMP"', self.script)
+        self.assertIn("PINNED_SNAPSHOT_UNSAFE_OR_MISSING", self.script)
+        for unsupported in ("--help", "--live", "--capture-current",
+                            "--current-snapshot /tmp/other.dump"):
+            with self.subTest(unsupported=unsupported):
+                result = subprocess.run(
+                    ["bash", str(SCRIPT), *unsupported.split()],
+                    capture_output=True, text=True, timeout=5, check=False)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("EXACT_SNAPSHOT_MODE_REQUIRED", result.stdout)
+                self.assertNotIn("PRIVATE_BACKUP_PATH", result.stdout)
+
     def test_true_13_fake_originals_preserved_after_two_client_add_rollback(self):
         mock = FakeKeycloak()
         original = copy.deepcopy(mock.docs)
