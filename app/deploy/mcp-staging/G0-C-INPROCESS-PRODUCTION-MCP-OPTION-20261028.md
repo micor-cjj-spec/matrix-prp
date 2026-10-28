@@ -5,6 +5,61 @@
 > This document supersedes any claim that a separate production task-read
 > bridge is *required* to reach the actual user's existing PRP tasks.
 
+## Latest running V2 parity and real-data target, observed 2026-10-28
+
+The operator ran immutable `live_v2_artifact_readonly.py` from
+`4d6fba554aa87f83ac5ccd77c07cb76252b16133` on the **actual**
+`prp-mcp-v2-gateway-1` and `prp-mcp-v2-backend-1` containers.
+Both were `running=YES`, but both reported `oidc=ABSENT`;
+`artifacts_feature_ready=BLOCKED_RUNNING_V2_ARTIFACTS_INCOMPLETE`,
+`docker_state_changed=false`, `g0_b2_install_permitted=false`
+and the outer read-only shell completed. This definitively rules out
+using the currently deployed V2 images for first-party linking; do
+not treat `200 text/html` SPA fallback as proof the callback is present.
+
+The independently operated current test Realm database clone *did*
+restore 101 tables, preserve 13 clients and match signing public JWKS;
+the two reviewed OAuth clients were created and rolled back **only in
+the clone**. This resolves current-snapshot technical recoverability,
+not genuine original G0/B2 approval or deployment.
+
+**Target principle:** The user requested their **existing** PRP owner's
+real task data, not a new synthetic account. The isolated 18082 V2
+database and never-installed 18083 NewDB are not proven to hold that
+owner's real task rows. **No new PRP data copy, cross-database join,
+public producer endpoint, owner-identity shortcut or production Flyway
+migration is authorized by these facts.**
+
+The low-complexity **design recommendation**, conditional on review
+of true schema and recovery, remains one in-process **task-only**
+MCP resource in a safely upgraded existing PRP application against
+its own production `matrix_prp` owner/task store. It uses the original
+service-level tenant authorization and avoids adding a second
+producer/delegation bridge. **This is a more consequential production
+release than upgrading the isolated test V2**: review independent
+backup/restore, actual running code lineage, full V7-baselined schema,
+V8–V24 checksum parity, V25–V28 additive migration, fail-closed
+feature flags, Nginx/Keycloak public issuer design, owner-consent
+binding, and a no-data-loss rollback before any change.
+
+**Single next metadata check (with independently authorized SELECT
+access):** The actual production database was last observed as a
+rank-1 V7 Flyway BASELINE plus 17 successful V8–V24 SQL migrations,
+but their stored checksums were never reconciled. The already
+checked-in fixed, one-statement
+`production_v24_crc_aggregate_readonly.sql` compares only Flyway
+metadata to the reviewed source, returning schema/row counts and a
+`SOURCE_CRC_MATCH_REVIEW_ONLY` vs `BLOCKED_OR_UNVERIFIED` decision
+with `deployment_permitted=NO`. It does not query tasks/users or
+reveal raw history/checksums. Do not run it with an unreviewed
+unpinned Git source, a root DB login as a substitute for SELECT-only
+authorization, or on the legacy isolated staging schema. A matching
+CRC still cannot prove prebaseline V1–V7 DDL or source/JAR
+attestation, and is **not** permission to migrate.
+
+No need to rerun the completed Keycloak recovery or the V2 missing
+marker test absent new evidence. G0/B2 remain NO-GO.
+
 ## Executive decision
 
 **Prefer independent review of the in-process alternative first,**
