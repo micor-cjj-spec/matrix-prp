@@ -77,6 +77,29 @@ production**. Do not take a snapshot until metadata scope, DBA access,
 private backup destination and proper independent authorization
 are reviewed.
 
+## Latest 57/57 InnoDB production backup scope result (2026-10-28)
+
+The operator ran the exact, pinned `production_mysql_backup_consistency_readonly.sql`
+on `matrix_prp`. The first authentication attempt returned MySQL
+1045 (no SQL executed); the retry succeeded. **57 visible base tables,
+57 InnoDB, no visible non-InnoDB tables**, 0 visible views/triggers/
+routines/events under the current account, binary logging **ON**,
+GTID **OFF**, 18 Flyway history rows. The query returned
+`VISIBLE_BASE_TABLE_ENGINES_INNODB_REVIEW_ONLY`,
+`backup_approved=NO` and `deployment_permitted=NO`.
+These facts are recorded in
+[PRODUCTION-MYSQL-BACKUP-CONSISTENCY-READONLY-20261028.md](PRODUCTION-MYSQL-BACKUP-CONSISTENCY-READONLY-20261028.md).
+
+The metadata and capacity checks are **complete for the current
+point-in-time**. Avoid another read-only-preflight loop.
+[PRODUCTION-MYSQL-BACKUP-RESTORE-DECISION-20261028.md](PRODUCTION-MYSQL-BACKUP-RESTORE-DECISION-20261028.md)
+contains the remaining real decision: approved sensitive data
+export mechanism and dedicated storage/restore failure domain,
+object visibility/backup grants, consistent InnoDB snapshot with
+concurrent DDL control, binary log recovery handling, and private
+clone migration+owner/task preservation. No existing test Keycloak
+backup counts as a PRP MySQL recovery.
+
 ## Mandatory private production copy workflow, not yet executed
 
 **0. Authorize collection and resource scope.** The legitimate PRP
