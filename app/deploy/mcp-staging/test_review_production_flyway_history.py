@@ -296,6 +296,13 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
             self.assertIs(result["deployment_permitted"], False)
             self.assertIs(result["flyway_checksums_verified"], True)
 
+    def test_checked_in_production_v24_aggregate_sql_is_exact_source_generation(self):
+        """Prevents stale/edited static SQL from being executed by an operator."""
+        static = (Path(__file__).resolve().parent
+                  / "production_v24_crc_aggregate_readonly.sql")
+        self.assertEqual(static.read_text(encoding="utf-8"),
+                         v24q.build_query() + "\n")
+
     def test_production_v24_checksum_aggregate_uses_full_17_source_rows(self):
         sql = v24q.build_query()
         crc = m.source_crc32()
