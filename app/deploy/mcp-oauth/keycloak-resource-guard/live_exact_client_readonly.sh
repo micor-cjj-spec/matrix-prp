@@ -52,9 +52,19 @@ echo "REVIEWED_SQL_PIN=FOUND"
 echo "READ_ONLY_SQL_RESULTS_BEGIN"
 # The pinned SQL begins BEGIN TRANSACTION READ ONLY; ends COMMIT;
 # and projects only a fixed allowlist of public client/scope labels and counts.
-# No secrets, client attributes, user identity rows or policy JSON are queried.
+# Use the EXISTING Postgres container's configured initial DB role/name.
+# Do not guess Keycloak's database role (it need not be literally "keycloak").
+# Role and DB names, credentials, environment, users, and SQL rows beyond the
+# fixed inventory are never printed or copied out of the container.
 git -C "$REPO" show "$PIN:$SQL" |
-  docker exec -i "$PG" psql -X -q -v ON_ERROR_STOP=1 -U keycloak -d keycloak -A -t -F '='
+  docker exec -i "$PG" sh -ec '
+    if [ -z "${POSTGRES_USER:-}" ] || [ -z "${POSTGRES_DB:-}" ]; then
+      echo "KEYCLOAK_PG_CONNECTION_CONFIG=UNAVAILABLE" >&2
+      exit 2
+    fi
+    exec psql -X -q -v ON_ERROR_STOP=1 -w -U "$POSTGRES_USER" \
+      -d "$POSTGRES_DB" -A -t -F "="
+  '
 echo "READ_ONLY_SQL_RESULTS_END"
 echo "MCP_DEPLOYMENT_PERMITTED=NO"
 echo "LIVE_EXACT_CLIENT_REVIEW_COMPLETE=YES"
