@@ -72,6 +72,56 @@ migration. The altered host script may be used only after the
 responsible operator separately reviews the exact source commit,
 host/resource impact and isolation/rollback contract.
 
+## Operator-executed historical backup clone acceptance — 2026-10-28
+
+**This previously proposed clone rehearsal has now actually run successfully**
+on `micor-server`, using the immutable Git source at
+`d81826cfaed2e31d5028940fa79f488ca35cb2e2`
+(`verify_restored_realm_spi_clone.sh`). The user supplied complete
+terminal output, including the final sentinel and an overall exit code
+of zero:
+
+| Operator-reported actual check | Actual result |
+| --- | --- |
+| Host JDK21 / Maven compile | `PASS`; selected existing PRP JVM |
+| SPI candidate security JUnit and structure | `PASS` / `PASS` |
+| Candidate JAR SHA256 | `ccce0bbdd0f258032b12531698a4da469c48d907550d0457620054d84ff97315` |
+| Private PostgreSQL restore | `RESTORED_TABLES=101` |
+| Private Keycloak startup / OIDC | `CLONE_KEYCLOAK_READY=YES`; `RESTORED_OIDC_HTTP=200` |
+| Restored signing public JWKS versus active Realm | `RESTORED_SIGNING_PUBLIC_JWKS_MATCH_LIVE=YES` |
+| Original client inventory | `CLONE_EXISTING_CLIENTS=13` |
+| Existing audience mapper repair + rollback | both `PASS` |
+| Exact two additional clients in **historical restored clone only** | `RESTORED_13_CLIENT_EXACT_TWO_CREATES=PASS_PRIVATE_CLONE_ONLY` |
+| Exact two-client rollback | `RESTORED_13_CLIENT_EXACT_TWO_ROLLBACK=PASS_PRIVATE_CLONE_ONLY` |
+| Original 13 client identity and policy preservation | `CLONE_ORIGINAL_13_CLIENTS_UNMODIFIED=YES`; `CLONE_RESTORED_13_CLIENT_INVENTORY_PRESERVED=YES` |
+| Client policy SPI / synthetic signed resource JWT / refresh rotation | `PASS` |
+| Wrong resource, privileged scope, token replay and revocation controls | `PASS`; missing resource was `REJECTED` |
+| Restore of temporary clone Realm settings, policy and users | `PASS` |
+| Live Keycloak change | `ACTIVE_REALM_CHANGED=NO` |
+| Cleanup of isolated clone container/network/volume | `CLONE_CLEANUP_RESOURCE_STATUS=0` |
+| Script success | `CLONE_SCRIPT_EXIT_STATUS=0`; outer `RESTORE REHEARSAL COMPLETE` |
+| Authorized independent recovery acceptance | **NOT COMPLETED**; `B2_RECOVERY_GATE=NOT_COMPLETED` |
+| B2 receipt generated | **NO**; `RESTORED_EXACT_CLIENT_B2_RECEIPT=NOT_ISSUED` |
+
+This demonstrates **successful operator execution against the exact
+pinned historical PostgreSQL backup**; it substantially exceeds synthetic
+CI testing. It does **not** prove that the **present** active Keycloak
+database and signing material have been freshly captured/restored since
+the snapshot, nor constitute an independently approved B2 receipt.
+The previous separate inventory reported both
+`approved_install=MISSING` and `fresh_b2_restore=MISSING`.
+These stay blocked unless actually changed by the original authorized
+approval and recovery controllers. No ephemeral CLI test should issue,
+forge, copy or backdate those receipts.
+
+**Next release dependency** is an independently witnessed fresh backup
+and restore of the *current* test Realm and corresponding signing state,
+a scoped G0/B2 change authorization, and a reviewed live policy/route
+baseline. Only then may an authorized operator register the two exact
+clients, with post-change genuine ChatGPT OAuth, PRP owner linking and
+`prp_tasks_list` acceptance. Production PRP V24, Nginx and current
+test Realm have not been changed by this rehearsal.
+
 ## B2 independent installation / recovery evidence
 
 The pre-existing operator gate expects the following named receipts
