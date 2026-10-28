@@ -8,6 +8,8 @@ original V8..V24 Flyway SQL. A MATCH is REVIEW_ONLY, never deployment approval.
 Run the generated SQL only through an independently authorized existing
 SELECT-only MySQL session targeting the verified PRP production schema.
 """
+import argparse
+import os
 import re
 
 from review_production_flyway_history import source_crc32, source_scripts
@@ -26,7 +28,9 @@ def sql_literal(value):
     return "'" + value + "'"
 
 
-def build_query():
+def build_query(expected_schema=SCHEMA):
+    if expected_schema not in (SCHEMA, "matrix_prp_upgrade_ci"):
+        raise ValueError("UNSUPPORTED_SCHEMA")
     scripts = source_scripts()
     crc = source_crc32()
     if set(scripts) != set(range(1, 29)) or set(crc) != set(scripts):
@@ -50,7 +54,7 @@ def build_query():
 {reference}
 )
 SELECT
-  IF(DATABASE() = '{SCHEMA}', 'YES', 'NO') AS schema_match,
+  IF(DATABASE() = '{expected_schema}', 'YES', 'NO') AS schema_match,
   COUNT(*) AS history_rows,
   SUM(CASE
     WHEN h.installed_rank=1 AND h.version='7' AND h.type='BASELINE'
@@ -62,7 +66,7 @@ SELECT
       AND h.installed_rank=e.installed_rank
       AND h.script=e.script AND h.checksum=e.checksum AND h.success=1
     THEN 1 ELSE 0 END) AS source_sql_rows_matched,
-  CASE WHEN DATABASE()='{SCHEMA}'
+  CASE WHEN DATABASE()='{expected_schema}'
      AND COUNT(*)={EXPECTED_ROWS}
      AND SUM(CASE
        WHEN h.installed_rank=1 AND h.version='7' AND h.type='BASELINE'
@@ -83,7 +87,25 @@ LEFT JOIN expected AS e ON h.version=e.version;"""
 
 
 def main():
-    print(build_query())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ci-disposable-schema", action="store_true",
+                        help="Only from the dedicated GitHub disposable MySQL workflow")
+    args = parser.parse_args()
+    schema = SCHEMA
+    if args.ci_disposable_schema:
+        expected_url = (
+            "jdbc:mysql://127.0.0.1:13308/matrix_prp_upgrade_ci"
+            "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai"
+        )
+        if not (
+            os.environ.get("GITHUB_ACTIONS") == "true"
+            and os.environ.get("RUNNER_OS") == "Linux"
+            and os.environ.get("PRP_CI_DISPOSABLE_LEGACY_BASELINE_ONLY") == "YES"
+            and os.environ.get("MATRIX_PRP_DB_URL") == expected_url
+        ):
+            parser.error("CI_DISPOSABLE_SCHEMA_NOT_AUTHORIZED")
+        schema = "matrix_prp_upgrade_ci"
+    print(build_query(schema))
 
 
 if __name__ == "__main__":
