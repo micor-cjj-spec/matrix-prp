@@ -166,6 +166,49 @@ registration or Nginx change. An operator must separately approve
 the bounded backup operation and the later private restoration; do
 not treat this repository artifact or CI as such authorization.
 
+## Actual current test Realm snapshot CAPTURED — 2026-10-28
+
+The operator executed SHA-pinned opt-in `capture_current_keycloak_review.sh`
+at `2496c9bc3eab4f45e26943af002a4096058586e2` on `micor-server`.
+It completed with these **operator-observed**, non-secret receipt facts:
+
+| Check | Result |
+| --- | --- |
+| `CURRENT_KEYCLOAK_BACKUP` | `CAPTURED_AND_ARCHIVE_PARSED` |
+| `BACKUP_BYTES` | `268204` |
+| `BACKUP_SHA256` | `52b67c64a8e37679cd5b3999057cd035b2c198ce6e57cf4a7dcbcc494a45e8bd` |
+| Private root-only backup file | `/root/prp-mcp-backups/keycloak-current-review-ET1EMnba/keycloak-current.dump` |
+| Capture outer shell | `BACKUP CAPTURE COMPLETE` |
+| Current backup **restored** | **NO** |
+| Current-signing-key clone parity | **NO** |
+| B2 receipts / deployment permission | **NO / NO** |
+
+This source-verified current archive is stronger evidence than the
+previous historical `snapshot-4G42atvf` alone, but `pg_restore --list`
+is a **parse test, not a recovery**. The dump contains sensitive
+Keycloak user/identity/signing data. Leave it on its protected server
+or approved private backup storage; never upload the dump itself to
+GitHub, ChatGPT or other public systems.
+
+The historical-restored-clone verifier now supports opt-in
+`--current-snapshot`, pinned to **exactly** the current path and digest
+above; it rejects non-private permissions/symlinked parent and
+unsupported paths/flags before any Docker creation. It retains
+the existing immutable historical mode and uses the prior isolated
+Docker namespace, 13-client preservation checks, two exact create
+and rollback tests, issuer signing JWKS parity, and cleanup controls.
+This is a **private technical rehearsal**, not an independently signed
+fresh B2 recovery receipt. It must be run and reviewed separately,
+and may reveal new drift from the old historical snapshot.
+
+**All original gate outputs remain authoritative:** neither
+`approved-install.safe.json` nor `fresh-b2-restore.safe.json`
+was issued by this archive capture. Even if current-snapshot clone
+later reports PASS, G0/B2 stay NO-GO until the original approvers and
+independent controllers accept the actual recovery and install
+transaction. No active client installation or live PRP changes
+follow from the stored backup alone.
+
 ## B2 independent installation / recovery evidence
 
 The pre-existing operator gate expects the following named receipts
