@@ -122,6 +122,50 @@ clients, with post-change genuine ChatGPT OAuth, PRP owner linking and
 `prp_tasks_list` acceptance. Production PRP V24, Nginx and current
 test Realm have not been changed by this rehearsal.
 
+## New current-Realm PostgreSQL backup candidate — source only (2026-10-28)
+
+The exact historical 101-table / 13-client clone rehearsal passed,
+but **its historical snapshot cannot establish fresh recovery of the
+currently running Realm**. The next necessary evidence is a new,
+time-specific, confidential backup of the current *test* Keycloak DB,
+followed by independently supervised isolated restore and signing
+key verification. It must not touch PRP production MySQL.
+
+Draft PR #113 now contains
+`app/deploy/mcp-oauth/keycloak-resource-guard/capture_current_keycloak_review.sh`.
+This is an **operator-opt-in, backup-only** candidate, not an installer.
+The script refuses any invocation other than `--capture-current`,
+requires authorized root, running PRP + expected test Keycloak and
+PostgreSQL containers, a known PostgreSQL container image, a root-owned
+non-group-writable backup parent, at least 2,000,000 KiB available RAM
+and 15,000,000 KiB disk. It creates an unpredictable **new directory**
+under `/root/prp-mcp-backups` with root-only permissions (0700), runs
+`pg_dump -w -Fc` against the container's actual configured DB role and
+database without exposing either name or credentials, parses the result
+with `pg_restore --list`, verifies `PGDMP` and file mode 0600, then
+outputs only the file path, SHA256 and byte count. On an incomplete
+capture it attempts to remove only its own temporary output and fails
+closed. No input from another untrusted database or file is accepted.
+
+The dump is sensitive and should **remain on the operator's encrypted,
+access-controlled machine/approved backup storage**; never attach or
+upload its bytes to GitHub issues, PR comments or ChatGPT. The dump
+includes Keycloak data such as users, identity material and possibly
+private signing keys. Access is restricted even though its SHA256 is
+not a secret. Review operational overhead and retention under the
+original change process.
+
+**Remaining requirements even after this capture reports success:**
+the generated dump is not an independently verified *restore*, does
+not prove that restored Keycloak signing keys and clients match the
+live realm, cannot attest live session/token continuity, and does not
+generate `fresh-b2-restore.safe.json` or
+`approved-install.safe.json`. Both original independent approvers
+and original gate validators remain mandatory before any Realm client
+registration or Nginx change. An operator must separately approve
+the bounded backup operation and the later private restoration; do
+not treat this repository artifact or CI as such authorization.
+
 ## B2 independent installation / recovery evidence
 
 The pre-existing operator gate expects the following named receipts
