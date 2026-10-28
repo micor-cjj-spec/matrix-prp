@@ -126,6 +126,51 @@ without touching finance or draft services. This is still a
 **disposable test environment**, not evidence of production
 ChatGPT consent, installed Nginx or a deployed PRP image.
 
+## Populated pre-MCP database migration rehearsal (2026-10-28)
+
+[Real disposable MySQL incremental upgrade CI 40608149044](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40608149044)
+**SUCCESS**. This is a stronger, distinct verification than
+fresh-empty-schema V1–V28 tests:
+
+1. Before running any SQL, the CI workflow validates that the
+   historical migration **Git blobs V1–V24 match `origin/main`
+   exactly (24/24)**, and the Java fixture verifies its *exact*
+   loopback, CI-specific MySQL URL/schema and temporary-runner flags.
+2. A newly created MySQL 8.4 database runs genuine Flyway
+   **V1–V24** to simulate an existing production-version schema,
+   then inserts **synthetic historical business data**:
+   2 owners, 27 tasks (24 and 3), a finance transaction, a
+   video asset and a vocal song. It computes stable row digests and
+   snapshots the original history checksum/script/versions.
+3. Running the proposed same-code Flyway V25–V28 against the
+   **already populated** database applies **4/4 new migrations**
+   and reaches v28. Subsequent validation checks 28/28, unchanged
+   V1–V24 checksums, identical owners/business row digests, the
+   exact **five new MCP tables**, no removed legacy tables,
+   and correct FK targets for existing PRP owners in client grant
+   and identity link records.
+4. The disposable Docker MySQL container is cleaned up by the
+   runner-owned workflow. No persistent PRP data, actual user JWT,
+   Keycloak, existing MySQL or live service is contacted.
+
+Actual job log: `Successfully applied 24 migrations ... v24`,
+then `Successfully applied 4 ... v28`,
+`PASS CI_SYNTHETIC_POPULATED_V24_TO_V28_DATA_PRESERVED=YES`,
+**1 JUnit test, 0 errors, BUILD SUCCESS**.
+
+**Mandatory limitation:** this is a clean GitHub checkout seeded
+with small synthetic business rows. The operator's current
+`flyway_schema_history` might contain older manually applied
+SQL or version/checksum drift; its production DB engine, schema
+constraints and real dataset may differ. This success does NOT
+authorize running Flyway on that existing volume. First obtain
+read-only production history/DDL evidence using the protected
+change-control process, create and verify a backup and a
+separately isolated restoration, and repeat on that authorized
+populated replica before any installation. A production rollback
+must account for post-upgrade writes, not blindly restore an
+older backup over newer records.
+
 ## Mandatory non-host-changing preparation before any change window
 
 1. Obtain a **fresh read-only production inventory** under the
