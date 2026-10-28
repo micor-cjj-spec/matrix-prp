@@ -93,6 +93,16 @@ run `FLUSH TABLES WITH READ LOCK`, change binary log settings,
 remove files, alter live tables, issue backups, enable Flyway,
 or reconfigure Keycloak/PRP/Nginx to satisfy the probe.
 
+## Source and disposable MySQL CI evidence (2026-10-28)
+
+**Both current tests passed without any operator-server access:**
+
+- [Offline metadata SQL safety #40716327676](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40716327676) — SUCCESS. The contract checks exactly one SELECT, fixed `matrix_prp`, metadata-only tables, no DML/DDL, fail-closed verdict and permanent NO permission.
+- [Real disposable MySQL 8.4 #40716345146](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40716345146) — SUCCESS. An InnoDB-only synthetic schema returned `VISIBLE_BASE_TABLE_ENGINES_INNODB_REVIEW_ONLY`; adding one synthetic MyISAM table returned `BLOCKED_OR_UNVERIFIED`. CI logged `CI_MYSQL_BACKUP_ENGINE_METADATA_READONLY_POSITIVE_NEGATIVE=PASS` and `BUILD SUCCESS`. The disposable test does not establish the real production engine mix or completeness.
+
+The fixed SQL source was introduced in Git commit
+`1b71da2262bf6fd9a104d4689736a4ea2b9a1aa1`; its Git object remains unmodified by later documentation changes. **No user-host outcome for the new consistency probe exists yet.**
+
 ## Evidence boundary and next phase
 
 Offline source-safety contract tests and **synthetic, disposable
