@@ -111,7 +111,8 @@ class ExistingLegacyV7BaselineToMcpV28UpgradeIT {
         // Checked-out candidate SQL only. This Python generator has no DB
         // client, secrets, business data, imports or network calls.
         Process process = new ProcessBuilder(
-            "python3", "../deploy/mcp-staging/production_v24_checksum_query.py"
+            "python3", "../deploy/mcp-staging/production_v24_checksum_query.py",
+            "--ci-disposable-schema"
         ).start();
         boolean finished = process.waitFor(10, TimeUnit.SECONDS);
         if (!finished) {
