@@ -40,7 +40,7 @@ class InventoryError(Exception):
 
 
 def running(container, runner=subprocess.run):
-    # Fixed names only. Never inspect .Config.Env or expose other containers.
+    # Fixed names only. Never inspect container environment or other containers.
     result = runner(
         ["docker", "inspect", "-f", "{{.State.Status}}", container],
         capture_output=True, timeout=8, check=False,
@@ -110,7 +110,7 @@ def scan_jar(tar_bytes):
 
 
 def status(observed):
-    if not observed:
+    if not observed or not any(observed.values()):
         return "ABSENT"
     if all(observed.values()):
         return "ALL_PRESENT"
