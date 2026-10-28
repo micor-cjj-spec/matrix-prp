@@ -14,7 +14,8 @@ import zlib
 SCHEMA_DEFAULT = "matrix_prp"
 MIGRATIONS = Path(__file__).resolve().parents[2] / "backend/src/main/resources/db/migration"
 MIGRATION_PATTERN = re.compile(r"^V([1-9][0-9]*)__([a-zA-Z0-9_]+)\.sql$")
-KEYS = {"installed_rank", "version", "script", "checksum", "success"}
+KEYS = {"installed_rank", "version", "type", "script", "checksum", "success"}
+LEGACY_BASELINE_SCRIPT = "<< Flyway Baseline >>"
 MAX_BYTES = 32 * 1024
 
 
@@ -87,6 +88,7 @@ def analyze(data, scripts, expected_schema=SCHEMA_DEFAULT, verified_source_crc=N
         return fail("CANDIDATE_REFERENCE_UNTRUSTED_OR_INCOMPLETE")
     versions = []
     ranks = []
+    has_legacy_v7_baseline = False
     for row in rows:
         if not isinstance(row, dict) or set(row) != KEYS:
             return fail("HISTORY_ROW_SHAPE_INVALID")
@@ -95,14 +97,27 @@ def analyze(data, scripts, expected_schema=SCHEMA_DEFAULT, verified_source_crc=N
         checksum = row["checksum"]
         if (not isinstance(ver, str) or not re.fullmatch(r"[1-9][0-9]*", ver)
                 or type(rank) is not int or not 1 <= rank <= 9999
-                or type(checksum) is not int or not -(2**31) <= checksum < 2**31
                 or row["success"] != "PASS"):
             return fail("HISTORY_ROW_INVALID_FAILED_OR_BASELINED")
         num = int(ver)
-        if (num not in scripts or row["script"] != scripts[num]):
-            return fail("MIGRATION_VERSION_OR_SCRIPT_DRIFT")
-        if verified_source_crc is not None and checksum != verified_source_crc[num]:
-            return fail("MIGRATION_CHECKSUM_DRIFT")
+        if row["type"] == "BASELINE":
+            # The actual production legacy chain starts with one explicitly
+            # approved V7 baseline, followed by V8+ SQL. No other baseline,
+            # including a changed script/checksum/rank, is ever accepted.
+            if not (num == 7 and rank == 1
+                    and row["script"] == LEGACY_BASELINE_SCRIPT
+                    and checksum is None):
+                return fail("UNEXPECTED_FLYWAY_BASELINE")
+            has_legacy_v7_baseline = True
+        elif row["type"] == "SQL":
+            if type(checksum) is not int or not -(2**31) <= checksum < 2**31:
+                return fail("HISTORY_ROW_INVALID_FAILED_OR_BASELINED")
+            if num not in scripts or row["script"] != scripts[num]:
+                return fail("MIGRATION_VERSION_OR_SCRIPT_DRIFT")
+            if verified_source_crc is not None and checksum != verified_source_crc[num]:
+                return fail("MIGRATION_CHECKSUM_DRIFT")
+        else:
+            return fail("UNEXPECTED_MIGRATION_TYPE")
         versions.append(num)
         ranks.append(rank)
     if len(set(versions)) != len(versions) or len(set(ranks)) != len(ranks):
@@ -117,21 +132,23 @@ def analyze(data, scripts, expected_schema=SCHEMA_DEFAULT, verified_source_crc=N
     if ordered_versions != sorted(ordered_versions):
         return fail("HISTORY_NOT_IN_ASCENDING_INSTALL_ORDER")
     latest = max(versions)
-    if latest not in (24, 28) or ordered_versions != list(range(1, latest + 1)):
+    first_version = 7 if has_legacy_v7_baseline else 1
+    if latest not in (24, 28) or ordered_versions != list(range(first_version, latest + 1)):
         return fail("PARTIAL_OR_UNEXPECTED_MIGRATION_CHAIN")
     checked = verified_source_crc is not None
+    lineage = "LEGACY_V7_BASELINE_" if has_legacy_v7_baseline else ""
     return {
         "decision": (
-            ("V24_SOURCE_CRC_MATCH_REVIEW_ONLY" if latest == 24
-             else "V28_SOURCE_CRC_MATCH_REVIEW_ONLY") if checked
-            else ("V24_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED"
-                  if latest == 24
-                  else "V28_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED")
+            ("V" + str(latest) + "_" + lineage + "SOURCE_CRC_MATCH_REVIEW_ONLY")
+            if checked else
+            ("V" + str(latest) + "_" + lineage + "SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED")
         ),
         "reason": ("SOURCE_CRC_MATCH_BUT_REQUIRES_ARTIFACT_RESTORE_AND_G0_B2"
                    if checked else
                    "REQUIRES_INDEPENDENT_FLYWAY_CHECKSUM_VALIDATION_AND_RESTORED_COPY"),
         "history_rows_checked": len(rows),
+        "legacy_baseline_v7": has_legacy_v7_baseline,
+        "prebaseline_v1_v7_schema_verified": False,
         "source_migration_names_match": True,
         "flyway_checksums_verified": checked,
         "deployment_permitted": False,
