@@ -62,9 +62,9 @@ class InspectionConnectionGuardTests(unittest.TestCase):
         }))
 
     def test_pem_with_embedded_nul_is_rejected_before_file_creation(self):
-        plausible_key = ("-----BEGIN OPENSSH PRIVATE KEY-----\\n"
+        plausible_key = ("-----BEGIN OPENSSH PRIVATE KEY-----\n"
                          + "A" * 180
-                         + "\\n-----END OPENSSH PRIVATE KEY-----")
+                         + "\n-----END OPENSSH PRIVATE KEY-----")
         self.assertTrue(guard.valid_private_key(plausible_key))
         invalid = plausible_key[:80] + chr(0) + plausible_key[80:]
         self.assertFalse(guard.valid_private_key(invalid))
