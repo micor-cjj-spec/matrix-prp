@@ -5,6 +5,25 @@
 > Nginx route or PR merge is authorized or performed by this review.
 > **G0/B2 = NO-GO; PR #113 Draft; production and live V2 unchanged.**
 
+## Architecture reconsideration (2026-10-28)
+
+**The cross-service producer bridge is no longer the presumed preferred
+solution.** [In-process MCP production alternative](G0-C-INPROCESS-PRODUCTION-MCP-OPTION-20261028.md)
+is now the *first candidate for independent G0-C review*:
+[real same-database MySQL test 40605502027](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40605502027)
+**SUCCESS** (8 synthetic DB tests) exercises the actual OAuth
+client grant, issuer-subject link, MCP task tool, SQL owner scoping,
+revocation and tasks-only denial of finance/write tools. It does
+**not** demonstrate real ChatGPT OAuth, or authorize a production
+application migration. All 24 original `main` V1–V24 migration
+blobs match PR #113 byte-for-byte; branch adds V25–V28 only.
+The operator-host live schema/backup state is still unverified.
+
+This bridge proposal remains a fallback **only if an independently
+authorized in-process application upgrade cannot be accepted**.
+None of the DB replay, JWT proof or transaction interlock tests
+authorizes exposing a new production endpoint; no deployment was done.
+
 ## Immediate objective and important correction
 
 The user's target is **the existing production PRP owner's real tasks**,
