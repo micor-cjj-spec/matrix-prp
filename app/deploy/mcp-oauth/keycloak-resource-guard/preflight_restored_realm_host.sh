@@ -14,11 +14,113 @@ for c in "$LIVE_KC" "$LIVE_DB"; do
   printf '%s=%s\n' "$c" "$(docker inspect "$c" -f '{{.State.Status}}' 2>/dev/null || echo NOT_FOUND)"
 done
 printf 'KEYCLOAK_IMAGE_NAME=%s\n' "$(docker inspect "$LIVE_KC" -f '{{.Config.Image}}' 2>/dev/null || echo UNKNOWN)"
-if docker exec "$LIVE_KC" /opt/keycloak/bin/kc.sh --version >/dev/null 2>&1; then
-  docker exec "$LIVE_KC" /opt/keycloak/bin/kc.sh --version 2>/dev/null | head -n 2 | sed 's/^/KEYCLOAK_VERSION_INFO=/'
+# A prior `docker exec ... | head -n 2 | sed` pipeline exited early with
+# SIGPIPE under pipefail when kc.sh emitted more than two lines. That stopped
+# the entire backup/B2 preflight before it could reach its safety checks.
+# Capture the bounded version command locally once; print ONLY a parsed
+# version number (never raw Keycloak stdout, JVM flags, environment or tokens).
+parse_keycloak_version() {
+  local output="$1"
+  if [[ "$output" =~ (^|
+echo '=== READ ONLY: BACKUP INTEGRITY ==='
+if [[ -f "$DUMP" && "$(head -c 5 "$DUMP")" = PGDMP &&
+      "$(sha256sum "$DUMP" | awk '{print $1}')" = "$EXPECTED_DUMP_SHA256" ]]; then
+  echo 'PINNED_POSTGRES_DUMP=PASS'
 else
-  echo 'KEYCLOAK_VERSION_INFO=UNAVAILABLE'
+  echo 'PINNED_POSTGRES_DUMP=FAIL'
 fi
+echo '=== READ ONLY: HOST BUILD AND ARTIFACT OPTIONS ==='
+for app in git docker nsenter python3 curl sha256sum java mvn gh; do
+  if command -v "$app" >/dev/null 2>&1; then
+    echo "HOST_TOOL_$app=YES"
+  else
+    echo "HOST_TOOL_$app=NO"
+  fi
+done
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  echo 'GH_ACTIONS_ARTIFACT_DOWNLOAD=AUTH_READY'
+else
+  echo 'GH_ACTIONS_ARTIFACT_DOWNLOAD=NOT_READY'
+fi
+if docker image inspect quay.io/keycloak/keycloak:26.8.1 >/dev/null 2>&1; then
+  echo 'KEYCLOAK_26_8_1_IMAGE=CACHED'
+else
+  echo 'KEYCLOAK_26_8_1_IMAGE=NOT_CACHED'
+fi
+if [[ -d "$V2/.git" || -f "$V2/.git" ]]; then
+  echo "V2_HEAD=$(git -C "$V2" rev-parse --short=12 HEAD)"
+  if [[ -n "$(git -C "$V2" status --porcelain -- app/deploy/mcp-staging/compose.yaml)" ]]; then
+    echo 'V2_COMPOSE_LOCAL_CHANGES=PRESENT_DO_NOT_RESET'
+  else
+    echo 'V2_COMPOSE_LOCAL_CHANGES=NONE'
+  fi
+else
+  echo 'V2_WORKTREE=NOT_FOUND'
+fi
+echo '=== READ ONLY: RESOURCES / RESIDUES ==='
+awk '/MemAvailable:/ {printf "MEM_AVAILABLE_KIB=%s\n", $2}' /proc/meminfo
+df -Pk / | awk 'END{printf "DISK_AVAILABLE_KIB=%s\n",$4}'
+residual=$(docker ps -a --format '{{.Names}}' | grep -Ec '^prp-kc-(clone|ns)-' || true)
+printf 'CLONE_TEST_CONTAINER_RESIDUES=%s\n' "$residual"
+echo 'READ_ONLY_PREFLIGHT_COMPLETE=YES'
+\\n')Keycloak[[:space:]]+([0-9]+[.][0-9]+[.][0-9]+)($|
+echo '=== READ ONLY: BACKUP INTEGRITY ==='
+if [[ -f "$DUMP" && "$(head -c 5 "$DUMP")" = PGDMP &&
+      "$(sha256sum "$DUMP" | awk '{print $1}')" = "$EXPECTED_DUMP_SHA256" ]]; then
+  echo 'PINNED_POSTGRES_DUMP=PASS'
+else
+  echo 'PINNED_POSTGRES_DUMP=FAIL'
+fi
+echo '=== READ ONLY: HOST BUILD AND ARTIFACT OPTIONS ==='
+for app in git docker nsenter python3 curl sha256sum java mvn gh; do
+  if command -v "$app" >/dev/null 2>&1; then
+    echo "HOST_TOOL_$app=YES"
+  else
+    echo "HOST_TOOL_$app=NO"
+  fi
+done
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  echo 'GH_ACTIONS_ARTIFACT_DOWNLOAD=AUTH_READY'
+else
+  echo 'GH_ACTIONS_ARTIFACT_DOWNLOAD=NOT_READY'
+fi
+if docker image inspect quay.io/keycloak/keycloak:26.8.1 >/dev/null 2>&1; then
+  echo 'KEYCLOAK_26_8_1_IMAGE=CACHED'
+else
+  echo 'KEYCLOAK_26_8_1_IMAGE=NOT_CACHED'
+fi
+if [[ -d "$V2/.git" || -f "$V2/.git" ]]; then
+  echo "V2_HEAD=$(git -C "$V2" rev-parse --short=12 HEAD)"
+  if [[ -n "$(git -C "$V2" status --porcelain -- app/deploy/mcp-staging/compose.yaml)" ]]; then
+    echo 'V2_COMPOSE_LOCAL_CHANGES=PRESENT_DO_NOT_RESET'
+  else
+    echo 'V2_COMPOSE_LOCAL_CHANGES=NONE'
+  fi
+else
+  echo 'V2_WORKTREE=NOT_FOUND'
+fi
+echo '=== READ ONLY: RESOURCES / RESIDUES ==='
+awk '/MemAvailable:/ {printf "MEM_AVAILABLE_KIB=%s\n", $2}' /proc/meminfo
+df -Pk / | awk 'END{printf "DISK_AVAILABLE_KIB=%s\n",$4}'
+residual=$(docker ps -a --format '{{.Names}}' | grep -Ec '^prp-kc-(clone|ns)-' || true)
+printf 'CLONE_TEST_CONTAINER_RESIDUES=%s\n' "$residual"
+echo 'READ_ONLY_PREFLIGHT_COMPLETE=YES'
+\\n') ]]; then
+    printf '%s\\n' "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  return 1
+}
+if version_output=$(docker exec "$LIVE_KC" /opt/keycloak/bin/kc.sh --version 2>/dev/null); then
+  if version=$(parse_keycloak_version "$version_output"); then
+    printf 'KEYCLOAK_VERSION=%s\\n' "$version"
+  else
+    echo 'KEYCLOAK_VERSION=UNVERIFIED'
+  fi
+else
+  echo 'KEYCLOAK_VERSION=UNAVAILABLE'
+fi
+unset version_output
 echo '=== READ ONLY: BACKUP INTEGRITY ==='
 if [[ -f "$DUMP" && "$(head -c 5 "$DUMP")" = PGDMP &&
       "$(sha256sum "$DUMP" | awk '{print $1}')" = "$EXPECTED_DUMP_SHA256" ]]; then
