@@ -3,6 +3,7 @@ package com.matrix.prp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -106,6 +107,42 @@ class ExistingLegacyV7BaselineToMcpV28UpgradeIT {
         return result;
     }
 
+    private static String sourceCrcAggregateSql() throws Exception {
+        // Checked-out candidate SQL only. This Python generator has no DB
+        // client, secrets, business data, imports or network calls.
+        Process process = new ProcessBuilder(
+            "python3", "../deploy/mcp-staging/production_v24_checksum_query.py"
+        ).start();
+        boolean finished = process.waitFor(10, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            throw new SecurityException("CI_V24_SOURCE_CRC_QUERY_GENERATOR_TIMEOUT");
+        }
+        if (process.exitValue() != 0)
+            throw new SecurityException("CI_V24_SOURCE_CRC_QUERY_GENERATOR_FAILED");
+        String sql = new String(process.getInputStream().readAllBytes(),
+            StandardCharsets.UTF_8).trim();
+        assertThat(sql).startsWith("WITH expected AS (");
+        assertThat(sql).endsWith(";");
+        return sql;
+    }
+
+    private static void assertSourceCrcAggregate(Connection conn, String sql,
+            int expectedHistory, int expectedSql, String verdict) throws Exception {
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getString("schema_match")).isEqualTo("YES");
+            assertThat(rs.getInt("history_rows")).isEqualTo(expectedHistory);
+            assertThat(rs.getInt("baseline_rows_matched")).isEqualTo(1);
+            assertThat(rs.getInt("observed_sql_rows")).isEqualTo(expectedSql);
+            assertThat(rs.getInt("source_sql_rows_matched")).isEqualTo(17);
+            assertThat(rs.getString("decision")).isEqualTo(verdict);
+            assertThat(rs.getString("deployment_permitted")).isEqualTo("NO");
+            assertThat(rs.next()).isFalse();
+        }
+    }
+
     @Test
     void legacyV7FlywayBaselinePreservesExistingOwnersAndTasksThroughV28()
             throws Exception {
@@ -140,6 +177,13 @@ class ExistingLegacyV7BaselineToMcpV28UpgradeIT {
                 + "AND script='V24__vocal_song_library_and_assignments.sql' AND success=1"))
                 .isEqualTo(1);
 
+            // Actual MySQL executes the *same* fixed aggregate SELECT intended
+            // for later operator-only production metadata review. No raw CRCs
+            // are selected, copied, logged or sent to CI artifacts.
+            String aggregateSql = sourceCrcAggregateSql();
+            assertSourceCrcAggregate(conn, aggregateSql, 18, 17,
+                "SOURCE_CRC_MATCH_REVIEW_ONLY");
+
             for (long owner : new long[]{12001L, 12002L}) {
                 insert(conn, "INSERT INTO prp_users(id,username,display_name,password_hash,"
                     + "is_admin,enabled) VALUES(?,?,?,?,0,1)",
@@ -173,6 +217,11 @@ class ExistingLegacyV7BaselineToMcpV28UpgradeIT {
                     + "FROM flyway_schema_history WHERE installed_rank<=18 "
                     + "ORDER BY installed_rank")).isEqualTo(historyBefore);
             assertThat(snapshots(conn)).containsExactlyInAnyOrderEntriesOf(before);
+            // V28 is not the expected live V24 state. The same fixed
+            // production V24 preflight must now fail closed in this
+            // otherwise healthy disposable V28 database.
+            assertSourceCrcAggregate(conn, aggregateSql, 22, 21,
+                "BLOCKED_OR_UNVERIFIED");
             assertThat(count(conn, "SELECT COUNT(*) FROM prp_tasks "
                 + "WHERE user_id=12001")).isEqualTo(1);
             assertThat(count(conn, "SELECT COUNT(*) FROM prp_tasks "
