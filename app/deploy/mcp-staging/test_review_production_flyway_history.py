@@ -153,6 +153,53 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
             self.assertIs(out["deployment_permitted"], False)
             self.assertIs(out["flyway_checksums_verified"], False)
 
+    def test_opt_in_source_crc_reference_matches_only_identical_values(self):
+        reference = m.source_crc32()
+        self.assertEqual(set(reference), set(range(1, 29)))
+        self.assertTrue(all(type(value) is int for value in reference.values()))
+        a = self.history()
+        for row in a["history"]:
+            row["checksum"] = reference[int(row["version"])]
+        result = m.analyze(a, self.scripts, verified_source_crc=reference)
+        self.assertEqual(result["decision"], "V24_SOURCE_CRC_MATCH_REVIEW_ONLY")
+        self.assertIs(result["flyway_checksums_verified"], True)
+        self.assertIs(result["deployment_permitted"], False)
+        a["history"][9]["checksum"] ^= 1
+        self.assertEqual(
+            m.analyze(a, self.scripts, verified_source_crc=reference)["reason"],
+            "MIGRATION_CHECKSUM_DRIFT"
+        )
+
+    def test_source_crc_reference_requires_28_complete_integer_records(self):
+        a = self.history()
+        self.assertEqual(
+            m.analyze(a, self.scripts, verified_source_crc={24: 7})["reason"],
+            "CANDIDATE_REFERENCE_UNTRUSTED_OR_INCOMPLETE"
+        )
+        ref = m.source_crc32()
+        ref[24] = "not-an-integer"
+        self.assertEqual(
+            m.analyze(a, self.scripts, verified_source_crc=ref)["reason"],
+            "CANDIDATE_REFERENCE_UNTRUSTED_OR_INCOMPLETE"
+        )
+
+    def test_opt_in_cli_never_returns_release_approval_status_zero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            a = self.history()
+            expected = m.source_crc32()
+            for row in a["history"]:
+                row["checksum"] = expected[int(row["version"])]
+            path = Path(directory) / "synthetic.json"
+            path.write_text(json.dumps(a), encoding="utf-8")
+            sink = StringIO()
+            with contextlib.redirect_stdout(sink):
+                status = m.main(["--input", str(path), "--verify-source-crc"])
+            self.assertEqual(status, 4)
+            result = json.loads(sink.getvalue())
+            self.assertEqual(result["decision"], "V24_SOURCE_CRC_MATCH_REVIEW_ONLY")
+            self.assertIs(result["deployment_permitted"], False)
+            self.assertIs(result["flyway_checksums_verified"], True)
+
     def test_sql_inventory_is_read_only_and_metadata_only(self):
         sql = (Path(__file__).resolve().parent
                / "production_flyway_metadata_readonly.sql").read_text(encoding="utf-8")
