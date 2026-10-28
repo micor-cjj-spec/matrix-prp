@@ -128,6 +128,32 @@ offline report does not substitute for G0/B2 scope authorization,
 verified independent restore rehearsal, Keycloak registration or a
 real ChatGPT `prp_tasks_list` user-owned data call.
 
+## Operator-safe aggregate production CRC comparison
+
+For V7-baselined *production V24 only*, the independent reviewer can
+avoid exporting any historical Flyway checksum values. See
+[Production V24 CRC counts, read-only](PRODUCTION-V24-CRC-COUNTS-READONLY-20261028.md):
+an offline, source-pinned Python generator produces **one SELECT-only
+aggregate** comparing V8–V24 source CRCs, script names, types, installed
+ranks, success and the exact V7 baseline against the live metadata.
+Only **schema match, 18-row count, 1 baseline, 17 matched SQL rows,
+REVIEW_ONLY decision and deployment_permitted=NO** are returned.
+No tasks, OAuth rows, credentials or raw DB checksums are output.
+
+[Real disposable MySQL aggregate CI #40634584105](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40634584105)
+**SUCCESS**: the newly added aggregate SELECT was executed by JDBC
+against an actual isolated V7-baselined V24 MySQL schema and required
+`SOURCE_CRC_MATCH_REVIEW_ONLY`. After the same disposable database
+was upgraded to V28, that V24-only query required
+`BLOCKED_OR_UNVERIFIED`; both checks passed. This **does not**
+mean that the query has been run against the real production database.
+
+[Offline aggregate guard tests #40634572581](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40634572581)
+**SUCCESS**. The generated SQL is source-bound, single-statement,
+has no write operations, and refuses arbitrary schema overrides.
+A distinct test-schema override is permitted only under the exact
+disposable GitHub runner guard.
+
 ## Production lineage interpretation and hard boundary
 
 The first live production query returned 18 rows / latest V24 / no failures.
