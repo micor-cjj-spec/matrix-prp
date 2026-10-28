@@ -18,7 +18,15 @@ class KeycloakClientReviewReadOnlyTests(unittest.TestCase):
         self.assertIn("PIN=$1", src)
         self.assertIn("^[0-9a-f]{40}$", src)
         self.assertIn('git -C "$REPO" show "$PIN:$SQL"', src)
-        self.assertIn("psql -X -q -v ON_ERROR_STOP=1 -U keycloak -d keycloak -A -t -F '='", src)
+        self.assertIn('exec psql -X -q -v ON_ERROR_STOP=1 -w -U "$POSTGRES_USER"', src)
+        self.assertIn('-d "$POSTGRES_DB" -A -t -F "="', src)
+        self.assertIn('KEYCLOAK_PG_CONNECTION_CONFIG=UNAVAILABLE', src)
+        self.assertIn('docker exec -i "$PG" sh -ec', src)
+        self.assertNotIn("-U keycloak -d keycloak", src)
+        self.assertNotIn("docker inspect -f '{{.Config.Env}}'", src)
+        self.assertNotIn("env |", src)
+        self.assertNotIn("printenv", src)
+        self.assertNotIn("POSTGRES_PASSWORD", src)
         self.assertIn("MCP_DEPLOYMENT_PERMITTED=NO", src)
         self.assertIn("set -Eeuo pipefail", src)
         self.assertIn("KEYCLOAK_PG_CONTAINER=NOT_RUNNING", src)
@@ -29,6 +37,22 @@ class KeycloakClientReviewReadOnlyTests(unittest.TestCase):
         for forbidden in ("docker rm", "docker stop", "docker restart", "systemctl",
                           "chown ", "chmod ", "nginx -s", "curl -k", "ssh -o"):
             self.assertNotIn(forbidden, src)
+
+    def test_inner_shell_syntax_and_missing_role_fails_before_psql(self):
+        src = SCRIPT.read_text(encoding="utf-8")
+        fragment = src.split('docker exec -i "$PG" sh -ec \'', 1)[1].split("\\n  '\\n", 1)[0]
+        subprocess.run(["sh", "-n"], input=fragment, text=True,
+                       capture_output=True, check=True)
+        import os
+        env = dict(os.environ)
+        env.pop("POSTGRES_USER", None)
+        env.pop("POSTGRES_DB", None)
+        result = subprocess.run(["sh", "-ec", fragment], env=env,
+                                text=True, capture_output=True, check=False,
+                                timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("KEYCLOAK_PG_CONNECTION_CONFIG=UNAVAILABLE", result.stderr)
+        self.assertNotIn("password", result.stdout.lower())
 
     def test_sql_only_fixed_public_count_and_status_fields(self):
         src = SQL.read_text(encoding="utf-8")
