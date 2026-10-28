@@ -60,7 +60,11 @@ if [[ ! -d "$ROOT" || -L "$ROOT" ]]; then
 fi
 owner=$(stat -c '%u' -- "$ROOT")
 mode=$(stat -c '%a' -- "$ROOT")
-if [[ "$owner" != 0 || ! "$mode" =~ ^[0-7]{3,4}$ || ( (8#$mode & 0022) != 0 ) ]]; then
+if [[ "$owner" != 0 || ! "$mode" =~ ^[0-7]{3,4}$ ]]; then
+  echo "BACKUP_PARENT_OWNER_OR_PERMISSIONS_UNSAFE"
+  exit 2
+fi
+if (( (8#$mode & 0022) != 0 )); then
   echo "BACKUP_PARENT_OWNER_OR_PERMISSIONS_UNSAFE"
   exit 2
 fi
