@@ -61,6 +61,19 @@ class InspectionConnectionGuardTests(unittest.TestCase):
             "INSPECT_HOST": "prp-inspect.example.test",
         }))
 
+    def test_pem_with_embedded_nul_is_rejected_before_file_creation(self):
+        plausible_key = ("-----BEGIN OPENSSH PRIVATE KEY-----\\n"
+                         + "A" * 180
+                         + "\\n-----END OPENSSH PRIVATE KEY-----")
+        self.assertTrue(guard.valid_private_key(plausible_key))
+        invalid = plausible_key[:80] + chr(0) + plausible_key[80:]
+        self.assertFalse(guard.valid_private_key(invalid))
+        self.assertFalse(guard.check({
+            "INSPECT_KEY": invalid,
+            "INSPECT_KNOWN_HOSTS": "test.example ssh-ed25519 AAAA",
+            "INSPECT_HOST": "test.example",
+        }))
+
     def test_ephemeral_ssh_key_and_host_pin_can_be_validated_offline(self):
         with tempfile.TemporaryDirectory() as root:
             folder = Path(root)
