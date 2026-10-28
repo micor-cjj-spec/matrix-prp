@@ -3,7 +3,8 @@ package com.matrix.prp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.TimeUnit;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -108,24 +109,23 @@ class ExistingLegacyV7BaselineToMcpV28UpgradeIT {
     }
 
     private static String sourceCrcAggregateSql() throws Exception {
-        // Checked-out candidate SQL only. This Python generator has no DB
-        // client, secrets, business data, imports or network calls.
-        Process process = new ProcessBuilder(
-            "python3", "../deploy/mcp-staging/production_v24_checksum_query.py",
-            "--ci-disposable-schema"
-        ).start();
-        boolean finished = process.waitFor(10, TimeUnit.SECONDS);
-        if (!finished) {
-            process.destroyForcibly();
-            throw new SecurityException("CI_V24_SOURCE_CRC_QUERY_GENERATOR_TIMEOUT");
-        }
-        if (process.exitValue() != 0)
-            throw new SecurityException("CI_V24_SOURCE_CRC_QUERY_GENERATOR_FAILED");
-        String sql = new String(process.getInputStream().readAllBytes(),
+        // The static SQL is checked byte-for-byte against the generator
+        // in offline CI. For this runner-only MySQL test, substitute
+        // only the strictly known disposable schema identifier; source
+        // CRCs, baseline checks, SQL and no-approval verdict are unchanged.
+        String original = Files.readString(Path.of(
+            "../deploy/mcp-staging/production_v24_crc_aggregate_readonly.sql"),
             StandardCharsets.UTF_8).trim();
-        assertThat(sql).startsWith("WITH expected AS (");
-        assertThat(sql).endsWith(";");
-        return sql;
+        assertThat(original).startsWith("WITH expected AS (");
+        assertThat(original).endsWith(";");
+        String candidate = original.replace(
+            "DATABASE() = 'matrix_prp'", "DATABASE() = 'matrix_prp_upgrade_ci'"
+        ).replace(
+            "DATABASE()='matrix_prp'", "DATABASE()='matrix_prp_upgrade_ci'"
+        );
+        assertThat(candidate).contains("DATABASE() = 'matrix_prp_upgrade_ci'");
+        assertThat(candidate).contains("DATABASE()='matrix_prp_upgrade_ci'");
+        return candidate;
     }
 
     private static void assertSourceCrcAggregate(Connection conn, String sql,
