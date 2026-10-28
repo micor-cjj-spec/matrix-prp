@@ -23,6 +23,14 @@ if [[ -L "$DUMP" || ! -f "$DUMP" ]]; then
   echo 'PINNED_SNAPSHOT_UNSAFE_OR_MISSING'
   exit 2
 fi
+if [[ "$CLONE_SNAPSHOT_KIND" == CURRENT_PINNED_AT_2026_10_28 ]]; then
+  if [[ -L "${DUMP%/*}" ||
+        "$(stat -c '%u:%a' -- "${DUMP%/*}")" != '0:700' ||
+        "$(stat -c '%u:%a' -- "$DUMP")" != '0:600' ]]; then
+    echo 'CURRENT_SNAPSHOT_PRIVATE_PERMISSIONS_REQUIRED'
+    exit 2
+  fi
+fi
 echo "CLONE_SNAPSHOT_KIND=$CLONE_SNAPSHOT_KIND"
 LIVE_DB=prp-mcp-oauth-stage-auth-db-1
 LIVE_KC=prp-mcp-oauth-stage-keycloak-1
