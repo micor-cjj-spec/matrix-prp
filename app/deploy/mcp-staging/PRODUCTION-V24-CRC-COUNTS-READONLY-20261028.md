@@ -33,6 +33,45 @@ NULL SQL checksum, changed source checksum or wrong database produces
 `BLOCKED_OR_UNVERIFIED`. This query never SELECTs checksum values
 or business records in its **output** and has no DDL/DML.
 
+## Preferred: single pinned, checked-in SQL (minimal operator commands)
+
+The repository also contains
+[`production_v24_crc_aggregate_readonly.sql`](production_v24_crc_aggregate_readonly.sql).
+Offline CI asserts this static artifact equals **byte-for-byte** the
+Python-generator output from the same reviewed V8–V24 source SQL.
+The real isolated MySQL legacy V7→V24→V28 integration test executes
+this same static artifact. This avoids any runtime Python or temporary
+source checkout on the production host.
+
+Once independent change-control review approves the SELECT-only metadata
+query, an operator can fetch the branch in an **isolated existing review
+clone only**, verify the **specific reviewed full SHA** and read the SQL
+from that immutable Git object without checking out or installing files:
+
+```bash
+V2=/root/matrix-prp-mcp-v2-staging
+PIN=<independently reviewed full 40-character commit>
+git -C "$V2" fetch --no-tags origin test/mcp-authcode-privatejwt-refresh-20261024
+git -C "$V2" cat-file -e "$PIN:app/deploy/mcp-staging/production_v24_crc_aggregate_readonly.sql"
+```
+
+After the `cat-file` check succeeds, inspect the SQL through the
+approved review process and execute only using the existing, authorized
+MySQL account with interactive password prompting:
+
+```bash
+docker exec -it matrix-mysql mysql --protocol=socket \
+  -u matrix_prp -p -D matrix_prp --table \
+  -e "$(git -C "$V2" show "$PIN:app/deploy/mcp-staging/production_v24_crc_aggregate_readonly.sql")"
+```
+
+**Do not run unpinned branch-tip SQL**, use the two-step git verification
+above. The source CRCs are derived from the reviewed repository; neither
+the Git object nor the SQL contains secret credentials. MySQL displays
+only the aggregate verdict, not checksum values. A report of a source
+CRC match is diagnostic and cannot confer release approval or replace
+restored-copy schema checks.
+
 ## Reproducible operator procedure (after independent access authorization)
 
 The following are **preparation steps, not production deployment**.
