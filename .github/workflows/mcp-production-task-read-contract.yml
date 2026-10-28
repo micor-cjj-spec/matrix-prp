@@ -12,6 +12,10 @@ on:
       - "app/backend/src/main/java/com/matrix/prp/auth/security/CurrentUser.java"
       - "app/backend/src/main/java/com/matrix/prp/config/SecurityConfig.java"
       - "app/backend/src/main/java/com/matrix/prp/mcp/PrpMcpTools.java"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/McpToolConfiguration.java"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/McpOAuthMetadataController.java"
+      - "app/backend/src/test/java/com/matrix/prp/mcp/McpOAuthToolManifestTests.java"
+      - "app/backend/src/test/java/com/matrix/prp/mcp/McpOAuthSecurityTests.java"
       - "app/backend/src/test/java/com/matrix/prp/TaskReadProducerBoundaryTests.java"
       - "app/backend/src/test/java/com/matrix/prp/ProducerTaskDelegationCryptoProofTests.java"
       - "app/backend/pom.xml"
@@ -54,6 +58,7 @@ jobs:
         working-directory: app/backend
         run: |
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=TaskReadProducerBoundaryTests,ProducerTaskDelegationCryptoProofTests test
+          ./mvnw -B -ntp -Dtest=TaskReadProducerBoundaryTests,ProducerTaskDelegationCryptoProofTests,McpOAuthToolManifestTests,McpOAuthSecurityTests test
           echo 'REAL_MYBATIS_QUERY_OWNER_BOUNDARY_WITH_MOCK_MAPPER_ONLY=YES'
           echo 'SIGNED_DELEGATION_CRYPTO_PROOF_TEST_ONLY_NO_SERVICE_IDENTITY=YES'
+          echo 'TASK_ONLY_OAUTH_TOOL_CATALOG_TESTED=YES'
