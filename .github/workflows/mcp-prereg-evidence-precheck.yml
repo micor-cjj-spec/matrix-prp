@@ -1,6 +1,13 @@
 name: MCP prereg evidence precheck
 
 on:
+  push:
+    branches:
+      - review/mcp-chatgpt-prereg-no-go-20261030
+    paths:
+      - 'app/deploy/mcp-oauth/keycloak-resource-guard/chatgpt_prereg_evidence_precheck.py'
+      - 'app/deploy/mcp-oauth/keycloak-resource-guard/test_chatgpt_prereg_evidence_precheck.py'
+      - '.github/workflows/mcp-prereg-evidence-precheck.yml'
   pull_request:
     paths:
       - 'app/deploy/mcp-oauth/keycloak-resource-guard/chatgpt_prereg_evidence_precheck.py'
