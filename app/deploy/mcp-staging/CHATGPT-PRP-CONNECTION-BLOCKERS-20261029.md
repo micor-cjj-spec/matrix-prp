@@ -138,6 +138,73 @@ tests, Keycloak client-policy attestation, or an MCP authenticated
 external discoverability, TLS/metadata consistency and denial of
 unauthenticated MCP calls.
 
+## Current final OCI and legacy-scope denial proofs — 2026-10-29
+
+**Actual rebuilt final OCI runtime images:**
+[GitHub CI #40811327677](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40811327677)
+**SUCCESS** from `7be200b08ba9bc303f6f5b505317f209f54e0bce`.
+The Docker image review checks the **actual packaged** Java JAR, not
+the Maven workspace: first-party OIDC controller and service,
+subject-link and grant services, verified JWT filter, OAuth resource
+security/metadata and `PrpMcpTools`, the V28 identity-flow migration,
+all original V1–V28 migration resource bytes and **default OFF**
+values for MCP, OAuth, writes, Flyway plus the task-only scope.
+The final Vue/Nginx image contains actual callback/start/finish
+bundles, passes exact Host, `/prp/` and nested API denial checks.
+Images were **not pushed or installed**. The first
+[OCI CI #40811020279](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40811020279)
+failed in the *new verification code* because Python read a ZIP
+after closing it; the file was correctly reopened/inspected
+within its context and the entire OCI job then succeeded. This
+was not a runtime compilation or image content failure.
+
+**Exact-client forbidden-scope E2E:**
+[GitHub CI #40811443295](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40811443295)
+**SUCCESS** from `ba86ae8d20a387d566f8e896c7106fb0e20e0a33`.
+In real disposable Keycloak 26.8.0, using the exact
+`https://chatgpt.com/oauth/client.json` client ID, official
+callback and **CI-generated synthetic RSA signing key**,
+authorization requests adding each of
+`prp.finance.read`, `prp.wellness.read` or
+`prp.write.create` were **all rejected**. The correct
+`prp.tasks.read` authorization-code/PKCE/private-key-JWT flow
+still obtained a Keycloak-signed resource token, linked a real
+disposable PRP owner and called `prp_tasks_list`. Finance tool
+was not advertised, unlink/consent revocation and replay bounds
+remained effective. No real OpenAI-signed JWT or real task data.
+
+**Same-runtime-source reconciliation:** The Git compare of
+`7be200b08ba9bc303f6f5b505317f209f54e0bce`
+(OCI success) and
+`ba86ae8d20a387d566f8e896c7106fb0e20e0a33`
+(exact-client success) has **only one diff**:
+42 added lines in the isolated
+`app/deploy/mcp-oauth/ci_pkce_browser.py`
+test script. There is no backend Java, frontend Vue, OCI
+Dockerfile, schema migration, or active Keycloak config source
+difference between these successfully tested revisions. This
+establishes consistent *runtime source* across the two CI successes,
+not exact shipped image digests or a live installation.
+
+**Connector-scope release requirement:** A previous ChatGPT OAuth
+attempt requested additional finance, wellness and
+`prp.write.*` scopes. The current deliberately task-only Keycloak
+client **will reject** those scopes. If that old connector
+configuration still exists, the owner must narrow its requested
+OAuth scopes to the approved task-only set before real authorization;
+this cannot be fixed by weakening the server's client allowlist.
+Do not assume current ChatGPT account scope settings were changed
+by GitHub source commits.
+
+**Remaining external-only gates** (unchanged from prior host read):
+active test Keycloak exact client/first-party client **not installed**,
+running V2 backend and gateway first-party OIDC artifacts **ABSENT**,
+V2 data store **not the owner’s existing production tasks**,
+real OpenAI assertion and real `prp_tasks_list` **not verified**,
+independent G0/B2 installation/rollback permission **NO-GO**.
+No production export, migration, client registration, Nginx reload,
+app image push or restart occurred.
+
 ## Three independent active-connection blockers
 
 | Order | Barrier and grounded evidence | Minimal safe next action |
