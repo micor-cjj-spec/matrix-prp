@@ -59,6 +59,24 @@
         "prp_mcp_identity_links",
         "prp_mcp_link_tickets"
       ]
+    },
+    {
+      "version": 28,
+      "file": "V28__mcp_temporary_client_grant_expiry.sql",
+      "sha256": "70c79daa972d81a902d95a6159767fe31db233f7a3c0282a24ccef2aa0b90706",
+      "mode": "create-empty",
+      "tables": [
+        "prp_mcp_pairing_grant_leases"
+      ]
+    },
+    {
+      "version": 29,
+      "file": "V29__mcp_first_party_oidc_link_flows.sql",
+      "sha256": "831bea68920072296828a455c1fe7fcd47c163e689b95cf1cf86515eb8e3939b",
+      "mode": "create-empty",
+      "tables": [
+        "prp_mcp_oidc_link_flows"
+      ]
     }
   ]
 }
