@@ -356,6 +356,47 @@ def check_exact_client_task_result(opener, oauth_bearer, read):
     print("CI_EXACT_CLIENT_REAL_MCP_20_TASK_LIMIT_AND_CROSS_OWNER_DENIAL=PASS")
 
 
+def verify_exact_client_rejects_broad_scopes(opener):
+    """A legacy ChatGPT connector requesting finance/writes must not work.
+
+    Operates only against the disposable localhost Keycloak realm and
+    exact CI-only client. Does not log the URL, codes, form or identity.
+    """
+    if not EXACT_CHATGPT_CI:
+        return
+    if (os.environ.get("GITHUB_ACTIONS") != "true"
+            or os.environ.get("MCP_E2E_FIRST_PARTY") != "true"
+            or ISSUER != "https://auth-e2e.localhost/realms/prp-mcp"):
+        raise RuntimeError("SCOPE_NEGATIVE_DISPOSABLE_CI_ONLY")
+    for forbidden in ("prp.finance.read", "prp.wellness.read", "prp.write.create"):
+        verifier = secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        state = secrets.token_urlsafe(32)
+        url = ISSUER + "/protocol/openid-connect/auth?" + urlencode({
+            "client_id": CLIENT, "response_type": "code", "redirect_uri": CALLBACK,
+            "scope": "openid prp.tasks.read " + forbidden,
+            "code_challenge_method": "S256",
+            "code_challenge": challenge, "state": state,
+            "nonce": secrets.token_urlsafe(32), "resource": RESOURCE,
+        })
+        rejected = False
+        try:
+            result = request(opener, url, form=True)
+            rejected = result[0] in (400, 403)
+        except CallbackReceived as callback:
+            parsed = urlsplit(callback.url)
+            args = parse_qs(parsed.query)
+            rejected = (
+                parsed._replace(query="", fragment="").geturl() == CALLBACK
+                and args.get("state") == [state]
+                and args.get("error") == ["invalid_scope"]
+            )
+        if not rejected:
+            raise RuntimeError("EXACT_CHATGPT_UNWANTED_SCOPE_NOT_REJECTED")
+    print("CI_EXACT_CHATGPT_CLIENT_FORBIDDEN_FINANCE_WELLNESS_WRITE_SCOPES=REJECTED")
+
+
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
         raise RuntimeError("This test requires an isolated GitHub Actions runner")
@@ -371,6 +412,7 @@ def main():
     wait_ready(opener, "https://prp-e2e.localhost/api/health")
     print("PASS E2E: isolated Keycloak HTTPS and PRP Java/MySQL healthy.")
     add_user(opener, admin_pass, "e2e-keycloak-owner", user_password)
+    verify_exact_client_rejects_broad_scopes(opener)
     code, verifier = code_pkce(opener, "e2e-keycloak-owner", user_password)
     print("PASS E2E: real browser-shaped OAuth login, consent, authorization code + PKCE S256.")
     token_form = {"grant_type": "authorization_code", "client_id": CLIENT,
