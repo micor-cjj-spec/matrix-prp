@@ -6,6 +6,40 @@
 > diagnosis, **not** G0/B2 installation authority. No real OAuth login,
 > bearer token, user record access or production configuration modification.
 
+## Exact client real MCP task count and cross-owner boundary PASS (2026-10-29)
+
+[Enhanced disposable E2E #40796810274](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40796810274)
+**SUCCESS** at source revision
+`908efa8dcd383e652c70782d015422649124af75`.
+The earlier exact-ID full chain had checked task-tool success but not
+the **actual returned task contents**. This stronger case:
+
+- Uses the real reviewed PRP Java+MySQL implementation in CI with
+  the exact `https://chatgpt.com/oauth/client.json` client ID and
+  **throwaway CI-only** RSA signing key, real Keycloak-issued JWT
+  and first-party OIDC owner link.
+- Creates exactly **24 synthetic tasks owned by the linked PRP
+  account**, plus **one separately owned synthetic task** in the
+  disposable MySQL only.
+- Parses the successful MCP `tools/call prp_tasks_list` result
+  **as JSON business records** and asserts **exactly 20 tasks**
+  all with the linked account's known synthetic task title prefix.
+- Calls `prp_task_get` for the known separate owner's task ID and
+  requires an explicit denial; HTTP success with a usable task
+  response is a **test failure**, not an accepted outcome.
+- Retains the strict advertised task-only tool catalog, finance
+  denial, replay rejection, unlink + client revocation and 3/6
+  parallel OIDC flow cap.
+
+CI emitted
+`CI_EXACT_CLIENT_SYNTHETIC_24_OWNED_1_FOREIGN_TASKS_SEEDED=YES`,
+`CI_EXACT_CLIENT_REAL_MCP_20_TASK_LIMIT_AND_CROSS_OWNER_DENIAL=PASS`,
+`CI_EXACT_CHATGPT_ID_TO_FIRST_PARTY_LINKED_PRP_TASK_TOOL=PASS`.
+No real OpenAI signed assertion, user tasks, live OAuth login or
+production credentials were used. This **closes a data-content
+assertion gap in the synthetic full-chain test**, not the live
+deployment blockers below. Do not repeat it absent code drift.
+
 ## New exact-client end-to-end proof — 2026-10-29 (strongest disposable CI)
 
 [Exact ChatGPT client ID → Keycloak → real PRP first-party link → real
