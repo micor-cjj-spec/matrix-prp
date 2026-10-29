@@ -58,6 +58,7 @@ if not jar.is_file() or jar.stat().st_size <= 0:
     raise SystemExit("REVIEW_BACKEND_IMAGE_JAR_MISSING")
 with ZipFile(jar) as archive:
     entries = set(archive.namelist())
+    config = archive.read("BOOT-INF/classes/application.yml")
 required = {
     "BOOT-INF/classes/com/matrix/prp/mcp/McpFirstPartyOidcLinkController.class",
     "BOOT-INF/classes/com/matrix/prp/mcp/McpFirstPartyOidcLinkService.class",
@@ -73,7 +74,6 @@ required = {
 }
 if required - entries:
     raise SystemExit("REVIEW_BACKEND_IMAGE_OIDC_ENTRIES_MISSING")
-config = archive.read("BOOT-INF/classes/application.yml")
 # These defaults are mandatory for the built artifact; a Java class
 # existing inside an image does not imply the feature was enabled.
 for expected in (
