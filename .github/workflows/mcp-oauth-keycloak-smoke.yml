@@ -8,6 +8,12 @@ on:
     paths:
       - "app/deploy/mcp-oauth/**"
       - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/mcp-oauth/**"
+      - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
   workflow_dispatch:
 
 permissions:
