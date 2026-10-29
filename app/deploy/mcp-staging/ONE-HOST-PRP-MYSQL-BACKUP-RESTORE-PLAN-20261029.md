@@ -32,6 +32,19 @@ The existing separate genuine Flyway V7-baselined V24→V28 CI covers
 that migration pathway with synthetic records, but neither CI
 constitutes a real PRP production database backup.
 
+## Supplemental synthetic archive tamper detection (2026-10-29)
+
+The CI fixture now additionally hashes the temporary synthetic SQL
+archive, verifies it before restore and deliberately modifies a
+separate synthetic copy to confirm the digest would no longer match.
+It deletes the tampered copy and the disposable SQL source file
+during cleanup. This detects a simple byte-change in that controlled
+test; a SHA-256 digest alone does **not** authenticate the writer,
+prevent malicious replacement of both the file and digest, or
+guarantee a coherent **real** MySQL transaction snapshot. For
+actual data, keep a separately authenticated, encrypted off-host
+copy and require a complete isolated restore.
+
 ## Decision: separate failure domains, not necessarily separate servers
 
 A recovery **rehearsal** can run on the **same** Debian host as
