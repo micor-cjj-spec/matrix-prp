@@ -45,6 +45,41 @@ guarantee a coherent **real** MySQL transaction snapshot. For
 actual data, keep a separately authenticated, encrypted off-host
 copy and require a complete isolated restore.
 
+## Stronger full V24 schema backup/restore CI (2026-10-29)
+
+A second, more representative **synthetic-only** workflow now
+exists:
+[`mcp-full-v24-backup-restore-review.yml`](../../../.github/workflows/mcp-full-v24-backup-restore-review.yml)
+with test class
+`IsolatedV24BackupRestoreMcpV28IT.java`. It differs from the
+previous minimal synthetic table fixture:
+
+1. Constructs the genuine repository **V1–V7** MySQL schema in a
+   disposable source container, models the observed **V7 baseline**,
+   and applies the genuine original **V8–V24** Flyway SQL.
+2. Seeds synthetic, per-owner **tasks, finance transactions, video
+   assets, and vocal songs**; preserves full original Flyway history.
+3. Runs real `mysqldump` on that synthetic V24, confirms a
+   private SHA digest and rejects a modified synthetic copy, then
+   restores to another new volume/container.
+4. Compares original **source vs restored-clone** business-row and
+   V7-baselined Flyway history fingerprints; applies Flyway V25–V28
+   only on the restored clone and confirms exactly five additions,
+   while the source stays V24.
+
+For CI, the host-side Java JDBC test needs loopback access at
+`127.0.0.1:13308` and `127.0.0.1:13309`. The disposable containers
+therefore use a unique CI-only Docker bridge, with **both published
+ports explicitly bound to loopback**. This is not the same as an
+`--internal` network with no published ports, which is still the
+preferred **production-host restore design** when no host-side JDBC
+test needs to reach the clone. The first CI attempt at
+[run #40793142474](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40793142474)
+showed host JDBC was blocked when both were combined; the network
+topology has been corrected for the next attempt. These source-only
+changes do not touch the owner's production host, and the full
+57-table private-data restore remains **not performed**.
+
 ## Decision: separate failure domains, not necessarily separate servers
 
 A recovery **rehearsal** can run on the **same** Debian host as
