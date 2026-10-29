@@ -100,6 +100,39 @@ concurrent DDL control, binary log recovery handling, and private
 clone migration+owner/task preservation. No existing test Keycloak
 backup counts as a PRP MySQL recovery.
 
+## CI now covers genuine source-built V24 backup/restore (2026-10-29)
+
+The owner has no spare physical server, so the approved *design* for
+a technical rehearsal remains one Debian host with a separate Docker
+MySQL container/volume and no published production database ports.
+The stronger [single-host full V24 technical CI
+#40793268099](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40793268099)
+has actually succeeded on GitHub's isolated runner: real source
+Flyway V1–V7→V7 baseline→V8–V24, synthetic users/tasks/finance/
+video/vocal data, full logical dump and SHA tamper detection,
+restore to a different container/volume, original history and
+business fingerprint parity, then Flyway V25–V28 only in the
+restore clone. All five MCP tables/foreign keys were added only
+there; synthetic source stayed V24. The Java tests in both phases
+passed. This supersedes the earlier minimal synthetic table fixture
+as our strongest **CI-only technical backup/restore** evidence.
+
+The first CI trial failed because host-side JDBC couldn't reach
+a fully `--internal` Docker network. The corrected runner-only
+bridge exposes its two containers on **loopback 127.0.0.1**;
+production-host restored-clone plans still require no public
+database endpoint and no production volume mount.
+
+These findings **do not** demonstrate full actual production V7
+historical DDL equivalence, a production database export/recovery,
+or any real PRP owner/task data continuity. Production backup and
+G0/B2 release authorization remain **NO**. Next genuine milestone
+is an explicitly scoped encrypted backup of the actual database
+and independently verified private restoration and retention.
+Same-host recovery alone is not an independent disaster-recovery
+copy; obtain a separate failure-domain encrypted archive before
+any real production PRP upgrade.
+
 ## Mandatory private production copy workflow, not yet executed
 
 **0. Authorize collection and resource scope.** The legitimate PRP
