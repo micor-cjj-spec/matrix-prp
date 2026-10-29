@@ -38,6 +38,11 @@ class FlywayV28ToV29IT {
     @Test
     void upgradesExistingV28WithoutReplacingItsHistory() throws Exception {
         String url = System.getenv("MATRIX_PRP_FLYWAY_V28_V29_URL");
+        // Hard-stop before Flyway can connect to any staging or production schema.
+        assertThat(url).as("CI-only loopback database")
+                .startsWith("jdbc:mysql://127.0.0.1:3306/prp_flyway_v28_v29?");
+        assertThat(System.getenv("GITHUB_ACTIONS")).as("GitHub ephemeral runner only")
+                .isEqualTo("true");
         Flyway old = flyway(url, "28");
         assertThat(old.migrate().success).isTrue();
         assertThat(old.validateWithResult().validationSuccessful).isTrue();
