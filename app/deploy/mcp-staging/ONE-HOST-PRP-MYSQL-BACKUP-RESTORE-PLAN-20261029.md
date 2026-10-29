@@ -45,6 +45,48 @@ guarantee a coherent **real** MySQL transaction snapshot. For
 actual data, keep a separately authenticated, encrypted off-host
 copy and require a complete isolated restore.
 
+## Full V7-baselined V24 dump→restore→V28 verification — PASS
+
+[Real disposable MySQL 8.4 complete V24 source/clone review
+#40793268099](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40793268099)
+**SUCCESS** at source commit
+`266be74a1eefcc5cc8b187c01f701641a1d4e7b9`.
+The workflow ran the authentic reviewed Flyway V1–V7 schema,
+modelled the observed production V7 historical baseline,
+migrated the synthetic source through V8–V24, seeded synthetic
+per-owner tasks (24 and 3), finance, video and vocal records,
+and took a full logical MySQL dump. It restored the dump to
+a **separately named MySQL 8.4 container/volume** and compared
+synthetic business-row fingerprints and the original V7-baselined
+18-record history, then applied **exactly Flyway V25–V28 to the
+clone only**. All five required MCP objects appeared only in
+the clone; the source remained V24 and all original synthetic
+user/task/finance/video/vocal fingerprints stayed unchanged.
+
+Actual green CI job log includes
+`CI_SYNTHETIC_TRUE_V7_BASELINE_V24_SOURCE_SEEDED=YES`,
+`CI_FULL_V24_SQL_ARCHIVE_TAMPER_REJECTED=YES`,
+`CI_FULL_SYNTHETIC_V24_RESTORED_CLONE_V28_OWNER_TASK_FINANCE_VIDEO_VOCAL_PRESERVED=YES`,
+`CI_SOURCE_DB_STAYED_V24=YES`,
+`CI_FULL_V7_BASELINE_V24_DUMP_RESTORE_V28_CLONE=PASS`,
+and `CI_NO_PRODUCTION_DATA_OR_HOST_ACCESS=YES`.
+
+An initial [CI #40793142474](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40793142474)
+failed at host-side JDBC connectivity because a completely
+`--internal` Docker network prevented the runner from reaching
+loopback-published container ports. The revised **CI-only**
+unique Docker bridge uses `127.0.0.1:13308/13309` explicitly;
+rerun passed. This change does **not** justify public DB ports in
+the production host rehearsal.
+
+**Boundaries:** Even a full authentic *source-built* V24 schema
+may differ from the user's actual historically pre-V7 manually
+baselined tables, application/data drift, privileged objects,
+and deployment artifact. Synthetic fingerprints are not private
+user-data digests. This is a stronger technical regression,
+**not** a restored production backup or G0/B2 release signoff.
+No real user/finance/health/task data was copied to GitHub/CI.
+
 ## Stronger full V24 schema backup/restore CI (2026-10-29)
 
 A second, more representative **synthetic-only** workflow now
