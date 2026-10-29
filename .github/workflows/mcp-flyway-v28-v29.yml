@@ -46,7 +46,7 @@ jobs:
       - name: Flyway upgrade V28 to V29 on disposable MySQL
         working-directory: app/backend
         env:
-          MATRIX_PRP_FLYWAY_V28_V29_URL: jdbc:mysql://127.0.0.1:3306/prp_flyway_v28_v29?useSSL=false
+          MATRIX_PRP_FLYWAY_V28_V29_URL: jdbc:mysql://127.0.0.1:3306/prp_flyway_v28_v29?useSSL=false&allowPublicKeyRetrieval=true
           MATRIX_PRP_FLYWAY_DB_USER: prp_ci
           MATRIX_PRP_FLYWAY_DB_PASSWORD: ci-only-password
         run: |
