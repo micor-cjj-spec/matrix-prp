@@ -145,6 +145,47 @@ with open(path, "w", encoding="utf-8") as f:
     json.dump(realm, f)
 PY_FIRST_PARTY
 fi
+if [[ "${MCP_E2E_EXACT_CHATGPT:-false}" == "true" ]]; then
+  # Exercise the exact ChatGPT client ID in a disposable Realm, but
+  # NEVER impersonate OpenAI. CI creates its OWN signing key and cert.
+  # This key must never be installed on the actual PRP/Keycloak host.
+  [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" ]] || {
+    echo "Exact-client CI requires isolated first-party linking" >&2; exit 2;
+  }
+  openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
+    -keyout "$tmp/ci-chatgpt-private.pem" \
+    -out "$tmp/ci-chatgpt-public.pem" \
+    -subj '/CN=ci-exact-chatgpt-only' >/dev/null 2>&1
+  chmod 600 "$tmp/ci-chatgpt-private.pem"
+  openssl x509 -in "$tmp/ci-chatgpt-public.pem" -outform DER \
+    | base64 -w0 > "$tmp/ci-chatgpt-public.der.b64"
+  export MCP_E2E_EXACT_CLIENT_KEY="$tmp/ci-chatgpt-private.pem"
+  python3 - "$tmp/keycloak-realm.json" "$tmp/ci-chatgpt-public.der.b64" <<'PY_EXACT'
+import json, pathlib, sys
+repo = pathlib.Path.cwd()
+sys.path.insert(0, str(repo / "app/deploy/mcp-oauth"))
+from review_exact_client_registrations import client_proposals, validate_proposals
+proposals = client_proposals()
+assert validate_proposals(proposals)
+candidate = proposals[1]
+assert candidate["clientId"] == "https://chatgpt.com/oauth/client.json"
+assert candidate["redirectUris"] == ["https://chatgpt.com/connector_platform_oauth_redirect"]
+path = pathlib.Path(sys.argv[1])
+realm = json.loads(path.read_text(encoding="utf-8"))
+assert all(c["clientId"] != candidate["clientId"] for c in realm["clients"])
+# The only differences from the public review proposal are an
+# isolated synthetic resource URI and a throwaway local test key.
+candidate["protocolMappers"][0]["config"]["included.custom.audience"] = "https://prp-e2e.localhost/api/mcp"
+candidate["attributes"]["use.jwks.url"] = "false"
+candidate["attributes"].pop("jwks.url")
+candidate["attributes"]["jwt.credential.certificate"] = pathlib.Path(sys.argv[2]).read_text().strip()
+candidate["attributes"]["token.endpoint.auth.signing.alg"] = "RS256"
+candidate["name"] = "Synthetic CI ONLY — not OpenAI credential"
+realm["clients"].append(candidate)
+path.write_text(json.dumps(realm), encoding="utf-8")
+print("CI_EXACT_CHATGPT_CLIENT_ID_SAME_REALM_REGISTERED_WITH_SYNTHETIC_TEST_KEY=YES")
+PY_EXACT
+fi
 cp "$tmp/keycloak-realm.json" "$tmp/import/prp-mcp-realm.json"
 docker run --rm -d --name prp-ci-real-keycloak \
   -p 127.0.0.1:18080:8080 \
