@@ -24,8 +24,11 @@ from oauth_token_check import check_token
 
 ISSUER = "https://auth-e2e.localhost/realms/prp-mcp"
 RESOURCE = "https://prp-e2e.localhost/api/mcp"
-CLIENT = "prp-pkce-probe"
-CALLBACK = "http://127.0.0.1:8765/callback"
+EXACT_CHATGPT_CI = os.environ.get("MCP_E2E_EXACT_CHATGPT") == "true"
+CLIENT = ("https://chatgpt.com/oauth/client.json"
+          if EXACT_CHATGPT_CI else "prp-pkce-probe")
+CALLBACK = ("https://chatgpt.com/connector_platform_oauth_redirect"
+            if EXACT_CHATGPT_CI else "http://127.0.0.1:8765/callback")
 PROTOCOL = "2025-06-18"
 ADMIN = "http://127.0.0.1:18080"
 
@@ -290,17 +293,36 @@ def main():
     add_user(opener, admin_pass, "e2e-keycloak-owner", user_password)
     code, verifier = code_pkce(opener, "e2e-keycloak-owner", user_password)
     print("PASS E2E: real browser-shaped OAuth login, consent, authorization code + PKCE S256.")
-    exchanged = json_response(request(opener, ISSUER + "/protocol/openid-connect/token",
-        data={"grant_type": "authorization_code", "client_id": CLIENT,
-              "code": code, "redirect_uri": CALLBACK,
-              "code_verifier": verifier, "resource": RESOURCE}, form=True),
-        "PKCE code exchange")
+    token_form = {"grant_type": "authorization_code", "client_id": CLIENT,
+                  "code": code, "redirect_uri": CALLBACK,
+                  "code_verifier": verifier, "resource": RESOURCE}
+    if EXACT_CHATGPT_CI:
+        # The exact official client ID is deliberately authenticated by
+        # a disposable CI RSA key, NOT by ChatGPT/OpenAI's private key.
+        # This proves Keycloak->PRP wire compatibility, not real OpenAI auth.
+        from pathlib import Path
+        from ci_static_client_jwt import assertion, ASSERTION_TYPE
+        key = os.environ.get("MCP_E2E_EXACT_CLIENT_KEY")
+        if (os.environ.get("MCP_E2E_FIRST_PARTY") != "true"
+                or not key or not os.path.isfile(key)
+                or not os.path.realpath(key).startswith(
+                    os.path.realpath(os.environ["RUNNER_TEMP"]) + os.sep)):
+            raise RuntimeError("EXACT_CHATGPT_DISPOSABLE_PRIVATE_KEY_REQUIRED")
+        token_form["client_assertion_type"] = ASSERTION_TYPE
+        token_form["client_assertion"] = assertion(
+            Path(key), issuer=CLIENT, subject=CLIENT,
+            aud=ISSUER + "/protocol/openid-connect/token")
+    exchanged = json_response(request(
+        opener, ISSUER + "/protocol/openid-connect/token",
+        data=token_form, form=True), "PKCE code exchange")
     bearer = exchanged.get("access_token")
     if not isinstance(bearer, str):
         raise RuntimeError("Keycloak did not issue an access token")
     jwks = json_response(request(opener, ISSUER + "/protocol/openid-connect/certs"), "JWKS")
     check_token(bearer, jwks, issuer=ISSUER, resource=RESOURCE, client_id=CLIENT)
     print("PASS E2E: real browser grant token RSA JWKS, aud, azp, task scope verified.")
+    if EXACT_CHATGPT_CI:
+        print("CI_EXACT_CHATGPT_ID_PRIVATE_KEY_JWT_DISPOSABLE_ASSERTION_AND_REAL_RESOURCE_TOKEN=PASS")
 
     unauth = jsonrpc(opener, bearer, 1, "tools/list")
     if unauth[0] != 401:
@@ -359,6 +381,9 @@ def main():
     if denied[0] != 200 or not denied[1].get("result", {}).get("isError"):
         raise RuntimeError("Finance scope unexpectedly granted by read-only client")
     print("PASS E2E: MCP initialize, tools/list, tasks read, finance permission denied.")
+    if EXACT_CHATGPT_CI:
+        print("CI_EXACT_CHATGPT_ID_TO_FIRST_PARTY_LINKED_PRP_TASK_TOOL=PASS")
+        print("ACTUAL_OPENAI_PRIVATE_KEY_JWT_VERIFIED=NO")
     if os.environ.get("MCP_E2E_FIRST_PARTY") == "true":
         ci_first_party_link_e2e.verify_unlink_invalidates_pending(
             sys.modules[__name__], opener, prp_jwt, bearer, prp_password)
