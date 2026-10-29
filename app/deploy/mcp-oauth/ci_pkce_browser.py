@@ -369,17 +369,30 @@ def main():
     if init[0] != 200 or not init[1].get("result", {}).get("serverInfo"):
         raise RuntimeError("OAuth-authenticated MCP initialize failed")
     listing = jsonrpc(opener, bearer, 3, "tools/list", {})
-    if listing[0] != 200 or "prp_tasks_list" not in {
-            tool.get("name") for tool in listing[1].get("result", {}).get("tools", [])}:
+    exposed = {tool.get("name") for tool in
+               listing[1].get("result", {}).get("tools", [])}
+    if listing[0] != 200 or "prp_tasks_list" not in exposed:
         raise RuntimeError("Authenticated MCP tools/list unavailable")
+    if os.environ.get("MCP_E2E_CRUD") != "true":
+        # A scoped task-only server must not even ADVERTISE finance
+        # or write tools. The old test looked only at tools/call errors.
+        if exposed != {"prp_tasks_list", "prp_task_get"}:
+            raise RuntimeError("TASK_ONLY_MCP_TOOL_CATALOG_SCOPE_BYPASS")
     read = jsonrpc(opener, bearer, 4, "tools/call",
                    {"name": "prp_tasks_list", "arguments": {}})
     if read[0] != 200 or read[1].get("error") or read[1].get("result", {}).get("isError"):
         raise RuntimeError("Authenticated task-read MCP tool failed")
     denied = jsonrpc(opener, bearer, 5, "tools/call",
                      {"name": "prp_finance_month", "arguments": {}})
-    if denied[0] != 200 or not denied[1].get("result", {}).get("isError"):
-        raise RuntimeError("Finance scope unexpectedly granted by read-only client")
+    # In a task-only tool registry this is an UNKNOWN TOOL JSON-RPC
+    # error, not a per-tool authorization isError result. Both forms
+    # must be denied; a successful finance result is always failure.
+    forbidden = (denied[0] in (400, 403, 404) or
+                 (denied[0] == 200 and
+                  (bool(denied[1].get("error")) or
+                   denied[1].get("result", {}).get("isError") is True)))
+    if not forbidden:
+        raise RuntimeError("FINANCE_TOOL_ACCESS_WAS_NOT_DENIED")
     print("PASS E2E: MCP initialize, tools/list, tasks read, finance permission denied.")
     if EXACT_CHATGPT_CI:
         print("CI_EXACT_CHATGPT_ID_TO_FIRST_PARTY_LINKED_PRP_TASK_TOOL=PASS")
