@@ -1,0 +1,198 @@
+name: PRP MCP one-host isolated MySQL backup restore rehearsal (synthetic only)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - ".github/workflows/mcp-single-host-mysql-recovery-fixture.yml"
+      - "app/backend/src/main/resources/db/migration/V2[5-8]__*.sql"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-backup-recover-upgrade:
+    name: Two disposable MySQL containers, synthetic backup and V25-V28 only on clone
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fail-closed single-runner synthetic backup, isolated restore and MCP DDL
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != true ||
+                "${RUNNER_OS:-}" != Linux ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ||
+                -z "${RUNNER_TEMP:-}" ]]; then
+            echo 'CI_ONLY_NO_PRODUCTION_ACCESS' >&2
+            exit 2
+          fi
+          umask 077
+          source_c="prp-ci-backup-source-${GITHUB_RUN_ID}"
+          restore_c="prp-ci-backup-clone-${GITHUB_RUN_ID}"
+          network="prp-ci-restore-internal-${GITHUB_RUN_ID}"
+          source_v="prp-ci-source-data-${GITHUB_RUN_ID}"
+          restore_v="prp-ci-restore-data-${GITHUB_RUN_ID}"
+          review_dir="$(mktemp -d "${RUNNER_TEMP}/prp-mcp-synthetic-restore.XXXXXXXX")"
+          cleanup() {
+            docker rm -f "$restore_c" "$source_c" >/dev/null 2>&1 || true
+            docker volume rm "$restore_v" "$source_v" >/dev/null 2>&1 || true
+            docker network rm "$network" >/dev/null 2>&1 || true
+            rm -f -- "$review_dir/synthetic-only.sql" || true
+            rmdir -- "$review_dir" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          rootpass="$(openssl rand -hex 24)"
+          docker network create --internal "$network" >/dev/null
+          docker volume create "$source_v" >/dev/null
+          docker volume create "$restore_v" >/dev/null
+          for entry in source restore; do
+            if [[ "$entry" == source ]]; then
+              name="$source_c"
+              data="$source_v"
+            else
+              name="$restore_c"
+              data="$restore_v"
+            fi
+            docker run -d --rm --name "$name" \
+              --network "$network" --memory 1280m --cpus 1.0 \
+              --mount "type=volume,source=$data,target=/var/lib/mysql" \
+              -e "MYSQL_ROOT_PASSWORD=$rootpass" \
+              -e "MYSQL_DATABASE=matrix_prp" \
+              mysql:8.4 >/dev/null
+          done
+          for name in "$source_c" "$restore_c"; do
+            ready=0
+            for attempt in $(seq 1 75); do
+              if docker exec -e "MYSQL_PWD=$rootpass" "$name" \
+                mysql --protocol=TCP -h 127.0.0.1 -uroot \
+                -D matrix_prp --batch --skip-column-names \
+                -e 'SELECT 1' >/dev/null 2>&1; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            test "$ready" -eq 1 || { echo 'DISPOSABLE_MYSQL_NOT_READY'; exit 1; }
+          done
+          # Deliberately tiny SYNTHETIC pre-MCP schema, not a replica
+          # of real V1-V24 production. The distinct existing Java
+          # migration CI tests genuine Flyway V7-baselined V24->V28.
+          docker exec -i -e "MYSQL_PWD=$rootpass" "$source_c" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot -D matrix_prp <<'CI_SYNTHETIC'
+          CREATE TABLE prp_users (
+            id BIGINT NOT NULL PRIMARY KEY,
+            username VARCHAR(80) NOT NULL UNIQUE
+          ) ENGINE=InnoDB;
+          CREATE TABLE prp_tasks (
+            id BIGINT NOT NULL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            title VARCHAR(150) NOT NULL,
+            status VARCHAR(20) NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES prp_users(id)
+          ) ENGINE=InnoDB;
+          CREATE TABLE flyway_schema_history (
+            installed_rank INT PRIMARY KEY,
+            version VARCHAR(20),
+            type VARCHAR(20),
+            script VARCHAR(200),
+            checksum INT,
+            success TINYINT NOT NULL
+          ) ENGINE=InnoDB;
+          INSERT INTO prp_users VALUES (101,'ci-owner-a'),(202,'ci-owner-b');
+          INSERT INTO prp_tasks VALUES
+            (1,101,'synthetic task one','todo'),
+            (2,101,'synthetic task two','done'),
+            (3,202,'synthetic private task','todo');
+          INSERT INTO flyway_schema_history(installed_rank,version,type,script,checksum,success)
+          VALUES (1,'7','BASELINE','<< Flyway Baseline >>',NULL,1);
+          CREATE VIEW prp_ci_task_totals AS
+            SELECT user_id, COUNT(*) AS total FROM prp_tasks GROUP BY user_id;
+          CREATE TRIGGER prp_ci_before_task_insert
+            BEFORE INSERT ON prp_tasks
+            FOR EACH ROW SET NEW.status=COALESCE(NEW.status,'todo');
+          CREATE PROCEDURE prp_ci_test_procedure() SELECT 1;
+          CREATE EVENT prp_ci_test_event
+            ON SCHEDULE AT CURRENT_TIMESTAMP + INTERVAL 1 YEAR
+            DO SELECT 1;
+          CI_SYNTHETIC
+          # Baseline rows, task totals and private content fingerprints
+          # are only synthetic fixture values. Never upload dump artifacts.
+          sample_fingerprint() {
+            local name="$1"
+            docker exec -e "MYSQL_PWD=$rootpass" "$name" \
+              mysql --protocol=TCP -h 127.0.0.1 -uroot -D matrix_prp \
+              --batch --raw --skip-column-names -e \
+              "SELECT SHA2(GROUP_CONCAT(CONCAT(id,':',user_id,':',title,':',status) ORDER BY id SEPARATOR '|'),256) FROM prp_tasks"
+          }
+          expected="$(sample_fingerprint "$source_c")"
+          test -n "$expected"
+          # The dump exits under pipefail and is readable only within
+          # this short-lived GitHub runner. Source remains unchanged.
+          docker exec -e "MYSQL_PWD=$rootpass" "$source_c" \
+            mysqldump --protocol=TCP -h 127.0.0.1 -uroot \
+            --single-transaction --quick --hex-blob --routines --events \
+            --triggers --set-gtid-purged=OFF --no-tablespaces \
+            --default-character-set=utf8mb4 --databases matrix_prp \
+            > "$review_dir/synthetic-only.sql"
+          test -s "$review_dir/synthetic-only.sql"
+          sha256sum "$review_dir/synthetic-only.sql" \
+            | cut -d' ' -f1 > "$review_dir/digest.private"
+          # Restore only into brand-new named data volume/container.
+          # No published host port and no source-volume mount.
+          docker exec -i -e "MYSQL_PWD=$rootpass" "$restore_c" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            < "$review_dir/synthetic-only.sql"
+          test "$(sample_fingerprint "$restore_c")" = "$expected"
+          # Check backup/restore object coverage (views, triggers,
+          # procedures, events). CI has synthetic root visibility.
+          objects="$(docker exec -e "MYSQL_PWD=$rootpass" "$restore_c" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot -D matrix_prp \
+            --batch --raw --skip-column-names -e \
+            "SELECT
+              (SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA='matrix_prp'),
+              (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='matrix_prp'),
+              (SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA='matrix_prp'),
+              (SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA='matrix_prp')")"
+          test "$objects" = $'1\t1\t1\t1'
+          echo 'CI_SYNTHETIC_MYSQL_BACKUP_RESTORE_ALL_OBJECT_CLASSES=PASS'
+          # Apply exact candidate V25-28 only on recovered synthetic
+          # clone, not the initial source. Flyway orchestration is
+          # separately tested with the actual V7->V24->V28 Java CI.
+          for name in \
+              V25__mcp_write_drafts.sql \
+              V26__mcp_client_grants.sql \
+              V27__mcp_identity_links.sql \
+              V28__mcp_first_party_oidc_link_flows.sql; do
+            docker exec -i -e "MYSQL_PWD=$rootpass" "$restore_c" \
+              mysql --protocol=TCP -h 127.0.0.1 -uroot -D matrix_prp \
+              < "app/backend/src/main/resources/db/migration/$name"
+          done
+          test "$(sample_fingerprint "$restore_c")" = "$expected"
+          # Original synthetic source must still have exactly 3 base
+          # tables; the clone must have exactly 5 new MCP tables/FKs.
+          source_mcp="$(docker exec -e "MYSQL_PWD=$rootpass" "$source_c" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot -D matrix_prp \
+            --batch --skip-column-names -e \
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='matrix_prp' AND TABLE_NAME LIKE 'prp_mcp_%'")"
+          clone_mcp="$(docker exec -e "MYSQL_PWD=$rootpass" "$restore_c" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot -D matrix_prp \
+            --batch --skip-column-names -e \
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='matrix_prp' AND TABLE_NAME LIKE 'prp_mcp_%'")"
+          test "$source_mcp" = 0
+          test "$clone_mcp" = 5
+          clone_fk="$(docker exec -e "MYSQL_PWD=$rootpass" "$restore_c" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot -D matrix_prp \
+            --batch --skip-column-names -e \
+            "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA='matrix_prp' AND CONSTRAINT_NAME LIKE 'fk_prp_mcp_%'")"
+          test "$clone_fk" = 5
+          test "$(sample_fingerprint "$source_c")" = "$expected"
+          echo 'CI_SYNTHETIC_ONE_HOST_ISOLATED_RESTORE_AND_V25_V28=PASS'
+          echo 'NO_PRODUCTION_DB_OR_USER_DATA_ACCESSED=YES'
+          echo 'PRODUCTION_BACKUP_PERMITTED=NO'
+          echo 'G0_B2_RELEASE_PERMITTED=NO'
