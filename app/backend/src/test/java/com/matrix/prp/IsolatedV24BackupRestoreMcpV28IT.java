@@ -122,7 +122,11 @@ class IsolatedV24BackupRestoreMcpV28IT {
             + "AND checksum IS NULL AND success=1")).isEqualTo(1);
         assertThat(count(c,"SELECT COUNT(*) FROM flyway_schema_history "
             + "WHERE type='SQL' AND success=1 AND CAST(version AS UNSIGNED) BETWEEN 8 AND 24")).isEqualTo(17);
-        assertThat(baseTables(c)).isGreaterThanOrEqualTo(50);
+        // Operator observed 57 visible InnoDB base tables in the real
+        // production V24 schema. Enforce that the reviewed full V24
+        // source builds the same count; this still does not prove DDL
+        // and object privileges are identical to production.
+        assertThat(baseTables(c)).isEqualTo(57);
         assertThat(count(c,"SELECT COUNT(*) FROM prp_tasks WHERE user_id=12001")).isEqualTo(24);
         assertThat(count(c,"SELECT COUNT(*) FROM prp_tasks WHERE user_id=12002")).isEqualTo(3);
         assertThat(count(c,"SELECT COUNT(*) FROM prp_finance_transactions")).isEqualTo(1);
