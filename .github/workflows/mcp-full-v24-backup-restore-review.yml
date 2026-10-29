@@ -75,7 +75,12 @@ jobs:
             rmdir -- "$dir" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          docker network create --internal "$net" >/dev/null
+          # CI's host-side Flyway tests use 127.0.0.1 published ports.
+          # Docker --internal rejects host-to-container forwarded ingress;
+          # use a unique user-defined bridge here, with both published
+          # endpoints explicitly pinned to host LOOPBACK only.
+          # The production runbook still requires no public DB ports.
+          docker network create "$net" >/dev/null
           docker volume create "$src_vol" >/dev/null
           docker volume create "$dst_vol" >/dev/null
           rootpw="$(openssl rand -hex 24)"
