@@ -121,7 +121,7 @@ class IsolatedV24BackupRestoreMcpV28IT {
             + "WHERE installed_rank=1 AND version='7' AND type='BASELINE' "
             + "AND checksum IS NULL AND success=1")).isEqualTo(1);
         assertThat(count(c,"SELECT COUNT(*) FROM flyway_schema_history "
-            + "WHERE type='SQL' AND success=1 AND version BETWEEN '8' AND '24'")).isEqualTo(17);
+            + "WHERE type='SQL' AND success=1 AND CAST(version AS UNSIGNED) BETWEEN 8 AND 24")).isEqualTo(17);
         assertThat(baseTables(c)).isGreaterThanOrEqualTo(50);
         assertThat(count(c,"SELECT COUNT(*) FROM prp_tasks WHERE user_id=12001")).isEqualTo(24);
         assertThat(count(c,"SELECT COUNT(*) FROM prp_tasks WHERE user_id=12002")).isEqualTo(3);
