@@ -43,7 +43,7 @@ jobs:
             docker rm -f "$restore_c" "$source_c" >/dev/null 2>&1 || true
             docker volume rm "$restore_v" "$source_v" >/dev/null 2>&1 || true
             docker network rm "$network" >/dev/null 2>&1 || true
-            rm -f -- "$review_dir/synthetic-only.sql" || true
+            rm -f -- "$review_dir/synthetic-only.sql" "$review_dir/synthetic-tamper.sql" || true
             rmdir -- "$review_dir" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
@@ -141,8 +141,15 @@ jobs:
             --default-character-set=utf8mb4 --databases matrix_prp \
             > "$review_dir/synthetic-only.sql"
           test -s "$review_dir/synthetic-only.sql"
-          sha256sum "$review_dir/synthetic-only.sql" \
-            | cut -d' ' -f1 > "$review_dir/digest.private"
+          digest="$(sha256sum "$review_dir/synthetic-only.sql" | cut -d' ' -f1)"
+          test "${#digest}" -eq 64
+          test "$(sha256sum "$review_dir/synthetic-only.sql" | cut -d' ' -f1)" = "$digest"
+          # Negative integrity fixture never touches the source/clone DB.
+          cp -- "$review_dir/synthetic-only.sql" "$review_dir/synthetic-tamper.sql"
+          printf '\n-- synthetic tamper only\n' >> "$review_dir/synthetic-tamper.sql"
+          test "$(sha256sum "$review_dir/synthetic-tamper.sql" | cut -d' ' -f1)" != "$digest"
+          rm -f -- "$review_dir/synthetic-tamper.sql"
+          echo 'CI_SYNTHETIC_ARCHIVE_TAMPER_DETECTED=YES'
           # Restore only into brand-new named data volume/container.
           # No published host port and no source-volume mount.
           docker exec -i -e "MYSQL_PWD=$rootpass" "$restore_c" \
