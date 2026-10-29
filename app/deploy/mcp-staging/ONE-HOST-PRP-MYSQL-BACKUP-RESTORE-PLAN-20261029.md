@@ -87,6 +87,28 @@ user-data digests. This is a stronger technical regression,
 **not** a restored production backup or G0/B2 release signoff.
 No real user/finance/health/task data was copied to GitHub/CI.
 
+## Exact production-observed V24 table-count parity: 57 (2026-10-29)
+
+The source-built full V7-baselined V24 test has been tightened to
+require **exactly 57 BASE TABLE objects**, matching the owner's
+separately collected production `matrix_prp` visible-base-table
+count of 57. It no longer accepts an arbitrary count above 50.
+The updated Java CI, including original source V24, copied V24
+and post-V28 clone checks, was re-run:
+[full schema backup/restore #40793594246](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40793594246)
+**SUCCESS** at source SHA
+`5505aa2a5c80145f4794fcb5bbf9b2a9a95e251c`.
+Original data fingerprints, V7-baselined 18 migration records,
+SHA integrity and exact four new migrations still passed.
+The clone has **five additive MCP tables** beyond these original
+57 and preserves the source's owner/task/finance/video/vocal data.
+
+This confirms the two independently measured *table counts*
+agree, but **does not prove table DDL, constraints, grants, rows,
+pre-V7 historical data or routines match production**. Only
+independently authorized private restoration of the actual
+production MySQL backup can test those.
+
 ## Stronger full V24 schema backup/restore CI (2026-10-29)
 
 A second, more representative **synthetic-only** workflow now
