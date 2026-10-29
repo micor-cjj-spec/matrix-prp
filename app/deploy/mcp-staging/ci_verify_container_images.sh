@@ -61,11 +61,31 @@ with ZipFile(jar) as archive:
 required = {
     "BOOT-INF/classes/com/matrix/prp/mcp/McpFirstPartyOidcLinkController.class",
     "BOOT-INF/classes/com/matrix/prp/mcp/McpFirstPartyOidcLinkService.class",
+    "BOOT-INF/classes/com/matrix/prp/mcp/McpIdentityLinkService.class",
+    "BOOT-INF/classes/com/matrix/prp/mcp/McpClientGrantService.class",
+    "BOOT-INF/classes/com/matrix/prp/mcp/McpVerifiedJwtCaptureFilter.class",
+    "BOOT-INF/classes/com/matrix/prp/mcp/McpOAuthResourceServerConfig.class",
+    "BOOT-INF/classes/com/matrix/prp/mcp/McpOAuthMetadataController.class",
+    "BOOT-INF/classes/com/matrix/prp/mcp/McpActivationGuard.class",
+    "BOOT-INF/classes/com/matrix/prp/mcp/PrpMcpTools.class",
     "BOOT-INF/classes/db/migration/V28__mcp_first_party_oidc_link_flows.sql",
+    "BOOT-INF/classes/application.yml",
 }
 if required - entries:
     raise SystemExit("REVIEW_BACKEND_IMAGE_OIDC_ENTRIES_MISSING")
-print("PASS OCI BACKEND: runtime JAR contains actual first-party classes and V28 migration")
+config = archive.read("BOOT-INF/classes/application.yml")
+# These defaults are mandatory for the built artifact; a Java class
+# existing inside an image does not imply the feature was enabled.
+for expected in (
+    b"enabled: ${MATRIX_PRP_MCP_ENABLED:false}",
+    b"enabled: ${MATRIX_PRP_MCP_OAUTH_ENABLED:false}",
+    b"write-enabled: ${MATRIX_PRP_MCP_WRITE_ENABLED:false}",
+    b"enabled: ${MATRIX_PRP_FLYWAY_ENABLED:false}",
+    b"advertised-scopes: ${MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES:prp.tasks.read}",
+):
+    if expected not in config:
+        raise SystemExit("REVIEW_BACKEND_IMAGE_UNSAFE_DEFAULT_OR_MISSING_SCOPE")
+print("PASS OCI BACKEND: full OAuth identity/permissions/task tool classes, V28 and fail-closed defaults")
 PY
 # Check the assembled JAR INSIDE THE FINAL UNSTARTED OCI IMAGE, not
 # Maven's build directory: all 28 original/additive SQL resources must
