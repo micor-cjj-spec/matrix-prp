@@ -51,6 +51,15 @@ JSON-RPC error, a tool `isError=true` or a 400/403/404 denial.
 It never treats a successful finance response as success.
 The fixed entire e2e suite is green.
 
+A separate [actual disposable Vue/Chromium first-party browser
+regression #40795555935](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40795555935)
+also completed **SUCCESS** at the same fixed-code commit
+`e4c815c106db7c9fb6625f2c17ee8c94cfbddbb3`.
+That test exercises the real SPA callback/login UI with a
+synthetic test client, not the production-installed V2 SPA or
+real OpenAI signing key. It independently supports that the
+source first-party browser flow still works after this change.
+
 **What this changes:** The exact stable client ID, one-time first-party
 link, subject binding, scoped token decoder and actual task tool
 have now been proven *together* under realistic disposable
