@@ -6,6 +6,67 @@
 > diagnosis, **not** G0/B2 installation authority. No real OAuth login,
 > bearer token, user record access or production configuration modification.
 
+## New exact-client end-to-end proof — 2026-10-29 (strongest disposable CI)
+
+[Exact ChatGPT client ID → Keycloak → real PRP first-party link → real
+MCP task tool #40795555878](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40795555878)
+**SUCCESS**. The workflow registers **the exact stable ChatGPT
+client ID `https://chatgpt.com/oauth/client.json` and callback**
+in a *fresh disposable* Keycloak 26.8.0 Realm. It does **not**
+have OpenAI private signing keys: the temporary Keycloak client
+uses an ephemeral **CI-generated RSA certificate/private key** solely
+to prove protocol interoperability. This difference is explicitly
+isolated; no test key or client is installed in the operator's Realm.
+
+Against the actual disposable Spring Boot PRP backend and MySQL
+database, this one uninterrupted CI ran:
+
+1. Exact URL-form ChatGPT client ID with authentic Keycloak OIDC
+   authorization code, browser-shaped login/consent, PKCE S256
+   and the **synthetic** `private_key_jwt` assertion.
+2. Verified **Keycloak-signed** access-token signature, `iss`,
+   resource `aud`, signed `azp` and task-read scope.
+3. PRP first-party owner `/api/mcp/identity/oidc/start`, actual
+   Keycloak login/ID token verification, one-time `/finish`,
+   subject continuity with the separate MCP bearer and a persisted
+   grant for that same exact client ID.
+4. Successful authenticated MCP `initialize`, `tools/list` with
+   **exactly** `prp_tasks_list` and `prp_task_get`, and successful
+   `prp_tasks_list` call against synthetic PRP data. The finance
+   tool is **not advertised** and its unauthorized invocation is
+   rejected. User unlink invalidates access, pending OIDC flow
+   cannot replay, and client-grant revocation denies access.
+   Six parallel link starts permitted exactly three active flows.
+5. Kept **all production MySQL, test Keycloak, Nginx and live V2
+   containers unchanged**; no PRP data export, production migration,
+   provider keys, real OpenAI assertion or real user task read.
+
+The first [CI attempt #40795274253](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40795274253)
+failed **after** actual task-read success because the historical
+negative finance-tool assertion recognized only `result.isError`.
+The task-only MCP catalog correctly omits finance and returns a
+JSON-RPC **unknown-tool error** instead. The test was corrected to
+require **exactly two task tools** and accept only either an explicit
+JSON-RPC error, a tool `isError=true` or a 400/403/404 denial.
+It never treats a successful finance response as success.
+The fixed entire e2e suite is green.
+
+**What this changes:** The exact stable client ID, one-time first-party
+link, subject binding, scoped token decoder and actual task tool
+have now been proven *together* under realistic disposable
+Keycloak/PRP conditions. The previously separate CI contracts no
+longer need to be inferred as a synthetic composite.
+
+**What it does NOT change:** In the operator's active Keycloak Realm,
+both exact OAuth clients were last observed missing. The running V2
+frontend/backend were last observed lacking new link artifacts, and
+the isolated V2 database does not hold existing production tasks.
+Real OpenAI `private_key_jwt` verification, user consent and actual
+`prp_tasks_list` remain **UNVERIFIED/BLOCKED** until independently
+authorized and successful test-host cutover and separate original PRP
+data path. G0/B2 approvals and public web/backend runtime status
+remain unchanged; **do not click ChatGPT Connect yet**.
+
 ## Current public OAuth transport: proven healthy for unauthenticated discovery
 
 Two **actual GitHub-hosted external checks**, at the fixed public test
