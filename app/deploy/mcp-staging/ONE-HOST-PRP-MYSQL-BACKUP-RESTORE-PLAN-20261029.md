@@ -5,6 +5,33 @@
 > approvals remain NO-GO.** Owner confirms they have **no spare server**.
 > Do not purchase a second server just for a temporary dry run.
 
+## Real disposable CI result: completed successfully (2026-10-29)
+
+[One-host isolated MySQL backup → restore → additive MCP migration
+workflow #40791821565](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40791821565)
+**SUCCESS** at commit
+`efa7e8e70abfa1e5b4e7e08ff93f541951319c3b`.
+The actual runner used two isolated **synthetic** MySQL 8.4 Docker
+containers and new volumes, with no host-published port. Its
+`mysqldump` included trigger, routine, event and view; restoring the
+archive into the other container preserved all four object types
+(`CI_SYNTHETIC_MYSQL_BACKUP_RESTORE_ALL_OBJECT_CLASSES=PASS`).
+After recovery, V25–V28 created exactly five new MCP tables and five
+MCP owner FKs **only on the clone**, while source owner/task
+fingerprints stayed the same
+(`CI_SYNTHETIC_ONE_HOST_ISOLATED_RESTORE_AND_V25_V28=PASS`).
+The run explicitly confirmed
+`NO_PRODUCTION_DB_OR_USER_DATA_ACCESSED=YES`,
+`PRODUCTION_BACKUP_PERMITTED=NO` and
+`G0_B2_RELEASE_PERMITTED=NO`.
+
+**Evidence boundary:** This fixture has a minimal synthetic original
+schema and synthetic records; it does **not** prove recovery of the
+real 57-table production schema, full Flyway history or private data.
+The existing separate genuine Flyway V7-baselined V24→V28 CI covers
+that migration pathway with synthetic records, but neither CI
+constitutes a real PRP production database backup.
+
 ## Decision: separate failure domains, not necessarily separate servers
 
 A recovery **rehearsal** can run on the **same** Debian host as
