@@ -37,6 +37,36 @@ source, login role, services or backup prerequisites change.
 The missing evidence is not another SELECT but an independently
 protected **production data snapshot + actual isolated recovery**.
 
+## One-host deployment topology selected for rehearsal (2026-10-29)
+
+The owner confirmed **there is no additional server**. This does
+not block an **isolated technical rehearsal**: a reviewed backup may,
+after independent data-export authorization, be restored into a
+separate MySQL Docker volume and container on the **same** Debian
+server, attached to an internal-only network without exposed ports
+and with bounded CPU/RAM. It must not mount the production
+`matrix-mysql` data volume. Source tasks/users/finance records
+must remain private. The single host is a *shared failure domain*,
+so a local-only backup is **not** independent disaster recovery.
+
+An encrypted archive copied to separately controlled OSS/object
+storage, provider snapshot, personal computer, encrypted USB or
+iPhone storage (with the recovery key preserved separately) can
+provide an additional failure domain **without renting a second
+server**. The exact target, encryption and retention must be selected
+and authorized before any actual sensitive export or PRP upgrade.
+Do not use GitHub, ChatGPT, publicly shared links or CI artifacts
+as a database backup destination.
+
+The new [single-host implementation/decision plan](ONE-HOST-PRP-MYSQL-BACKUP-RESTORE-PLAN-20261029.md)
+and [actual disposable MySQL source→dump→separate recovered
+clone→V25–V28 CI #40791821565](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40791821565)
+establish that the mechanics can pass on synthetic users/tasks and
+backup object types **without a second host**. This CI has no access
+to production; it is not the real 57-table database backup/restore,
+a G0/B2 signoff, or permission to release. The owner must explicitly
+authorize the real data extraction separately.
+
 ## Required decisions before any sensitive export
 
 | Decision / check | Required disposition / responsible party |
