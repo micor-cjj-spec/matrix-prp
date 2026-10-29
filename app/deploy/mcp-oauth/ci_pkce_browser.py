@@ -276,6 +276,86 @@ def jsonrpc(opener, token, id, method, params=None):
         return error.code, {}
 
 
+def seed_exact_client_owner_limit_fixture(opener, prp_jwt):
+    """Disposable-only: 24 owned tasks + one foreign-owner task in CI MySQL."""
+    if not EXACT_CHATGPT_CI:
+        return
+    if (os.environ.get("GITHUB_ACTIONS") != "true"
+            or os.environ.get("MCP_E2E_FIRST_PARTY") != "true"
+            or not os.environ.get("RUNNER_TEMP")
+            or ISSUER != "https://auth-e2e.localhost/realms/prp-mcp"
+            or RESOURCE != "https://prp-e2e.localhost/api/mcp"):
+        raise RuntimeError("TASK_COUNT_FIXTURE_DISPOSABLE_ONLY")
+    for i in range(24):
+        response = json_response(request(
+            opener, "https://prp-e2e.localhost/api/tasks",
+            bearer=prp_jwt,
+            data={"moduleCode": "work", "title": "ci-exact-owned-task-" + str(i),
+                  "description": "CI synthetic fixture only", "priority": "low"}),
+            "Create scoped synthetic CI task")
+        if not isinstance(response.get("data", {}).get("id"), int):
+            raise RuntimeError("CI_OWNER_TASK_SEED_FAILED")
+    # A deliberately unrelated owner is inserted using ONLY the
+    # throwaway MySQL container's own password environment variable.
+    # The SQL contains no real credentials; neither data nor user IDs
+    # are copied from the user's PRP server.
+    import subprocess
+    query = (
+        "INSERT INTO prp_users "
+        "(username,display_name,password_hash,is_admin,enabled) "
+        "VALUES ('ci_exact_other_owner','CI foreign synthetic',"
+        "'CI_NO_LOGIN',0,1);"
+        "INSERT INTO prp_tasks "
+        "(id,user_id,module_code,title,description,priority,status,"
+        "created_at,updated_at,deleted) "
+        "SELECT 987654321,id,'work','ci-exact-FOREIGN-owner-task',"
+        "'CI foreign-only','low','todo',NOW(6),NOW(6),0 "
+        "FROM prp_users WHERE username='ci_exact_other_owner';"
+    )
+    result = subprocess.run([
+        "docker", "exec", "prp-ci-real-mysql", "sh", "-c",
+        'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql --protocol=TCP '
+        '-h 127.0.0.1 -uroot -D matrix_prp_mcp_e2e -e "$1"',
+        "_", query,
+    ], capture_output=True, check=False, timeout=15)
+    if result.returncode:
+        raise RuntimeError("CI_FOREIGN_OWNER_TASK_SEED_FAILED")
+    print("CI_EXACT_CLIENT_SYNTHETIC_24_OWNED_1_FOREIGN_TASKS_SEEDED=YES")
+
+
+def check_exact_client_task_result(opener, oauth_bearer, read):
+    """Enforce actual JSON task records, max 20 and foreign owner denial."""
+    if not EXACT_CHATGPT_CI:
+        return
+    result = read[1].get("result")
+    if not isinstance(result, dict) or result.get("isError"):
+        raise RuntimeError("CI_EXACT_TASK_RESULT_NOT_SUCCESS")
+    content = result.get("content")
+    if not isinstance(content, list) or len(content) != 1:
+        raise RuntimeError("CI_EXACT_TASK_CONTENT_FORMAT_CHANGED")
+    part = content[0]
+    if (not isinstance(part, dict) or part.get("type") != "text"
+            or not isinstance(part.get("text"), str)):
+        raise RuntimeError("CI_EXACT_TASK_CONTENT_NOT_TEXT")
+    try:
+        tasks = json.loads(part["text"])
+    except ValueError:
+        raise RuntimeError("CI_EXACT_TASK_CONTENT_NOT_JSON") from None
+    if (not isinstance(tasks, list) or len(tasks) != 20
+            or not all(isinstance(row, dict)
+                       and isinstance(row.get("id"), int)
+                       and isinstance(row.get("title"), str)
+                       and row["title"].startswith("ci-exact-owned-task-")
+                       for row in tasks)):
+        raise RuntimeError("CI_EXACT_TASK_LIMIT_OR_OWNER_SCOPE_FAILURE")
+    foreign = jsonrpc(opener, oauth_bearer, 81, "tools/call", {
+        "name": "prp_task_get", "arguments": {"taskId": 987654321}})
+    if (foreign[0] == 200 and not foreign[1].get("error")
+            and foreign[1].get("result", {}).get("isError") is not True):
+        raise RuntimeError("CI_EXACT_FOREIGN_TASK_ACCESS_ACCEPTED")
+    print("CI_EXACT_CLIENT_REAL_MCP_20_TASK_LIMIT_AND_CROSS_OWNER_DENIAL=PASS")
+
+
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
         raise RuntimeError("This test requires an isolated GitHub Actions runner")
@@ -332,6 +412,7 @@ def main():
     prp_jwt = owner.get("data", {}).get("token")
     if not prp_jwt:
         raise RuntimeError("PRP test owner login returned no session token")
+    seed_exact_client_owner_limit_fixture(opener, prp_jwt)
     grant = json_response(request(opener, "https://prp-e2e.localhost/api/mcp/clients",
         bearer=prp_jwt, data={"clientId": CLIENT, "scopes": ["prp.tasks.read"],
                               "password": prp_password}), "Owner client consent")
@@ -382,6 +463,7 @@ def main():
                    {"name": "prp_tasks_list", "arguments": {}})
     if read[0] != 200 or read[1].get("error") or read[1].get("result", {}).get("isError"):
         raise RuntimeError("Authenticated task-read MCP tool failed")
+    check_exact_client_task_result(opener, bearer, read)
     denied = jsonrpc(opener, bearer, 5, "tools/call",
                      {"name": "prp_finance_month", "arguments": {}})
     # In a task-only tool registry this is an UNKNOWN TOOL JSON-RPC
