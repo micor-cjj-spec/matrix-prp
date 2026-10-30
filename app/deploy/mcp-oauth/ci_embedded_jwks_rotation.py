@@ -4,10 +4,14 @@ import json
 import secrets
 from urllib.parse import quote
 from cryptography.hazmat.primitives.asymmetric import rsa
-from ci_embedded_jwks_token import b64, jwt as make_jwt, TOKEN, TYPE, BASE
+from ci_embedded_jwks_token import b64, TOKEN, TYPE, BASE
 from ci_chatgpt_cimd_pkce import REALM_ADMIN, request, admin_token
 import os
 import subprocess
+import time
+import base64
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
 
 def keypair():
     private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -27,10 +31,14 @@ def main():
     if result.returncode or len(parts)!=4 or parts[0]!="/prp-mcp-keycloak-ci" or parts[1]!="true" or parts[3]!="true" or parts[2] not in (
         "quay.io/keycloak/keycloak:26.8.0","quay.io/keycloak/keycloak:26.8.1"):
         raise RuntimeError("DISPOSABLE_CI_CONTAINER_REQUIRED")
-    from ci_embedded_jwks_token import CLIENT as _unused
-    import ci_embedded_jwks_token as helper
     client_id="ci-embedded-rotation-"+secrets.token_hex(8)
-    helper.CLIENT=client_id
+    def make_jwt(key,kid):
+        now=int(time.time())
+        header={"alg":"RS256","kid":kid,"typ":"JWT"}
+        claims={"iss":client_id,"sub":client_id,"aud":TOKEN,"iat":now,"nbf":now-2,
+                "exp":now+90,"jti":secrets.token_urlsafe(20)}
+        msg=".".join(b64(json.dumps(item,separators=(",",":")).encode()) for item in (header,claims))
+        return msg+"."+b64(key.sign(msg.encode(),padding.PKCS1v15(),hashes.SHA256()))
     old_key,old_jwk=keypair()
     new_key,new_jwk=keypair()
     admin=admin_token()
