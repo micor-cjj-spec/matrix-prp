@@ -5,6 +5,7 @@ on:
     branches:
       - feat/prp-mcp-gateway-v1
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - review/mcp-chatgpt-prereg-no-go-20261030
     paths:
       - "app/deploy/mcp-oauth/**"
       - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
