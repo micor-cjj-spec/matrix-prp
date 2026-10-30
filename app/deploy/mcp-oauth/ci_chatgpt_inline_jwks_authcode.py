@@ -55,6 +55,9 @@ def configure_exact_test_key(token, jwk):
     if attrs.get("jwks.url") != "https://chatgpt.com/oauth/jwks.json":
         raise RuntimeError("OFFICIAL_JWKS_REFERENCE_MISSING")
     attrs.pop("jwks.url", None)
+    # The earlier certificate-mode CI step reuses this exact client. Remove
+    # its synthetic X.509 credential before switching to inline JWK auth.
+    attrs.pop("jwt.credential.certificate", None)
     attrs.update(expected["attributes"])
     attrs["token.endpoint.auth.signing.alg"] = "RS256"
     attrs["prp.ci.refresh-resource-guard"] = "enabled"
@@ -66,6 +69,7 @@ def configure_exact_test_key(token, jwk):
             or actual.get("use.jwks.string") != "true"
             or actual.get("use.jwks.url") != "false"
             or "jwks.url" in actual
+            or "jwt.credential.certificate" in actual
             or actual.get("pkce.code.challenge.method") != "S256"):
         raise RuntimeError("INLINE_JWKS_SUBSTITUTION_NOT_PERSISTED")
     print("PASS EXACT INLINE CI: synthetic public JWK persisted for exact client.")
