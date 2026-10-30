@@ -68,5 +68,42 @@ class EvidenceTests(unittest.TestCase):
             precheck.evaluate(evidence)
 
 
+    def test_restore_client_count_drift_is_stop(self):
+        evidence = baseline()
+        evidence["restore_realm_client_count"] = 12
+        self.assertEqual(precheck.evaluate(evidence)["evidence_consistency"], "REVIEW_REQUIRED")
+
+    def test_restore_exact_client_collision_is_stop(self):
+        evidence = baseline()
+        evidence["restore_chatgpt_client_count"] = 1
+        self.assertEqual(precheck.evaluate(evidence)["evidence_consistency"], "REVIEW_REQUIRED")
+
+    def test_negative_count_rejected(self):
+        evidence = baseline()
+        evidence["chatgpt_client_count"] = -1
+        with self.assertRaises(ValueError):
+            precheck.evaluate(evidence)
+
+    def test_nonboolean_approval_rejected(self):
+        evidence = baseline()
+        evidence["independent_b2_approval"] = "true"
+        with self.assertRaises(ValueError):
+            precheck.evaluate(evidence)
+
+    def test_missing_field_rejected(self):
+        evidence = baseline()
+        del evidence["backup_restore_passed"]
+        with self.assertRaises(ValueError):
+            precheck.evaluate(evidence)
+
+    def test_approval_claim_and_valid_baseline_still_no_go(self):
+        evidence = baseline()
+        evidence["independent_b2_approval"] = True
+        result = precheck.evaluate(evidence)
+        self.assertEqual(result["evidence_consistency"], "MATCHES_RECORDED_BASELINE")
+        self.assertEqual(result["b2_authorization"], "BLOCKED_UNTIL_INDEPENDENT_REVIEW")
+        self.assertFalse(result["deployment_permitted"])
+
+
 if __name__ == "__main__":
     unittest.main()
