@@ -51,6 +51,14 @@ def main():
            "n": b64(pub.n.to_bytes((pub.n.bit_length()+7)//8, "big")),
            "e": b64(pub.e.to_bytes((pub.e.bit_length()+7)//8, "big"))}
     token = admin_token()
+    # Fail closed if the supposedly disposable client already exists.
+    from urllib.parse import quote
+    pre_status, _, pre_raw = request(
+        REALM_ADMIN + "/clients?clientId=" + quote(CLIENT, safe=""), bearer=token)
+    if pre_status != 200 or any(
+        item.get("clientId") == CLIENT for item in json.loads(pre_raw)
+    ):
+        raise RuntimeError("PREEXISTING_CI_CLIENT_OR_LOOKUP_FAILED")
     client = {
         "clientId": CLIENT, "enabled": True, "protocol": "openid-connect",
         "publicClient": False, "clientAuthenticatorType": "client-jwt",
