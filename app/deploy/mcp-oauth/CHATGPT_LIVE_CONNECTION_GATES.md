@@ -4,7 +4,7 @@ Status: **REVIEW ONLY**. This is not an installation procedure, approval, or rel
 
 ## Observed baseline (historical, must be rechecked)
 - Live Keycloak 26.8.0 inventory previously showed 13 clients, with **zero** exact `https://chatgpt.com/oauth/client.json` clients. The observed authorization failure was `client_not_found`.
-- Proposed issuer: `https://auth-test.micor.top/realms/prp-mcp`; resource: `https://prp-test.micor.top/api/mcp`. Historical public DNS/routing evidence is incomplete or conflicting. These values are **candidates**, not verified publicly reachable endpoints.
+- Proposed issuer: `https://auth-test.micor.top/realms/prp-mcp`; resource: `https://prp-test.micor.top/api/mcp`. On 2026-10-30, the operator's `micor-server` resolved both hosts to `207.57.123.94`, validated HTTPS, and obtained OIDC discovery HTTP 200 and path-scoped MCP protected-resource metadata HTTP 200. This is **server-origin evidence**, not an independent external-client reachability check.
 - ChatGPT exact client ID: `https://chatgpt.com/oauth/client.json`; redirect: `https://chatgpt.com/connector_platform_oauth_redirect`.
 - First-party identity-link client `prp-first-party-link` and callback `https://prp-test.micor.top/prp/me/mcp-link/callback` are separate requirements.
 
@@ -19,13 +19,19 @@ Status: **REVIEW ONLY**. This is not an installation procedure, approval, or rel
 | Gate | Evidence required | Current status |
 |---|---|---|
 | B2 recoverability | Independently reviewed backup, restore test, rollback proof, authorization | **NO-GO** |
-| Public HTTPS/DNS | External resolution, trusted certificate, reverse-proxy paths, resource and issuer reachability | **UNVERIFIED** |
-| OAuth metadata | Live `/.well-known/oauth-protected-resource`, issuer discovery, exact `authorization_servers`, PKCE S256 and supported scopes | **UNVERIFIED LIVE** |
-| Exact client | Approved create-only registration of exact ChatGPT client; redirect, consent, `client-jwt`, `fullScopeAllowed=false`, least privilege | **ABSENT IN HISTORICAL INVENTORY** |
+| Public HTTPS/DNS | External resolution, trusted certificate, reverse-proxy paths, resource and issuer reachability | **SERVER-ORIGIN PASS; EXTERNAL UNVERIFIED (2026-10-30)** |
+| OAuth metadata | Path-scoped MCP protected-resource and issuer discovery values; PKCE S256 and scopes need end-to-end validation | **SERVER-ORIGIN VALUES PASS (2026-10-30); END-TO-END UNVERIFIED** |
+| Exact client | Approved create-only registration of exact ChatGPT client; redirect, consent, `client-jwt`, `fullScopeAllowed=false`, least privilege | **LIVE AUTH REQUEST HTTP 400 CLIENT_NOT_FOUND (2026-10-30); HISTORICAL INVENTORY ABSENT** |
 | Client policies | Explicitly review native CIMD interception, profiles, policies and Keycloak URL-JWKS retrieval; do not silently disable policies | **UNVERIFIED LIVE** |
 | Real signer | Real ChatGPT `private_key_jwt` signed with a public-key match from official JWKS accepted by live Keycloak; no test private key | **NOT TESTED** |
 | First-party identity | Registered first-party client, reachable callback, same Realm subject, owner mapping | **UNVERIFIED** |
 | Real MCP operation | User-authorized ChatGPT connector completes login/consent and reads up to 20 owner `prp_tasks_list` records; finance/wellness/writes denied | **NOT TESTED** |
+
+## Latest server-origin read-only evidence (2026-10-30)
+- Operator-provided shell output: `micor.top`, `auth-test.micor.top`, `prp-test.micor.top` resolved to `207.57.123.94`; OIDC discovery returned HTTP 200 with certificate verification; root protected-resource route returned 404, while `/.well-known/oauth-protected-resource/api/mcp` returned HTTP 200. The root 404 does not negate the path-scoped success.
+- Operator-provided metadata validator: issuer, authorization endpoint, token endpoint, JWKS URI, MCP resource, and authorization servers all PASS. The validator did not test token issuance.
+- Operator-provided no-redirect authorization probe using exact ChatGPT client ID, callback, resource and S256 PKCE: **HTTP 400 / CLIENT_NOT_FOUND**. This establishes the present client-recognition blocker but does not independently distinguish absent pre-registration from disabled/misconfigured CIMD interception.
+- These observations do **not** authorize production changes and do not prove public reachability from ChatGPT infrastructure.
 
 ## Decision sequence (no live mutations in this PR)
 1. Collect **read-only** current public DNS/TLS/HTTP metadata and live Keycloak inventory; classify discrepancies without printing secrets or tokens.
