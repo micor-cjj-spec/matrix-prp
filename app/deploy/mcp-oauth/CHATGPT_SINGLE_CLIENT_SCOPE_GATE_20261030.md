@@ -27,3 +27,23 @@ Do not assume a read-only SQL snapshot proves official JWKS reachability from th
 6. Disposable Keycloak 26.8.0 and 26.8.1 embedded-JWKS test: **PASS**, run 40981523689, synthetic keys only.
 
 **Decision: NO-GO.** No live client registration, no policy changes, no production changes.
+
+
+## Operator-returned live read-only evidence — 2026-10-30 00:57 UTC (user transcript)
+
+The authorized host operator executed the immutable Git-pinned script `live_exact_client_readonly.sh` at commit `89d6b753bb7eb7c3402660ef0772d352b378e6ea`. Its SQL was found in the Git object database, the expected existing Postgres container was running, and the output ended with `LIVE_EXACT_CLIENT_REVIEW_COMPLETE=YES`.
+
+| Read-only observation | Value |
+| --- | --- |
+| REALM_MATCH_COUNT | 1 |
+| EXISTING_REALM_CLIENT_COUNT | 13 |
+| CLIENT_SCOPE_basic | PRESENT |
+| CLIENT_SCOPE_offline_access | PRESENT |
+| CLIENT_SCOPE_prp.tasks.read | PRESENT |
+| CLIENT_https://chatgpt.com/oauth/client.json | MISSING |
+| CLIENT_prp-first-party-link | MISSING |
+| MCP_DEPLOYMENT_PERMITTED | NO |
+
+This is an **operator-supplied live observation**, not direct access by the reviewer. The first-party client's absence is inventory only; its creation is out of scope. Scope existence does not establish client assignment. No approval, policy inventory, official JWKS egress, or real ChatGPT signature validation follows from this check.
+
+**Updated gate 2: PASS (inventory performed, exact client absent). Gates 1, 3, 4, 5 remain open; deployment stays NO-GO.**
