@@ -36,11 +36,13 @@ def main():
     if BASE != "http://127.0.0.1:18080":
         raise RuntimeError("UNEXPECTED_CI_KEYCLOAK_BASE")
     result = subprocess.run(
-        ["docker", "inspect", "--format", "{{.Name}}|{{.State.Running}}|{{.Config.Image}}",
+        ["docker", "inspect", "--format", "{{.Name}}|{{.State.Running}}|{{.Config.Image}}|{{index .Config.Labels \"prp.disposable-ci\"}}",
          "prp-mcp-keycloak-ci"], capture_output=True, text=True, check=False, timeout=8)
     parts = result.stdout.strip().split("|")
-    if result.returncode or len(parts) != 3 or parts[:2] != ["/prp-mcp-keycloak-ci", "true"]:
+    if result.returncode or len(parts) != 4 or parts[:2] != ["/prp-mcp-keycloak-ci", "true"]:
         raise RuntimeError("CI_CONTAINER_IDENTITY_MISSING")
+    if parts[3] != "true":
+        raise RuntimeError("CI_CONTAINER_DISPOSABLE_LABEL_MISSING")
     if parts[2] not in ("quay.io/keycloak/keycloak:26.8.0", "quay.io/keycloak/keycloak:26.8.1"):
         raise RuntimeError("UNEXPECTED_CI_IMAGE")
 
