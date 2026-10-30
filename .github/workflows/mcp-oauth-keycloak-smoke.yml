@@ -116,6 +116,7 @@ jobs:
           # Never ignore resource denial, signed token verification or rollback.
           docker run --rm -d \
             --name prp-mcp-keycloak-ci \
+            --label prp.disposable-ci=true \
             -p 127.0.0.1:18080:8080 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=prp-smoke-admin \
             -e KC_BOOTSTRAP_ADMIN_PASSWORD="${admin_secret}" \
