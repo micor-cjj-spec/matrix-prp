@@ -55,6 +55,37 @@ def assert_disposable():
         raise RuntimeError("DISPOSABLE_CI_CONTAINER_REQUIRED")
 
 
+
+def assert_disposable_guard_negative_cases():
+    """Check fail-closed behavior without touching Keycloak or Docker state."""
+    from unittest.mock import patch
+    original_run = subprocess.run
+    class Result:
+        def __init__(self, output, returncode=0):
+            self.stdout = output
+            self.returncode = returncode
+    bad = (
+        ("missing_container", Result("", 1)),
+        ("wrong_name", Result("/other|true|quay.io/keycloak/keycloak:26.8.0|true")),
+        ("stopped", Result("/prp-mcp-keycloak-ci|false|quay.io/keycloak/keycloak:26.8.0|true")),
+        ("wrong_image", Result("/prp-mcp-keycloak-ci|true|quay.io/keycloak/keycloak:latest|true")),
+        ("missing_label", Result("/prp-mcp-keycloak-ci|true|quay.io/keycloak/keycloak:26.8.0|<no value>")),
+    )
+    for name, fake in bad:
+        with patch.object(subprocess, "run", return_value=fake):
+            try:
+                assert_disposable()
+            except RuntimeError as exc:
+                if str(exc) != "DISPOSABLE_CI_CONTAINER_REQUIRED":
+                    raise RuntimeError("GUARD_NEGATIVE_UNEXPECTED_ERROR_" + name) from None
+            else:
+                raise RuntimeError("GUARD_NEGATIVE_ACCEPTED_" + name)
+        print("PASS EXACT CI GUARD: " + name + " rejected.")
+    # Re-check the real disposable CI container after mocking is removed.
+    assert_disposable()
+
+
+
 def configure_exact_test_key(token, jwk):
     """CI-only: replace the exact client's URL JWKS with ephemeral inline JWK."""
     url = cimd.REALM_ADMIN + "/clients?clientId=" + quote(CLIENT, safe="")
@@ -159,7 +190,7 @@ def validated_scope(tokens):
 
 
 def main():
-    assert_disposable()
+    assert_disposable_guard_negative_cases()
     # Prior stage verifies this exact pre-registered client ID and callback;
     # it also disables dynamic CIMD interception in this synthetic Realm.
     with tempfile.TemporaryDirectory(prefix="exact-chatgpt-ci-", dir=os.environ["RUNNER_TEMP"]) as work:
