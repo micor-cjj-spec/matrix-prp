@@ -150,6 +150,10 @@ jobs:
           # token authentication. No real ChatGPT private keys are available.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_static_client_jwt.py
+          # Embedded static JWKS (not X.509) client-jwt test; disposable only.
+          python3 -m pip install --user 'cryptography>=43,<47'
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_embedded_jwks_token.py
           # Separate throwaway client and user: real Authorization Code,
           # signed JWT client auth, offline refresh rotation and revocation.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
