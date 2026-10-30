@@ -53,6 +53,8 @@ def evaluate(data):
         findings.append("RESTORE_EXACT_CLIENT_UNEXPECTED")
     if not data["independent_b2_approval"]:
         findings.append("INDEPENDENT_APPROVAL_MISSING")
+    # A project-owner authorization statement is distinct from independent B2
+    # recovery acceptance; do not conflate either with deployment permission.
     # This diagnostic is never an approval source, even if supplied booleans
     # appear favorable. The real B2 authority remains external to this tool.
     return {
