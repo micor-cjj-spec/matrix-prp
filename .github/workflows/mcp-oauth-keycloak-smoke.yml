@@ -42,6 +42,8 @@ jobs:
         run: |
           bash -n app/deploy/mcp-oauth/keycloak-resource-guard/preflight_restored_realm_host.sh
           python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_review_chatgpt_single_client.py' -v
+          python3 -m pip install --user 'cryptography>=43,<47'
+          python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_review_chatgpt_inline_jwks.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_preflight_restored_realm_host.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_restored_exact_clients.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_capture_current_keycloak_review.py' -v
@@ -135,6 +137,11 @@ jobs:
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/keycloak_ephemeral_smoke.py \
               --admin-user prp-smoke-admin
+          # Exact ChatGPT client with synthetic inline JWKS: authorization-entry
+          # and PKCE preflight only, BEFORE other CI steps register that ID.
+          # This does not redeem an authorization code or authenticate ChatGPT.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_chatgpt_inline_jwks_pkce_entry.py
           # Keycloak stays alive here; only this throwaway instance receives
           # the temporary CIMD policies and ChatGPT public metadata requests.
           # Real disposable Keycloak: 13 disabled legacy fixtures + two exact
