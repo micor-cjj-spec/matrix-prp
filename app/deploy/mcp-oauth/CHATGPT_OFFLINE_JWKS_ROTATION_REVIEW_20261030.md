@@ -30,3 +30,9 @@
 - An authorized, operational key-refresh mechanism and explicit owner decision about outage tolerance; a one-time embedded JWKS snapshot is insufficient.
 
 **Decision: NO-GO; do not register or alter live clients.**
+
+## CI evidence update (2026-10-30)
+
+Workflow run 40984224893 completed successfully for both disposable Keycloak 26.8.0 and 26.8.1. Raw job logs 123831317459 and 123831317045 each contain `EMBEDDED_JWKS_ROTATION_CI_PROOF=PASS`, covering overlapping keys, unknown kid denial, removal and rollback. This closes the synthetic rotation test item above, not the live-client or independent approval gates.
+
+Operator read-only checks also observed empty `client-policies.policies` and `client-policies.profiles` arrays; public OIDC discovery on `auth-test.micor.top` returned HTTP 200 advertising authorization code, PKCE S256 and private_key_jwt. The same-domain discovery path returned HTTP 503. No live configuration was changed.
