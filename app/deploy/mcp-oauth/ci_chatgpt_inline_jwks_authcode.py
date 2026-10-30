@@ -13,8 +13,11 @@ import json
 import os
 import secrets
 import tempfile
+import time
 from pathlib import Path
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from ci_static_client_jwt import TOKEN_ENDPOINT, ASSERTION_TYPE, b64
 from urllib.parse import quote
 
 import ci_chatgpt_cimd_pkce as cimd
@@ -85,6 +88,39 @@ def configure_exact_test_key(token, jwk):
     # Keycloak admin PUT merges legacy credential attributes on some versions.\n    # Disabled URL and the active inline JWKS are the security controls;\n    # do not mistake inert retained attributes for active credential sources.\n    print("PASS EXACT INLINE CI: active inline JWK persisted; remote JWKS disabled.")
 
 
+
+def assert_invalid_client_assertions(private_key, jwk):
+    """Reject unknown kid and wrong token-endpoint audience on the exact client."""
+    for kind in ("unknown_kid", "wrong_audience"):
+        now = int(time.time())
+        header = {"alg": "RS256", "typ": "JWT",
+                  "kid": "ci-unknown-key" if kind == "unknown_kid" else jwk["kid"]}
+        claims = {"iss": CLIENT, "sub": CLIENT,
+                  "aud": "https://invalid.example.invalid/token"
+                  if kind == "wrong_audience" else TOKEN_ENDPOINT,
+                  "iat": now, "nbf": now - 2, "exp": now + 60,
+                  "jti": secrets.token_urlsafe(24)}
+        signing_input = ".".join(b64(json.dumps(v, separators=(",", ":")).encode())
+                                 for v in (header, claims))
+        signature = private_key.sign(signing_input.encode(), padding.PKCS1v15(),
+                                     hashes.SHA256())
+        assertion = signing_input + "." + b64(signature)
+        status, _, raw = cimd.request(TOKEN_ENDPOINT, method="POST", form={
+            "grant_type": "refresh_token",
+            "refresh_token": "ci-invalid-refresh-token",
+            "client_id": CLIENT,
+            "client_assertion_type": ASSERTION_TYPE,
+            "client_assertion": assertion,
+        })
+        try:
+            error = json.loads(raw).get("error")
+        except (ValueError, AttributeError):
+            error = None
+        if status not in (400, 401) or error != "invalid_client":
+            raise RuntimeError("EXACT_" + kind.upper() + "_ASSERTION_NOT_REJECTED")
+        print("PASS EXACT INLINE CI: " + kind + " client assertion rejected.")
+
+
 def must_reject(status, label):
     if status not in (400, 401):
         raise RuntimeError(label + "_NOT_REJECTED_HTTP_" + str(status))
@@ -124,6 +160,7 @@ def main():
         token = cimd.admin_token()
         e2e.configure_realm(token)
         configure_exact_test_key(token, jwk)
+        assert_invalid_client_assertions(private_key, jwk)
         # Use the exact same fixed client ID for every transaction. The
         # temporary signer is NOT a ChatGPT private key.
         e2e.CLIENT = CLIENT
