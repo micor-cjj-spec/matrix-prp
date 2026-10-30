@@ -52,3 +52,13 @@
 - An earlier regression run `40981929586` failed only because the new unit test incorrectly expected the intentional `None` default to raise; commit `4d0f747` corrected the test, and CI #346 passed.
 - The review branch has additional evidence documentation commits after the tested commit; this entry records the **exact tested SHA** rather than claiming later commits were exercised.
 - No live test Realm change is implied; B2 remains **NO-GO**.
+
+
+## Two-key rotation regression — verified raw logs (2026-10-30)
+
+- Commit: `839750e7776d301d50c347ea358444b712329f2a`; workflow run: https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40984224893.
+- Keycloak 26.8.1 job `123831317045`: completed/success; raw log explicitly contains `EMBEDDED_JWKS_ROTATION_CI_PROOF=PASS`.
+- Keycloak 26.8.0 job `123831317459`: completed/success; raw log explicitly contains `EMBEDDED_JWKS_ROTATION_CI_PROOF=PASS`.
+- Both raw logs explicitly contain `PASS ROTATION_initial_old`, `PASS ROTATION_overlap_old`, `PASS ROTATION_overlap_new`, `PASS ROTATION_unknown_kid`, `PASS ROTATION_removed_old`, `PASS ROTATION_new_only`, `PASS ROTATION_rollback_old`, `PASS ROTATION_rollback_new_denied`.
+- This proves only synthetic RSA-key, disposable client-credentials JWT auth with Keycloak client-local JWKS changes. It does not prove a real ChatGPT-signed JWT, browser authorization code/PKCE against the real client, live Keycloak reachability, an approved operational key-rotation process, or B2 sign-off.
+- **B2 remains NO-GO.** No live Realm write is authorized.
