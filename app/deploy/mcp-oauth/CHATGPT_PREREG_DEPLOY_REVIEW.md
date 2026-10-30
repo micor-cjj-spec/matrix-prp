@@ -37,3 +37,16 @@
 Production migration, MySQL/Flyway changes, Nginx reload, Keycloak restart, encrypted export, new server, approval fabrication.
 
 **Status: NO-GO. This file is documentation only; committing it does not authorize or execute deployment.**
+
+## Additional review findings (2026-10-30; no deployment)
+
+- The application-level isolated restore **passed**: Keycloak 26.8.0 bootstrapped against the restored PostgreSQL DB, and `/realms/prp-mcp/.well-known/openid-configuration` returned HTTP 200 with authorization and token endpoints. See `B2_APP_RESTORE_EVIDENCE_20261030.md`.
+- Temporary test Keycloak, PostgreSQL and internal network were removed after the original dump SHA256 was checked. See `B2_APP_RESTORE_CLEANUP_20261030.md`.
+- This validates **startup and discovery**, not full login/refresh recovery, live TLS, or signed client assertion verification.
+- The precheck JSON fields are operator-supplied observations. The `independent_b2_approval` boolean **is not an approval artifact**; even when true, the script always emits `deployment_permitted=false`. Never infer authorization from CI success.
+- The CI workflow has path filters; documentation-only commits may not trigger a fresh run. Review the **run commit SHA and actual diff** when interpreting green CI status.
+- The official JWKS URL and client metadata are external dependencies. Before authorized registration, revalidate the currently published official metadata, exact supported signing algorithms and Keycloak `client-jwt` configuration; the disposable-CI signing keys do not establish interoperability with a real ChatGPT assertion.
+- Do not change client scopes or consent behavior based solely on a test harness. Review live `prp.tasks.read` scope mappings, audience mappers and Keycloak client policies read-only before proposing an authorized write.
+- Confirm the exact issuer and token audience across protected-resource metadata, AS metadata and actual tokens. The isolated restore issuer `http://localhost:8080/realms/prp-mcp` is **not** the public authorization-server issuer.
+
+**Outstanding release gate:** independent B2 acceptance + approved change window + scoped Keycloak Admin API registration + end-to-end real ChatGPT authorization. Until then: **NO-GO**.
