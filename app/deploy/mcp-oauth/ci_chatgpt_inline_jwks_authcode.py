@@ -3,7 +3,7 @@
 
 The official ChatGPT metadata's PUBLIC key URL cannot sign test assertions.
 Only inside the short-lived GitHub CI realm we replace that client's remote
-JWKS credential source with an ephemeral, local X.509 certificate. This is
+JWKS credential source with an ephemeral, locally generated public RSA JWK. This is
 a controlled TEST-KEY SUBSTITUTION, never an OpenAI signature verification.
 No network request or OAuth callback is sent to chatgpt.com by this script.
 Its exact client_id, redirect, protocol scopes, PKCE and public resource
@@ -11,7 +11,6 @@ stay unchanged. This script must never run against a live/host Keycloak.
 """
 import json
 import os
-from pathlib import Path
 import secrets
 import tempfile
 from urllib.parse import quote
@@ -99,7 +98,7 @@ def main():
     assert_disposable()
     # Prior stage verifies this exact pre-registered client ID and callback;
     # it also disables dynamic CIMD interception in this synthetic Realm.
-    with tempfile.TemporaryDirectory(prefix="exact-chatgpt-ci-", dir=os.environ["RUNNER_TEMP"]) as work:
+    with tempfile.TemporaryDirectory(prefix="exact-chatgpt-ci-", dir=os.environ["RUNNER_TEMP"]):
         key, jwk = keypair()
         token = cimd.admin_token()
         e2e.configure_realm(token)
