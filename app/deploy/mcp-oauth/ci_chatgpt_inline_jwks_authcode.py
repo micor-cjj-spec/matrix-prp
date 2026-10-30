@@ -13,6 +13,8 @@ import json
 import os
 import secrets
 import tempfile
+from pathlib import Path
+from cryptography.hazmat.primitives import serialization
 from urllib.parse import quote
 
 import ci_chatgpt_cimd_pkce as cimd
@@ -110,8 +112,15 @@ def main():
     assert_disposable()
     # Prior stage verifies this exact pre-registered client ID and callback;
     # it also disables dynamic CIMD interception in this synthetic Realm.
-    with tempfile.TemporaryDirectory(prefix="exact-chatgpt-ci-", dir=os.environ["RUNNER_TEMP"]):
-        key, jwk = keypair()
+    with tempfile.TemporaryDirectory(prefix="exact-chatgpt-ci-", dir=os.environ["RUNNER_TEMP"]) as work:
+        private_key, jwk = keypair()
+        key = Path(work) / "synthetic-inline-jwks-private.pem"
+        key.write_bytes(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ))
+        key.chmod(0o600)
         token = cimd.admin_token()
         e2e.configure_realm(token)
         configure_exact_test_key(token, jwk)
