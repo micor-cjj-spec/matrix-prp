@@ -71,7 +71,17 @@ def configure_exact_test_key(token, jwk):
             or "jwks.url" in actual
             or "jwt.credential.certificate" in actual
             or actual.get("pkce.code.challenge.method") != "S256"):
-        raise RuntimeError("INLINE_JWKS_SUBSTITUTION_NOT_PERSISTED")
+        checks = {
+            "jwks_content": actual.get("jwks.string") == expected["attributes"]["jwks.string"],
+            "jwks_string_enabled": actual.get("use.jwks.string") == "true",
+            "jwks_url_disabled": actual.get("use.jwks.url") == "false",
+            "jwks_url_absent": "jwks.url" not in actual,
+            "legacy_certificate_absent": "jwt.credential.certificate" not in actual,
+            "pkce_s256": actual.get("pkce.code.challenge.method") == "S256",
+        }
+        failed = [name for name, passed in checks.items() if not passed]
+        # Static field names only: never log JWK values, JWTs or certificates.
+        raise RuntimeError("INLINE_JWKS_SUBSTITUTION_NOT_PERSISTED_FIELDS_" + "_".join(failed))
     print("PASS EXACT INLINE CI: synthetic public JWK persisted for exact client.")
 
 
