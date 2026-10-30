@@ -46,3 +46,7 @@ Before a future approved registration, prepare a separate review-only, exact-one
 The source of truth for key changes remains the official metadata's `jwks_uri`; use full-set comparison (kid plus RSA n/e), detect duplicate kid or changed material under the same kid, and record a sanitized fingerprint. An external fetch is a snapshot, not proof of a provider overlap window. Alert-only monitoring and human-approved updates are the default. A removal is not safe merely because the public endpoint no longer advertises a key; account for outstanding assertions and approved rollback timing.
 
 A new disposable CI should exercise the **exact single-client candidate shape** under authorization-code/PKCE with synthetic client assertions, not only client-credentials. It cannot prove real ChatGPT signing or external-browser connectivity. Maintain B2 NO-GO until independent recovery evidence and approval exist.
+
+## Operator offline validator execution (2026-10-30)
+
+Operator ran `python3 -m unittest -v test_review_chatgpt_inline_jwks` using three files extracted from the review branch into a temporary directory. `test_reject_invalid` and `test_valid_review_only` both passed: `Ran 2 tests ... OK`; the operator output ended `OFFLINE_JWKS_UNIT_TEST_COMPLETE=YES` and `NO_KEYCLOAK_CHANGES=YES`. These are offline unit tests, **not** an authorization-code/PKCE plus embedded-JWKS integration test or approval to register a client.
