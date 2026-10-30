@@ -102,8 +102,13 @@ def main():
         if expect_success:
             if status != 200 or "access_token" not in json.loads(raw):
                 raise RuntimeError(label + "_FAILED_HTTP_" + str(status))
-        elif status == 200 or status < 400:
-            raise RuntimeError(label + "_UNEXPECTED_ACCEPT_HTTP_" + str(status))
+        else:
+            try:
+                oauth_error = json.loads(raw).get("error")
+            except (ValueError, AttributeError):
+                oauth_error = None
+            if status != 400 or oauth_error != "invalid_client":
+                raise RuntimeError(label + "_EXPECTED_INVALID_CLIENT_HTTP_" + str(status))
         print("PASS " + label + " HTTP_" + str(status))
 
     try:
