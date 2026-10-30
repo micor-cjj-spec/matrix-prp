@@ -12,6 +12,7 @@ stay unchanged. This script must never run against a live/host Keycloak.
 import json
 import os
 import secrets
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -39,6 +40,19 @@ def assert_disposable():
             or cimd.BASE != "http://127.0.0.1:18080"
             or not CLIENT.startswith("https://chatgpt.com/")):
         raise RuntimeError("REFUSED_NON_DISPOSABLE_KEYCLOAK")
+    # Environment flags alone are insufficient: verify the isolated CI container.
+    inspected = subprocess.run(
+        ["docker", "inspect", "--format",
+         '{{.Name}}|{{.State.Running}}|{{.Config.Image}}|{{index .Config.Labels "prp.disposable-ci"}}',
+         "prp-mcp-keycloak-ci"],
+        capture_output=True, text=True, timeout=8, check=False)
+    parts = inspected.stdout.strip().split("|")
+    if (inspected.returncode != 0 or len(parts) != 4
+            or parts[0] != "/prp-mcp-keycloak-ci" or parts[1] != "true"
+            or parts[3] != "true"
+            or parts[2] not in ("quay.io/keycloak/keycloak:26.8.0",
+                                "quay.io/keycloak/keycloak:26.8.1")):
+        raise RuntimeError("DISPOSABLE_CI_CONTAINER_REQUIRED")
 
 
 def configure_exact_test_key(token, jwk):
