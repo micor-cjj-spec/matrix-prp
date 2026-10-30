@@ -30,8 +30,11 @@ class SingleClientScopeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     review_single_client(candidate)
 
+    def test_default_none_is_fixed_safe_candidate(self):
+        self.assertEqual(review_single_client(None)["proposed_client"], EXPECTED)
+
     def test_reject_non_client_and_extra_fields(self):
-        for candidate in ([], None, {"clientId": EXPECTED["clientId"]}):
+        for candidate in ([], {"clientId": EXPECTED["clientId"]}):
             with self.assertRaises(ValueError):
                 review_single_client(candidate)
         candidate = copy.deepcopy(EXPECTED)
