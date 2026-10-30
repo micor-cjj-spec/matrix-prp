@@ -36,3 +36,13 @@
 Workflow run 40984224893 completed successfully for both disposable Keycloak 26.8.0 and 26.8.1. Raw job logs 123831317459 and 123831317045 each contain `EMBEDDED_JWKS_ROTATION_CI_PROOF=PASS`, covering overlapping keys, unknown kid denial, removal and rollback. This closes the synthetic rotation test item above, not the live-client or independent approval gates.
 
 Operator read-only checks also observed empty `client-policies.policies` and `client-policies.profiles` arrays; public OIDC discovery on `auth-test.micor.top` returned HTTP 200 advertising authorization code, PKCE S256 and private_key_jwt. The same-domain discovery path returned HTTP 503. No live configuration was changed.
+
+## Exact-client parity gap and operational guardrails
+
+The existing `review_chatgpt_single_client.py` checks equality to a URL-JWKS proposal (`use.jwks.url=true` and `jwks.url=https://chatgpt.com/oauth/jwks.json`). It **rejects** any inline-JWKS variant as a changed shape. Therefore the successful disposable rotation CI is not approval to deploy an inline-JWKS version of that candidate.
+
+Before a future approved registration, prepare a separate review-only, exact-one-client candidate whose immutable fields are the official metadata client ID, redirect URI, `client-jwt`, authorization code, PKCE S256, resource audience and least-privilege scopes. Its only reviewed key-source change may be client-local `use.jwks.url=false`, `use.jwks.string=true`, and a validated public-only `jwks.string` snapshot. Never embed private fields or hard-code the current `kid` as permanent. Do not derive permission to create a first-party client or alter existing clients.
+
+The source of truth for key changes remains the official metadata's `jwks_uri`; use full-set comparison (kid plus RSA n/e), detect duplicate kid or changed material under the same kid, and record a sanitized fingerprint. An external fetch is a snapshot, not proof of a provider overlap window. Alert-only monitoring and human-approved updates are the default. A removal is not safe merely because the public endpoint no longer advertises a key; account for outstanding assertions and approved rollback timing.
+
+A new disposable CI should exercise the **exact single-client candidate shape** under authorization-code/PKCE with synthetic client assertions, not only client-credentials. It cannot prove real ChatGPT signing or external-browser connectivity. Maintain B2 NO-GO until independent recovery evidence and approval exist.
