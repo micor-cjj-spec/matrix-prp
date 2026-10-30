@@ -43,10 +43,8 @@ class StaticJwksPreflight(unittest.TestCase):
                       'WRONG_AUDIENCE', 'EXPIRED_ASSERTION'):
             self.assertIn(label, self.source)
 
-    def test_disposable_identity_guard_missing_blocks_execution(self):
-        # Expected failure documents current draft's unsafe execution boundary.
-        self.assertNotIn('TEST_KEYCLOAK_CONTAINER', self.source,
-                         'If this fails, review the new identity guard manually.')
+    def test_disposable_identity_guard_required(self):
+        self.assertIn('TEST_KEYCLOAK_CONTAINER', self.source)
 
 
 if __name__ == "__main__":
