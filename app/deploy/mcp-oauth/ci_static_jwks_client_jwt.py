@@ -12,6 +12,7 @@ import secrets
 import time
 import urllib.parse
 import urllib.request
+import subprocess
 from urllib.error import HTTPError
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -52,6 +53,14 @@ def main():
     realm = os.environ["TEST_REALM"]
     if realm != "prp-mcp":
         raise SystemExit("REFUSED: expected disposable prp-mcp realm")
+    container = os.environ.get("TEST_KEYCLOAK_CONTAINER")
+    if container != "prp-mcp-keycloak-ci":
+        raise SystemExit("REFUSED: disposable CI container not identified")
+    result = subprocess.run(
+        ["docker", "inspect", "--format", "{{.Name}}|{{.State.Running}}", container],
+        capture_output=True, text=True, timeout=8, check=False)
+    if result.returncode != 0 or result.stdout.strip() != "/prp-mcp-keycloak-ci|true":
+        raise SystemExit("REFUSED: disposable CI container unavailable")
     token = os.environ["TEST_ADMIN_TOKEN"]
     client_id = "prp-static-jwks-ci-" + secrets.token_hex(8)
     private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
