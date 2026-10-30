@@ -38,3 +38,17 @@
 - Confirm approved rollback/backup and independent B2 sign-off; stop on any mismatch.
 - Establish whether live Keycloak can obtain the official JWKS or requires a reviewed client-local inline JWKS configuration; do not assume GitHub runner network equals live network.
 - Only after the gates pass, propose a minimal diff restricted to creating `https://chatgpt.com/oauth/client.json` and its own attributes, with explicit no-modification checks.
+
+
+## Owner-scoped single-client regression — CI #346
+
+- Commit under test: `4d0f74726081b1901574dfc997751cf8b16dffda`.
+- Workflow run: https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40981992725
+- Keycloak 26.8.0 job `123823998990`: **completed / success**.
+- Keycloak 26.8.1 job `123823999252`: **completed / success**.
+- Both jobs passed the added `test_review_chatgpt_single_client.py` contract in step 4.
+- Both jobs passed disposable Keycloak integration step 8, SPI artifact hash and retention steps 9–10.
+- Raw logs from both jobs contain all five `PASS EMBEDDED_JWKS_*` checks and `EMBEDDED_JWKS_CI_PROOF=PASS`.
+- An earlier regression run `40981929586` failed only because the new unit test incorrectly expected the intentional `None` default to raise; commit `4d0f747` corrected the test, and CI #346 passed.
+- The review branch has additional evidence documentation commits after the tested commit; this entry records the **exact tested SHA** rather than claiming later commits were exercised.
+- No live test Realm change is implied; B2 remains **NO-GO**.
