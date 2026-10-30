@@ -41,6 +41,7 @@ jobs:
         shell: bash
         run: |
           bash -n app/deploy/mcp-oauth/keycloak-resource-guard/preflight_restored_realm_host.sh
+          python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_review_chatgpt_single_client.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_preflight_restored_realm_host.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_restored_exact_clients.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_capture_current_keycloak_review.py' -v
