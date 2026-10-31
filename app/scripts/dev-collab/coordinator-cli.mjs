@@ -4,7 +4,7 @@ import { dirname, basename, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { applyCommand, CollabError } from './core.mjs'
 
-const ALLOWED = new Set(['claim', 'start', 'progress', 'pause', 'block', 'resume', 'release', 'submit'])
+const ALLOWED = new Set(['claim', 'start', 'progress', 'pause', 'block', 'resume', 'release', 'submit', 'rework'])
 
 function execute() {
   if (process.argv.length !== 4) throw new CollabError('CLI_ARGUMENTS')

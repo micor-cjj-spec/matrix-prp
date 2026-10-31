@@ -210,6 +210,13 @@ export function applyCommand(original, command, context) {
       task.head_sha = command.head_sha
       task.status = 'IN_REVIEW'
       break
+    case 'rework':
+      requireOwner()
+      check(task.status === 'IN_REVIEW', 'INVALID_TRANSITION')
+      check(typeof command.note === 'string' && command.note.length >= 1 && command.note.length <= 500, 'REWORK_REASON')
+      task.last_note = command.note
+      task.status = 'IN_PROGRESS'
+      break
     case 'accept':
       check(task.status === 'IN_REVIEW', 'INVALID_TRANSITION')
       check(context.reviewerAuthorized === true && context.ciVerified === true &&

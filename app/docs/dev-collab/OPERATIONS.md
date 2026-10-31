@@ -41,3 +41,7 @@ Required manual acceptance: two near-simultaneous workflow dispatches claiming o
 Any GPT with access to the GitHub repository can directly read `requirements/REQ-20261031-001.json` from the dedicated state branch. The proposed manual `PRP Collaboration Board` Actions workflow fetches a pinned state commit and renders a sanitized, no-write task table in GitHub Actions Summary. Its output deliberately omits `claim_id`, request ledger fingerprints, private notes and other command internals. This is a non-authoritative **display** of committed state, not a claim or update action.
 
 For offline read-only preview: `node app/scripts/dev-collab/board.mjs /path/to/REQ-20261031-001.json`.
+
+## Returning an unaccepted PR to development
+
+If the existing Task PR fails CI or needs changes, its *current owner* can issue `rework` while the task is `IN_REVIEW`. The action requires the same valid claim and a nonempty reason. It returns to `IN_PROGRESS` without destroying the existing PR link or issuing another claim. The owner may push fixes, then `submit` a new reviewed commit SHA. It never self-approves the PR or changes the requirement acceptance state.

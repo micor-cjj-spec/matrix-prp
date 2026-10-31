@@ -8,7 +8,7 @@ on:
         description: 'Allowed task transition'
         type: choice
         required: true
-        options: [claim, start, progress, pause, block, resume, release, submit]
+        options: [claim, start, progress, pause, block, resume, release, submit, rework]
       requirement_id:
         description: 'REQ-YYYYMMDD-NNN'
         type: string

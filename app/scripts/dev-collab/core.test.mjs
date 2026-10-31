@@ -131,3 +131,20 @@ test('request ledger fails closed instead of allowing an old request to be repla
   }))
   assertCode(() => claim(s, 'T-001'), 'REQUEST_LEDGER_FULL')
 })
+
+
+test('review rejection returns only the existing claimant to active development', () => {
+  const r = claim(make(), 'T-001')
+  const ext = { worker_id: 'chat-A', claim_id: r.claim_id }
+  let state = applyCommand(r.state, command('start', 'T-001', ext), actor).snapshot
+  state = applyCommand(state, command('submit', 'T-001',
+    { ...ext, pr_number: 138, head_sha: 'a'.repeat(40) }), actor).snapshot
+  assertCode(() => applyCommand(state, command('rework', 'T-001',
+    { ...ext, note: 'CI failed', claim_id: '00000000-0000-4000-8000-000000000000' }), actor), 'STALE_OR_FOREIGN_CLAIM')
+  assertCode(() => applyCommand(state, command('rework', 'T-001', ext), actor), 'REWORK_REASON')
+  const out = applyCommand(state, command('rework', 'T-001', { ...ext, note: 'CI failed; correcting regression' }), actor).snapshot
+  assert.equal(out.tasks[0].status, 'IN_PROGRESS')
+  assert.equal(out.tasks[0].pr_number, 138)
+  assert.equal(out.tasks[0].claim.claim_id, r.claim_id)
+  assertCode(() => applyCommand(out, command('rework', 'T-001', { ...ext, note: 'repeat' }), actor), 'INVALID_TRANSITION')
+})
