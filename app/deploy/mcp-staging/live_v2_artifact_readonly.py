@@ -30,8 +30,12 @@ CLASSES = {
         "controller",
     "BOOT-INF/classes/com/matrix/prp/mcp/McpFirstPartyOidcLinkService.class":
         "service",
-    "BOOT-INF/classes/db/migration/V28__mcp_first_party_oidc_link_flows.sql":
+    # V28 is the immutable 10-minute pairing lease migration; the
+    # first-party OIDC table was moved to V29 in the reconciled lineage.
+    "BOOT-INF/classes/db/migration/V28__mcp_temporary_client_grant_expiry.sql":
         "migration_v28",
+    "BOOT-INF/classes/db/migration/V29__mcp_first_party_oidc_link_flows.sql":
+        "migration_v29",
 }
 
 
