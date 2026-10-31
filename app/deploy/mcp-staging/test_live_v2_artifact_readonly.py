@@ -1,6 +1,10 @@
 """Deterministic, no-Docker tests for read-only live V2 OIDC marker inventory."""
+import hashlib
 import io
 import json
+from pathlib import Path
+import subprocess
+import warnings
 import tarfile
 import unittest
 import zipfile
@@ -19,17 +23,30 @@ def archive(members):
     return out.getvalue()
 
 
-def jar_bytes(paths):
+def jar_bytes(paths, *, corrupted=(), duplicate=False):
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         for path in paths:
-            z.writestr(path, b"synthetic")
+            raw = b"synthetic"
+            if path in probe.REVIEWED_MIGRATION_BLOBS:
+                # Synthetic Docker stream, authentic immutable migration bytes.
+                source = (Path(__file__).resolve().parents[2] /
+                          "backend/src/main/resources/db/migration" /
+                          path.rsplit("/", 1)[-1])
+                raw = source.read_bytes()
+            if path in corrupted:
+                raw += b"\n-- unacceptable migration mutation"
+            z.writestr(path, raw)
+            if duplicate and path.endswith("McpFirstPartyOidcLinkController.class"):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    z.writestr(path, raw)
     return out.getvalue()
 
 
 class FakeRunner:
     def __init__(self, *, frontend=True, backend=True,
-                 missing_js=(), missing_class=()):
+                 missing_js=(), missing_class=(), corrupted=(), duplicate=False):
         self.calls = []
         self.states = {
             probe.GATEWAY: frontend,
@@ -45,8 +62,9 @@ class FakeRunner:
         })
         self.back = archive({
             "app.jar": jar_bytes(
-                path for path, label in probe.CLASSES.items()
-                if label not in missing_class
+                (path for path, label in probe.CLASSES.items()
+                 if label not in missing_class),
+                corrupted=corrupted, duplicate=duplicate,
             )
         })
 
@@ -93,6 +111,54 @@ class ReadOnlyV2ArtifactContract(unittest.TestCase):
         self.assertEqual(r["backend_oidc"], "PARTIAL_MARKERS")
         self.assertEqual(r["artifacts_feature_ready"],
                          "BLOCKED_RUNNING_V2_ARTIFACTS_INCOMPLETE")
+
+    def test_reviewed_git_blob_constants_match_immutable_checkout_bytes(self):
+        for path, expected in probe.REVIEWED_MIGRATION_BLOBS.items():
+            with self.subTest(path=path.rsplit("/", 1)[-1]):
+                source = (Path(__file__).resolve().parents[2] /
+                          "backend/src/main/resources/db/migration" /
+                          path.rsplit("/", 1)[-1])
+                raw = source.read_bytes()
+                header = b"blob " + str(len(raw)).encode("ascii") + b"\0"
+                self.assertEqual(hashlib.sha1(header + raw).hexdigest(), expected)
+
+    def test_correct_sql_name_with_modified_content_fails_closed(self):
+        for path in probe.REVIEWED_MIGRATION_BLOBS:
+            with self.subTest(migration=path.rsplit("/", 1)[-1]):
+                result = probe.check(FakeRunner(corrupted=(path,)))
+                self.assertEqual(result["backend_oidc"], "PARTIAL_MARKERS")
+                self.assertEqual(result["artifacts_feature_ready"],
+                                 "BLOCKED_RUNNING_V2_ARTIFACTS_INCOMPLETE")
+                self.assertIs(result["g0_b2_install_permitted"], False)
+
+    def test_duplicate_entries_are_not_misread_as_running_artifact_parity(self):
+        result = probe.check(FakeRunner(duplicate=True))
+        self.assertEqual(result["artifacts_feature_ready"], "BLOCKED_OR_UNVERIFIED")
+        self.assertEqual(result["safe_diagnostic"], "BACKEND_JAR_DUPLICATE_ENTRIES")
+        self.assertIs(result["docker_state_changed"], False)
+
+    def test_docker_cp_timeout_yields_bounded_result_not_traceback(self):
+        class FailingRead(FakeRunner):
+            def __call__(self, argv, **kw):
+                if argv[1] == "cp":
+                    raise subprocess.TimeoutExpired(cmd=argv, timeout=28)
+                return super().__call__(argv, **kw)
+        result = probe.check(FailingRead())
+        self.assertEqual(result["artifacts_feature_ready"], "BLOCKED_OR_UNVERIFIED")
+        self.assertEqual(result["safe_diagnostic"], "DOCKER_COPY_READ_UNAVAILABLE")
+        self.assertIs(result["docker_state_changed"], False)
+
+    def test_docker_inspect_timeout_refuses_inventory(self):
+        class FailingInspect(FakeRunner):
+            def __call__(self, argv, **kw):
+                if argv[1] == "inspect":
+                    raise subprocess.TimeoutExpired(cmd=argv, timeout=8)
+                return super().__call__(argv, **kw)
+        result = probe.check(FailingInspect())
+        self.assertEqual(result["artifacts_feature_ready"],
+                         "BLOCKED_UNAVAILABLE_CONTAINER")
+        self.assertEqual(result["gateway_running"], "NO")
+        self.assertEqual(result["backend_running"], "NO")
 
     def test_old_v28_oidc_without_v29_is_not_candidate_ready(self):
         # An old image with the incorrect V28 OIDC SQL name cannot satisfy
