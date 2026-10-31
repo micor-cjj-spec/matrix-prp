@@ -189,7 +189,7 @@ class IsolatedV24BackupRestoreMcpV28IT {
                     +"WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='"+name+"'")).isZero();
             }
             assertThat(count(clone,"SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS "
-                +"WHERE CONSTRAINT_SCHEMA=DATABASE() AND CONSTRAINT_NAME LIKE 'fk_prp_mcp_%'")).isEqualTo(5);
+                +"WHERE CONSTRAINT_SCHEMA=DATABASE() AND (CONSTRAINT_NAME LIKE 'fk_prp_mcp_%' OR CONSTRAINT_NAME='fk_mcp_pairing_grant')")).isEqualTo(5);
             assertThat(fingerprints(clone)).containsExactlyInAnyOrderEntriesOf(original);
             assertThat(fingerprints(source)).containsExactlyInAnyOrderEntriesOf(original);
             assertV24(source);
