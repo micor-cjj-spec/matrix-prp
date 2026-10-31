@@ -58,7 +58,7 @@ class ExistingPrpV24ToMcpV28UpgradeIT {
         "prp_mcp_client_grants",
         "prp_mcp_identity_links",
         "prp_mcp_link_tickets",
-        "prp_mcp_oidc_link_flows"
+        "prp_mcp_pairing_grant_leases"
     );
 
     private static void assertDisposableOnly() {
@@ -195,9 +195,9 @@ class ExistingPrpV24ToMcpV28UpgradeIT {
             for (String mcpTable : EXPECTED_ADDITIONAL_TABLES)
                 assertThat(oldTables).doesNotContain(mcpTable);
 
-            var second = flyway(null).migrate();
+            var second = flyway(MigrationVersion.fromVersion("28")).migrate();
             assertThat(second.migrationsExecuted).isEqualTo(4);
-            flyway(null).validate();
+            flyway(MigrationVersion.fromVersion("28")).validate();
             assertThat(count(conn, "SELECT COUNT(*) FROM flyway_schema_history "
                 + "WHERE success=1 AND version IS NOT NULL")).isEqualTo(28);
             assertThat(digest(conn, "SELECT version,script,checksum,success "
