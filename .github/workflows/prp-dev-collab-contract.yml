@@ -2,7 +2,7 @@ name: PRP Dev Collaboration Contract
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'integrate/**']
     paths:
       - 'app/scripts/dev-collab/**'
       - 'app/docs/dev-collab/**'
