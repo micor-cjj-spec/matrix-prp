@@ -3,6 +3,7 @@ on:
   pull_request:
     branches:
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
     paths:
       - 'app/backend/src/main/resources/db/migration/**'
       - 'app/backend/src/test/java/com/matrix/prp/FlywayV28ToV29IT.java'
@@ -43,7 +44,7 @@ jobs:
           node-version: '22'
       - name: Verify migration policy
         run: node app/scripts/verify-db-migrations.mjs
-      - name: Flyway upgrade V28 to V29 on disposable MySQL
+      - name: Flyway upgrade populated synthetic V28 to V29 on disposable MySQL
         working-directory: app/backend
         env:
           MATRIX_PRP_FLYWAY_V28_V29_URL: jdbc:mysql://127.0.0.1:3306/prp_flyway_v28_v29?useSSL=false&allowPublicKeyRetrieval=true
