@@ -55,14 +55,23 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.actor == github.repository_owner
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    environment: prp-collab-controller
     permissions:
-      contents: write
+      contents: read
       pull-requests: read
       checks: read
     steps:
+      - name: Mint state-writer GitHub App token
+        id: collab-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.PRP_COLLAB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PRP_COLLAB_APP_PRIVATE_KEY }}
+          permission-contents: write
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          token: ${{ steps.collab-token.outputs.token }}
           persist-credentials: true
       - uses: actions/setup-node@v4
         with:
@@ -75,6 +84,17 @@ jobs:
           set -euo pipefail
           protection="$(gh api "repos/${GITHUB_REPOSITORY}/branches/prp-collab-state" --jq '.protected')"
           [[ "$protection" == true ]] || { echo 'STATE_BRANCH_UNPROTECTED'; exit 2; }
+      - name: Verify exact active ruleset and dedicated writer app
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COLLAB_APP_ID: ${{ vars.PRP_COLLAB_APP_ID }}
+          COLLAB_RULESET_ID: ${{ vars.PRP_COLLAB_RULESET_ID }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$COLLAB_RULESET_ID" =~ ^[0-9]+$ ]] || { echo 'CONFIGURE_RULESET_ID'; exit 2; }
+          gh api "repos/${GITHUB_REPOSITORY}/rulesets/${COLLAB_RULESET_ID}" > "$RUNNER_TEMP/state-ruleset.json"
+          node app/scripts/dev-collab/state-rule-policy.mjs "$RUNNER_TEMP/state-ruleset.json"
       - name: Apply a single authenticated task command using fast-forward-only Git
         shell: bash
         env:

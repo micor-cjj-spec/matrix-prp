@@ -45,3 +45,13 @@ For offline read-only preview: `node app/scripts/dev-collab/board.mjs /path/to/R
 ## Returning an unaccepted PR to development
 
 If the existing Task PR fails CI or needs changes, its *current owner* can issue `rework` while the task is `IN_REVIEW`. The action requires the same valid claim and a nonempty reason. It returns to `IN_PROGRESS` without destroying the existing PR link or issuing another claim. The owner may push fixes, then `submit` a new reviewed commit SHA. It never self-approves the PR or changes the requirement acceptance state.
+
+## Dedicated app state-ref write policy (REQUIRED before activation)
+
+The coordinator uses a dedicated GitHub App installation token scoped to this repository with `Contents: write`. It must not use a generic write-capable `GITHUB_TOKEN`, a personal access token, or a bypass grant for *all* GitHub Actions.
+
+Configure a dedicated GitHub App installed **only** on `micor-cjj-spec/matrix-prp` and restricted to the fewest repository permissions possible (Contents: read/write). Create an isolated GitHub environment named `prp-collab-controller` with required reviewer approval. Store the App private key as this environment's secret `PRP_COLLAB_APP_PRIVATE_KEY` and its client ID as variable `PRP_COLLAB_APP_CLIENT_ID`; add repo/environment variables `PRP_COLLAB_APP_ID` (numeric GitHub App ID) and `PRP_COLLAB_RULESET_ID` (the ruleset ID).
+
+Create one active **branch** ruleset matching exactly `refs/heads/prp-collab-state` and no other branch. Require `Restrict updates`, `Restrict deletions`, and `Block force pushes`/non-fast-forward. Allow **only the dedicated GitHub App** on its bypass list with always-bypass; do not add repository admins, general write roles, or the default GitHub Actions identity. Preserve the independent protected `main` ruleset without granting the collaboration app a bypass there. Verify both the ruleset REST representation and a permitted test push by the dedicated app before enabling real work.
+
+If the app, secrets, reviewer environment, ruleset or its exact bypass actor are absent or mismatched, the workflow must fail closed. This setup has **NOT** been performed. Do not paste private keys or tokens into ChatGPT.

@@ -27,7 +27,9 @@ async function execute() {
   if (env.COLLAB_PR_NUMBER) command.pr_number = Number(env.COLLAB_PR_NUMBER)
   if (env.COLLAB_HEAD_SHA) command.head_sha = env.COLLAB_HEAD_SHA
   const raw = JSON.parse(readFileSync(statePath, 'utf8'))
-  const reviewContext = (env.COLLAB_ACTION === 'accept' || env.COLLAB_ACTION === 'close')
+  // First permit authenticated receipt replay without trying to re-approve an already completed task.
+  const isKnownReplay = raw.processed_requests?.some(x => x.request_id === command.request_id)
+  const reviewContext = !isKnownReplay && (env.COLLAB_ACTION === 'accept' || env.COLLAB_ACTION === 'close')
     ? trustedReviewContext(raw, command, env, ghApi)
     : {}
   const { snapshot, receipt } = applyCommand(raw, command, {

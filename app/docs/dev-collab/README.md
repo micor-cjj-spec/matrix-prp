@@ -52,3 +52,5 @@ The state request history is deliberately bounded at 512 entries per requirement
 ## Current activation blocker
 
 `prp-collab-state` is currently **unprotected** on GitHub. The candidate write coordinator refuses to run until branch protection is enabled and independently reviewed. The optional read-only board workflow has no write token and does not require activation of the write path. Do not regard feature-branch CI success as permission to merge or enable production release.
+
+> Security activation change: the write coordinator requires a reviewed dedicated GitHub App, an environment approval and an exact active state-ref ruleset. The default Actions token no longer has contents write. The secrets, GitHub App and branch ruleset have not been provisioned.
