@@ -52,11 +52,12 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
     def check(self, obj):
         return m.analyze(obj, self.scripts)
 
-    def test_expected_local_migrations_are_strict_1_to_28(self):
-        self.assertEqual(set(self.scripts), set(range(1, 29)))
+    def test_expected_local_migrations_are_strict_1_to_29(self):
+        self.assertEqual(set(self.scripts), set(range(1, 30)))
         self.assertEqual(self.scripts[24], "V24__vocal_song_library_and_assignments.sql")
         self.assertEqual(self.scripts[25], "V25__mcp_write_drafts.sql")
-        self.assertEqual(self.scripts[28], "V28__mcp_first_party_oidc_link_flows.sql")
+        self.assertEqual(self.scripts[28], "V28__mcp_temporary_client_grant_expiry.sql")
+        self.assertEqual(self.scripts[29], "V29__mcp_first_party_oidc_link_flows.sql")
 
     def test_synthetic_v24_cannot_be_mistaken_for_signed_upgrade_approval(self):
         out = self.check(self.history())
@@ -251,7 +252,7 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
 
     def test_opt_in_source_crc_reference_matches_only_identical_values(self):
         reference = m.source_crc32()
-        self.assertEqual(set(reference), set(range(1, 29)))
+        self.assertEqual(set(reference), set(range(1, 30)))
         self.assertTrue(all(type(value) is int for value in reference.values()))
         a = self.history()
         for row in a["history"]:
@@ -266,7 +267,7 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
             "MIGRATION_CHECKSUM_DRIFT"
         )
 
-    def test_source_crc_reference_requires_28_complete_integer_records(self):
+    def test_source_crc_reference_requires_29_complete_integer_records(self):
         a = self.history()
         self.assertEqual(
             m.analyze(a, self.scripts, verified_source_crc={24: 7})["reason"],
