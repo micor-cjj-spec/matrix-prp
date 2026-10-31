@@ -321,7 +321,9 @@ export MATRIX_PRP_MCP_ENABLED="true"
 export MATRIX_PRP_MCP_OAUTH_ENABLED="true"
 export MATRIX_PRP_MCP_WRITE_ENABLED="false"
 if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
+  # Only disposable CI can advertise write tools; production remains default OFF.
   export MATRIX_PRP_MCP_WRITE_ENABLED="true"
+  export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="prp.tasks.read,prp.write.create,prp.write.status,prp.write.confirm,prp.write.update,prp.write.delete"
 fi
 export MATRIX_PRP_MCP_ALLOWED_ORIGINS="https://prp-e2e.localhost"
 export MATRIX_PRP_MCP_OAUTH_ISSUER="https://auth-e2e.localhost/realms/prp-mcp"
