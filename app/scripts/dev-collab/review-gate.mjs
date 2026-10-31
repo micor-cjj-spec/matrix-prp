@@ -45,6 +45,10 @@ export function verifyTaskEvidence(snapshot,taskId,evidence){
 }
 
 function verifyCheckSet(checks,sha){
+  check(checks && Number.isInteger(checks.total_count) &&
+    Array.isArray(checks.check_runs) &&
+    checks.total_count === checks.check_runs.length &&
+    checks.total_count<=100,'INCOMPLETE_CHECK_PAGINATION')
   const evidenceMap=new Map()
   for(const run of checks.check_runs){
     if(!REQUIRED_CHECKS.includes(run?.name) || run?.app?.slug!=='github-actions')continue
@@ -56,7 +60,7 @@ function verifyCheckSet(checks,sha){
   for(const name of REQUIRED_CHECKS){
     const run=evidenceMap.get(name)
     check(run,'CHECK_MISSING_'+name)
-    check(run.head_sha===task.head_sha&&run.status==='completed'&&run.conclusion==='success',
+    check(run.head_sha===sha&&run.status==='completed'&&run.conclusion==='success',
       'CHECK_NOT_GREEN_'+name)
   }
   return true
