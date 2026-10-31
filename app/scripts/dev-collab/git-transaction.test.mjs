@@ -27,7 +27,7 @@ function setup() {
   git(seed, ['remote', 'add', 'origin', origin])
   const scripts = join(seed, 'app/scripts/dev-collab')
   mkdirSync(scripts, { recursive: true })
-  for (const name of ['core.mjs', 'coordinator-cli.mjs', 'state-transaction.sh']) {
+  for (const name of ['core.mjs', 'review-gate.mjs', 'review-context.mjs', 'coordinator-cli.mjs', 'state-transaction.sh']) {
     cpSync(join(source, name), join(scripts, name))
   }
   git(seed, ['add', '.'])
