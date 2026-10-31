@@ -9,6 +9,7 @@ on:
       - '.github/ISSUE_TEMPLATE/**'
       - '.github/PULL_REQUEST_TEMPLATE.md'
       - '.github/workflows/prp-dev-collab-contract.yml'
+      - '.github/workflows/prp-collab-coordinator.yml'
   workflow_dispatch:
 
 permissions:
