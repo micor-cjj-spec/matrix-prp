@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { CollabError } from './core.mjs'
 import { verifyTaskEvidence, verifyIntegrationRelease, verifyRequirementClose } from './review-gate.mjs'
+import { verifyWorkflowProvenance } from './review-provenance.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/
@@ -28,6 +29,8 @@ export function trustedReviewContext(snapshot,command,env,api){
     const comparison=api(`repos/${REPO}/compare/${pr.merge_commit_sha}...${branch.commit.sha}`)
     const checks=api(`repos/${REPO}/commits/${task.head_sha}/check-runs?per_page=100`)
     verifyTaskEvidence(snapshot,command.task_id,{pr,branch,comparison,checks})
+    verifyWorkflowProvenance(checks,{sha:task.head_sha,prNumber:task.pr_number,
+      baseRef:integrationRef,headRef:pr.head.ref},id=>api(`repos/${REPO}/actions/runs/${id}`))
     return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true}
   }
   check(Number.isInteger(command.pr_number)&&SHA.test(command.head_sha),'MISSING_INTEGRATION_PR')
@@ -37,6 +40,8 @@ export function trustedReviewContext(snapshot,command,env,api){
   const comparison=api(`repos/${REPO}/compare/${pr.merge_commit_sha}...${branch.commit.sha}`)
   const checks=api(`repos/${REPO}/commits/${command.head_sha}/check-runs?per_page=100`)
   verifyIntegrationRelease(snapshot,command,{pr,branch,comparison,checks})
+  verifyWorkflowProvenance(checks,{sha:command.head_sha,prNumber:command.pr_number,
+    baseRef:'main',headRef:pr.head.ref},id=>api(`repos/${REPO}/actions/runs/${id}`))
   verifyRequirementClose(snapshot,{
     actorIsRepositoryOwner:true,explicitAcceptance:true,integrationReviewVerified:true
   })

@@ -13,15 +13,28 @@ const state=()=>({schema_version:1,requirement_id:req,issue_number:132,title:'MV
  pr_number:138,head_sha:sha}]})
 const checks={total_count:REQUIRED_CHECKS.length,check_runs:REQUIRED_CHECKS.map((name,i)=>({
  name,id:i+1,head_sha:sha,status:'completed',conclusion:'success',
+ details_url:'https://github.com/micor-cjj-spec/matrix-prp/actions/runs/'+(name==='impact-report'?102:name==='dev-collab-contract'?103:101)+'/job/'+(i+1),
  started_at:'2026-10-31T18:00:00Z',app:{slug:'github-actions'}
 }))}
+const fakeRun = (route,baseRef,headRef,prNumber)=>{
+ const id=Number(route.split('/').pop())
+ const names={101:['CI','.github/workflows/ci.yml'],
+   102:['Feature Impact Report','.github/workflows/feature-impact.yml'],
+   103:['PRP Dev Collaboration Contract','.github/workflows/prp-dev-collab-contract.yml']}
+ const [name,path]=names[id]||[]
+ return {name,path,event:'pull_request',status:'completed',conclusion:'success',head_sha:sha,
+  head_branch:headRef,repository:{full_name:'micor-cjj-spec/matrix-prp'},
+  head_repository:{full_name:'micor-cjj-spec/matrix-prp'},
+  pull_requests:[{number:prNumber,head:{sha},base:{ref:baseRef}}]}
+}
 function fake(path){
- if(path.endsWith('/pulls/138'))return{number:138,head:{sha,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+ if(path.endsWith('/pulls/138'))return{number:138,head:{sha,ref:'feat/task-001',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
  base:{ref:'integrate/'+req,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
  merged:true,merged_at:'2026-10-31T18:00:00Z',merge_commit_sha:merge}
  if(path.includes('/branches/'))return{name:'integrate/'+req,protected:true,commit:{sha:branchSha}}
  if(path.includes('/compare/'))return{status:'ahead',behind_by:0,base_commit:{sha:merge},merge_base_commit:{sha:merge},commits:[]}
  if(path.includes('/check-runs'))return checks
+ if(path.includes('/actions/runs/'))return fakeRun(path,'integrate/'+req,'feat/task-001',138)
  throw new Error('unexpected request '+path)
 }
 test('trusted reviewed action may consume exact verified GitHub evidence',()=>{
@@ -57,6 +70,7 @@ test('owner can close only with a separately merged and protected main integrati
    if(route.includes('/compare/'))return{status:'ahead',behind_by:0,base_commit:{sha:merge},
      merge_base_commit:{sha:merge},commits:[]}
    if(route.includes('/check-runs'))return checks
+   if(route.includes('/actions/runs/'))return fakeRun(route,'main','integrate/'+req,139)
    throw new Error('unexpected route '+route)
  }
  const proof=trustedReviewContext(s,command,ctx,valid)
@@ -77,6 +91,7 @@ test('cannot close a requirement with unfinished tasks even if final PR is merge
    if(route.includes('/compare/'))return{status:'identical',behind_by:0,
      base_commit:{sha:merge},merge_base_commit:{sha:merge}}
    if(route.includes('/check-runs'))return checks
+   if(route.includes('/actions/runs/'))return fakeRun(route,'main','integrate/'+req,139)
    throw new Error('unexpected route '+route)
  }
  assert.throws(()=>trustedReviewContext(s,command,ctx,fakeApproval),e=>e.code==='INCOMPLETE_REQUIREMENT')
