@@ -10,6 +10,7 @@ test('Issue projection is manual-only and restricted to authenticated owner on p
   assert.match(workflow,/ref: \$\{\{ github\.sha \}\}/)
   assert.match(workflow,/STATE_BRANCH_UNPROTECTED/)
   assert.match(workflow,/issues: write/)
+  assert.match(workflow,/queue: max/)
   assert.doesNotMatch(workflow,/contents: write|pull-requests: write|pull_request_target:/)
 })
 test('Issue updater cannot edit Issue body or mutate branch or PR',()=>{

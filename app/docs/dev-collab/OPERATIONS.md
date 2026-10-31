@@ -55,3 +55,7 @@ Configure a dedicated GitHub App installed **only** on `micor-cjj-spec/matrix-pr
 Create one active **branch** ruleset matching exactly `refs/heads/prp-collab-state` and no other branch. Require `Restrict updates`, `Restrict deletions`, and `Block force pushes`/non-fast-forward. Allow **only the dedicated GitHub App** on its bypass list with always-bypass; do not add repository admins, general write roles, or the default GitHub Actions identity. Preserve the independent protected `main` ruleset without granting the collaboration app a bypass there. Verify both the ruleset REST representation and a permitted test push by the dedicated app before enabling real work.
 
 If the app, secrets, reviewer environment, ruleset or its exact bypass actor are absent or mismatched, the workflow must fail closed. This setup has **NOT** been performed. Do not paste private keys or tokens into ChatGPT.
+
+## Pending workflow dispatches
+
+GitHub Actions defaults to one pending run per concurrency group: a newer pending run replaces the older one even if `cancel-in-progress` is false. This implementation uses `queue: max` for per-task coordination and per-requirement Issue projections, allowing up to 100 pending runs. The Git fast-forward compare-and-swap remains the conflict resolution for different tasks running concurrently. A canceled or failed run must not be marked as a received claim; retry with the original UUID only if its Git receipt is absent.

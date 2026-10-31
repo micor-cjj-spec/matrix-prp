@@ -23,6 +23,7 @@ test('coordinator is manual, main-only, owner-only, and avoids production permis
   assert.match(workflow, /STATE_BRANCH_UNPROTECTED/)
   assert.match(workflow, /branches\/prp-collab-state/)
   assert.match(workflow, /cancel-in-progress: false/)
+  assert.match(workflow, /queue: max/)
   assert.doesNotMatch(workflow, /\bproduction\s*\n|secrets\.(?!PRP_COLLAB_APP_PRIVATE_KEY)[A-Z_]+|pull-requests: write/)
 })
 

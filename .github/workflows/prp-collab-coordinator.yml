@@ -49,6 +49,7 @@ concurrency:
   # Different tasks can queue independently; cross-task races are resolved by Git non-force push.
   group: prp-collab-${{ inputs.requirement_id }}-${{ inputs.task_id }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   mutate-state:
