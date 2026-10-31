@@ -220,12 +220,15 @@ export function applyCommand(original, command, context) {
     case 'accept':
       check(task.status === 'IN_REVIEW', 'INVALID_TRANSITION')
       check(context.reviewerAuthorized === true && context.ciVerified === true &&
-        context.mergedIntoIntegration === true, 'REVIEW_EVIDENCE_REQUIRED')
+        context.mergedIntoIntegration === true && command.pr_number === task.pr_number &&
+        command.head_sha === task.head_sha, 'REVIEW_EVIDENCE_REQUIRED')
       task.claim = null
       task.status = 'DONE'
       break
     case 'close':
-      check(context.reviewerAuthorized === true && context.acceptanceApproved === true, 'REQUIREMENT_APPROVAL_REQUIRED')
+      check(context.reviewerAuthorized === true && context.acceptanceApproved === true &&
+        context.integrationReviewVerified === true && Number.isInteger(command.pr_number) &&
+        HEX_SHA.test(command.head_sha), 'REQUIREMENT_APPROVAL_REQUIRED')
       check(next.tasks.every(t => ['DONE', 'CANCELED'].includes(t.status)), 'INCOMPLETE_REQUIREMENT')
       next.status = 'CLOSED'
       break

@@ -148,3 +148,16 @@ test('review rejection returns only the existing claimant to active development'
   assert.equal(out.tasks[0].claim.claim_id, r.claim_id)
   assertCode(() => applyCommand(out, command('rework', 'T-001', { ...ext, note: 'repeat' }), actor), 'INVALID_TRANSITION')
 })
+
+test('accept requires verified exact PR number and head SHA in addition to reviewer context', () => {
+  const r = claim(make(), 'T-001')
+  const ext={worker_id:'chat-A',claim_id:r.claim_id}
+  let s=applyCommand(r.state,command('start','T-001',ext),actor).snapshot
+  s=applyCommand(s,command('submit','T-001',{...ext,pr_number:138,head_sha:'a'.repeat(40)}),actor).snapshot
+  const ctx={...actor,reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true}
+  assertCode(()=>applyCommand(s,command('accept','T-001',{pr_number:139,head_sha:'a'.repeat(40)}),ctx),'REVIEW_EVIDENCE_REQUIRED')
+  assertCode(()=>applyCommand(s,command('accept','T-001',{pr_number:138,head_sha:'b'.repeat(40)}),ctx),'REVIEW_EVIDENCE_REQUIRED')
+  const done=applyCommand(s,command('accept','T-001',{pr_number:138,head_sha:'a'.repeat(40)}),ctx).snapshot
+  assert.equal(done.tasks[0].status,'DONE')
+  assert.equal(done.tasks[0].claim,null)
+})

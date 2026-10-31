@@ -8,7 +8,7 @@ on:
         description: 'Allowed task transition'
         type: choice
         required: true
-        options: [claim, start, progress, pause, block, resume, release, submit, rework]
+        options: [claim, start, progress, pause, block, resume, release, submit, rework, accept, close]
       requirement_id:
         description: 'REQ-YYYYMMDD-NNN'
         type: string
@@ -16,7 +16,7 @@ on:
       task_id:
         description: 'T-NNN'
         type: string
-        required: true
+        required: false
       request_id:
         description: 'New UUID; reuse the same UUID for retry'
         type: string
@@ -57,6 +57,8 @@ jobs:
     timeout-minutes: 8
     permissions:
       contents: write
+      pull-requests: read
+      checks: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,6 +78,7 @@ jobs:
       - name: Apply a single authenticated task command using fast-forward-only Git
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           COLLAB_ACTION: ${{ inputs.action }}
           COLLAB_REQ_ID: ${{ inputs.requirement_id }}
           COLLAB_TASK_ID: ${{ inputs.task_id }}

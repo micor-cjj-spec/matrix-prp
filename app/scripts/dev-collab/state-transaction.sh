@@ -7,11 +7,15 @@ set -Eeuo pipefail
   echo 'OWNER_ONLY'; exit 2;
 }
 [[ "${COLLAB_REQ_ID:-}" =~ ^REQ-[0-9]{8}-[0-9]{3}$ ]] || { echo 'INVALID_REQ_ID'; exit 2; }
-[[ "${COLLAB_TASK_ID:-}" =~ ^T-[0-9]{3}$ ]] || { echo 'INVALID_TASK_ID'; exit 2; }
+if [[ "${COLLAB_ACTION:-}" == 'close' ]]; then
+  [[ -z "${COLLAB_TASK_ID:-}" ]] || { echo 'CLOSE_HAS_TASK_ID'; exit 2; }
+else
+  [[ "${COLLAB_TASK_ID:-}" =~ ^T-[0-9]{3}$ ]] || { echo 'INVALID_TASK_ID'; exit 2; }
+fi
 [[ "${COLLAB_REQUEST_ID:-}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
   echo 'INVALID_REQUEST_ID'; exit 2;
 }
-[[ "${COLLAB_ACTION:-}" =~ ^(claim|start|progress|pause|block|resume|release|submit|rework)$ ]] || {
+[[ "${COLLAB_ACTION:-}" =~ ^(claim|start|progress|pause|block|resume|release|submit|rework|accept|close)$ ]] || {
   echo 'INVALID_ACTION'; exit 2;
 }
 

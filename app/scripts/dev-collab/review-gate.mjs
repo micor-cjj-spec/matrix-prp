@@ -36,6 +36,15 @@ export function verifyTaskEvidence(snapshot,taskId,evidence){
     comparison.commits!==undefined,'COMPARE_PROVENANCE_MISMATCH')
   check(checks && Number.isInteger(checks.total_count) && checks.total_count===checks.check_runs?.length &&
     checks.total_count<=100,'INCOMPLETE_CHECK_PAGINATION')
+  verifyCheckSet(checks,task.head_sha)
+  return Object.freeze({
+    task_id:taskId, pr_number:task.pr_number, head_sha:task.head_sha,
+    integration_sha:branch.commit.sha, merge_commit_sha:pr.merge_commit_sha,
+    checks:REQUIRED_CHECKS.length, verified:true
+  })
+}
+
+function verifyCheckSet(checks,sha){
   const evidenceMap=new Map()
   for(const run of checks.check_runs){
     if(!REQUIRED_CHECKS.includes(run?.name) || run?.app?.slug!=='github-actions')continue
@@ -50,11 +59,7 @@ export function verifyTaskEvidence(snapshot,taskId,evidence){
     check(run.head_sha===task.head_sha&&run.status==='completed'&&run.conclusion==='success',
       'CHECK_NOT_GREEN_'+name)
   }
-  return Object.freeze({
-    task_id:taskId, pr_number:task.pr_number, head_sha:task.head_sha,
-    integration_sha:branch.commit.sha, merge_commit_sha:pr.merge_commit_sha,
-    checks:REQUIRED_CHECKS.length, verified:true
-  })
+  return true
 }
 
 export function verifyRequirementClose(snapshot, acceptance){
@@ -65,4 +70,24 @@ export function verifyRequirementClose(snapshot, acceptance){
   check(acceptance?.explicitAcceptance===true,'EXPLICIT_ACCEPTANCE_REQUIRED')
   check(acceptance?.integrationReviewVerified===true,'INTEGRATION_REVIEW_REQUIRED')
   return Object.freeze({requirement_id:snapshot.requirement_id,ready_to_close:true,version:snapshot.version})
+}
+
+
+export function verifyIntegrationRelease(snapshot,command,proof){
+  validateSnapshot(snapshot)
+  check(snapshot.tasks.every(t=>t.status==='DONE'),'INCOMPLETE_REQUIREMENT')
+  check(Number.isInteger(command.pr_number) && SHA.test(command.head_sha),'MISSING_INTEGRATION_PR')
+  const {pr,branch,comparison,checks}=proof ?? {}
+  check(pr?.number===command.pr_number&&pr?.head?.sha===command.head_sha,'WRONG_PR_OR_HEAD')
+  check(pr?.head?.ref==='integrate/'+snapshot.requirement_id &&
+        pr?.head?.repo?.full_name==='micor-cjj-spec/matrix-prp' &&
+        pr?.base?.ref==='main'&&pr?.base?.repo?.full_name==='micor-cjj-spec/matrix-prp',
+        'WRONG_MAIN_RELEASE_TARGET')
+  check(pr?.merged===true&&exactIso(pr?.merged_at)&&SHA.test(pr?.merge_commit_sha),'PR_NOT_MERGED')
+  check(branch?.name==='main'&&branch?.protected===true&&SHA.test(branch?.commit?.sha),'MAIN_NOT_PROTECTED')
+  check((comparison?.status==='ahead'||comparison?.status==='identical')&&
+    comparison.behind_by===0&&comparison.base_commit?.sha===pr.merge_commit_sha&&
+    comparison.merge_base_commit?.sha===pr.merge_commit_sha,'MERGE_NOT_ON_BASE')
+  verifyCheckSet(checks,command.head_sha)
+  return Object.freeze({integration_pr:command.pr_number,verified:true,main_sha:branch.commit.sha})
 }
