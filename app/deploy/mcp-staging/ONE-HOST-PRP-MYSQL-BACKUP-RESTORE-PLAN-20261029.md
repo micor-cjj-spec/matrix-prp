@@ -342,3 +342,58 @@ requirements. Do **not** execute the synthetic workflow against the
 V2 host or change its hard-coded CI host/URL guards to point to the
 existing database. No current V2, production DB, external OAuth client
 or public route was modified by this work.
+
+
+### Actual isolated V2 backup-object metadata — 2026-10-31
+
+The operator ran a **single SELECT-only transaction** using existing
+non-root credentials exclusively against `prp-mcp-v2-mysql-1`. The
+database name was guarded to the isolated `matrix_prp_mcp_*` scope.
+The command completed with
+`V2_BACKUP_METADATA_READ_ONLY=COMPLETE`:
+
+| Observed metadata | Real V2 result |
+| --- | --- |
+| Visible objects / BASE TABLES | 62 / 62 |
+| Visible InnoDB base tables | 62 |
+| Visible non-InnoDB base tables | 0 |
+| Visible views / triggers / routines / events | 0 / 0 / 0 / 0 |
+| `information_schema.TABLES` sum of data + index | ~2.6 MiB |
+| Data-volume aggregate filesystem footprint | 218 MiB (prior bounded `du`) |
+| Free space / available RAM at review | 33,683 / 2,874 MiB |
+| Global binary logging / GTID mode | ON / OFF |
+| Global default transaction isolation | `REPEATABLE-READ` |
+| Any real snapshot or restore performed | NO |
+
+The 62 observed V2 base tables are **consistent with** the 57
+source-built V24 tables plus five V25–V28 MCP tables, but matching a
+count does **not** validate all schema definitions, data rows, FKs,
+visibility or recovery. The 2.6 MiB catalog statistic, 218 MiB Docker
+data-volume footprint and actual logical archive size are different
+measurements. No archive size has been observed.
+
+All *visible* base tables use InnoDB, so a later authorized, controlled
+`mysqldump --single-transaction --quick` is a plausible candidate for
+a transactionally consistent logical snapshot **if** the complete
+backup account scope, active concurrent DDL restrictions, full object
+coverage, privileges, foreign keys, binary-log recovery coordinates,
+backup retention, integrity, encryption and restore verification are
+independently established. `REPEATABLE-READ` defaults do not by
+themselves prove backup consistency; global binlog ON / GTID OFF is
+metadata, not an actual point-in-time recovery procedure. Object counts
+of zero reflect current-account visibility **only**.
+
+**Resource distinction:** approximately 2.81 GiB available memory is
+the whole host's momentary free envelope, not budget for a second MySQL
+configured like the two 1.5 GiB instances in synthetic GitHub CI.
+Any separately approved V2 rehearsal must use *at most one additional*
+newly named, privately isolated clone with reviewed memory/CPU/I/O
+limits and explicit workload/abort thresholds, while the existing V2
+and production services continue. The same-root-filesystem capacity
+result is never an independent backup. Do not begin a real dump, create
+a host directory/container/volume, copy data, replay V29, restore or
+expose OAuth without original operator approval and a recoverable,
+separate failure-domain backup strategy.
+
+The next gate is **operational authorization and actual recovery
+design**, not more repeats of identical Flyway or table-count queries.
