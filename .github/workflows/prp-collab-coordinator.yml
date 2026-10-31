@@ -1,0 +1,79 @@
+name: PRP Collaboration Coordinator
+
+# This workflow exists only as a reviewed manual controller. It must not run PR code.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Allowed task transition'
+        type: choice
+        required: true
+        options: [claim, start, progress, pause, block, resume, release, submit]
+      requirement_id:
+        description: 'REQ-YYYYMMDD-NNN'
+        type: string
+        required: true
+      task_id:
+        description: 'T-NNN'
+        type: string
+        required: true
+      request_id:
+        description: 'New UUID; reuse the same UUID for retry'
+        type: string
+        required: true
+      worker_id:
+        description: 'Advisory per-chat worker identifier'
+        type: string
+        required: true
+      claim_id:
+        description: 'Claim ID from successful claim run; except claim'
+        type: string
+        required: false
+      note:
+        description: 'Progress/block reason; no secrets'
+        type: string
+        required: false
+      pr_number:
+        description: 'Linked task PR number for submit'
+        type: string
+        required: false
+      head_sha:
+        description: 'Exact task PR head SHA for submit'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prp-collab-state
+  cancel-in-progress: false
+
+jobs:
+  mutate-state:
+    if: github.ref == 'refs/heads/main' && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply a single authenticated task command using fast-forward-only Git
+        shell: bash
+        env:
+          COLLAB_ACTION: ${{ inputs.action }}
+          COLLAB_REQ_ID: ${{ inputs.requirement_id }}
+          COLLAB_TASK_ID: ${{ inputs.task_id }}
+          COLLAB_REQUEST_ID: ${{ inputs.request_id }}
+          COLLAB_WORKER_ID: ${{ inputs.worker_id }}
+          COLLAB_CLAIM_ID: ${{ inputs.claim_id }}
+          COLLAB_NOTE: ${{ inputs.note }}
+          COLLAB_PR_NUMBER: ${{ inputs.pr_number }}
+          COLLAB_HEAD_SHA: ${{ inputs.head_sha }}
+        run: bash app/scripts/dev-collab/state-transaction.sh
