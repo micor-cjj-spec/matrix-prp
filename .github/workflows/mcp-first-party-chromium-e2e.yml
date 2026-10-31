@@ -11,6 +11,8 @@ on:
       - "app/web/src/views/McpOidcCallbackView.vue"
       - "app/web/src/api/mcpFirstPartyOidc.ts"
       - "app/web/src/router/index.ts"
+      - "app/web/src/router/safeUnauthenticatedRedirect.ts"
+      - "app/web/scripts/mcp-redirect-guard.test.mjs"
       - "app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py"
       - "app/deploy/mcp-oauth/ci_browser_route_review.py"
       - "app/deploy/mcp-oauth/test_ci_browser_route_review.py"
@@ -35,6 +37,8 @@ on:
       - "app/web/src/views/McpOidcCallbackView.vue"
       - "app/web/src/api/mcpFirstPartyOidc.ts"
       - "app/web/src/router/index.ts"
+      - "app/web/src/router/safeUnauthenticatedRedirect.ts"
+      - "app/web/scripts/mcp-redirect-guard.test.mjs"
       - "app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py"
       - "app/deploy/mcp-oauth/ci_browser_route_review.py"
       - "app/deploy/mcp-oauth/test_ci_browser_route_review.py"
@@ -89,6 +93,8 @@ jobs:
         run: |
           python3 -m pip install --no-cache-dir playwright==1.55.0
           python3 -m playwright install --with-deps chromium
+      - name: Reject OAuth code and state leakage into login redirect
+        run: node --test app/web/scripts/mcp-redirect-guard.test.mjs
       - name: Syntax guard browser and CI shell code
         run: |
           bash -n app/deploy/mcp-oauth/test_full_e2e_ci.sh
