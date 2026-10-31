@@ -8,6 +8,7 @@ inspect marker PRESENCE locally in memory, emit only bounded status labels.
 Never print image/JAR/asset contents, filenames, credentials or metadata.
 This is NOT a release gate or evidence of real login/API functionality.
 """
+import hashlib
 import io
 import json
 import subprocess
@@ -20,6 +21,16 @@ ASSETS = "/usr/share/nginx/html/assets"
 JAR = "/opt/prp/app.jar"
 MAX_ASSET_TAR = 45 * 1024 * 1024
 MAX_JAR_TAR = 180 * 1024 * 1024
+MAX_JAR_ZIP_ENTRIES = 50000
+MAX_MIGRATION_SQL_BYTES = 1024 * 1024
+# Git blob identities pinned to PR #131's immutable V28/V29 SQL. This check
+# is offline byte parity, not independent signing or release authorization.
+REVIEWED_MIGRATION_BLOBS = {
+    "BOOT-INF/classes/db/migration/V28__mcp_temporary_client_grant_expiry.sql":
+        "3492e186c46f7eeee16942d43a23b219bec81c8d",
+    "BOOT-INF/classes/db/migration/V29__mcp_first_party_oidc_link_flows.sql":
+        "73d306ea3cc6e2f0d0806ea58ec8f11883621bea",
+}
 JS_MARKERS = {
     b"/me/mcp-link/callback": "callback",
     b"/mcp/identity/oidc/start": "start",
@@ -45,11 +56,14 @@ class InventoryError(Exception):
 
 def running(container, runner=subprocess.run):
     # Fixed names only. Never inspect container environment or other containers.
-    result = runner(
-        ["docker", "inspect", "-f", "{{.State.Status}}", container],
-        capture_output=True, timeout=8, check=False,
-    )
-    return result.returncode == 0 and result.stdout.strip() == b"running"
+    try:
+        result = runner(
+            ["docker", "inspect", "-f", "{{.State.Status}}", container],
+            capture_output=True, timeout=8, check=False,
+        )
+        return result.returncode == 0 and result.stdout.strip() == b"running"
+    except (subprocess.TimeoutExpired, OSError):
+        return False
 
 
 def docker_copy_tar(container, source, maximum, runner=subprocess.run):
@@ -57,10 +71,13 @@ def docker_copy_tar(container, source, maximum, runner=subprocess.run):
         raise InventoryError("UNREVIEWED_CONTAINER_OR_PATH")
     # docker cp container:/abs/path - writes a TAR stream to stdout, not to
     # the host file system. Never use an arbitrary container, path or shell.
-    process = runner(
-        ["docker", "cp", container + ":" + source, "-"],
-        capture_output=True, timeout=28, check=False,
-    )
+    try:
+        process = runner(
+            ["docker", "cp", container + ":" + source, "-"],
+            capture_output=True, timeout=28, check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        raise InventoryError("DOCKER_COPY_READ_UNAVAILABLE") from exc
     if process.returncode != 0:
         raise InventoryError("DOCKER_COPY_READ_FAILED")
     if len(process.stdout) > maximum:
@@ -107,10 +124,29 @@ def scan_jar(tar_bytes):
         raise InventoryError("BACKEND_JAR_NOT_EXACTLY_ONE")
     try:
         with zipfile.ZipFile(io.BytesIO(matches[0][1])) as zf:
-            names = set(zf.namelist())  # names only: never print archive data
-    except (zipfile.BadZipFile, OSError, ValueError) as e:
+            entries = zf.infolist()
+            if len(entries) > MAX_JAR_ZIP_ENTRIES:
+                raise InventoryError("BACKEND_JAR_TOO_MANY_ENTRIES")
+            filenames = [entry.filename for entry in entries]
+            if len(set(filenames)) != len(filenames):
+                raise InventoryError("BACKEND_JAR_DUPLICATE_ENTRIES")
+            names = set(filenames)
+            observed = {label: path in names for path, label in CLASSES.items()}
+            for path, expected_blob in REVIEWED_MIGRATION_BLOBS.items():
+                if path not in names:
+                    continue
+                entry = zf.getinfo(path)
+                if not (0 < entry.file_size <= MAX_MIGRATION_SQL_BYTES):
+                    raise InventoryError("BACKEND_JAR_SQL_SIZE_NOT_TRUSTED")
+                raw = zf.read(entry)
+                # Git blob object: SHA1("blob " + byte length + NUL + SQL bytes).
+                # Never print or export SQL bytes or archive contents.
+                header = b"blob " + str(len(raw)).encode("ascii") + b"\0"
+                actual_blob = hashlib.sha1(header + raw).hexdigest()
+                observed[CLASSES[path]] = actual_blob == expected_blob
+    except (zipfile.BadZipFile, OSError, ValueError, RuntimeError) as e:
         raise InventoryError("BACKEND_JAR_INVALID") from e
-    return {label: path in names for path, label in CLASSES.items()}
+    return observed
 
 
 def status(observed):
