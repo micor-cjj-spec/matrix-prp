@@ -158,7 +158,7 @@ class IsolatedV28BackupRestoreMcpV29IT {
                 .containsExactlyInAnyOrderEntriesOf(original);
         assertThat(source.validateWithResult().validationSuccessful).isTrue();
         assertThat(next.migrate().migrationsExecuted).isZero();
-        System.out.println("CI_SYNTHETIC_V28_ARCHIVE_RESTORED_BYTE_PARITY=PASS");
+        System.out.println("CI_SYNTHETIC_V28_RESTORED_SELECTED_ROWS_AND_HISTORY_PARITY=PASS");
         System.out.println("CI_SYNTHETIC_V28_CLONE_V29_DATA_PRESERVED=PASS");
         System.out.println("CI_SYNTHETIC_ORIGINAL_V28_SOURCE_UNCHANGED=YES");
         System.out.println("CI_SYNTHETIC_V29_FK_REJECTS_ORPHAN=YES");
