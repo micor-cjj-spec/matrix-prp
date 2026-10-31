@@ -293,28 +293,28 @@ rollback. A same-host restored clone alone does not satisfy this.
 ## Addendum 2026-10-31 — distinct **V2 V28→V29** recovery candidate (not production V24)
 
 This is a **separate staging database and change target** from the
-production V7-baselined \`matrix_prp\` V24→V28 pathway above.
+production V7-baselined `matrix_prp` V24→V28 pathway above.
 Do not apply production V24 backup procedures, V25–V28 migration steps,
-schema names or accounts to the live \`prp-mcp-v2-mysql-1\`.
+schema names or accounts to the live `prp-mcp-v2-mysql-1`.
 
 **Grounded operator evidence (read-only):** the active isolated V2
 MySQL 8.4 has a continuous V1–V28 Flyway history, 28/28 CRCs matching
 Draft PR #131, no failed migration, a real V28 temporary-grant lease
 table, and **no** V29 history row or OIDC flow table. V29 DDL preflight
-found InnoDB \`prp_users\` with signed BIGINT non-null one-column
+found InnoDB `prp_users` with signed BIGINT non-null one-column
 primary key, no target table or foreign-key-name collision. The
 running V2 backend and gateway images still lack OIDC Controller/Service
 and callback/start/finish JavaScript markers.
 
 **Implemented synthetic-only rehearsal:**
-\`.github/workflows/mcp-v28-backup-restore-v29-review.yml\` runs
-\`IsolatedV28BackupRestoreMcpV29IT.java\` in a disposable GitHub runner
+`.github/workflows/mcp-v28-backup-restore-v29-review.yml` runs
+`IsolatedV28BackupRestoreMcpV29IT.java` in a disposable GitHub runner
 against *two synthetic, separately named MySQL 8.4 Docker containers and
 volumes*. It:
 1. Builds the canonical full V1–V28 schema and inserts two synthetic
    owners with tasks, finance, client grants, identity link, temporary
    grant lease and one-use ticket;
-2. Creates a full synthetic \`mysqldump\`, checks its SHA-256 and a
+2. Creates a full synthetic `mysqldump`, checks its SHA-256 and a
    deliberately corrupted copy, then restores only into an initially
    empty clone;
 3. Compares eight selected existing-table row fingerprints, Flyway
