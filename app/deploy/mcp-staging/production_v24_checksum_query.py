@@ -33,7 +33,7 @@ def build_query(expected_schema=SCHEMA):
         raise ValueError("UNSUPPORTED_SCHEMA")
     scripts = source_scripts()
     crc = source_crc32()
-    if set(scripts) != set(range(1, 29)) or set(crc) != set(scripts):
+    if set(scripts) != set(range(1, 30)) or set(crc) != set(scripts):
         raise ValueError("CANDIDATE_SOURCE_INCOMPLETE")
     selects = []
     for version in range(FIRST_SQL, LAST_SQL + 1):

@@ -14,7 +14,7 @@ TARGETS = (
     "V25__mcp_write_drafts.sql",
     "V26__mcp_client_grants.sql",
     "V27__mcp_identity_links.sql",
-    "V28__mcp_first_party_oidc_link_flows.sql",
+    "V28__mcp_temporary_client_grant_expiry.sql",
 )
 
 
@@ -57,7 +57,8 @@ class ProductionMcpDdlReadonlyTests(unittest.TestCase):
             r"(?i)\bCONSTRAINT\s+(\w+)\s+FOREIGN KEY", source))
         self.assertEqual(len(tables), 5)
         self.assertEqual(len(constraints), 5)
-        self.assertEqual(source.count("REFERENCES prp_users(id)"), 5)
+        self.assertEqual(source.count("REFERENCES prp_users(id)"), 4)
+        self.assertEqual(source.count("REFERENCES prp_mcp_client_grants(user_id,client_id)"), 1)
         self.assertIn("owner_signed_bigint_id", self.sql)
         self.assertIn("owner_table_innodb", self.sql)
         self.assertIn("owner_primary_columns = 1", self.sql)
@@ -67,7 +68,7 @@ class ProductionMcpDdlReadonlyTests(unittest.TestCase):
         for name in sorted(tables | constraints):
             with self.subTest(name=name):
                 self.assertIn("'" + name + "'", self.sql)
-        quoted = set(re.findall(r"'(prp_mcp_[a-z_]+|fk_prp_mcp_[a-z_]+)'", self.sql))
+        quoted = set(re.findall(r"'(prp_mcp_[a-z_]+|fk_(?:prp_)?mcp_[a-z_]+)'", self.sql))
         self.assertEqual(quoted, tables | constraints)
 
     def test_new_migration_changes_are_additive_only(self):

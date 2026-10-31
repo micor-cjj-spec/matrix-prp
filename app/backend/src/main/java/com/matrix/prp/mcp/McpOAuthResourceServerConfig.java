@@ -92,9 +92,21 @@ public class McpOAuthResourceServerConfig {
      */
     static OAuth2TokenValidator<Jwt> jwtValidator(String issuer, String resource) {
         OAuth2TokenValidator<Jwt> issuerAndLifetime = JwtValidators.createDefaultWithIssuer(issuer);
-        OAuth2TokenValidator<Jwt> audience = jwt -> jwt.getAudience().contains(resource)
-            ? OAuth2TokenValidatorResult.success()
-            : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Wrong MCP token audience", null));
+        // Reject a token issued for MCP *and* any unrelated resource.
+        // The issuer's standard userinfo audience is the only supplemental audience.
+        OAuth2TokenValidator<Jwt> audience = jwt -> {
+            List<String> values = jwt.getAudience();
+            String userInfo = issuer + "/protocol/openid-connect/userinfo";
+            String conventionalUserInfo = issuer + "/userinfo";
+            boolean safe = values != null && values.contains(resource)
+                && values.stream().allMatch(value -> value != null
+                    && (resource.equals(value) || userInfo.equals(value)
+                        || conventionalUserInfo.equals(value)));
+            return safe
+                ? OAuth2TokenValidatorResult.success()
+                : OAuth2TokenValidatorResult.failure(
+                    new OAuth2Error("invalid_token", "Invalid MCP token audience set", null));
+        };
         return jwt -> {
             var validated = issuerAndLifetime.validate(jwt);
             return validated.hasErrors() ? validated : audience.validate(jwt);

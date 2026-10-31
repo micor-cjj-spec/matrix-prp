@@ -204,8 +204,8 @@ class ExistingLegacyV7BaselineToMcpV28UpgradeIT {
                 "SELECT installed_rank,version,type,script,checksum,success "
                     + "FROM flyway_schema_history ORDER BY installed_rank");
 
-            assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(4);
-            flyway(null).validate();
+            assertThat(flyway("28").migrate().migrationsExecuted).isEqualTo(4);
+            flyway("28").validate();
             assertThat(count(conn, "SELECT COUNT(*) FROM flyway_schema_history")).isEqualTo(22);
             assertThat(count(conn, "SELECT COUNT(*) FROM flyway_schema_history "
                 + "WHERE installed_rank=1 AND version='7' AND type='BASELINE' "

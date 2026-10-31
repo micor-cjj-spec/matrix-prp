@@ -12,6 +12,16 @@ on:
       - "app/deploy/mcp-oauth/ci_static_client_jwt.py"
       - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
       - "app/backend/src/main/java/com/matrix/prp/mcp/**"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - ".github/workflows/mcp-exact-chatgpt-prp-task-e2e.yml"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/deploy/migration-policy.json"
+      - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/**"
   workflow_dispatch:
 
 permissions:

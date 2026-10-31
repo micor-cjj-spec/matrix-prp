@@ -52,11 +52,12 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
     def check(self, obj):
         return m.analyze(obj, self.scripts)
 
-    def test_expected_local_migrations_are_strict_1_to_28(self):
-        self.assertEqual(set(self.scripts), set(range(1, 29)))
+    def test_expected_local_migrations_are_strict_1_to_29(self):
+        self.assertEqual(set(self.scripts), set(range(1, 30)))
         self.assertEqual(self.scripts[24], "V24__vocal_song_library_and_assignments.sql")
         self.assertEqual(self.scripts[25], "V25__mcp_write_drafts.sql")
-        self.assertEqual(self.scripts[28], "V28__mcp_first_party_oidc_link_flows.sql")
+        self.assertEqual(self.scripts[28], "V28__mcp_temporary_client_grant_expiry.sql")
+        self.assertEqual(self.scripts[29], "V29__mcp_first_party_oidc_link_flows.sql")
 
     def test_synthetic_v24_cannot_be_mistaken_for_signed_upgrade_approval(self):
         out = self.check(self.history())
@@ -89,6 +90,67 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
         self.assertEqual(out["history_rows_checked"], 22)
         self.assertTrue(out["decision"].startswith("V28_LEGACY_V7_BASELINE_"))
         self.assertIs(out["deployment_permitted"], False)
+
+    def test_complete_v29_history_is_review_only_for_fresh_and_legacy_baselines(self):
+        for data, expected_count, prefix in (
+            (self.history(29), 29, "V29_SOURCE_HISTORY_"),
+            (self.legacy_v7_history(29), 23, "V29_LEGACY_V7_BASELINE_SOURCE_HISTORY_"),
+        ):
+            with self.subTest(prefix=prefix):
+                result = self.check(data)
+                self.assertEqual(result["history_rows_checked"], expected_count)
+                self.assertTrue(result["decision"].startswith(prefix))
+                self.assertIs(result["source_migration_names_match"], True)
+                self.assertIs(result["flyway_checksums_verified"], False)
+                self.assertIs(result["deployment_permitted"], False)
+                self.assertEqual(result["g0_b2_authorization"], "NOT_ESTABLISHED")
+
+    def test_v29_source_checksum_match_cannot_approve_deployment(self):
+        expected = m.source_crc32()
+        for data in (self.history(29), self.legacy_v7_history(29)):
+            with self.subTest(legacy=(len(data["history"]) == 23)):
+                for row in data["history"]:
+                    if row["type"] == "SQL":
+                        row["checksum"] = expected[int(row["version"])]
+                result = m.analyze(data, self.scripts, verified_source_crc=expected)
+                self.assertEqual(result["decision"],
+                    "V29_" + ("LEGACY_V7_BASELINE_" if len(data["history"]) == 23 else "")
+                    + "SOURCE_CRC_MATCH_REVIEW_ONLY")
+                self.assertIs(result["deployment_permitted"], False)
+                self.assertIs(result["flyway_checksums_verified"], True)
+                self.assertEqual(result["g0_b2_authorization"], "NOT_ESTABLISHED")
+                data["history"][-1]["checksum"] ^= 1
+                self.assertEqual(
+                    m.analyze(data, self.scripts, verified_source_crc=expected)["reason"],
+                    "MIGRATION_CHECKSUM_DRIFT")
+
+    def test_partial_or_reordered_v29_history_fails_closed(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                data = self.legacy_v7_history(29) if legacy else self.history(29)
+                del data["history"][-2]  # missing V28, but V29 present
+                for rank, row in enumerate(data["history"], 1):
+                    row["installed_rank"] = rank
+                self.assertEqual(self.check(data)["reason"],
+                                 "PARTIAL_OR_UNEXPECTED_MIGRATION_CHAIN")
+                data = self.legacy_v7_history(29) if legacy else self.history(29)
+                data["history"][-1]["script"] = "V28__mcp_first_party_oidc_link_flows.sql"
+                self.assertEqual(self.check(data)["reason"],
+                                 "MIGRATION_VERSION_OR_SCRIPT_DRIFT")
+
+    def test_v29_cli_stays_nonzero_and_never_grants_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic-v29.json"
+            data = self.legacy_v7_history(29)
+            path.write_text(json.dumps(data), encoding="utf-8")
+            output = StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(m.main(["--input", str(path)]), 3)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["decision"],
+                "V29_LEGACY_V7_BASELINE_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED")
+            self.assertIs(result["deployment_permitted"], False)
+            self.assertEqual(result["g0_b2_authorization"], "NOT_ESTABLISHED")
 
     def test_v7_baseline_wrong_script_or_checksum_is_blocked(self):
         for field, invalid in (("script", "wrong baseline"), ("checksum", 123456)):
@@ -251,7 +313,7 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
 
     def test_opt_in_source_crc_reference_matches_only_identical_values(self):
         reference = m.source_crc32()
-        self.assertEqual(set(reference), set(range(1, 29)))
+        self.assertEqual(set(reference), set(range(1, 30)))
         self.assertTrue(all(type(value) is int for value in reference.values()))
         a = self.history()
         for row in a["history"]:
@@ -266,7 +328,7 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
             "MIGRATION_CHECKSUM_DRIFT"
         )
 
-    def test_source_crc_reference_requires_28_complete_integer_records(self):
+    def test_source_crc_reference_requires_29_complete_integer_records(self):
         a = self.history()
         self.assertEqual(
             m.analyze(a, self.scripts, verified_source_crc={24: 7})["reason"],

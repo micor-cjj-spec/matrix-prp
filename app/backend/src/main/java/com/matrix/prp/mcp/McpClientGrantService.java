@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -54,11 +55,16 @@ public class McpClientGrantService {
 
     public List<Grant> mine() {
         long owner = CurrentUser.id();
-        return db.query("SELECT client_id,scopes,status FROM prp_mcp_client_grants WHERE user_id=? ORDER BY client_id",
+        return db.query("SELECT g.client_id,g.scopes,CASE WHEN g.status='ACTIVE' AND l.expires_at IS NOT NULL " +
+            "AND l.expires_at<=CURRENT_TIMESTAMP THEN 'EXPIRED' ELSE g.status END AS status " +
+            "FROM prp_mcp_client_grants g LEFT JOIN prp_mcp_pairing_grant_leases l " +
+            "ON l.user_id=g.user_id AND l.client_id=g.client_id " +
+            "WHERE g.user_id=? ORDER BY g.client_id",
             (rs, row) -> new Grant(rs.getString("client_id"),
                 Arrays.asList(rs.getString("scopes").split(",")), rs.getString("status")), owner);
     }
 
+    @Transactional
     public Grant authorize(String clientId, List<String> requested, String password) {
         long owner = CurrentUser.id();
         String id = client(clientId);
@@ -73,17 +79,67 @@ public class McpClientGrantService {
         limiter.recordSuccess("mcp-client-grant", account.username());
         String csv = String.join(",", approved);
         Integer count = db.queryForObject(
-            "SELECT COUNT(*) FROM prp_mcp_client_grants WHERE user_id=? AND status='ACTIVE'",
+            "SELECT COUNT(*) FROM prp_mcp_client_grants g LEFT JOIN prp_mcp_pairing_grant_leases l " +
+            "ON l.user_id=g.user_id AND l.client_id=g.client_id " +
+            "WHERE g.user_id=? AND g.status='ACTIVE' AND (l.expires_at IS NULL OR l.expires_at>CURRENT_TIMESTAMP)",
             Integer.class, owner);
         Integer exists = db.queryForObject(
-            "SELECT COUNT(*) FROM prp_mcp_client_grants WHERE user_id=? AND client_id=? AND status='ACTIVE'",
+            "SELECT COUNT(*) FROM prp_mcp_client_grants g LEFT JOIN prp_mcp_pairing_grant_leases l " +
+            "ON l.user_id=g.user_id AND l.client_id=g.client_id " +
+            "WHERE g.user_id=? AND g.client_id=? AND g.status='ACTIVE' " +
+            "AND (l.expires_at IS NULL OR l.expires_at>CURRENT_TIMESTAMP)",
             Integer.class, owner, id);
         if (count != null && count >= 12 && (exists == null || exists == 0))
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many connected MCP clients");
         db.update("INSERT INTO prp_mcp_client_grants (user_id,client_id,scopes,status) VALUES (?,?,?,'ACTIVE') " +
             "ON DUPLICATE KEY UPDATE scopes=VALUES(scopes),status='ACTIVE',updated_at=CURRENT_TIMESTAMP",
             owner, id, csv);
+        // Permanent grants are explicitly owner-authorized, removing any old
+        // temporary lease in the same transaction.
+        db.update("DELETE FROM prp_mcp_pairing_grant_leases WHERE user_id=? AND client_id=?", owner, id);
         return new Grant(id, List.copyOf(approved), "ACTIVE");
+    }
+
+    /** A server-enforced 10-minute task-read lease for first-party browser pairing only. */
+    @Transactional
+    public Grant authorizeTemporaryPairing(String clientId, String password) {
+        long owner = CurrentUser.id();
+        String id = client(clientId);
+        UserAccount account = users.findById(owner).orElse(null);
+        if (account == null || !account.enabled()) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        limiter.assertAllowed("mcp-pairing-grant", account.username());
+        if (password == null || password.length() > 256 || !encoder.matches(password, account.passwordHash())) {
+            limiter.recordFailure("mcp-pairing-grant", account.username());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account reauthentication failed");
+        }
+        limiter.recordSuccess("mcp-pairing-grant", account.username());
+        record Existing(String status, boolean effective) {}
+        List<Existing> previous = db.query(
+            "SELECT g.status,(l.expires_at IS NULL OR l.expires_at>CURRENT_TIMESTAMP) AS effective " +
+            "FROM prp_mcp_client_grants g LEFT JOIN prp_mcp_pairing_grant_leases l " +
+            "ON l.user_id=g.user_id AND l.client_id=g.client_id " +
+            "WHERE g.user_id=? AND g.client_id=? FOR UPDATE",
+            (rs, row) -> new Existing(rs.getString(1), rs.getBoolean(2)), owner, id);
+        if (!previous.isEmpty() && "ACTIVE".equals(previous.getFirst().status()) &&
+            previous.getFirst().effective()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "Revoke the existing active client grant before starting temporary pairing");
+        }
+        Integer count = db.queryForObject(
+            "SELECT COUNT(*) FROM prp_mcp_client_grants g LEFT JOIN prp_mcp_pairing_grant_leases l " +
+            "ON l.user_id=g.user_id AND l.client_id=g.client_id " +
+            "WHERE g.user_id=? AND g.status='ACTIVE' AND (l.expires_at IS NULL OR l.expires_at>CURRENT_TIMESTAMP)",
+            Integer.class, owner);
+        if (count != null && count >= 12)
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many connected MCP clients");
+        db.update("INSERT INTO prp_mcp_client_grants (user_id,client_id,scopes,status) " +
+            "VALUES (?,?,'prp.tasks.read','ACTIVE') " +
+            "ON DUPLICATE KEY UPDATE scopes='prp.tasks.read',status='ACTIVE',updated_at=CURRENT_TIMESTAMP",
+            owner, id);
+        db.update("INSERT INTO prp_mcp_pairing_grant_leases (user_id,client_id,expires_at) " +
+            "VALUES (?,?,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 10 MINUTE)) " +
+            "ON DUPLICATE KEY UPDATE expires_at=VALUES(expires_at)", owner, id);
+        return new Grant(id, List.of("prp.tasks.read"), "ACTIVE");
     }
 
     public void revoke(String clientId) {
@@ -97,7 +153,11 @@ public class McpClientGrantService {
         if (userId <= 0 || clientId == null || !clientId.matches("[A-Za-z0-9][A-Za-z0-9._~:/-]{1,127}"))
             return Set.of();
         List<String> raw = db.query(
-            "SELECT scopes FROM prp_mcp_client_grants WHERE user_id=? AND client_id=? AND status='ACTIVE'",
+            "SELECT g.scopes FROM prp_mcp_client_grants g " +
+            "LEFT JOIN prp_mcp_pairing_grant_leases l " +
+            "ON l.user_id=g.user_id AND l.client_id=g.client_id " +
+            "WHERE g.user_id=? AND g.client_id=? AND g.status='ACTIVE' " +
+            "AND (l.expires_at IS NULL OR l.expires_at>CURRENT_TIMESTAMP)",
             (rs, i) -> rs.getString(1), userId, clientId);
         if (raw.isEmpty()) return Set.of();
         return Arrays.stream(raw.getFirst().split(","))
