@@ -59,7 +59,7 @@ test('CLI rejects unsupported privilege command and leaves file unchanged', () =
   const before = readFileSync(f.path, 'utf8')
   const p = run(f, { COLLAB_ACTION: 'accept' })
   assert.notEqual(p.status, 0)
-  assert.match(p.stderr, /ACTION_NOT_EXPOSED/)
+  assert.match(p.stderr, /UNTRUSTED_REVIEW_CONTEXT/)
   assert.equal(readFileSync(f.path, 'utf8'), before)
 })
 
