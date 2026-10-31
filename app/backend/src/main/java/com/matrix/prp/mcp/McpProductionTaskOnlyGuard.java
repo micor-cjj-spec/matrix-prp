@@ -2,6 +2,8 @@ package com.matrix.prp.mcp;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.env.Environment;
@@ -18,6 +20,28 @@ import org.springframework.stereotype.Component;
 @Component
 @ConditionalOnProperty(prefix = "matrix-prp.mcp", name = "production-tasks-only", havingValue = "true")
 public final class McpProductionTaskOnlyGuard {
+    // First production canary: only previously reviewed benign MySQL
+    // connector options. No credential overrides or session-setup SQL.
+    private static final Set<String> SAFE_MYSQL_OPTIONS = Set.of(
+        "useUnicode", "characterEncoding", "connectionCollation",
+        "serverTimezone", "useSSL", "allowPublicKeyRetrieval");
+
+    private static boolean safeOptions(String query) {
+        if (query == null) return true;
+        Set<String> encountered = new HashSet<>();
+        for (String item : query.split("&", -1)) {
+            int eq = item.indexOf('=');
+            if (eq <= 0 || eq == item.length() - 1) return false;
+            String key = item.substring(0, eq);
+            String value = item.substring(eq + 1);
+            // Reject %-encoded keys, injected separators and duplicate keys.
+            if (!SAFE_MYSQL_OPTIONS.contains(key) || !encountered.add(key) ||
+                    value.indexOf('%') >= 0 || value.indexOf(';') >= 0 ||
+                    value.indexOf('&') >= 0) return false;
+        }
+        return true;
+    }
+
     public McpProductionTaskOnlyGuard(
         Environment environment,
         @Value("${matrix-prp.mcp.enabled:false}") boolean mcpEnabled,
@@ -62,6 +86,7 @@ public final class McpProductionTaskOnlyGuard {
                     parsed.getRawUserInfo() != null ||
                     parsed.getRawFragment() != null ||
                     !"/matrix_prp".equals(parsed.getRawPath()) ||
+                    !safeOptions(parsed.getRawQuery()) ||
                     (parsed.getPort() != -1 && (parsed.getPort() < 1 || parsed.getPort() > 65535))) {
                 throw new IllegalArgumentException();
             }
