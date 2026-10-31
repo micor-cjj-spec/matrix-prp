@@ -5,6 +5,13 @@ on:
     branches:
       - feat/prp-mcp-gateway-v1
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - review/mcp-chatgpt-prereg-no-go-20261030
+    paths:
+      - "app/deploy/mcp-oauth/**"
+      - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
     paths:
       - "app/deploy/mcp-oauth/**"
       - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
@@ -34,6 +41,9 @@ jobs:
         shell: bash
         run: |
           bash -n app/deploy/mcp-oauth/keycloak-resource-guard/preflight_restored_realm_host.sh
+          python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_review_chatgpt_single_client.py' -v
+          python3 -m pip install --user 'cryptography>=43,<47'
+          python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_review_chatgpt_inline_jwks.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_preflight_restored_realm_host.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_restored_exact_clients.py' -v
           python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_capture_current_keycloak_review.py' -v
@@ -115,6 +125,7 @@ jobs:
           # Never ignore resource denial, signed token verification or rollback.
           docker run --rm -d \
             --name prp-mcp-keycloak-ci \
+            --label prp.disposable-ci=true \
             -p 127.0.0.1:18080:8080 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=prp-smoke-admin \
             -e KC_BOOTSTRAP_ADMIN_PASSWORD="${admin_secret}" \
@@ -126,6 +137,11 @@ jobs:
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/keycloak_ephemeral_smoke.py \
               --admin-user prp-smoke-admin
+          # Exact ChatGPT client with synthetic inline JWKS: authorization-entry
+          # and PKCE preflight only, BEFORE other CI steps register that ID.
+          # This does not redeem an authorization code or authenticate ChatGPT.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_chatgpt_inline_jwks_pkce_entry.py
           # Keycloak stays alive here; only this throwaway instance receives
           # the temporary CIMD policies and ChatGPT public metadata requests.
           # Real disposable Keycloak: 13 disabled legacy fixtures + two exact
@@ -146,10 +162,17 @@ jobs:
           # does NOT verify a real ChatGPT-originating signed assertion.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_chatgpt_exact_client_authcode.py
+          # Full exact-client inline JWKS authorization-code and PKCE test.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" python3 app/deploy/mcp-oauth/ci_chatgpt_inline_jwks_authcode.py
           # A separate ephemeral RSA keypair and client exercise Signed JWT
           # token authentication. No real ChatGPT private keys are available.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_static_client_jwt.py
+          # Embedded static JWKS (not X.509) client-jwt test; disposable only.
+          python3 -m pip install --user 'cryptography>=43,<47'
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_embedded_jwks_token.py
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" python3 app/deploy/mcp-oauth/ci_embedded_jwks_rotation.py
           # Separate throwaway client and user: real Authorization Code,
           # signed JWT client auth, offline refresh rotation and revocation.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \

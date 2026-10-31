@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+"""Exact ChatGPT inline-JWKS authcode/token/refresh test in DISPOSABLE Keycloak.
+
+The official ChatGPT metadata's PUBLIC key URL cannot sign test assertions.
+Only inside the short-lived GitHub CI realm we replace that client's remote
+JWKS credential source with an ephemeral, locally generated public RSA JWK. This is
+a controlled TEST-KEY SUBSTITUTION, never an OpenAI signature verification.
+No network request or OAuth callback is sent to chatgpt.com by this script.
+Its exact client_id, redirect, protocol scopes, PKCE and public resource
+stay unchanged. This script must never run against a live/host Keycloak.
+"""
+import json
+import os
+import secrets
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from ci_static_client_jwt import TOKEN_ENDPOINT, ASSERTION_TYPE, b64
+from urllib.parse import quote
+
+import ci_chatgpt_cimd_pkce as cimd
+import ci_jwt_authcode_refresh as e2e
+from ci_embedded_jwks_rotation import keypair
+from review_chatgpt_inline_jwks import review_inline_candidate
+from oauth_token_check import _b64url
+
+CLIENT = cimd.CLIENT
+CALLBACK = cimd.REDIRECT
+RESOURCE = e2e.RESOURCE
+SCOPE = "openid offline_access prp.tasks.read"
+
+
+def assert_disposable():
+    if (os.environ.get("GITHUB_ACTIONS") != "true"
+            or not os.environ.get("RUNNER_TEMP")
+            or not os.environ.get("MCP_TEST_ADMIN_PASSWORD")
+            or cimd.BASE != "http://127.0.0.1:18080"
+            or not CLIENT.startswith("https://chatgpt.com/")):
+        raise RuntimeError("REFUSED_NON_DISPOSABLE_KEYCLOAK")
+    # Environment flags alone are insufficient: verify the isolated CI container.
+    inspected = subprocess.run(
+        ["docker", "inspect", "--format",
+         '{{.Name}}|{{.State.Running}}|{{.Config.Image}}|{{index .Config.Labels "prp.disposable-ci"}}',
+         "prp-mcp-keycloak-ci"],
+        capture_output=True, text=True, timeout=8, check=False)
+    parts = inspected.stdout.strip().split("|")
+    if (inspected.returncode != 0 or len(parts) != 4
+            or parts[0] != "/prp-mcp-keycloak-ci" or parts[1] != "true"
+            or parts[3] != "true"
+            or parts[2] not in ("quay.io/keycloak/keycloak:26.8.0",
+                                "quay.io/keycloak/keycloak:26.8.1")):
+        raise RuntimeError("DISPOSABLE_CI_CONTAINER_REQUIRED")
+
+
+
+def assert_disposable_guard_negative_cases():
+    """Check fail-closed behavior without touching Keycloak or Docker state."""
+    from unittest.mock import patch
+    original_run = subprocess.run
+    class Result:
+        def __init__(self, output, returncode=0):
+            self.stdout = output
+            self.returncode = returncode
+    bad = (
+        ("missing_container", Result("", 1)),
+        ("wrong_name", Result("/other|true|quay.io/keycloak/keycloak:26.8.0|true")),
+        ("stopped", Result("/prp-mcp-keycloak-ci|false|quay.io/keycloak/keycloak:26.8.0|true")),
+        ("wrong_image", Result("/prp-mcp-keycloak-ci|true|quay.io/keycloak/keycloak:latest|true")),
+        ("missing_label", Result("/prp-mcp-keycloak-ci|true|quay.io/keycloak/keycloak:26.8.0|<no value>")),
+    )
+    for name, fake in bad:
+        with patch.object(subprocess, "run", return_value=fake):
+            try:
+                assert_disposable()
+            except RuntimeError as exc:
+                if str(exc) != "DISPOSABLE_CI_CONTAINER_REQUIRED":
+                    raise RuntimeError("GUARD_NEGATIVE_UNEXPECTED_ERROR_" + name) from None
+            else:
+                raise RuntimeError("GUARD_NEGATIVE_ACCEPTED_" + name)
+        print("PASS EXACT CI GUARD: " + name + " rejected.")
+    # Re-check the real disposable CI container after mocking is removed.
+    assert_disposable()
+
+
+
+def configure_exact_test_key(token, jwk):
+    """CI-only: replace the exact client's URL JWKS with ephemeral inline JWK."""
+    url = cimd.REALM_ADMIN + "/clients?clientId=" + quote(CLIENT, safe="")
+    status, _, raw = cimd.request(url, bearer=token)
+    matches = [v for v in json.loads(raw) if v.get("clientId") == CLIENT] if status == 200 else []
+    if len(matches) != 1:
+        raise RuntimeError("EXACT_CLIENT_ID_NOT_UNIQUE")
+    endpoint = cimd.REALM_ADMIN + "/clients/" + quote(matches[0]["id"], safe="")
+    client = cimd.read_json(endpoint, token)
+    expected = review_inline_candidate({"keys": [jwk]})["candidate"]
+    for name in ("clientId", "redirectUris", "publicClient", "fullScopeAllowed",
+                 "standardFlowEnabled", "consentRequired", "clientAuthenticatorType",
+                 "serviceAccountsEnabled", "optionalClientScopes"):
+        if client.get(name) != expected.get(name):
+            raise RuntimeError("EXACT_CLIENT_SECURITY_SHAPE_DRIFT")
+    attrs = dict(client.get("attributes") or {})
+    if attrs.get("jwks.url") != "https://chatgpt.com/oauth/jwks.json":
+        raise RuntimeError("OFFICIAL_JWKS_REFERENCE_MISSING")
+    attrs.pop("jwks.url", None)
+    # The earlier certificate-mode CI step reuses this exact client. Remove
+    # its synthetic X.509 credential before switching to inline JWK auth.
+    attrs.pop("jwt.credential.certificate", None)
+    attrs.update(expected["attributes"])
+    attrs["token.endpoint.auth.signing.alg"] = "RS256"
+    attrs["prp.ci.refresh-resource-guard"] = "enabled"
+    client["attributes"] = attrs
+    cimd.replace_admin_doc(endpoint, token, client)
+    persisted = cimd.read_json(endpoint, token)
+    actual = persisted.get("attributes") or {}
+    if (actual.get("jwks.string") != expected["attributes"]["jwks.string"]
+            or actual.get("use.jwks.string") != "true"
+            or actual.get("use.jwks.url") != "false"
+            or actual.get("pkce.code.challenge.method") != "S256"):
+        checks = {
+            "jwks_content": actual.get("jwks.string") == expected["attributes"]["jwks.string"],
+            "jwks_string_enabled": actual.get("use.jwks.string") == "true",
+            "jwks_url_disabled": actual.get("use.jwks.url") == "false",
+            "jwks_url_inactive": actual.get("use.jwks.url") == "false",
+            "inline_jwks_active": actual.get("use.jwks.string") == "true",
+            "pkce_s256": actual.get("pkce.code.challenge.method") == "S256",
+        }
+        failed = [name for name, passed in checks.items() if not passed]
+        # Static field names only: never log JWK values, JWTs or certificates.
+        raise RuntimeError("INLINE_JWKS_SUBSTITUTION_NOT_PERSISTED_FIELDS_" + "_".join(failed))
+    # Keycloak admin PUT merges legacy credential attributes on some versions.\n    # Disabled URL and the active inline JWKS are the security controls;\n    # do not mistake inert retained attributes for active credential sources.\n    print("PASS EXACT INLINE CI: active inline JWK persisted; remote JWKS disabled.")
+
+
+
+def assert_invalid_client_assertions(private_key, jwk):
+    """Reject unknown kid and wrong token-endpoint audience on the exact client."""
+    for kind in ("unknown_kid", "wrong_audience"):
+        now = int(time.time())
+        header = {"alg": "RS256", "typ": "JWT",
+                  "kid": "ci-unknown-key" if kind == "unknown_kid" else jwk["kid"]}
+        claims = {"iss": CLIENT, "sub": CLIENT,
+                  "aud": "https://invalid.example.invalid/token"
+                  if kind == "wrong_audience" else TOKEN_ENDPOINT,
+                  "iat": now, "nbf": now - 2, "exp": now + 60,
+                  "jti": secrets.token_urlsafe(24)}
+        signing_input = ".".join(b64(json.dumps(v, separators=(",", ":")).encode())
+                                 for v in (header, claims))
+        signature = private_key.sign(signing_input.encode(), padding.PKCS1v15(),
+                                     hashes.SHA256())
+        assertion = signing_input + "." + b64(signature)
+        status, _, raw = cimd.request(TOKEN_ENDPOINT, method="POST", form={
+            "grant_type": "refresh_token",
+            "refresh_token": "ci-invalid-refresh-token",
+            "client_id": CLIENT,
+            "client_assertion_type": ASSERTION_TYPE,
+            "client_assertion": assertion,
+        })
+        try:
+            error = json.loads(raw).get("error")
+        except (ValueError, AttributeError):
+            error = None
+        if status not in (400, 401) or error != "invalid_client":
+            raise RuntimeError("EXACT_" + kind.upper() + "_ASSERTION_NOT_REJECTED")
+        print("PASS EXACT INLINE CI: " + kind + " client assertion rejected.")
+
+
+def must_reject(status, label):
+    if status not in (400, 401):
+        raise RuntimeError(label + "_NOT_REJECTED_HTTP_" + str(status))
+
+
+def validated_scope(tokens):
+    access = tokens.get("access_token")
+    if not isinstance(access, str) or not access:
+        raise RuntimeError("SIGNED_ACCESS_TOKEN_MISSING")
+    raw = json.loads(_b64url(access.split(".")[1]))
+    granted = raw.get("scope")
+    if not isinstance(granted, str):
+        raise RuntimeError("ACCESS_TOKEN_SCOPE_MALFORMED")
+    scopes = set(granted.split())
+    if not {"prp.tasks.read"}.issubset(scopes):
+        raise RuntimeError("ACCESS_TOKEN_TASK_SCOPE_MISSING")
+    if any(v in scopes for v in (
+        "prp.finance.read", "prp.wellness.read",
+        "prp.write.create", "prp.write.update", "prp.write.confirm")):
+        raise RuntimeError("ACCESS_TOKEN_EXCESSIVE_SCOPE")
+    return scopes
+
+
+def main():
+    assert_disposable_guard_negative_cases()
+    # Prior stage verifies this exact pre-registered client ID and callback;
+    # it also disables dynamic CIMD interception in this synthetic Realm.
+    with tempfile.TemporaryDirectory(prefix="exact-chatgpt-ci-", dir=os.environ["RUNNER_TEMP"]) as work:
+        private_key, jwk = keypair()
+        key = Path(work) / "synthetic-inline-jwks-private.pem"
+        key.write_bytes(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ))
+        key.chmod(0o600)
+        token = cimd.admin_token()
+        e2e.configure_realm(token)
+        configure_exact_test_key(token, jwk)
+        assert_invalid_client_assertions(private_key, jwk)
+        # Use the exact same fixed client ID for every transaction. The
+        # temporary signer is NOT a ChatGPT private key.
+        e2e.CLIENT = CLIENT
+        e2e.CALLBACK = CALLBACK
+        e2e.SCOPE = SCOPE
+        originals = e2e.activate_exact_refresh_policy(token)
+        user_password = secrets.token_urlsafe(40)
+        username = e2e.create_user(token, user_password)
+        opener = e2e.browser_opener()
+        # All negative grants use the SAME exact pre-registered client ID,
+        # not the separate 'ci-authcode-private-jwt' regression client.
+        wrong_code, unused_verifier = e2e.browser.code_pkce(
+            opener, username, user_password, SCOPE)
+        wrong_code_status, _ = e2e.exchange(
+            opener, key, grant="authorization_code", code=wrong_code,
+            verifier=secrets.token_urlsafe(48), client_id=CLIENT)
+        must_reject(wrong_code_status, "EXACT_BAD_PKCE_VERIFIER")
+        print("PASS EXACT CI: incorrect S256 code verifier rejected on exact client.")
+
+        code, verifier = e2e.browser.code_pkce(opener, username, user_password, SCOPE)
+        status, tokens = e2e.exchange(
+            opener, key, grant="authorization_code", code=code,
+            verifier=verifier, client_id=CLIENT)
+        if status != 200 or not tokens:
+            raise RuntimeError("EXACT_CODE_EXCHANGE_HTTP_" + str(status))
+        status, _, jwks_bytes = cimd.request(e2e.ISSUER + "/protocol/openid-connect/certs")
+        if status != 200:
+            raise RuntimeError("EXACT_KEYCLOAK_JWKS_UNAVAILABLE")
+        issuer_jwks = json.loads(jwks_bytes)
+        subject = e2e.verify_access(tokens, issuer_jwks, client_id=CLIENT)
+        validated_scope(tokens)
+        first = tokens.get("refresh_token")
+        if not isinstance(first, str) or len(first) < 16:
+            raise RuntimeError("EXACT_OFFLINE_REFRESH_MISSING")
+        print("PASS EXACT CI: real Keycloak user consent, code, S256, synthetic signed assertion, exact aud and task-read scope.")
+
+        bad, _ = e2e.exchange(opener, key, grant="refresh_token",
+                               refresh=first, bad_auth=True, client_id=CLIENT)
+        must_reject(bad, "EXACT_BAD_SIGNATURE")
+        for kind, resource, scope in (
+            ("WRONG_RESOURCE", "https://not-prp.staging.example.org/api/mcp", SCOPE),
+            ("EMPTY_RESOURCE", "", SCOPE),
+            ("MISSING_RESOURCE", None, SCOPE),
+            ("DUPLICATE_RESOURCE", [
+                RESOURCE, "https://not-prp.staging.example.org/api/mcp"], SCOPE),
+            ("FINANCE_SCOPE", RESOURCE, "openid offline_access prp.finance.read"),
+        ):
+            status, _ = e2e.exchange(opener, key, grant="refresh_token",
+                                     refresh=first, resource=resource,
+                                     scope=scope, client_id=CLIENT)
+            must_reject(status, "EXACT_" + kind)
+        status, tokens2 = e2e.exchange(
+            opener, key, grant="refresh_token", refresh=first, client_id=CLIENT)
+        if status != 200 or not tokens2:
+            raise RuntimeError("EXACT_OFFLINE_REFRESH_HTTP_" + str(status))
+        e2e.verify_access(tokens2, issuer_jwks, subject=subject, client_id=CLIENT)
+        validated_scope(tokens2)
+        second = tokens2.get("refresh_token")
+        if not isinstance(second, str) or first == second or len(second) < 16:
+            raise RuntimeError("EXACT_REFRESH_NOT_ROTATED")
+        replay, _ = e2e.exchange(opener, key, grant="refresh_token",
+                                 refresh=first, client_id=CLIENT)
+        must_reject(replay, "EXACT_REFRESH_REPLAY")
+        e2e.revoke(opener, key, second, client_id=CLIENT)
+        post_revoke, _ = e2e.exchange(opener, key, grant="refresh_token",
+                                     refresh=second, client_id=CLIENT)
+        must_reject(post_revoke, "EXACT_REFRESH_AFTER_REVOKE")
+        e2e.rollback_exact_refresh_policy(token, originals)
+        print("PASS EXACT CI: task-only refresh, resource and scope denials, rotation, replay, revoke, policy rollback.")
+        print("NOTE: DISPOSABLE_INLINE_JWKS_ONLY; REAL_CHATGPT_JWKS_ASSERTION=UNVERIFIED; LIVE_REALM=UNCHANGED.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:
+        reason = str(exc)
+        if (len(reason) > 100 or any(part in reason.lower() for part in
+                ("https://", "access_token", "password", "callback", "assertion"))):
+            reason = "EXACT_CLIENT_CI_UNVERIFIED"
+        print("FAIL EXACT CI: " + reason)
+        raise SystemExit(1) from None

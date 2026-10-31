@@ -1,0 +1,48 @@
+name: MCP prereg evidence precheck
+
+on:
+  push:
+    branches:
+      - review/mcp-chatgpt-prereg-no-go-20261030
+    paths:
+      - 'app/deploy/mcp-oauth/keycloak-resource-guard/chatgpt_prereg_evidence_precheck.py'
+      - 'app/deploy/mcp-oauth/keycloak-resource-guard/test_chatgpt_prereg_evidence_precheck.py'
+      - '.github/workflows/mcp-prereg-evidence-precheck.yml'
+      - 'app/deploy/mcp-oauth/review_public_oauth_readonly.py'
+      - 'app/deploy/mcp-oauth/test_review_public_oauth_readonly.py'
+  pull_request:
+    paths:
+      - 'app/deploy/mcp-oauth/keycloak-resource-guard/chatgpt_prereg_evidence_precheck.py'
+      - 'app/deploy/mcp-oauth/keycloak-resource-guard/test_chatgpt_prereg_evidence_precheck.py'
+      - '.github/workflows/mcp-prereg-evidence-precheck.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-precheck-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline evidence precheck unit tests
+        run: |
+          python3 -B -m unittest -v app/deploy/mcp-oauth/keycloak-resource-guard/test_chatgpt_prereg_evidence_precheck.py
+      - name: Offline public OAuth discovery safety tests
+        run: python3 -B -m unittest -v app/deploy/mcp-oauth/test_review_public_oauth_readonly.py
+      - name: Confirm tool never contains deployment authorization
+        run: |
+          python3 -B - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          p = Path('app/deploy/mcp-oauth/keycloak-resource-guard/chatgpt_prereg_evidence_precheck.py')
+          spec = importlib.util.spec_from_file_location('precheck', p)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          sample = dict(realm='prp-mcp', client_count=13, chatgpt_client_count=0,
+                        backup_restore_passed=True, restore_realm_client_count=13,
+                        restore_chatgpt_client_count=0, independent_b2_approval=True)
+          assert module.evaluate(sample)['deployment_permitted'] is False
+          print('PASS: precheck cannot authorize deployment')
+          PY
