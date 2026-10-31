@@ -5,6 +5,53 @@
 > check for the exact two currently running V2 containers, intended
 > before and after **a separately approved** artifact upgrade.
 
+## Current real V2 state — 2026-10-31 (supersedes earlier V28-absent observation)
+
+**No deployment or database update occurred during this inspection.**
+The fixed, SHA+blob-pinned `live_v2_artifact_readonly.py` was run
+by the operator directly against the two running V2 Docker containers.
+
+| Runtime component or database evidence | Actual observed state |
+| --- | --- |
+| Gateway/backend containers | Both running; no Docker mutation |
+| Gateway JS `callback`, `start`, `finish` | `ABSENT` / `ABSENT` / `ABSENT` |
+| Backend JAR `controller`, `service` | Both `ABSENT_OR_MISMATCH` |
+| Backend packaged V28 temporary lease SQL | `PRESENT` with reviewed Git-blob byte parity |
+| Backend packaged V29 first-party OIDC SQL | `ABSENT_OR_MISMATCH` |
+| Real isolated V2 MySQL | Container `prp-mcp-v2-mysql-1` healthy, MySQL 8.4 |
+| Applied Flyway migration history | V1–V28, 28 successful rows, no failed rows |
+| V28 lease DB table | Present |
+| V29 OIDC flow DB table / Flyway row | Both absent |
+| V1–V28 actual Flyway CRC vs PR #131 source | **28/28 exact matches** |
+| `prp_users` PK and owner FK DDL preflight | InnoDB, signed BIGINT NOT NULL one-column PK; 0 V29 table/FK-name collisions |
+
+These are operator-supplied real host observations, not test fixtures.
+The **V28 migration is now genuinely present and applied**. Do not
+reuse the historical 2026-10-28 V28-absent conclusion as a current
+deployment fact: that older snapshot was from an earlier artifact set.
+Neither the SQL file's packaging nor Flyway's history establishes
+working first-party OIDC: the running Java controller, service and
+frontend routes are still missing and V29 has not been installed.
+
+**New synthetic-only V28→V29 acceptance:**
+[GitHub CI #41196823129](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/41196823129)
+passed on actual *ephemeral* MySQL 8.4 with two synthetic owners,
+tasks, finance, grants, identity link, lease and ticket. Fingerprints
+of existing synthetic rows and V1–V28 Flyway history remained unchanged
+through V29, the new owner foreign key rejected an orphan and repeat
+migrate executed zero steps. CI did **not** use the real V2 database,
+restore its full snapshot, or establish independent backup readiness.
+
+**Release decision remains NO-GO.** The next independently approved
+stage is a complete recovery rehearsal on a separately restored copy
+of the **actual isolated V2 data**, including Flyway V29, schema
+fingerprints, immutable source image validation and rollback. No
+existing V2 database update, live Keycloak registration, public route,
+image replacement or MCP write activation is authorized. Moreover,
+this V2 schema is **not** the production `matrix_prp` task owner
+database; actual ChatGPT access to production owner data requires
+a separate consent, identity/delegation and G0-C review.
+
 ## Known operator evidence before this verifier
 
 Prior operator checks found **absent** in the running
