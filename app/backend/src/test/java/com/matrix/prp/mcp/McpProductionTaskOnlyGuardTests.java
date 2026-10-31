@@ -93,6 +93,32 @@ class McpProductionTaskOnlyGuardTests {
     }
 
     @Test
+    void rejectsCredentialSessionAndEncodedJdbcQueryOverrides() {
+        for (String suffix : List.of(
+                "?user=alice", "?password=secret", "?pwd=secret",
+                "?serverTimezone=UTC&user=alice",
+                "?useSSL=false&password=secret",
+                "?socketFactory=com.example.FakeFactory",
+                "?sessionVariables=sql_mode=ANSI",
+                "?serverTimezone=UTC&serverTimezone=Asia/Shanghai",
+                "?us%65r=evil",
+                "?serverTimezone=UTC%26password%3Dsecret",
+                "?serverTimezone=UTC;",
+                "?useSSL=false&",
+                "?=bad")) {
+            reject(true, true, false, "prp.tasks.read",
+                    "jdbc:mysql://localhost:3306/matrix_prp" + suffix,
+                    false, List.of("prod"));
+        }
+        allowed("jdbc:mysql://localhost:3306/matrix_prp"
+              + "?useUnicode=true&characterEncoding=UTF-8"
+              + "&connectionCollation=utf8mb4_unicode_ci"
+              + "&serverTimezone=Asia/Shanghai&useSSL=false"
+              + "&allowPublicKeyRetrieval=true",
+              List.of("prod"));
+    }
+
+    @Test
     void testOrIntegrationProfileCannotMasqueradeAsProductionCanary() {
         reject(true, true, false, "prp.tasks.read", PRODUCTION_URL, false,
                List.of("prod", "test"));
