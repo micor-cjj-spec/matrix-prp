@@ -9,7 +9,8 @@ test('coordinator can only be manually dispatched from reviewed main by reposito
   assert.doesNotMatch(workflow, /pull_request_target:|workflow_run:/)
   assert.match(workflow, /github\.ref == 'refs\/heads\/main'/)
   assert.match(workflow, /github\.actor == github\.repository_owner/)
-  assert.match(workflow, /ref: main/)
+  assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/)
+  assert.match(workflow, /STATE_BRANCH_UNPROTECTED/)
   assert.match(workflow, /cancel-in-progress: false/)
 })
 test('controller cannot execute privileged task commands or production operations', () => {
