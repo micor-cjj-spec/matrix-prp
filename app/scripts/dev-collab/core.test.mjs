@@ -120,3 +120,14 @@ test('invalid request fields and unauthenticated context are rejected', () => {
   assertCode(() => applyCommand(make(), { ...command('claim', 'T-001', { worker_id: 'chat-A' }), force: true }, actor), 'UNEXPECTED_COMMAND_FIELD')
   assertCode(() => applyCommand(make(), command('claim', 'T-001', { worker_id: 'chat-A' }), { ...actor, actor: 'bad actor' }), 'INVALID_ACTOR')
 })
+
+test('request ledger fails closed instead of allowing an old request to be replayed after eviction', () => {
+  const s = make()
+  s.processed_requests = Array.from({ length: 512 }, (_, i) => ({
+    request_id: '10000000-0000-4000-8000-' + String(i).padStart(12, '0'),
+    actor: 'micor-cjj-spec',
+    fingerprint: 'a'.repeat(64),
+    receipt: { version: i + 1 }
+  }))
+  assertCode(() => claim(s, 'T-001'), 'REQUEST_LEDGER_FULL')
+})
