@@ -53,7 +53,8 @@ function verifyCheckSet(checks,sha){
   for(const run of checks.check_runs){
     if(!REQUIRED_CHECKS.includes(run?.name) || run?.app?.slug!=='github-actions')continue
     const previous=evidenceMap.get(run.name)
-    if(!previous||new Date(run.started_at).getTime()>new Date(previous.started_at).getTime()) {
+    check(Number.isSafeInteger(run.id) && run.id>0,'INVALID_CHECK_ID')
+    if(!previous||run.id>previous.id) {
       evidenceMap.set(run.name,run)
     }
   }
