@@ -88,11 +88,38 @@ class ReadOnlyV2ArtifactContract(unittest.TestCase):
 
     def test_missing_markers_fail_closed(self):
         r = probe.check(FakeRunner(
-            missing_js=("finish",), missing_class=("service", "migration_v28")))
+            missing_js=("finish",), missing_class=("service", "migration_v29")))
         self.assertEqual(r["gateway_oidc"], "PARTIAL_MARKERS")
         self.assertEqual(r["backend_oidc"], "PARTIAL_MARKERS")
         self.assertEqual(r["artifacts_feature_ready"],
                          "BLOCKED_RUNNING_V2_ARTIFACTS_INCOMPLETE")
+
+    def test_old_v28_oidc_without_v29_is_not_candidate_ready(self):
+        # An old image with the incorrect V28 OIDC SQL name cannot satisfy
+        # the canonical immutable lease V28 + first-party OIDC V29 chain.
+        from zipfile import ZipFile
+        fake = FakeRunner(missing_class=("migration_v28", "migration_v29"))
+        with_zip = io.BytesIO()
+        with ZipFile(with_zip, "w") as z:
+            z.writestr("BOOT-INF/classes/db/migration/"
+                       "V28__mcp_first_party_oidc_link_flows.sql", b"synthetic")
+            for name, label in probe.CLASSES.items():
+                if not label.startswith("migration_"):
+                    z.writestr(name, b"synthetic")
+        fake.back = archive({"app.jar": with_zip.getvalue()})
+        result = probe.check(fake)
+        self.assertEqual(result["backend_oidc"], "PARTIAL_MARKERS")
+        self.assertEqual(result["artifacts_feature_ready"],
+                         "BLOCKED_RUNNING_V2_ARTIFACTS_INCOMPLETE")
+        self.assertIs(result["g0_b2_install_permitted"], False)
+
+    def test_each_immutable_migration_is_mandatory(self):
+        for missing in ("migration_v28", "migration_v29"):
+            with self.subTest(missing=missing):
+                result = probe.check(FakeRunner(missing_class=(missing,)))
+                self.assertEqual(result["backend_oidc"], "PARTIAL_MARKERS")
+                self.assertEqual(result["artifacts_feature_ready"],
+                                 "BLOCKED_RUNNING_V2_ARTIFACTS_INCOMPLETE")
 
     def test_old_artifacts_report_absent_without_calling_backend_apis(self):
         result = probe.check(FakeRunner(
