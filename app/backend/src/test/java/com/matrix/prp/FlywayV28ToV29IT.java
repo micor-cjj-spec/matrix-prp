@@ -64,7 +64,7 @@ class FlywayV28ToV29IT {
                 System.getenv("MATRIX_PRP_FLYWAY_DB_PASSWORD"));
     }
 
-    private long count(String url, String query) throws Exception {
+    long count(String url, String query) throws Exception {
         try (Connection c = connect(url);
              Statement s = c.createStatement();
              ResultSet rs = s.executeQuery(query)) {
@@ -73,7 +73,7 @@ class FlywayV28ToV29IT {
         }
     }
 
-    private void insert(String url, String query, Object... parameters) throws Exception {
+    void insert(String url, String query, Object... parameters) throws Exception {
         try (Connection c = connect(url);
              PreparedStatement statement = c.prepareStatement(query)) {
             for (int i = 0; i < parameters.length; i++) {
@@ -102,7 +102,7 @@ class FlywayV28ToV29IT {
         return HexFormat.of().formatHex(digest.digest());
     }
 
-    private Map<String, String> preservedFingerprints(String url) throws Exception {
+    Map<String, String> preservedFingerprints(String url) throws Exception {
         Map<String, String> snapshots = new LinkedHashMap<>();
         for (var entry : PRESERVED_QUERIES.entrySet()) {
             snapshots.put(entry.getKey(), fingerprint(url, entry.getValue()));
@@ -110,7 +110,7 @@ class FlywayV28ToV29IT {
         return snapshots;
     }
 
-    private Flyway flyway(String url, String target) {
+    Flyway flyway(String url, String target) {
         var config = Flyway.configure()
                 .dataSource(url, System.getenv("MATRIX_PRP_FLYWAY_DB_USER"),
                         System.getenv("MATRIX_PRP_FLYWAY_DB_PASSWORD"))
@@ -123,7 +123,7 @@ class FlywayV28ToV29IT {
         return config.load();
     }
 
-    private void populateSyntheticV28(String url) throws Exception {
+    void populateSyntheticV28(String url) throws Exception {
         for (long owner : new long[] {OWNER_A, OWNER_B}) {
             insert(url, "INSERT INTO prp_users "
                     + "(id,username,display_name,password_hash,is_admin,enabled) "
