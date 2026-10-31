@@ -142,11 +142,26 @@ class ReadonlyLinkReviewRoutesTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             render_readonly_link_routes(trusted_ca="/tmp/ca.pem")
 
-    def test_broad_approval_review_unchanged_and_separately_tls_pinned(self):
+    def test_broad_approval_candidate_pairing_route_is_explicit_and_tls_pinned(self):
+        # PR #95 added one review-only POST pairing endpoint to the older
+        # 10-exact + 4-regex candidate. It must NOT leak into V2 task-only
+        # first-party allowlists or become a generic /api/mcp/* proxy.
         legacy = render_approval_routes("/tmp/ca.pem")
-        self.assertEqual(legacy.count("proxy_pass https://127.0.0.1:18443;"), 14)
-        self.assertEqual(legacy.count("proxy_ssl_verify on;"), 14)
-        self.assertEqual(legacy.count("proxy_ssl_name prp-test.micor.top;"), 14)
+        self.assertEqual(len(EXACT), 11)
+        self.assertEqual(len(REGEX), 4)
+        self.assertEqual(EXACT["/api/mcp/clients/pairing"], "POST")
+        self.assertIn(
+            "location = /api/mcp/clients/pairing {\n    limit_except POST { deny all; }",
+            legacy,
+        )
+        self.assertNotIn("/api/mcp/clients/pairing", READONLY_LINK_EXACT)
+        self.assertNotIn("location = /api/mcp/clients/pairing", render_readonly_link_routes())
+        self.assertNotIn("location ^~ /api/mcp/", legacy)
+        expected_routes = len(EXACT) + len(REGEX)
+        self.assertEqual(expected_routes, 15)
+        self.assertEqual(legacy.count("proxy_pass https://127.0.0.1:18443;"), expected_routes)
+        self.assertEqual(legacy.count("proxy_ssl_verify on;"), expected_routes)
+        self.assertEqual(legacy.count("proxy_ssl_name prp-test.micor.top;"), expected_routes)
         self.assertNotIn("proxy_pass http://127.0.0.1:18082;", legacy)
         for bad in ("/tmp/../ca.pem", "/tmp/ca.pem\\n",
                     "/tmp/ca.pem;proxy_ssl_verify off;", "relative.pem"):
