@@ -16,7 +16,7 @@ from zipfile import BadZipFile, ZipFile
 
 SQL = re.compile(r"^V([1-9][0-9]*)__([a-zA-Z0-9_]+)\.sql$")
 PREFIX = "BOOT-INF/classes/db/migration/"
-EXPECTED_VERSIONS = set(range(1, 29))
+EXPECTED_VERSIONS = set(range(1, 30))
 MAX_SQL_BYTES = 1024 * 1024
 MAX_ZIP_ENTRIES = 50000
 MAX_JAR_BYTES = 240 * 1024 * 1024
@@ -47,7 +47,7 @@ def validate(jar: Path, source: Path) -> dict:
             local[item.name] = item.read_bytes()
     versions = [int(SQL.fullmatch(name).group(1)) for name in local]
     if set(versions) != EXPECTED_VERSIONS or len(versions) != len(EXPECTED_VERSIONS):
-        return blocked("SOURCE_EXPECTED_V1_V28_INCOMPLETE")
+        return blocked("SOURCE_EXPECTED_V1_V29_INCOMPLETE")
 
     with ZipFile(jar) as archive:
         entries = archive.infolist()
