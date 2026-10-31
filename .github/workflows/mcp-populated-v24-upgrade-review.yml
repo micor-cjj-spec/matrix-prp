@@ -11,6 +11,16 @@ on:
       - "app/backend/src/main/resources/db/migration/**"
       - "app/backend/pom.xml"
       - ".github/workflows/mcp-populated-v24-upgrade-review.yml"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/src/test/java/com/matrix/prp/ExistingPrpV24ToMcpV28UpgradeIT.java"
+      - "app/deploy/mcp-staging/review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_flyway_metadata_readonly.sql"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/backend/pom.xml"
+      - ".github/workflows/mcp-populated-v24-upgrade-review.yml"
   workflow_dispatch:
 
 permissions:
