@@ -31,7 +31,7 @@ public final class McpProductionTaskOnlyGuard {
     }
 
     static void verify(boolean mcp, boolean oauth, boolean write, String scopes,
-                       String jdbcUrl, boolean flyway, List<String profiles) {
+                       String jdbcUrl, boolean flyway, List<String> profiles) {
         if (!mcp || !oauth || write || flyway
                 || profiles.contains("test") || profiles.contains("video-integration")) {
             throw new IllegalStateException("Production MCP task-read canary configuration rejected");
