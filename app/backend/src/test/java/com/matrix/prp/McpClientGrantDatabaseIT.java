@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -33,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 })
 class McpClientGrantDatabaseIT {
     @Autowired McpClientGrantService grants;
+    @Autowired JdbcTemplate jdbc;
     @Autowired UserStore users;
     @Autowired PasswordEncoder passwords;
 
@@ -76,6 +78,65 @@ class McpClientGrantDatabaseIT {
         grants.revoke(clientId);
         assertThat(grants.grantedScopes(owner.id(), clientId)).isEmpty();
         assertThat(grants.mine()).extracting(McpClientGrantService.Grant::status).contains("REVOKED");
+    }
+
+    @Test
+    void temporaryPairingExpiresAtDatabaseClockAndNeverChangesPermanentGrants() {
+        String password = "mcp-pairing-lease-ci";
+        UserAccount owner = create(password);
+        UserAccount other = create("different-" + password);
+        String pairingId = "pairing-lease-" + UUID.randomUUID();
+        String permanentId = "long-grant-" + UUID.randomUUID();
+        as(owner);
+        assertThatThrownBy(() -> grants.authorizeTemporaryPairing(pairingId, "wrong"))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN));
+        assertThat(grants.grantedScopes(owner.id(), pairingId)).isEmpty();
+
+        var leased = grants.authorizeTemporaryPairing(pairingId, password);
+        assertThat(leased.status()).isEqualTo("ACTIVE");
+        assertThat(leased.scopes()).containsExactly("prp.tasks.read");
+        assertThat(grants.grantedScopes(owner.id(), pairingId))
+            .containsExactly("prp.tasks.read");
+        assertThat(grants.grantedScopes(other.id(), pairingId)).isEmpty();
+
+        Long leaseSeconds = jdbc.queryForObject(
+            "SELECT TIMESTAMPDIFF(SECOND,CURRENT_TIMESTAMP,expires_at) " +
+            "FROM prp_mcp_pairing_grant_leases WHERE user_id=? AND client_id=?",
+            Long.class, owner.id(), pairingId);
+        assertThat(leaseSeconds).isBetween(590L, 600L);
+        assertThatThrownBy(() -> grants.authorizeTemporaryPairing(pairingId, password))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT));
+
+        // Expiration is enforced without waiting for a scheduler or browser visit.
+        jdbc.update("UPDATE prp_mcp_pairing_grant_leases SET expires_at=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 1 SECOND) " +
+            "WHERE user_id=? AND client_id=?", owner.id(), pairingId);
+        assertThat(grants.grantedScopes(owner.id(), pairingId)).isEmpty();
+        assertThat(grants.mine()).filteredOn(grant -> grant.clientId().equals(pairingId))
+            .extracting(McpClientGrantService.Grant::status).containsExactly("EXPIRED");
+
+        // An expired but still stored lease can be safely reissued, not widened.
+        grants.authorizeTemporaryPairing(pairingId, password);
+        assertThat(grants.grantedScopes(owner.id(), pairingId))
+            .containsExactly("prp.tasks.read");
+        grants.revoke(pairingId);
+        assertThat(grants.grantedScopes(owner.id(), pairingId)).isEmpty();
+
+        grants.authorize(permanentId, List.of("prp.tasks.read", "prp.finance.read"), password);
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM prp_mcp_client_grants g " +
+            "LEFT JOIN prp_mcp_pairing_grant_leases l ON l.user_id=g.user_id AND l.client_id=g.client_id " +
+            "WHERE g.user_id=? AND g.client_id=? AND l.user_id IS NULL",
+            Integer.class, owner.id(), permanentId)).isEqualTo(1);
+        assertThatThrownBy(() -> grants.authorizeTemporaryPairing(permanentId, password))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT));
+        assertThat(grants.grantedScopes(owner.id(), permanentId))
+            .containsExactlyInAnyOrder("prp.tasks.read", "prp.finance.read");
     }
 
     @Test
