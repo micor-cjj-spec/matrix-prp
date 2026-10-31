@@ -8,6 +8,15 @@ on:
       - ".github/workflows/mcp-chatgpt-public-oauth-discovery-readonly.yml"
       - "app/deploy/mcp-oauth/public_get_only_diagnostic.py"
       - "app/deploy/mcp-oauth/chatgpt_cimd_preflight.py"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - ".github/workflows/mcp-chatgpt-public-oauth-discovery-readonly.yml"
+      - "app/deploy/mcp-oauth/public_get_only_diagnostic.py"
+      - "app/deploy/mcp-oauth/chatgpt_cimd_preflight.py"
+      - "app/deploy/mcp-oauth/test_public_get_only_diagnostic.py"
+      - "app/deploy/mcp-oauth/test_chatgpt_cimd_preflight.py"
   workflow_dispatch:
 
 permissions:
