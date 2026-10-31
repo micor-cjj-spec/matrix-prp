@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "requirement_id": "REQ-20261031-001",
+  "issue_number": 132,
+  "title": "多 GPT 会话共享开发任务 MVP",
+  "status": "ACTIVE",
+  "version": 0,
+  "updated_at": "2026-10-31T16:05:00Z",
+  "processed_requests": [],
+  "tasks": [
+    {
+      "task_id": "T-001",
+      "issue_number": 133,
+      "title": "任务状态模型、依赖校验与并发安全核心",
+      "status": "READY",
+      "depends_on": [],
+      "allowed_paths": [
+        "app/scripts/dev-collab/core.mjs",
+        "app/scripts/dev-collab/core.test.mjs"
+      ],
+      "claim": null
+    },
+    {
+      "task_id": "T-002",
+      "issue_number": 134,
+      "title": "GitHub 需求与任务模板、PR 规范",
+      "status": "READY",
+      "depends_on": [],
+      "allowed_paths": [
+        ".github/ISSUE_TEMPLATE/",
+        ".github/PULL_REQUEST_TEMPLATE.md"
+      ],
+      "claim": null
+    },
+    {
+      "task_id": "T-003",
+      "issue_number": 135,
+      "title": "共享状态协调器与 GitHub Actions",
+      "status": "READY",
+      "depends_on": [
+        "T-001"
+      ],
+      "allowed_paths": [
+        "app/scripts/dev-collab/coordinator-cli.mjs",
+        "app/scripts/dev-collab/state-transaction.sh",
+        ".github/workflows/prp-collab-coordinator.yml"
+      ],
+      "claim": null
+    },
+    {
+      "task_id": "T-004",
+      "issue_number": 136,
+      "title": "验收、安全回归和跨会话操作手册",
+      "status": "READY",
+      "depends_on": [
+        "T-001",
+        "T-003"
+      ],
+      "allowed_paths": [
+        "app/scripts/dev-collab/coordinator-cli.test.mjs",
+        "app/docs/dev-collab/"
+      ],
+      "claim": null
+    },
+    {
+      "task_id": "T-005",
+      "issue_number": 137,
+      "title": "集成审查与端到端验收",
+      "status": "READY",
+      "depends_on": [
+        "T-001",
+        "T-002",
+        "T-003",
+        "T-004"
+      ],
+      "allowed_paths": [],
+      "claim": null
+    }
+  ]
+}
