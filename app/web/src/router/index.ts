@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
 import { ensureAdminAccess } from './adminAccess'
+import { safeUnauthenticatedRedirect } from './safeUnauthenticatedRedirect'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -178,12 +179,12 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+    return { name: 'login', query: { redirect: safeUnauthenticatedRedirect(to) } }
   }
   if (to.meta.adminOnly) {
     const access = await ensureAdminAccess(authStore)
     if (access === 'unauthenticated') {
-      return { name: 'login', query: { redirect: to.fullPath } }
+      return { name: 'login', query: { redirect: safeUnauthenticatedRedirect(to) } }
     }
     if (access === 'forbidden') return { name: 'me' }
     // On a temporary outage, do not mistake a missing profile for a non-admin.
