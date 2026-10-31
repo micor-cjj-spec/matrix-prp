@@ -6,9 +6,9 @@ Parent requirement: [REQ-20261031-001 / #132](https://github.com/micor-cjj-spec/
 
 - A requirement owns tasks; chat conversations are transient workers.
 - One root GitHub Issue represents the requirement; individual Issues represent tasks.
-- The only authoritative state will be an independently controlled `prp-collab-state` Git ref containing `requirements/<REQ-ID>.json`. Issue titles, checkboxes and labels are projections, not mutexes.
+- The intended authoritative state is an independently controlled `prp-collab-state` Git ref containing `requirements/<REQ-ID>.json`. Issue titles, checkboxes and labels are projections, not mutexes.
 - `main` stays protected. Never automatically merge, deploy, run SSH, use production DB/Keycloak or install MCP as part of the coordination workflow.
-- Current phase implements the pure contract and templates. **No live task coordinator is activated by this PR.** Claims become authoritative only when the separately reviewed coordinator is deployed, initialized and tested.
+- Current review branch includes the pure contract, templates, owner-only manual workflow coordinator, Git fast-forward state transactions and local-Git concurrency tests. The `prp-collab-state` branch has been seeded with `REQ-20261031-001` at version 0. **The coordinator is NOT active on protected main.** Claims become operational only after separate review, protected state-ref authorization and approved activation.
 - The existing `.github/workflows/codex-prp-worker.yml` is manual-only and currently opens review PRs against `main`. Do not assume it targets a requirement integration branch or allows arbitrary directories. Adapt separately.
 
 ## Task status and lifecycle
@@ -27,24 +27,24 @@ Parent requirement: [REQ-20261031-001 / #132](https://github.com/micor-cjj-spec/
 
 ## Implementation and permission boundaries
 
-The pure `core.mjs` module implements dependency validation, path reservation, state transitions, idempotent command receipts and fail-closed approval requirements. This is **not yet an atomic cross-process Git coordinator**. A later review-only change will add a trusted workflow-dispatch wrapper with Git fast-forward compare-and-swap retries, verify GitHub reviewers/CI and reconcile Issue projections. No user-provided Issue content may execute as shell commands.
+The pure `core.mjs` module implements dependency validation, path reservation, state transitions, idempotent command receipts and fail-closed approval requirements. This is accompanied by a manual-only GitHub Actions transaction runner, which uses re-fetch, non-force Git push and bounded retries. Local bare-Git concurrent process tests are included. Verified reviewer/CI acceptance and automatic Issue reconciliation are **not implemented**; coordinator cannot invoke `accept` or `close`. No user-provided Issue content may execute as shell commands.
 
 ## Start and acceptance checks
 
 Run locally from the repo root:
 
 ```bash
-node --test app/scripts/dev-collab/core.test.mjs
+node --test app/scripts/dev-collab/*.test.mjs
 ```
 
 Before a real multi-session acceptance, verify two simultaneous claims for the same task lead to one winner, independent tasks can both progress, duplicate request IDs are idempotent, stale claims fail, issue projection failures can be reconciled, unauthorized users fail closed, and no production deployment occurs.
 
 ## Planned work items
 
-- T-001 #133 contract/tests (this PR)
-- T-002 #134 Issue/PR templates (this PR)
-- T-003 #135 trusted workflow coordinator and atomic Git state writes (not yet live)
-- T-004 #136 cross-process/test fixtures and operating guide
-- T-005 #137 integration acceptance
+- T-001 #133 contract/tests (Draft PR #138; awaiting acceptance)
+- T-002 #134 Issue/PR templates (Draft PR #138; awaiting acceptance)
+- T-003 #135 trusted workflow coordinator and atomic Git state writes (Draft PR #138; not active on main)
+- T-004 #136 cross-process/test fixtures and operating guide (Draft PR #138; acceptance pending)
+- T-005 #137 integration acceptance (not started)
 
-A PR being green is evidence of tests passing; it is not evidence that live coordination, OAuth or production release has occurred.
+The state request history is deliberately bounded at 512 entries per requirement and fails closed when full; archival/re-keying requires a separately reviewed protocol change. A PR being green is evidence of tests passing; it is not evidence that live coordination, OAuth or production release has occurred.
