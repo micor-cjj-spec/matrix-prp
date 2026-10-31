@@ -37,7 +37,7 @@ WITH facts AS (
        'prp_mcp_client_grants',
        'prp_mcp_identity_links',
        'prp_mcp_link_tickets',
-       'prp_mcp_oidc_link_flows'
+       'prp_mcp_pairing_grant_leases'
       )) AS proposed_table_name_collisions,
   (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
     WHERE CONSTRAINT_SCHEMA = 'matrix_prp'
@@ -47,7 +47,7 @@ WITH facts AS (
        'fk_prp_mcp_client_grant_user',
        'fk_prp_mcp_identity_user',
        'fk_prp_mcp_link_ticket_user',
-       'fk_prp_mcp_oidc_flow_owner'
+       'fk_mcp_pairing_grant'
       )) AS proposed_fk_name_collisions,
   (SELECT COUNT(*) FROM flyway_schema_history) AS history_rows,
   (SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1) AS successful_history_rows,
