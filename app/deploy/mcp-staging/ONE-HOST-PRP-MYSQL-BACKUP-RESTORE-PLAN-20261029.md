@@ -288,3 +288,57 @@ rollback. A same-host restored clone alone does not satisfy this.
 - Until a protected off-host copy and independent signoff exist,
   `backup_approved=NO`, `g0_b2_approval=NO`,
   `deployment_permitted=NO`.
+
+
+## Addendum 2026-10-31 — distinct **V2 V28→V29** recovery candidate (not production V24)
+
+This is a **separate staging database and change target** from the
+production V7-baselined \`matrix_prp\` V24→V28 pathway above.
+Do not apply production V24 backup procedures, V25–V28 migration steps,
+schema names or accounts to the live \`prp-mcp-v2-mysql-1\`.
+
+**Grounded operator evidence (read-only):** the active isolated V2
+MySQL 8.4 has a continuous V1–V28 Flyway history, 28/28 CRCs matching
+Draft PR #131, no failed migration, a real V28 temporary-grant lease
+table, and **no** V29 history row or OIDC flow table. V29 DDL preflight
+found InnoDB \`prp_users\` with signed BIGINT non-null one-column
+primary key, no target table or foreign-key-name collision. The
+running V2 backend and gateway images still lack OIDC Controller/Service
+and callback/start/finish JavaScript markers.
+
+**Implemented synthetic-only rehearsal:**
+\`.github/workflows/mcp-v28-backup-restore-v29-review.yml\` runs
+\`IsolatedV28BackupRestoreMcpV29IT.java\` in a disposable GitHub runner
+against *two synthetic, separately named MySQL 8.4 Docker containers and
+volumes*. It:
+1. Builds the canonical full V1–V28 schema and inserts two synthetic
+   owners with tasks, finance, client grants, identity link, temporary
+   grant lease and one-use ticket;
+2. Creates a full synthetic \`mysqldump\`, checks its SHA-256 and a
+   deliberately corrupted copy, then restores only into an initially
+   empty clone;
+3. Compares eight selected existing-table row fingerprints, Flyway
+   V1–V28 history, and pre-migration table count across source and
+   restored clone;
+4. Runs **only V29 on clone**, proves one new OIDC table and its
+   owner FK, denies orphan flow records, checks that all selected
+   historical row fingerprints remain unchanged and that source stays
+   at V28; destroys its own ephemeral resources.
+
+[First green synthetic V28 dump→restore→V29 CI #41197658567](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/41197658567)
+passed both phases. Synthetic checks do **not** certify that every
+unpopulated source table has identical data or establish actual V2 backup
+validity, recoverability, service compatibility or production owner
+linking. These private, synthetic backup bytes were never published.
+
+**Real V2 next gate, not performed:** independently authorized
+complete snapshot of the *actual isolated V2 database*, verified
+recovery into a newly named separately protected database without
+touching its original containers/volumes, original V28 history and
+user/ACL data reconciliation, and V29 on restored copy only. Confirm
+a rollback that can preserve writes made after the backup. Off-host
+protection and genuine G0/B2 release authorization remain separate
+requirements. Do **not** execute the synthetic workflow against the
+V2 host or change its hard-coded CI host/URL guards to point to the
+existing database. No current V2, production DB, external OAuth client
+or public route was modified by this work.
