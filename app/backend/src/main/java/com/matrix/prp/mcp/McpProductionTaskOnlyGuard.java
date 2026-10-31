@@ -58,7 +58,7 @@ public final class McpProductionTaskOnlyGuard {
             if (!"mysql".equals(parsed.getScheme()) ||
                     host == null ||
                     !("127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host)
-                        || "::1".equals(host)) ||
+                        || "[::1]".equals(host)) ||
                     parsed.getRawUserInfo() != null ||
                     parsed.getRawFragment() != null ||
                     !"/matrix_prp".equals(parsed.getRawPath()) ||
