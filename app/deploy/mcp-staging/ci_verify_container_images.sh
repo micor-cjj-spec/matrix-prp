@@ -69,7 +69,8 @@ required = {
     "BOOT-INF/classes/com/matrix/prp/mcp/McpOAuthMetadataController.class",
     "BOOT-INF/classes/com/matrix/prp/mcp/McpActivationGuard.class",
     "BOOT-INF/classes/com/matrix/prp/mcp/PrpMcpTools.class",
-    "BOOT-INF/classes/db/migration/V28__mcp_first_party_oidc_link_flows.sql",
+    "BOOT-INF/classes/db/migration/V28__mcp_temporary_client_grant_expiry.sql",
+    "BOOT-INF/classes/db/migration/V29__mcp_first_party_oidc_link_flows.sql",
     "BOOT-INF/classes/application.yml",
 }
 if required - entries:
@@ -85,10 +86,10 @@ for expected in (
 ):
     if expected not in config:
         raise SystemExit("REVIEW_BACKEND_IMAGE_UNSAFE_DEFAULT_OR_MISSING_SCOPE")
-print("PASS OCI BACKEND: full OAuth identity/permissions/task tool classes, V28 and fail-closed defaults")
+print("PASS OCI BACKEND: full OAuth identity/permissions/task tool classes, V28 lease, V29 OIDC and fail-closed defaults")
 PY
 # Check the assembled JAR INSIDE THE FINAL UNSTARTED OCI IMAGE, not
-# Maven's build directory: all 28 original/additive SQL resources must
+# Maven's build directory: all 29 original/additive SQL resources must
 # be byte-for-byte identical to the reviewed Git source. Exit 4 means
 # source/JAR parity only; this is still NOT release permission.
 set +e
@@ -107,10 +108,10 @@ import json, sys
 with open(sys.argv[1], encoding="utf-8") as stream:
     result = json.load(stream)
 assert result["decision"] == "CANDIDATE_JAR_SOURCE_MIGRATIONS_IDENTICAL_REVIEW_ONLY"
-assert result["source_migrations"] == result["jar_migrations"] == 28
+assert result["source_migrations"] == result["jar_migrations"] == 29
 assert result["identical_raw_bytes"] is True and result["deployment_permitted"] is False
 PY
-echo "PASS OCI BACKEND: final image JAR V1-V28 migration bytes equal source, REVIEW_ONLY"
+echo "PASS OCI BACKEND: final image JAR V1-V29 migration bytes equal source, REVIEW_ONLY"
 test "$(docker image inspect -f '{{.Config.User}}' "$api_img")" = prp
 echo 'PASS OCI BACKEND: non-root runtime user; Java service never started'
 
