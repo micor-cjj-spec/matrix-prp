@@ -112,6 +112,35 @@ class ReadOnlyV2ArtifactContract(unittest.TestCase):
         self.assertEqual(r["artifacts_feature_ready"],
                          "BLOCKED_RUNNING_V2_ARTIFACTS_INCOMPLETE")
 
+    def test_diagnostic_lists_only_fixed_frontend_and_backend_markers(self):
+        result = probe.check(FakeRunner(
+            missing_js=("finish",), missing_class=("service", "migration_v29")))
+        self.assertEqual(result["gateway_oidc_markers"], {
+            "callback": "PRESENT",
+            "start": "PRESENT",
+            "finish": "ABSENT",
+        })
+        self.assertEqual(result["backend_oidc_markers"], {
+            "controller": "PRESENT",
+            "service": "ABSENT_OR_MISMATCH",
+            "migration_v28": "PRESENT",
+            "migration_v29": "ABSENT_OR_MISMATCH",
+        })
+        self.assertEqual(set(result["gateway_oidc_markers"]), set(probe.JS_MARKERS.values()))
+        self.assertEqual(set(result["backend_oidc_markers"]), set(probe.CLASSES.values()))
+        self.assertNotIn("app.jar", json.dumps(result))
+        self.assertNotIn("BOOT-INF", json.dumps(result))
+        self.assertNotIn("assets/", json.dumps(result))
+        self.assertIs(result["live_oidc_flow_verified"], False)
+        self.assertIs(result["g0_b2_install_permitted"], False)
+
+    def test_diagnostic_abstains_when_containers_are_not_both_running(self):
+        result = probe.check(FakeRunner(frontend=False))
+        self.assertNotIn("gateway_oidc_markers", result)
+        self.assertNotIn("backend_oidc_markers", result)
+        self.assertEqual(result["artifacts_feature_ready"],
+                         "BLOCKED_UNAVAILABLE_CONTAINER")
+
     def test_reviewed_git_blob_constants_match_immutable_checkout_bytes(self):
         for path, expected in probe.REVIEWED_MIGRATION_BLOBS.items():
             with self.subTest(path=path.rsplit("/", 1)[-1]):
