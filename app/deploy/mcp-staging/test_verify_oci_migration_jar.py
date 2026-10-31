@@ -15,7 +15,7 @@ class ReviewOnlyJarSqlTests(unittest.TestCase):
         directory = root / "source"
         directory.mkdir()
         sql = {}
-        for i in range(1, 29):
+        for i in range(1, 30):
             name = f"V{i}__synthetic_ci_{i}.sql"
             value = f"-- CI only\\nCREATE TABLE ci_dummy_{i} (id INT);\\n".encode()
             (directory / name).write_bytes(value)
@@ -39,8 +39,8 @@ class ReviewOnlyJarSqlTests(unittest.TestCase):
             jar = root / "synthetic.jar"
             self.create_jar(jar, sql)
             result = m.validate(jar, source)
-            self.assertEqual(result["source_migrations"], 28)
-            self.assertEqual(result["jar_migrations"], 28)
+            self.assertEqual(result["source_migrations"], 29)
+            self.assertEqual(result["jar_migrations"], 29)
             self.assertTrue(result["identical_raw_bytes"])
             self.assertFalse(result["deployment_permitted"])
             self.assertEqual(len(result["candidate_jar_sha256"]), 64)
@@ -65,7 +65,7 @@ class ReviewOnlyJarSqlTests(unittest.TestCase):
             jar = root / "synthetic.jar"
             self.create_jar(jar, {k: v for k, v in sql.items() if not k.startswith("V3__")})
             self.assertEqual(m.validate(jar, source)["reason"], "JAR_MIGRATION_FILE_SET_DRIFT")
-            self.create_jar(jar, sql, extra={m.PREFIX + "V29__unexpected.sql": b"SELECT 1;"})
+            self.create_jar(jar, sql, extra={m.PREFIX + "V30__unexpected.sql": b"SELECT 1;"})
             self.assertEqual(m.validate(jar, source)["reason"], "JAR_MIGRATION_FILE_SET_DRIFT")
 
     def test_unknown_file_under_migration_directory_is_blocked(self):
@@ -94,7 +94,7 @@ class ReviewOnlyJarSqlTests(unittest.TestCase):
             jar = root / "synthetic.jar"
             self.create_jar(jar, sql)
             (source / "V22__synthetic_ci_22.sql").unlink()
-            self.assertEqual(m.validate(jar, source)["reason"], "SOURCE_EXPECTED_V1_V28_INCOMPLETE")
+            self.assertEqual(m.validate(jar, source)["reason"], "SOURCE_EXPECTED_V1_V29_INCOMPLETE")
 
     def test_symlinked_jar_is_blocked(self):
         with TemporaryDirectory() as d:
