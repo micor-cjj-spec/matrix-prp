@@ -179,6 +179,18 @@ def check(runner=subprocess.run):
         jar = scan_jar(docker_copy_tar(BACKEND, JAR, MAX_JAR_TAR, runner))
         report["gateway_oidc"] = status(assets)
         report["backend_oidc"] = status(jar)
+        # Fixed, non-sensitive label allowlists only; no image, path, token,
+        # account, source code, JAR bytes or runtime environment is printed.
+        # SQL marker presence additionally requires the reviewed Git blob ID;
+        # a Java class marker alone never attests to its executable behavior.
+        report["gateway_oidc_markers"] = {
+            name: "PRESENT" if assets[name] else "ABSENT"
+            for name in JS_MARKERS.values()
+        }
+        report["backend_oidc_markers"] = {
+            name: "PRESENT" if jar[name] else "ABSENT_OR_MISMATCH"
+            for name in CLASSES.values()
+        }
         report["artifacts_feature_ready"] = (
             "SOURCE_MARKERS_PRESENT_REVIEW_ONLY"
             if all(assets.values()) and all(jar.values())
