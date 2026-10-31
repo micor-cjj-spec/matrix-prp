@@ -21,6 +21,26 @@ on:
       - "app/deploy/mcp-staging/test_verify_oci_migration_jar.py"
       - ".dockerignore"
       - ".github/workflows/mcp-reviewed-oci-images.yml"
+  pull_request:
+    branches:
+      - feat/prp-mcp-gateway-v1
+    paths:
+      - "app/backend/pom.xml"
+      - "app/backend/src/**"
+      - "app/web/package*.json"
+      - "app/web/src/**"
+      - "app/web/scripts/**"
+      - "app/scripts/**"
+      - "app/config/feature-registry.json"
+      - "app/deploy/mcp-staging/Dockerfile.web"
+      - "app/deploy/mcp-staging/Dockerfile.backend"
+      - "app/deploy/mcp-staging/nginx.conf.template"
+      - "app/deploy/mcp-staging/compose.yaml"
+      - "app/deploy/mcp-staging/ci_verify_container_images.sh"
+      - "app/deploy/mcp-staging/verify_oci_migration_jar.py"
+      - "app/deploy/mcp-staging/test_verify_oci_migration_jar.py"
+      - ".dockerignore"
+      - ".github/workflows/mcp-reviewed-oci-images.yml"
   workflow_dispatch:
 
 permissions:
