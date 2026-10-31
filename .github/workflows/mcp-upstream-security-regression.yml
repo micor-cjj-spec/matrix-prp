@@ -57,7 +57,7 @@ jobs:
             MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
           done
           while IFS= read -r schema; do
-            version="$(basename "$schema" | sed -E 's/V([0-9]+)__.*/\\1/')"
+            version="$(basename "$schema" | sed -E 's/V([0-9]+)__.*/\1/')"
             if (( 10#$version > 7 )); then
               MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
             fi
