@@ -17,6 +17,8 @@ MIGRATION_PATTERN = re.compile(r"^V([1-9][0-9]*)__([a-zA-Z0-9_]+)\.sql$")
 KEYS = {"installed_rank", "version", "type", "script", "checksum", "success"}
 LEGACY_BASELINE_SCRIPT = "<< Flyway Baseline >>"
 MAX_BYTES = 32 * 1024
+# Metadata review only; adding a recognized terminal version never approves migration.
+REVIEWABLE_TERMINAL_VERSIONS = frozenset((24, 28, 29))
 
 
 def source_scripts(folder=MIGRATIONS):
@@ -133,7 +135,7 @@ def analyze(data, scripts, expected_schema=SCHEMA_DEFAULT, verified_source_crc=N
         return fail("HISTORY_NOT_IN_ASCENDING_INSTALL_ORDER")
     latest = max(versions)
     first_version = 7 if has_legacy_v7_baseline else 1
-    if latest not in (24, 28) or ordered_versions != list(range(first_version, latest + 1)):
+    if latest not in REVIEWABLE_TERMINAL_VERSIONS or ordered_versions != list(range(first_version, latest + 1)):
         return fail("PARTIAL_OR_UNEXPECTED_MIGRATION_CHAIN")
     checked = verified_source_crc is not None
     lineage = "LEGACY_V7_BASELINE_" if has_legacy_v7_baseline else ""
@@ -189,7 +191,7 @@ def main(argv=None):
     # are NOT authorization success. A mismatch always returns 2.
     if result["decision"].endswith("_SOURCE_CRC_MATCH_REVIEW_ONLY"):
         return 4
-    return 3 if result["decision"].startswith(("V24_", "V28_")) else 2
+    return 3 if result["decision"].startswith(("V24_", "V28_", "V29_")) else 2
 
 
 if __name__ == "__main__":
