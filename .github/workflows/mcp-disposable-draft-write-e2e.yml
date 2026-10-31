@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
     paths:
       - ".github/workflows/mcp-disposable-draft-write-e2e.yml"
       - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
