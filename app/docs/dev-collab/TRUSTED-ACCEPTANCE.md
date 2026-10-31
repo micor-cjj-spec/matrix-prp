@@ -11,3 +11,7 @@ This owner-triggered workflow is a review mechanism, **not** permission to bypas
 ## GitHub Actions workflow provenance (additional required proof)
 
 Green checks are not accepted by their display name alone. The verifier reads each check's GitHub Actions `details_url`, requires that its run/job identifiers match the actual check, and independently fetches the owning workflow run. The run must be a completed successful `pull_request` execution of the exact approved workflow file (CI, Feature Impact Report, or PRP Dev Collaboration Contract), in this repository, on the stored task head SHA and associated with the exact PR number and base branch. A manually dispatched fake workflow or another check job with the same name fails closed. Real run metadata has been checked against existing PR #138, but end-to-end acceptance on a protected integration branch is still pending.
+
+## Authorized code footprint
+
+For each subtask acceptance, the verifier additionally requests the actual GitHub PR changed-file list and compares every path against the task's `allowed_paths`. Renames must have both old and new paths authorized. Lists with more than 100 files or a mismatch against `pr.changed_files` are rejected (rather than silently accepting truncated pagination). Ordinary tasks cannot modify any of the three security-critical required CI workflow definitions even when a broad directory scope was declared; such changes need separate reviewed bootstrap/governance PRs.

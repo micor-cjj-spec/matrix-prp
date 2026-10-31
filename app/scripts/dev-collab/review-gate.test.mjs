@@ -8,11 +8,12 @@ const make=()=>({schema_version:1,requirement_id:'REQ-20261031-001',issue_number
     claim:{claim_id:'11111111-1111-4111-8111-111111111111',worker_id:'chat-A',actor:'micor-cjj-spec'},
     depends_on:[],allowed_paths:['app/scripts/dev-collab/'],pr_number:138,head_sha:sha}]})
 const pack=()=>({
-  pr:{number:138,merged:true,merged_at:'2026-10-31T18:00:00Z',merge_commit_sha:merge,
+  pr:{number:138,changed_files:1,merged:true,merged_at:'2026-10-31T18:00:00Z',merge_commit_sha:merge,
     base:{ref:'integrate/REQ-20261031-001',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
     head:{sha,repo:{full_name:'micor-cjj-spec/matrix-prp'}}},
   branch:{name:'integrate/REQ-20261031-001',protected:true,commit:{sha:integration}},
   comparison:{status:'ahead',behind_by:0,base_commit:{sha:merge},merge_base_commit:{sha:merge},commits:[]},
+  files:[{filename:'app/scripts/dev-collab/core.mjs',status:'modified'}],
   checks:{total_count:REQUIRED_CHECKS.length,check_runs:REQUIRED_CHECKS.map((name,i)=>({
     name,id:i+1,head_sha:sha,status:'completed',conclusion:'success',
     started_at:'2026-10-31T18:00:00Z',app:{slug:'github-actions'}
@@ -71,4 +72,20 @@ test('a requirement cannot close until every task is done and owner signs off',(
   refuses(()=>verifyRequirementClose(s,{actorIsRepositoryOwner:true}),'EXPLICIT_ACCEPTANCE_REQUIRED')
   refuses(()=>verifyRequirementClose(s,{actorIsRepositoryOwner:true,explicitAcceptance:true}),'INTEGRATION_REVIEW_REQUIRED')
   assert.equal(verifyRequirementClose(s,{actorIsRepositoryOwner:true,explicitAcceptance:true,integrationReviewVerified:true}).ready_to_close,true)
+})
+
+test('wrong file scope or stolen rename cannot pass task acceptance',()=>{
+  const a=pack();a.files=[{filename:'app/web/src/App.vue',status:'modified'}]
+  refuses(()=>verifyTaskEvidence(make(),'T-001',a),'TASK_FILE_OUTSIDE_SCOPE')
+  const b=pack();b.files=[{filename:'app/scripts/dev-collab/core.mjs',status:'renamed',previous_filename:'app/backend/pom.xml'}]
+  refuses(()=>verifyTaskEvidence(make(),'T-001',b),'RENAME_SOURCE_OUTSIDE_SCOPE')
+})
+test('CI workflow modification is never authorized by ordinary task acceptance',()=>{
+  const s=make();s.tasks[0].allowed_paths=['.github/workflows/']
+  const a=pack();a.files=[{filename:'.github/workflows/ci.yml',status:'modified'}]
+  refuses(()=>verifyTaskEvidence(s,'T-001',a),'CRITICAL_WORKFLOW_CHANGE_NOT_ALLOWED')
+})
+test('incomplete or paginated PR file list fails closed',()=>{
+  const a=pack();a.pr.changed_files=2
+  refuses(()=>verifyTaskEvidence(make(),'T-001',a),'INCOMPLETE_PR_FILE_LIST')
 })

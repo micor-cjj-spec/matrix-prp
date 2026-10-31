@@ -22,9 +22,10 @@ export function verifyTaskEvidence(snapshot,taskId,evidence){
   check(task.status==='IN_REVIEW','TASK_NOT_IN_REVIEW')
   check(Number.isInteger(task.pr_number)&&task.pr_number>0&&SHA.test(task.head_sha),'MISSING_TASK_PR_EVIDENCE')
   check(evidence && typeof evidence==='object','MISSING_EVIDENCE')
-  const {pr,branch,comparison,checks}=evidence
+  const {pr,branch,comparison,checks,files}=evidence
   const target='integrate/'+snapshot.requirement_id
   check(pr?.number===task.pr_number && pr?.head?.sha===task.head_sha,'WRONG_PR_OR_HEAD')
+  verifyTaskChangedFiles(task,pr,files)
   check(pr?.base?.ref===target && pr?.base?.repo?.full_name==='micor-cjj-spec/matrix-prp','WRONG_INTEGRATION_BASE')
   check(pr?.head?.repo?.full_name==='micor-cjj-spec/matrix-prp','FOREIGN_HEAD_REPOSITORY')
   check(pr?.merged===true && exactIso(pr?.merged_at) && SHA.test(pr?.merge_commit_sha),'PR_NOT_MERGED')
@@ -42,6 +43,36 @@ export function verifyTaskEvidence(snapshot,taskId,evidence){
     integration_sha:branch.commit.sha, merge_commit_sha:pr.merge_commit_sha,
     checks:REQUIRED_CHECKS.length, verified:true
   })
+}
+
+const CRITICAL_WORKFLOWS = new Set([
+  '.github/workflows/ci.yml',
+  '.github/workflows/feature-impact.yml',
+  '.github/workflows/prp-dev-collab-contract.yml'
+])
+const filePath = s => typeof s==='string' && s.length>0 &&
+  !s.startsWith('/') && !s.includes('\\') && !s.split('/').includes('..')
+function withinScope(file,scopes){
+  return scopes.some(s=>s===file || (s.endsWith('/') && file.startsWith(s)))
+}
+export function verifyTaskChangedFiles(task,pr,files){
+  check(Number.isInteger(pr?.changed_files) && pr.changed_files>0 &&
+    pr.changed_files<=100 && Array.isArray(files) && files.length===pr.changed_files,
+    'INCOMPLETE_PR_FILE_LIST')
+  check(Array.isArray(task?.allowed_paths) && task.allowed_paths.length>0,'TASK_HAS_NO_WRITE_SCOPE')
+  const seen=new Set()
+  for(const file of files){
+    const name=file?.filename
+    check(filePath(name) && !seen.has(name),'INVALID_OR_DUPLICATE_PR_FILE')
+    seen.add(name)
+    check(!CRITICAL_WORKFLOWS.has(name),'CRITICAL_WORKFLOW_CHANGE_NOT_ALLOWED')
+    check(withinScope(name,task.allowed_paths),'TASK_FILE_OUTSIDE_SCOPE')
+    if(file.status==='renamed'){
+      check(filePath(file.previous_filename) && withinScope(file.previous_filename,task.allowed_paths),
+        'RENAME_SOURCE_OUTSIDE_SCOPE')
+    }
+  }
+  return Object.freeze({verified:true,files:seen.size})
 }
 
 function verifyCheckSet(checks,sha){

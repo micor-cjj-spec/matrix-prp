@@ -28,7 +28,8 @@ export function trustedReviewContext(snapshot,command,env,api){
     check(SHA.test(pr?.merge_commit_sha),'PR_NOT_MERGED')
     const comparison=api(`repos/${REPO}/compare/${pr.merge_commit_sha}...${branch.commit.sha}`)
     const checks=api(`repos/${REPO}/commits/${task.head_sha}/check-runs?per_page=100`)
-    verifyTaskEvidence(snapshot,command.task_id,{pr,branch,comparison,checks})
+    const files=api(`repos/${REPO}/pulls/${task.pr_number}/files?per_page=100`)
+    verifyTaskEvidence(snapshot,command.task_id,{pr,branch,comparison,checks,files})
     verifyWorkflowProvenance(checks,{sha:task.head_sha,prNumber:task.pr_number,
       baseRef:integrationRef,headRef:pr.head.ref},id=>api(`repos/${REPO}/actions/runs/${id}`))
     return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true}

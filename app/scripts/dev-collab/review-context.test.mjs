@@ -28,11 +28,12 @@ const fakeRun = (route,baseRef,headRef,prNumber)=>{
   pull_requests:[{number:prNumber,head:{sha},base:{ref:baseRef}}]}
 }
 function fake(path){
- if(path.endsWith('/pulls/138'))return{number:138,head:{sha,ref:'feat/task-001',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+ if(path.endsWith('/pulls/138'))return{number:138,changed_files:1,head:{sha,ref:'feat/task-001',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
  base:{ref:'integrate/'+req,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
  merged:true,merged_at:'2026-10-31T18:00:00Z',merge_commit_sha:merge}
  if(path.includes('/branches/'))return{name:'integrate/'+req,protected:true,commit:{sha:branchSha}}
  if(path.includes('/compare/'))return{status:'ahead',behind_by:0,base_commit:{sha:merge},merge_base_commit:{sha:merge},commits:[]}
+ if(path.includes('/pulls/138/files?'))return [{filename:'app/scripts/dev-collab/core.mjs',status:'modified'}]
  if(path.includes('/check-runs'))return checks
  if(path.includes('/actions/runs/'))return fakeRun(path,'integrate/'+req,'feat/task-001',138)
  throw new Error('unexpected request '+path)
