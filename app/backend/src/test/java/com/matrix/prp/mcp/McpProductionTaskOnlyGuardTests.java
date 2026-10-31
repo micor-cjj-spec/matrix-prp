@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.junit.jupiter.api.Test;
 
 /** Pure startup-configuration cases. Never open a database or MCP listener. */
@@ -97,6 +98,46 @@ class McpProductionTaskOnlyGuardTests {
                List.of("prod", "test"));
         reject(true, true, false, "prp.tasks.read", PRODUCTION_URL, false,
                List.of("video-integration"));
+    }
+
+    @Test
+    void disabledCanaryDoesNotRegisterBeanInActualSpringContext() {
+        new ApplicationContextRunner()
+            .withUserConfiguration(McpProductionTaskOnlyGuard.class)
+            .run(ctx -> org.assertj.core.api.Assertions.assertThat(ctx)
+                .doesNotHaveBean(McpProductionTaskOnlyGuard.class));
+    }
+
+    @Test
+    void enabledCanaryStartsOnlyWithActualSpringTaskReadConfiguration() {
+        new ApplicationContextRunner()
+            .withUserConfiguration(McpProductionTaskOnlyGuard.class)
+            .withPropertyValues(
+                "matrix-prp.mcp.production-tasks-only=true",
+                "matrix-prp.mcp.enabled=true",
+                "matrix-prp.mcp.oauth.enabled=true",
+                "matrix-prp.mcp.write-enabled=false",
+                "matrix-prp.mcp.oauth.advertised-scopes=prp.tasks.read",
+                "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/matrix_prp",
+                "spring.flyway.enabled=false")
+            .run(ctx -> org.assertj.core.api.Assertions.assertThat(ctx)
+                .hasNotFailed().hasSingleBean(McpProductionTaskOnlyGuard.class));
+    }
+
+    @Test
+    void actualSpringContextFailsToStartWithProductionCanaryAndWrite() {
+        new ApplicationContextRunner()
+            .withUserConfiguration(McpProductionTaskOnlyGuard.class)
+            .withPropertyValues(
+                "matrix-prp.mcp.production-tasks-only=true",
+                "matrix-prp.mcp.enabled=true",
+                "matrix-prp.mcp.oauth.enabled=true",
+                "matrix-prp.mcp.write-enabled=true",
+                "matrix-prp.mcp.oauth.advertised-scopes=prp.tasks.read",
+                "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/matrix_prp",
+                "spring.flyway.enabled=false")
+            .run(ctx -> org.assertj.core.api.Assertions.assertThat(ctx.getStartupFailure())
+                .isNotNull());
     }
 
     @Test
