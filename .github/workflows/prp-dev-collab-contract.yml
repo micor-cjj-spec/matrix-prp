@@ -27,6 +27,8 @@ jobs:
         with:
           node-version: '22'
       - name: Test cross-session state machine and safety rules
-        run: node --test app/scripts/dev-collab/core.test.mjs
+        run: node --test app/scripts/dev-collab/*.test.mjs
+      - name: Shell syntax and permission boundaries
+        run: bash -n app/scripts/dev-collab/state-transaction.sh
       - name: Check patch whitespace
         run: git diff --check HEAD^ HEAD
