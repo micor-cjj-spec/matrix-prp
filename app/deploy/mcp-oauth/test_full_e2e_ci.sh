@@ -303,12 +303,12 @@ if [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" ]]; then
     fi
   done
   if ! grep -Fxq \
-      "BOOT-INF/classes/db/migration/V28__mcp_first_party_oidc_link_flows.sql" \
+      "BOOT-INF/classes/db/migration/V29__mcp_first_party_oidc_link_flows.sql" \
       "$tmp/review-jar-entries.txt"; then
     echo "FAIL E2E ARTIFACT: built backend missing first-party OIDC migration." >&2
     exit 1
   fi
-  echo "PASS E2E ARTIFACT: newly built Spring Boot JAR contains both OIDC classes and V28 migration."
+  echo "PASS E2E ARTIFACT: newly built Spring Boot JAR contains both OIDC classes and V29 migration."
 fi
 export MATRIX_PRP_DB_URL="jdbc:mysql://127.0.0.1:13306/matrix_prp_mcp_e2e?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai"
 export MATRIX_PRP_DB_USER="prp_e2e"
