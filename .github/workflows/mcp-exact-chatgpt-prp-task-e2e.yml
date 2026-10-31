@@ -15,6 +15,7 @@ on:
   pull_request:
     branches:
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
     paths:
       - ".github/workflows/mcp-exact-chatgpt-prp-task-e2e.yml"
       - "app/backend/src/main/resources/db/migration/**"
