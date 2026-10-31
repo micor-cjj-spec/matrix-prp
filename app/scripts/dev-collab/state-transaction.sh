@@ -15,6 +15,10 @@ set -Eeuo pipefail
   echo 'INVALID_ACTION'; exit 2;
 }
 
+if [[ -n "${GITHUB_SHA:-}" && "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
+  echo 'SOURCE_REVISION_MISMATCH'; exit 2
+fi
+
 root="$(pwd -P)"
 state="${RUNNER_TEMP:?}/prp-collab-state-worktree"
 receipt="${RUNNER_TEMP:?}/prp-collab-receipt.json"

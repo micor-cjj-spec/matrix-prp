@@ -68,7 +68,7 @@ function commandEnvironment(worker, id, taskId, overrides = {}) {
   return {
     ...process.env, GITHUB_REF: 'refs/heads/main',
     GITHUB_ACTOR: 'micor-cjj-spec', GITHUB_REPOSITORY_OWNER: 'micor-cjj-spec',
-    RUNNER_TEMP: temp, COLLAB_ACTION: 'claim',
+    GITHUB_SHA: '', RUNNER_TEMP: temp, COLLAB_ACTION: 'claim',
     COLLAB_REQ_ID: reqId, COLLAB_TASK_ID: taskId,
     COLLAB_REQUEST_ID: id, COLLAB_WORKER_ID: 'chat-' + taskId,
     ...overrides
@@ -129,6 +129,9 @@ test('real Git workflow rejects unauthorized actor and wrong ref before writing'
     const b = await run(f.workers[1], id, 'T-001', { GITHUB_REF: 'refs/heads/feature' })
     assert.notEqual(a.status, 0)
     assert.notEqual(b.status, 0)
+    const c = await run(f.workers[0], id, 'T-001', { GITHUB_SHA: 'a'.repeat(40) })
+    assert.notEqual(c.status, 0)
+    assert.match(c.out + c.err, /SOURCE_REVISION_MISMATCH/)
     assert.equal(f.readState().version, 0)
   } finally { f.destroy() }
 })

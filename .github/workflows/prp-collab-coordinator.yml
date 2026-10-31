@@ -60,11 +60,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: true
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Require protected coordination state branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          protection="$(gh api "repos/${GITHUB_REPOSITORY}/branches/prp-collab-state" --jq '.protected')"
+          [[ "$protection" == true ]] || { echo 'STATE_BRANCH_UNPROTECTED'; exit 2; }
       - name: Apply a single authenticated task command using fast-forward-only Git
         shell: bash
         env:

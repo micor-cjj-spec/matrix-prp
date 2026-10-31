@@ -6,7 +6,7 @@ Parent requirement: [REQ-20261031-001 / #132](https://github.com/micor-cjj-spec/
 
 - A requirement owns tasks; chat conversations are transient workers.
 - One root GitHub Issue represents the requirement; individual Issues represent tasks.
-- The intended authoritative state is an independently controlled `prp-collab-state` Git ref containing `requirements/<REQ-ID>.json`. Issue titles, checkboxes and labels are projections, not mutexes.
+- The intended authoritative state is a protected, independently controlled `prp-collab-state` Git ref containing `requirements/<REQ-ID>.json`. Issue titles, checkboxes and labels are projections, not mutexes.
 - `main` stays protected. Never automatically merge, deploy, run SSH, use production DB/Keycloak or install MCP as part of the coordination workflow.
 - Current review branch includes the pure contract, templates, owner-only manual workflow coordinator, Git fast-forward state transactions and local-Git concurrency tests. The `prp-collab-state` branch has been seeded with `REQ-20261031-001` at version 0. **The coordinator is NOT active on protected main.** Claims become operational only after separate review, protected state-ref authorization and approved activation.
 - The existing `.github/workflows/codex-prp-worker.yml` is manual-only and currently opens review PRs against `main`. Do not assume it targets a requirement integration branch or allows arbitrary directories. Adapt separately.
@@ -48,3 +48,7 @@ Before a real multi-session acceptance, verify two simultaneous claims for the s
 - T-005 #137 integration acceptance (not started)
 
 The state request history is deliberately bounded at 512 entries per requirement and fails closed when full; archival/re-keying requires a separately reviewed protocol change. A PR being green is evidence of tests passing; it is not evidence that live coordination, OAuth or production release has occurred.
+
+## Current activation blocker
+
+`prp-collab-state` is currently **unprotected** on GitHub. The candidate write coordinator refuses to run until branch protection is enabled and independently reviewed. The optional read-only board workflow has no write token and does not require activation of the write path. Do not regard feature-branch CI success as permission to merge or enable production release.
