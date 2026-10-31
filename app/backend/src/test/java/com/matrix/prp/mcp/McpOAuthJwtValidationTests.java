@@ -128,6 +128,30 @@ class McpOAuthJwtValidationTests {
     }
 
     @Test
+    void rejectsMixedMcpAndForeignApiAudiencesEvenWhenSignedByTrustedIssuer() throws Exception {
+        String token = signedToken(trusted, ISSUER,
+            List.of(RESOURCE, "https://unrelated.example.test/api/mcp"),
+            Instant.now().plusSeconds(360));
+        assertThatThrownBy(() -> verifier().decode(token)).isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void rejectsInternalKeycloakClientIdAlongsideCanonicalResource() throws Exception {
+        String token = signedToken(trusted, ISSUER,
+            List.of(RESOURCE, "matrix-prp-mcp-resource"),
+            Instant.now().plusSeconds(360));
+        assertThatThrownBy(() -> verifier().decode(token)).isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void acceptsCanonicalResourceAlongsideIssuerProtocolUserinfoAudience() throws Exception {
+        var jwt = verifier().decode(signedToken(trusted, ISSUER,
+            List.of(RESOURCE, ISSUER + "/protocol/openid-connect/userinfo"),
+            Instant.now().plusSeconds(360)));
+        assertThat(jwt.getAudience()).containsExactly(RESOURCE, ISSUER + "/protocol/openid-connect/userinfo");
+    }
+
+    @Test
     void rejectsOtherApiEvenWhenAdditionalUserinfoAudienceIsPresent() throws Exception {
         String token = signedToken(trusted, ISSUER,
             List.of("https://another-api.example.test/api/mcp", ISSUER + "/userinfo"),
