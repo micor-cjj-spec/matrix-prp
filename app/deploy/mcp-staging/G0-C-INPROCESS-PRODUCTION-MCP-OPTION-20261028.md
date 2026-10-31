@@ -369,3 +369,54 @@ G0/B2 **NO-GO** remains in force.
 
 **Current outcome: comparative architecture design + disposable CI
 verification, NOT A DEPLOYMENT PLAN OR APPROVAL.** G0/B2 NO-GO.
+
+
+## Optional task-only production canary interlock — Draft PR #131, 2026-10-31
+
+Review source `McpProductionTaskOnlyGuard.java` and configuration
+`application.yml` introduce a default-**OFF** additional startup interlock:
+
+`MATRIX_PRP_MCP_PRODUCTION_TASKS_ONLY=true`.
+
+This is for a **separately authorized future** in-process first stage
+which would read actual PRP tasks from the existing `matrix_prp`
+database. When the interlock is explicitly selected, it refuses
+application startup unless all of the following match the reviewed
+read-only canary plan:
+
+- `MATRIX_PRP_MCP_ENABLED=true` and
+  `MATRIX_PRP_MCP_OAUTH_ENABLED=true`;
+- `MATRIX_PRP_MCP_WRITE_ENABLED=false`, with precisely
+  `MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES=prp.tasks.read`;
+- `MATRIX_PRP_FLYWAY_ENABLED=false`, so application launch cannot
+  itself perform database migrations;
+- the configured JDBC database URL is an explicitly loopback-bound
+  `jdbc:mysql://...` URL whose path is **exactly `/matrix_prp`**,
+  not the isolated V2 `matrix_prp_mcp_*` schema, an unrelated clone,
+  a remote host, or a connection string containing user credentials;
+- no test or video-integration Spring profile is used to impersonate
+  this canary.
+
+This lock is **not set anywhere on the live host** and the default
+continues to be disabled. It adds a defensive startup check without
+changing the existing initial disabled-MCP behavior or approving
+a production release. Actual authentication still requires genuine
+issuer/JWKS verification, the first-party owner link, explicit owner
+client grant, per-request scope checks and the task-service SQL owner
+filter. The lock does *not* verify that a loopback JDBC listener is
+really the production database, validate schema history, recover a
+backup, prove browser consent, register ChatGPT/Keycloak, or guarantee
+that other application APIs cannot write to their own database.
+
+Under this lock, MCP OAuth `tools/list` is limited by the existing
+runtime allowlist to `prp_tasks_list` and `prp_task_get`. Finance,
+wellness and every draft/write MCP tool remain unregistered.
+The integration tests for both metadata and tool registration stay
+separate from the new strict startup-configuration tests.
+
+**NO-GO:** No owner-task or write permissions are being granted by
+merely adding this lock. Do not use its presence as an excuse to
+migrate production V24→V29, deploy a new JAR, alter Keycloak clients,
+change Nginx routes, or access existing owner data. Production backup,
+verified restore, identity trust and G0-C/B2 approval still block live
+execution.
