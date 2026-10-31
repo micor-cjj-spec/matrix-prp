@@ -81,7 +81,7 @@ docker compose --project-name prp-mcp-stage --env-file .env -f compose.yaml up -
 docker compose --project-name prp-mcp-stage --env-file .env -f compose.yaml ps
 ```
 
-The backend image is **built from the branch source** using Java 21 and Maven. The Web image is built with `VITE_APP_BASE=/prp/`. Staging MySQL starts with a **brand-new empty volume** and `MATRIX_PRP_FLYWAY_ENABLED=true`. Existing historical and V24–V27 migrations apply **only to this empty staging database**, never to the production schema.
+The backend image is **built from the branch source** using Java 21 and Maven. The Web image is built with `VITE_APP_BASE=/prp/`. Staging MySQL starts with a **brand-new empty volume** and `MATRIX_PRP_FLYWAY_ENABLED=true`. Existing historical and V24–V28 migrations apply **only to this empty staging database**, never to the production schema.
 
 PRP staging gateway listens only on `127.0.0.1:18081`. Before applying any external TLS proxy, test with an explicit staged Host:
 
@@ -174,7 +174,7 @@ docker compose --project-name prp-mcp-auth --env-file .env -f compose.yaml down
 
 ### Important: production V24 / legacy staging V24 collision
 
-Production `main` already applied **V24__vocal_song_library_and_assignments.sql**. The initial MCP staging installation applied a *different* `V24__mcp_write_drafts.sql`, followed by legacy MCP V25 and V26. This branch reconciles **new/fresh** lineage as production vocal V24, MCP drafts V25, grants V26, links V27. SQL bodies for the MCP tables are unchanged; their historical SQL header annotations retain the former version numbers and must not be used as migration identities.
+Production `main` already applied **V24__vocal_song_library_and_assignments.sql**. The initial MCP staging installation applied a *different* `V24__mcp_write_drafts.sql`, followed by legacy MCP V25 and V26. This branch reconciles **new/fresh** lineage as production vocal V24, MCP drafts V25, grants V26, links V27 and client-grant expiry V28. SQL bodies for the MCP tables are unchanged; their historical SQL header annotations retain the former version numbers and must not be used as migration identities.
 
 **Do not deploy a newly built backend from this lineage against the existing stateful `matrix_prp_mcp_stage` database.** The old Flyway history is incompatible and should fail validation. Never silently call `flyway repair`, use `clean`, rewrite applied migration history, overwrite the stage volume, or point this checkout at production. Preserve stage data and evidence unchanged until a separately reviewed, independently backed-up synthetic-stage cutover has passed real MySQL tests. See `app/docs/technical/mcp-flyway-lineage-reconciliation.md`.
 

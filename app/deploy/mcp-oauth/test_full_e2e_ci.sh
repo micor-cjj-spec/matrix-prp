@@ -353,3 +353,16 @@ backend_pid="$!"
 # Only generic PASS/failure step names are printed by the browser driver.
 python3 app/deploy/mcp-oauth/ci_pkce_browser.py
 echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP protocol."
+
+# Exercise an independent first-party public S256 pairing client on the
+# same disposable HTTPS Keycloak+PRP stack. It removes only the throwaway
+# prior owner link, rebinds with an owner-signed single-use ticket and checks
+# temporary client grant revocation with the new link still present.
+if [[ "${MCP_E2E_CRUD:-false}" != "true" ]]; then
+  python3 app/deploy/mcp-oauth/ci_browser_pairing_flow.py
+  echo "PASS: public owner browser PKCE pairing and temporary client grant revocation."
+
+  # Separate confidential client: signed user code/refresh and scoped task read.
+  python3 app/deploy/mcp-oauth/ci_signed_code_refresh.py
+  echo "PASS: signed authorization-code/PKCE, offline refresh and scoped PRP read."
+fi

@@ -59,6 +59,38 @@ class PublicRouteContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "401"):
             inspect(RESOURCE, ISSUER, accidentally_open)
 
+    def test_public_discovery_rejects_extra_or_malformed_scopes(self):
+        cases = (
+            ["prp.tasks.read", "prp.finance.read"],
+            ["prp.tasks.read", "prp.wellness.read"],
+            ["prp.tasks.read", "prp.write.create"],
+            ["prp.tasks.read", "prp.write.update", "prp.write.delete"],
+            ["prp.tasks.read", "unknown.scope"],
+            ["prp.tasks.read", "prp.tasks.read"],
+            ["prp.finance.read", "prp.tasks.read"],
+            [],
+            None,
+            "prp.tasks.read",
+        )
+        for scopes in cases:
+            with self.subTest(scopes=scopes):
+                def extra_discovery(uri, method, body):
+                    status, headers, data = fake_fetch(uri, method, body)
+                    if method == "GET":
+                        data["scopes_supported"] = scopes
+                    return status, headers, data
+                with self.assertRaisesRegex(ValueError, "task-read-only"):
+                    inspect(RESOURCE, ISSUER, extra_discovery)
+
+    def test_public_discovery_requires_scopes_field(self):
+        def missing_scopes(uri, method, body):
+            status, headers, data = fake_fetch(uri, method, body)
+            if method == "GET":
+                del data["scopes_supported"]
+            return status, headers, data
+        with self.assertRaisesRegex(ValueError, "task-read-only"):
+            inspect(RESOURCE, ISSUER, missing_scopes)
+
     def test_metadata_different_target_rejected(self):
         def tampered(uri, method, body):
             status, headers, json_value = fake_fetch(uri, method, body)
