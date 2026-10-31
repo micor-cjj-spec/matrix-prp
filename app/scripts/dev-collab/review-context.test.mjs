@@ -44,3 +44,40 @@ test('failed or unprotected integration evidence does not grant context',()=>{
    route=>route.includes('/branches/')?{...fake(route),protected:false}:fake(route)),
    e=>e.code==='UNPROTECTED_INTEGRATION_BRANCH')
 })
+
+test('owner can close only with a separately merged and protected main integration PR',()=>{
+ const s=state();s.tasks[0].status='DONE';s.tasks[0].claim=null
+ const command={type:'close',pr_number:139,head_sha:sha}
+ const valid=route=>{
+   if(route.endsWith('/pulls/139'))return {number:139,
+     head:{ref:'integrate/'+req,sha,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+     base:{ref:'main',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+     merged:true,merged_at:'2026-10-31T19:00:00Z',merge_commit_sha:merge}
+   if(route.endsWith('/branches/main'))return{name:'main',protected:true,commit:{sha:branchSha}}
+   if(route.includes('/compare/'))return{status:'ahead',behind_by:0,base_commit:{sha:merge},
+     merge_base_commit:{sha:merge},commits:[]}
+   if(route.includes('/check-runs'))return checks
+   throw new Error('unexpected route '+route)
+ }
+ const proof=trustedReviewContext(s,command,ctx,valid)
+ assert.deepEqual(proof,{reviewerAuthorized:true,acceptanceApproved:true,integrationReviewVerified:true})
+ assert.throws(()=>trustedReviewContext(s,command,ctx,route=>
+   route.endsWith('/branches/main')?{...valid(route),protected:false}:valid(route)),
+   e=>e.code==='MAIN_NOT_PROTECTED')
+})
+test('cannot close a requirement with unfinished tasks even if final PR is merged',()=>{
+ const s=state()
+ const command={type:'close',pr_number:139,head_sha:sha}
+ const fakeApproval=route=>{
+   if(route.endsWith('/pulls/139'))return{number:139,
+     head:{ref:'integrate/'+req,sha,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+     base:{ref:'main',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+     merged:true,merged_at:'2026-10-31T19:00:00Z',merge_commit_sha:merge}
+   if(route.endsWith('/branches/main'))return{name:'main',protected:true,commit:{sha:branchSha}}
+   if(route.includes('/compare/'))return{status:'identical',behind_by:0,
+     base_commit:{sha:merge},merge_base_commit:{sha:merge}}
+   if(route.includes('/check-runs'))return checks
+   throw new Error('unexpected route '+route)
+ }
+ assert.throws(()=>trustedReviewContext(s,command,ctx,fakeApproval),e=>e.code==='INCOMPLETE_REQUIREMENT')
+})
