@@ -228,8 +228,9 @@ export function applyCommand(original, command, context) {
   next.version += 1
   next.updated_at = context.now
   receipt = { ...receipt, version: next.version, status: task?.status ?? next.status, replayed: false }
+  // Never evict deduplication receipts silently: an old request could otherwise be replayed.
+  check(next.processed_requests.length < 512, 'REQUEST_LEDGER_FULL')
   next.processed_requests.push({ request_id: command.request_id, fingerprint: hash, actor: context.actor, receipt })
-  if (next.processed_requests.length > 512) next.processed_requests.shift()
   validateSnapshot(next)
   return { snapshot: next, receipt }
 }
