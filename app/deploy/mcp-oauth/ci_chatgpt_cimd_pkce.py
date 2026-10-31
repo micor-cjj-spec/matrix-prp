@@ -272,6 +272,20 @@ def verify_persisted(token):
     names = {s.get("name") for s in optional if isinstance(s, dict)}
     if names != {"prp.tasks.read", "offline_access"}:
         raise RuntimeError("CIMD_CLIENT_TASK_OFFLINE_SCOPE_MISMATCH")
+    detail_status, _, detail_raw = request(
+        REALM_ADMIN + "/clients/" + quote(internal_id, safe=""), bearer=token)
+    if detail_status != 200:
+        raise RuntimeError("EXACT_CLIENT_DETAILS_UNAVAILABLE")
+    details = json.loads(detail_raw)
+    attributes = details.get("attributes", {})
+    if attributes.get("token.endpoint.auth.signing.alg") != "RS256":
+        raise RuntimeError("EXACT_CLIENT_SIGNED_JWT_ALGORITHM_MISSING")
+    if (attributes.get("use.jwks.url") != "true"
+            or attributes.get("jwks.url") != "https://chatgpt.com/oauth/jwks.json"):
+        raise RuntimeError("EXACT_CLIENT_OFFICIAL_JWKS_MISMATCH")
+    mappers = details.get("protocolMappers", [])
+    if [m.get("config", {}).get("included.custom.audience") for m in mappers] != [RESOURCE]:
+        raise RuntimeError("EXACT_CLIENT_RESOURCE_AUDIENCE_MISMATCH")
     print("PASS CLIENT: exact callback, S256 and limited task/offline optional scopes verified.")
 
 
@@ -287,6 +301,33 @@ def has_known_chatgpt_parser_blocker():
     return b'Unrecognized field "token_endpoint_auth_methods_supported"' in (
         result.stdout + result.stderr
     )
+
+
+def ensure_offline_access(token):
+    # A realm generated from explicit client scopes may not contain Keycloak's
+    # built-in offline_access scope. This is a disposable-CI-only fixture.
+    endpoint = REALM_ADMIN + "/client-scopes"
+    status, _, raw = request(endpoint, bearer=token)
+    if status != 200:
+        raise RuntimeError("CI_OFFLINE_SCOPE_LIST_FAILED")
+    names = {item.get("name") for item in json.loads(raw)}
+    if "offline_access" not in names:
+        status, _, _ = request(endpoint, method="POST", bearer=token, json_body={
+            "name": "offline_access", "protocol": "openid-connect",
+            "attributes": {
+                "include.in.token.scope": "true",
+                "display.on.consent.screen": "true",
+                "consent.screen.text": "Offline Access",
+            },
+        })
+        if status != 201:
+            raise RuntimeError("CI_OFFLINE_SCOPE_CREATE_FAILED")
+    status, _, raw = request(endpoint, bearer=token)
+    if status != 200 or "offline_access" not in {
+        item.get("name") for item in json.loads(raw)
+    }:
+        raise RuntimeError("CI_OFFLINE_SCOPE_NOT_AVAILABLE")
+    print("PASS PREREG: offline_access scope available in disposable Realm.")
 
 
 def install_exact_preregistered(token):
@@ -319,6 +360,7 @@ def install_exact_preregistered(token):
             "use.jwks.url": "true",
             "jwks.url": "https://chatgpt.com/oauth/jwks.json",
             "pkce.code.challenge.method": "S256",
+            "token.endpoint.auth.signing.alg": "RS256",
         },
         "protocolMappers": [{
             "name": "PRP MCP exact audience",
@@ -385,6 +427,7 @@ def main():
         # A pre-registered, narrowly scoped exact client can be a valid
         # *alternative* to dynamic CIMD. Verify it independently rather than
         # rewriting a third-party metadata document or relaxing the parser.
+        ensure_offline_access(token)
         install_exact_preregistered(token)
         disable_dynamic_cimd_after_preregistration(token)
         require_pkce_result("S256")
