@@ -39,7 +39,7 @@ class IsolatedV24BackupRestoreMcpV28IT {
     private static final Set<String> NEW_TABLES = Set.of(
         "prp_mcp_write_drafts", "prp_mcp_client_grants",
         "prp_mcp_identity_links", "prp_mcp_link_tickets",
-        "prp_mcp_oidc_link_flows");
+        "prp_mcp_pairing_grant_leases");
     private static final Map<String,String> QUERIES = Map.of(
         "owners", "SELECT id,username,display_name,enabled FROM prp_users ORDER BY id",
         "tasks", "SELECT id,user_id,module_code,title,status,deleted FROM prp_tasks ORDER BY id",
@@ -178,8 +178,8 @@ class IsolatedV24BackupRestoreMcpV28IT {
             for (String name:NEW_TABLES)
                 assertThat(count(clone,"SELECT COUNT(*) FROM information_schema.TABLES "
                     +"WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='"+name+"'")).isZero();
-            assertThat(flyway(CLONE_URL,null).migrate().migrationsExecuted).isEqualTo(4);
-            flyway(CLONE_URL,null).validate();
+            assertThat(flyway(CLONE_URL,"28").migrate().migrationsExecuted).isEqualTo(4);
+            flyway(CLONE_URL,"28").validate();
             assertThat(count(clone,"SELECT COUNT(*) FROM flyway_schema_history")).isEqualTo(22);
             assertThat(baseTables(clone)).isEqualTo(beforeTables+5);
             for (String name:NEW_TABLES) {
