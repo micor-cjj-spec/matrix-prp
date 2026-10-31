@@ -22,6 +22,32 @@ on:
       - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
       - "app/deploy/mcp-oauth/ci_pkce_browser.py"
       - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - "app/backend/src/main/resources/db/migration/V29__mcp_first_party_oidc_link_flows.sql"
+      - "app/deploy/migration-policy.json"
+      - ".github/workflows/mcp-first-party-chromium-e2e.yml"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/src/main/java/com/matrix/prp/mcp/McpFirstPartyOidcLinkService.java"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/McpIdentityLinkService.java"
+      - "app/web/src/views/McpClientsView.vue"
+      - "app/web/src/views/McpOidcCallbackView.vue"
+      - "app/web/src/api/mcpFirstPartyOidc.ts"
+      - "app/web/src/router/index.ts"
+      - "app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py"
+      - "app/deploy/mcp-oauth/ci_browser_route_review.py"
+      - "app/deploy/mcp-oauth/test_ci_browser_route_review.py"
+      - "app/deploy/mcp-staging/approval_routes_pending.py"
+      - "app/deploy/mcp-staging/test_first_party_static_files_review.py"
+      - "app/web/index.html"
+      - "app/web/src/main.ts"
+      - "app/web/public/**"
+      - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
+      - "app/deploy/mcp-oauth/ci_pkce_browser.py"
+      - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - "app/backend/src/main/resources/db/migration/V29__mcp_first_party_oidc_link_flows.sql"
+      - "app/deploy/migration-policy.json"
       - ".github/workflows/mcp-first-party-chromium-e2e.yml"
   workflow_dispatch:
 
