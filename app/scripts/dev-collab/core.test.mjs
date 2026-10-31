@@ -41,6 +41,10 @@ test('same request replay does not mint a second claim', () => {
   assert.equal(replay.receipt.replayed, true)
   assert.equal(replay.snapshot.version, 1)
 })
+test('different authenticated actor cannot replay another actor claim', () => {
+  const r = claim(make(), 'T-001')
+  assertCode(() => applyCommand(r.state, r.command, { ...actor, actor: 'other-actor' }), 'REQUEST_ACTOR_MISMATCH')
+})
 test('request id cannot be reused with different command payload', () => {
   const r = claim(make(), 'T-001')
   assertCode(() => applyCommand(r.state, { ...r.command, worker_id: 'chat-B' }, actor), 'REQUEST_ID_COLLISION')
