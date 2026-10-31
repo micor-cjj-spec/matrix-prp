@@ -13,6 +13,19 @@ on:
       - "app/backend/src/main/resources/db/migration/**"
       - "app/backend/pom.xml"
       - ".github/workflows/mcp-producer-task-mysql-it.yml"
+  pull_request:
+    branches:
+      - feat/prp-mcp-gateway-v1
+    paths:
+      - "app/backend/src/test/java/com/matrix/prp/TaskReadProducerDatabaseIT.java"
+      - "app/backend/src/test/java/com/matrix/prp/ProductionInProcessMcpTaskReadDatabaseIT.java"
+      - "app/backend/src/test/java/com/matrix/prp/ProducerTaskDelegationMysqlProofIT.java"
+      - "app/backend/src/main/java/com/matrix/prp/tasks/**"
+      - "app/backend/src/main/java/com/matrix/prp/auth/**"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/**"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/backend/pom.xml"
+      - ".github/workflows/mcp-producer-task-mysql-it.yml"
   workflow_dispatch:
 
 permissions:
