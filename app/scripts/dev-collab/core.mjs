@@ -56,6 +56,7 @@ export function validateSnapshot(snapshot) {
   const receipts = new Set()
   for (const r of snapshot.processed_requests) {
     check(plain(r) && UUID.test(r.request_id) && typeof r.fingerprint === 'string' &&
+      typeof r.actor === 'string' && /^[a-zA-Z0-9-]{1,39}$/.test(r.actor) &&
       /^[a-f0-9]{64}$/.test(r.fingerprint) && plain(r.receipt), 'REQUEST_RECORD')
     check(!receipts.has(r.request_id), 'DUPLICATE_REQUEST_ID')
     receipts.add(r.request_id)
@@ -137,6 +138,7 @@ export function applyCommand(original, command, context) {
   const hash = fingerprint(command)
   const previous = original.processed_requests.find(r => r.request_id === command.request_id)
   if (previous) {
+    check(previous.actor === context.actor, 'REQUEST_ACTOR_MISMATCH')
     check(previous.fingerprint === hash, 'REQUEST_ID_COLLISION')
     return { snapshot: original, receipt: { ...previous.receipt, replayed: true } }
   }
@@ -226,7 +228,7 @@ export function applyCommand(original, command, context) {
   next.version += 1
   next.updated_at = context.now
   receipt = { ...receipt, version: next.version, status: task?.status ?? next.status, replayed: false }
-  next.processed_requests.push({ request_id: command.request_id, fingerprint: hash, receipt })
+  next.processed_requests.push({ request_id: command.request_id, fingerprint: hash, actor: context.actor, receipt })
   if (next.processed_requests.length > 512) next.processed_requests.shift()
   validateSnapshot(next)
   return { snapshot: next, receipt }
