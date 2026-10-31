@@ -1,0 +1,83 @@
+name: MCP upstream OAuth audience and pairing lease regression (CI only)
+
+on:
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - ".github/workflows/mcp-upstream-security-regression.yml"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/McpOAuthResourceServerConfig.java"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/McpClientGrantService.java"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/McpClientGrantController.java"
+      - "app/backend/src/test/java/com/matrix/prp/mcp/McpOAuthJwtValidationTests.java"
+      - "app/backend/src/test/java/com/matrix/prp/McpClientGrantDatabaseIT.java"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/backend/pom.xml"
+
+permissions:
+  contents: read
+
+jobs:
+  oauth-audience-and-grant-expiry:
+    name: Real disposable MySQL grant expiry and signed multi-audience denial
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: matrix_prp
+          MYSQL_USER: matrix_prp
+          MYSQL_PASSWORD: ci-app-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Bootstrap synthetic legacy DB and run only local MCP migrations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = Linux
+          sudo apt-get update -qq
+          sudo apt-get install -y default-mysql-client
+          for schema in app/docker/mysql/init/*.sql; do
+            MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+          done
+          while IFS= read -r schema; do
+            version="$(basename "$schema" | sed -E 's/V([0-9]+)__.*/\1/')"
+            if (( 10#$version > 7 )); then
+              MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+            fi
+          done < <(find app/backend/src/main/resources/db/migration -name 'V*__*.sql' | sort -V)
+          echo 'CI_DISPOSABLE_MYSQL_SCHEMA_ONLY=YES'
+      - name: Run real MySQL 10-minute lease, per-owner revoke and JWT audience denial
+        working-directory: app/backend
+        env:
+          MATRIX_PRP_DB_HOST: 127.0.0.1
+          MATRIX_PRP_DB_NAME: matrix_prp
+          MATRIX_PRP_DB_USER: matrix_prp
+          MATRIX_PRP_DB_PASSWORD: ci-app-password
+          MATRIX_PRP_BOOTSTRAP_USERNAME: oauth_security_ci
+          MATRIX_PRP_BOOTSTRAP_PASSWORD: synthetic-ci-password-2026
+          MATRIX_PRP_JWT_SECRET: ci-only-32-byte-secret-for-oauth-guard-tests
+          MATRIX_PRP_AI_SPRING_AI_ENABLED: "false"
+          MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED: "false"
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp -Dtest=McpClientGrantDatabaseIT,McpOAuthJwtValidationTests test
+          echo 'CI_SERVER_SIDE_LEASE_EXPIRY=PASS'
+          echo 'CI_MCP_MIXED_AUDIENCE_TOKEN_DENIED=PASS'
+          echo 'LIVE_OAUTH_AND_PRODUCTION_DB_TESTED=NO'

@@ -6,10 +6,23 @@ without leaking credentials or touching user data. Never modifies a server.
 """
 import argparse
 import json
-import re
-from urllib.error import HTTPError
+import ssl
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler, ProxyHandler
+
+STAGING_RESOURCE = "https://prp-test.micor.top/api/mcp"
+STAGING_ISSUER = "https://auth-test.micor.top/realms/prp-mcp"
+STAGING_METADATA = "https://prp-test.micor.top/.well-known/oauth-protected-resource/api/mcp"
+
+
+class RedirectForbidden(ValueError):
+    pass
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        raise RedirectForbidden("OAuth/MCP preflight forbids endpoint redirects")
 
 
 def canonical_resource(value):
@@ -45,11 +58,8 @@ def inspect(resource, issuer, fetch):
         raise ValueError("Unexpected OAuth authorization server")
     if metadata.get("bearer_methods_supported") != ["header"]:
         raise ValueError("Bearer scheme is not an HTTP header")
-    # Discovery controls requested permissions, so extra scopes are not safe
-    # merely because task read is present. Only the task-read-only canary
-    # is eligible for ChatGPT acceptance at this stage.
     if metadata.get("scopes_supported") != ["prp.tasks.read"]:
-        raise ValueError("Public PRP MCP scope discovery must be task-read-only")
+        raise ValueError("Task-only advertised scopes required before ChatGPT linking")
 
     status, headers, _ = fetch(expected, "POST",
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -65,18 +75,32 @@ def inspect(resource, issuer, fetch):
 
 
 def https_fetch(uri, method, body):
-    if urlsplit(uri).scheme != "https":
-        raise ValueError("Network preflight cannot fetch insecure URLs")
+    if (uri == STAGING_METADATA and method == "GET" and body is None):
+        pass
+    elif (uri == STAGING_RESOURCE and method == "POST"
+          and isinstance(body, dict)
+          and body.get("method") == "initialize"
+          and body.get("jsonrpc") == "2.0"):
+        pass
+    else:
+        raise ValueError("Fixed staging URL and GET metadata / POST initialize only")
     headers = {"Accept": "application/json"}
     data = None
     if body is not None:
         data = json.dumps(body).encode()
         headers.update({"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
     request = Request(uri, data=data, headers=headers, method=method)
+    # Avoid inherited system proxies, implicit redirects, or disabled TLS
+    # verification. Use the external GitHub runner's direct HTTPS path.
+    opener = build_opener(
+        ProxyHandler({}), NoRedirect(),
+        HTTPSHandler(context=ssl.create_default_context()))
     try:
-        response = urlopen(request, timeout=9)
+        response = opener.open(request, timeout=9)
     except HTTPError as err:
         response = err
+    except (OSError, URLError, TimeoutError):
+        raise ValueError("External staging HTTPS transport unverified") from None
     with response:
         # Do not silently follow a redirect to a different or insecure
         # endpoint: metadata and the MCP resource are exact public URLs.
@@ -90,7 +114,10 @@ def https_fetch(uri, method, body):
         content = response.read(100001)
         if len(content) > 100000:
             raise ValueError("Metadata size limit exceeded")
-        return status, headers_out, json.loads(content)
+        document = json.loads(content)
+        if not isinstance(document, dict):
+            raise ValueError("OAuth resource metadata must be a JSON object")
+        return status, headers_out, document
 
 
 def main():
@@ -98,6 +125,8 @@ def main():
     parser.add_argument("--resource", required=True)
     parser.add_argument("--issuer", required=True)
     args = parser.parse_args()
+    if args.resource != STAGING_RESOURCE or args.issuer != STAGING_ISSUER:
+        parser.error("Only fixed PRP test environment can be probed externally")
     outcome = inspect(args.resource, args.issuer, https_fetch)
     print(json.dumps(outcome, indent=2))
     print("Public OAuth discovery and unauthenticated denial passed; no login/token/tool data checked.")

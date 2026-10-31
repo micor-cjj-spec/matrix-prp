@@ -1,0 +1,61 @@
+name: PRP MCP production Flyway metadata review contract (offline only)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/mcp-staging/review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_v24_checksum_query.py"
+      - "app/deploy/mcp-staging/production_v24_crc_aggregate_readonly.sql"
+      - "app/deploy/mcp-staging/production_v24_mcp_ddl_shape_readonly.sql"
+      - "app/deploy/mcp-staging/test_production_v24_mcp_ddl_shape_readonly.py"
+      - "app/deploy/mcp-staging/production_mysql_clone_capacity_readonly.py"
+      - "app/deploy/mcp-staging/test_production_mysql_clone_capacity_readonly.py"
+      - "app/deploy/mcp-staging/production_mysql_backup_consistency_readonly.sql"
+      - "app/deploy/mcp-staging/test_production_mysql_backup_consistency_readonly.py"
+      - "app/deploy/mcp-staging/test_review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_flyway_metadata_readonly.sql"
+      - "app/backend/src/main/resources/db/migration/**"
+      - ".github/workflows/mcp-production-flyway-readonly-review.yml"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/mcp-staging/review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_v24_checksum_query.py"
+      - "app/deploy/mcp-staging/production_v24_crc_aggregate_readonly.sql"
+      - "app/deploy/mcp-staging/production_v24_mcp_ddl_shape_readonly.sql"
+      - "app/deploy/mcp-staging/test_production_v24_mcp_ddl_shape_readonly.py"
+      - "app/deploy/mcp-staging/production_mysql_clone_capacity_readonly.py"
+      - "app/deploy/mcp-staging/test_production_mysql_clone_capacity_readonly.py"
+      - "app/deploy/mcp-staging/production_mysql_backup_consistency_readonly.sql"
+      - "app/deploy/mcp-staging/test_production_mysql_backup_consistency_readonly.py"
+      - "app/deploy/mcp-staging/test_review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_flyway_metadata_readonly.sql"
+      - "app/backend/src/main/resources/db/migration/**"
+      - ".github/workflows/mcp-production-flyway-readonly-review.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-review:
+    name: Reject history drift without server/database access
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Compile and run synthetic migration history diagnostics
+        run: |
+          python3 -m py_compile app/deploy/mcp-staging/review_production_flyway_history.py app/deploy/mcp-staging/test_review_production_flyway_history.py
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_review_production_flyway_history.py -v
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_production_v24_mcp_ddl_shape_readonly.py -v
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_production_mysql_clone_capacity_readonly.py -v
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_production_mysql_backup_consistency_readonly.py -v
+          echo 'PRODUCTION_MYSQL_CLONE_CAPACITY_CONTRACT=TESTED_WITH_NO_DOCKER'
+          echo 'PRODUCTION_V24_MCP_DDL_METADATA_SELECT_ONLY_TEST=PASS'
+          echo 'OFFLINE_REVIEW_NO_PRODUCTION_DB_SQL_EXECUTION=YES'

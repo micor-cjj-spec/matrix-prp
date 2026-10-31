@@ -1,0 +1,81 @@
+name: PRP MCP final OCI images (disposable review)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/pom.xml"
+      - "app/backend/src/**"
+      - "app/web/package*.json"
+      - "app/web/src/**"
+      - "app/web/scripts/**"
+      - "app/scripts/**"
+      - "app/config/feature-registry.json"
+      - "app/deploy/mcp-staging/Dockerfile.web"
+      - "app/deploy/mcp-staging/Dockerfile.backend"
+      - "app/deploy/mcp-staging/nginx.conf.template"
+      - "app/deploy/mcp-staging/compose.yaml"
+      - "app/deploy/mcp-staging/ci_verify_container_images.sh"
+      - "app/deploy/mcp-staging/verify_oci_migration_jar.py"
+      - "app/deploy/mcp-staging/test_verify_oci_migration_jar.py"
+      - "app/deploy/mcp-staging/live_v2_artifact_readonly.py"
+      - "app/deploy/mcp-staging/test_live_v2_artifact_readonly.py"
+      - "app/deploy/mcp-staging/live_v2_mysql_capacity_readonly.py"
+      - "app/deploy/mcp-staging/test_live_v2_mysql_capacity_readonly.py"
+      - ".dockerignore"
+      - ".github/workflows/mcp-reviewed-oci-images.yml"
+  pull_request:
+    branches:
+      - feat/prp-mcp-gateway-v1
+    paths:
+      - "app/backend/pom.xml"
+      - "app/backend/src/**"
+      - "app/web/package*.json"
+      - "app/web/src/**"
+      - "app/web/scripts/**"
+      - "app/scripts/**"
+      - "app/config/feature-registry.json"
+      - "app/deploy/mcp-staging/Dockerfile.web"
+      - "app/deploy/mcp-staging/Dockerfile.backend"
+      - "app/deploy/mcp-staging/nginx.conf.template"
+      - "app/deploy/mcp-staging/compose.yaml"
+      - "app/deploy/mcp-staging/ci_verify_container_images.sh"
+      - "app/deploy/mcp-staging/verify_oci_migration_jar.py"
+      - "app/deploy/mcp-staging/test_verify_oci_migration_jar.py"
+      - "app/deploy/mcp-staging/live_v2_artifact_readonly.py"
+      - "app/deploy/mcp-staging/test_live_v2_artifact_readonly.py"
+      - "app/deploy/mcp-staging/live_v2_mysql_capacity_readonly.py"
+      - "app/deploy/mcp-staging/test_live_v2_mysql_capacity_readonly.py"
+      - ".dockerignore"
+      - ".github/workflows/mcp-reviewed-oci-images.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prp-review-oci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-final-containers:
+    name: Build final Vue Nginx/Java runtime images and inspect them without live services
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate only the disposable review script and safe staging contract
+        run: |
+          bash -n app/deploy/mcp-staging/ci_verify_container_images.sh
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_verify_oci_migration_jar.py -v
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_live_v2_artifact_readonly.py -v
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_live_v2_mysql_capacity_readonly.py -v
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_staging_config.py -v
+          python3 -m unittest discover -s app/deploy/mcp-staging -p test_readonly_link_routes_pending.py -v
+      - name: Build and inspect the actual final CI-only OCI images (do not publish)
+        env:
+          GITHUB_ACTIONS: "true"
+        run: bash app/deploy/mcp-staging/ci_verify_container_images.sh

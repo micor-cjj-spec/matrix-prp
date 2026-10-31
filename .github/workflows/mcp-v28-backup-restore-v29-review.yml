@@ -1,0 +1,140 @@
+name: PRP MCP V28 dump restore V29 clone (synthetic CI only)
+
+on:
+  pull_request:
+    branches:
+      - feat/prp-mcp-gateway-v1
+    paths:
+      - ".github/workflows/mcp-v28-backup-restore-v29-review.yml"
+      - "app/backend/src/test/java/com/matrix/prp/IsolatedV28BackupRestoreMcpV29IT.java"
+      - "app/backend/src/test/java/com/matrix/prp/FlywayV28ToV29IT.java"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/backend/pom.xml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-v28-restore-v29:
+    name: Isolated V28 synthetic SQL snapshot, separate MySQL restore, V29 on clone
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run strictly disposable synthetic V28 snapshot to V29 restore test
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != true ||
+                "${RUNNER_OS:-}" != Linux ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ||
+                ! "${GITHUB_RUN_ATTEMPT:-}" =~ ^[0-9]+$ ||
+                -z "${RUNNER_TEMP:-}" ]]; then
+            echo "CI_ONLY_ISOLATION_REQUIRED" >&2
+            exit 2
+          fi
+          umask 077
+          marker="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          src="prp-ci-v28-seed-${marker}"
+          dst="prp-ci-v29-clone-${marker}"
+          net="prp-ci-v28-clone-net-${marker}"
+          vol_src="prp-ci-v28-data-${marker}"
+          vol_dst="prp-ci-v29-data-${marker}"
+          temp="$(mktemp -d "${RUNNER_TEMP}/prp-ci-v28-v29.XXXXXXXX")"
+          cleanup() {
+            docker rm -f "$src" "$dst" >/dev/null 2>&1 || true
+            docker volume rm "$vol_src" "$vol_dst" >/dev/null 2>&1 || true
+            docker network rm "$net" >/dev/null 2>&1 || true
+            rm -f -- "$temp/synthetic-v28.sql" "$temp/tampered.sql" || true
+            rmdir -- "$temp" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          export MATRIX_PRP_FLYWAY_DB_USER=prp_ci
+          export MATRIX_PRP_FLYWAY_DB_PASSWORD="$(openssl rand -hex 24)"
+          root_pw="$(openssl rand -hex 24)"
+          export PRP_CI_V28_RESTORE_ONLY=YES
+          export PRP_CI_V28_SOURCE_URL="jdbc:mysql://127.0.0.1:13310/prp_v28_recovery_ci?useSSL=false&allowPublicKeyRetrieval=true"
+          export PRP_CI_V28_CLONE_URL="jdbc:mysql://127.0.0.1:13311/prp_v28_recovery_ci?useSSL=false&allowPublicKeyRetrieval=true"
+
+          docker network create "$net" >/dev/null
+          docker volume create "$vol_src" >/dev/null
+          docker volume create "$vol_dst" >/dev/null
+          docker run -d --rm --name "$src" --network "$net" \
+            -p 127.0.0.1:13310:3306 --memory 1536m --cpus 1.25 \
+            --mount "type=volume,source=$vol_src,target=/var/lib/mysql" \
+            -e MYSQL_ROOT_PASSWORD="$root_pw" \
+            -e MYSQL_DATABASE=prp_v28_recovery_ci \
+            -e MYSQL_USER="$MATRIX_PRP_FLYWAY_DB_USER" \
+            -e MYSQL_PASSWORD="$MATRIX_PRP_FLYWAY_DB_PASSWORD" \
+            mysql:8.4 >/dev/null
+          docker run -d --rm --name "$dst" --network "$net" \
+            -p 127.0.0.1:13311:3306 --memory 1536m --cpus 1.25 \
+            --mount "type=volume,source=$vol_dst,target=/var/lib/mysql" \
+            -e MYSQL_ROOT_PASSWORD="$root_pw" \
+            -e MYSQL_DATABASE=prp_v28_recovery_ci \
+            -e MYSQL_USER="$MATRIX_PRP_FLYWAY_DB_USER" \
+            -e MYSQL_PASSWORD="$MATRIX_PRP_FLYWAY_DB_PASSWORD" \
+            mysql:8.4 >/dev/null
+
+          for container in "$src" "$dst"; do
+            ready=0
+            for attempt in $(seq 1 75); do
+              if docker exec -e MYSQL_PWD="$root_pw" "$container" \
+                  mysql --protocol=TCP -h 127.0.0.1 -uroot \
+                  -D prp_v28_recovery_ci -Nse 'SELECT 1' >/dev/null 2>&1; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ready" != 1 ]; then
+              echo "CI_DISPOSABLE_MYSQL_UNAVAILABLE" >&2
+              exit 3
+            fi
+          done
+
+          cd app/backend
+          chmod +x mvnw
+          export PRP_CI_V28_RESTORE_PHASE=seed
+          ./mvnw -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
+
+          docker exec -e MYSQL_PWD="$root_pw" "$src" \
+            mysqldump --protocol=TCP -h 127.0.0.1 -uroot \
+            --single-transaction --quick --hex-blob \
+            --routines --events --triggers --set-gtid-purged=OFF \
+            --no-tablespaces --default-character-set=utf8mb4 \
+            --databases prp_v28_recovery_ci > "$temp/synthetic-v28.sql"
+          test -s "$temp/synthetic-v28.sql"
+          sha="$(sha256sum "$temp/synthetic-v28.sql" | cut -d' ' -f1)"
+          test "${#sha}" -eq 64
+          cp -- "$temp/synthetic-v28.sql" "$temp/tampered.sql"
+          printf '\n-- CI-only tamper simulation\n' >> "$temp/tampered.sql"
+          test "$(sha256sum "$temp/tampered.sql" | cut -d' ' -f1)" != "$sha"
+          rm -f -- "$temp/tampered.sql"
+          test "$(sha256sum "$temp/synthetic-v28.sql" | cut -d' ' -f1)" = "$sha"
+          echo "CI_SYNTHETIC_V28_ARCHIVE_INTEGRITY_AND_TAMPER_REJECTION=PASS"
+
+          docker exec -e MYSQL_PWD="$root_pw" "$dst" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            -D prp_v28_recovery_ci -Nse \
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()" \
+            | grep -qx 0
+          docker exec -i -e MYSQL_PWD="$root_pw" "$dst" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            < "$temp/synthetic-v28.sql"
+
+          export PRP_CI_V28_RESTORE_PHASE=verify_clone
+          ./mvnw -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
+          echo "CI_FULL_SYNTHETIC_V28_DUMP_RESTORE_V29_CLONE=PASS"
+          echo "NO_LIVE_HOST_V2_PRODUCTION_DB_OR_OFFHOST_BACKUP_ACCESSED=YES"
+          echo "NO_G0_B2_OR_PRODUCTION_EXPORT_PERMISSION=YES"

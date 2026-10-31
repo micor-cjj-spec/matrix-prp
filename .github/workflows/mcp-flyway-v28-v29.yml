@@ -1,0 +1,55 @@
+name: MCP Flyway V28 to V29
+on:
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
+    paths:
+      - 'app/backend/src/main/resources/db/migration/**'
+      - 'app/backend/src/test/java/com/matrix/prp/FlywayV28ToV29IT.java'
+      - 'app/deploy/migration-policy.json'
+      - 'app/scripts/verify-db-migrations.mjs'
+      - '.github/workflows/mcp-flyway-v28-v29.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  flyway-v28-v29:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: prp_flyway_v28_v29
+          MYSQL_USER: prp_ci
+          MYSQL_PASSWORD: ci-only-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify migration policy
+        run: node app/scripts/verify-db-migrations.mjs
+      - name: Flyway upgrade populated synthetic V28 to V29 on disposable MySQL
+        working-directory: app/backend
+        env:
+          MATRIX_PRP_FLYWAY_V28_V29_URL: jdbc:mysql://127.0.0.1:3306/prp_flyway_v28_v29?useSSL=false&allowPublicKeyRetrieval=true
+          MATRIX_PRP_FLYWAY_DB_USER: prp_ci
+          MATRIX_PRP_FLYWAY_DB_PASSWORD: ci-only-password
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -Dtest=FlywayV28ToV29IT test

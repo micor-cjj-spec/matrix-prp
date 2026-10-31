@@ -29,6 +29,10 @@ def make_config(stage_host, auth_host, admin_username):
         "PRP_STAGE_ADMIN_PASSWORD": secrets.token_urlsafe(32),
         "PRP_STAGE_MCP_ENABLED": "false",
         "PRP_STAGE_OAUTH_ENABLED": "false",
+        "PRP_STAGE_FIRST_PARTY_LINK_ENABLED": "false",
+        "PRP_STAGE_FIRST_PARTY_CLIENT_ID": "prp-first-party-link",
+        "PRP_STAGE_FIRST_PARTY_REDIRECT_URI":
+            "https://" + stage_host + "/prp/me/mcp-link/callback",
     }
     check(values)
     return values

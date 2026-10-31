@@ -49,8 +49,11 @@ public class McpOAuthResourceServerConfig {
         this.issuer = strictHttps(issuer, "MCP OAuth issuer");
         this.jwks = strictHttps(jwks, "MCP OAuth JWKS");
         this.resource = strictHttps(resource, "MCP OAuth resource");
-        if (!URI.create(this.resource).getPath().endsWith("/api/mcp")) {
-            throw new IllegalStateException("MCP OAuth resource must identify the actual /api/mcp endpoint");
+        // RFC 8707 audience and RFC 9728 resource discovery must identify
+        // the SAME canonical public endpoint protected by the exact Nginx
+        // location. Do not accept prefixes, dot segments or percent aliases.
+        if (!"/api/mcp".equals(URI.create(this.resource).getRawPath())) {
+            throw new IllegalStateException("MCP OAuth resource must identify the exact /api/mcp endpoint");
         }
     }
 
@@ -89,11 +92,8 @@ public class McpOAuthResourceServerConfig {
      */
     static OAuth2TokenValidator<Jwt> jwtValidator(String issuer, String resource) {
         OAuth2TokenValidator<Jwt> issuerAndLifetime = JwtValidators.createDefaultWithIssuer(issuer);
-        // A token for PRP and an unrelated API must not be treated as a
-        // PRP-only bearer merely because the canonical URI is one audience.
-        // Permit only the resource itself and the same issuer's OIDC userinfo
-        // endpoint (a conventional supplemental audience). Never accept an
-        // arbitrary HTTPS audience or Keycloak's internal resource-client ID.
+        // Reject a token issued for MCP *and* any unrelated resource.
+        // The issuer's standard userinfo audience is the only supplemental audience.
         OAuth2TokenValidator<Jwt> audience = jwt -> {
             List<String> values = jwt.getAudience();
             String userInfo = issuer + "/protocol/openid-connect/userinfo";

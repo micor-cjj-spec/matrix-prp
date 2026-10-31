@@ -6,6 +6,7 @@ is a synthetic one, NOT the real ChatGPT client. Never use production credential
 or log passwords, cookies, authorization codes, assertions or bearer tokens.
 """
 import base64
+import copy
 import hashlib
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 import json
@@ -72,7 +73,7 @@ def classified_browser_request(opener, url, *, data=None, bearer=None, form=Fals
     body = None
     if data is not None:
         if form:
-            body = urlencode(data).encode()
+            body = urlencode(data, doseq=True).encode()
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         else:
             body = json.dumps(data).encode()
@@ -131,6 +132,81 @@ def configure_realm(token):
     print("PASS AUTHCODE: disposable Realm enables refresh rotation and read-only scopes.")
 
 
+def activate_exact_refresh_policy(token):
+    """Attach CI-only SPI to the real Keycloak refresh event for the throwaway client.
+
+    Never replace existing policy collections with a test fixture. Keycloak's
+    synthetic realm is thrown away after this GitHub Actions workflow.
+    """
+    profiles_url = REALM_ADMIN + "/client-policies/profiles"
+    policies_url = REALM_ADMIN + "/client-policies/policies"
+    profiles = read_json(profiles_url, token)
+    policies = read_json(policies_url, token)
+    snapshots = (copy.deepcopy(profiles), copy.deepcopy(policies))
+    profile_name = "ci-strict-refresh-resource"
+    policy_name = "ci-strict-refresh-resource-only"
+    if profile_name in {x.get("name") for x in profiles.get("profiles", [])}:
+        raise RuntimeError("CI_REFRESH_PROFILE_ALREADY_REGISTERED")
+    if policy_name in {x.get("name") for x in policies.get("policies", [])}:
+        raise RuntimeError("CI_REFRESH_POLICY_ALREADY_REGISTERED")
+    profiles["profiles"].append({
+        "name": profile_name,
+        "executors": [{"executor": "prp-ci-refresh-resource-guard", "configuration": {
+            "target-client-id": CLIENT,
+            "allowed-resource": RESOURCE,
+        }}],
+    })
+    replace_admin_doc(profiles_url, token, profiles)
+    policies["policies"].append({
+        "name": policy_name,
+        "enabled": True,
+        # Built-in Keycloak 26.8.1 client-attributes condition: unlike
+        # any-client it does not attach the policy to the other Realm clients.
+        "conditions": [{"condition": "client-attributes", "configuration": {
+            "attributes": json.dumps([{
+                "key": "prp.ci.refresh-resource-guard", "value": "enabled",
+            }], separators=(",", ":")),
+        }}],
+        "profiles": [profile_name],
+    })
+    replace_admin_doc(policies_url, token, policies)
+    actual_profiles = read_json(profiles_url, token)
+    actual_policies = read_json(policies_url, token)
+    matches = [x for x in actual_profiles.get("profiles", []) if x.get("name") == profile_name]
+    enabled = [x for x in actual_policies.get("policies", []) if x.get("name") == policy_name
+               and x.get("enabled") is True]
+    if len(matches) != 1 or len(enabled) != 1:
+        raise RuntimeError("CI_REFRESH_RESOURCE_POLICY_NOT_PERSISTED")
+    expected_condition = [{"condition": "client-attributes", "configuration": {
+        "attributes": json.dumps([{
+            "key": "prp.ci.refresh-resource-guard", "value": "enabled",
+        }], separators=(",", ":")),
+    }}]
+    if enabled[0].get("conditions") != expected_condition:
+        raise RuntimeError("CI_REFRESH_RESOURCE_POLICY_CONDITION_MISMATCH")
+    executed = [x for x in matches[0].get("executors", [])
+                if x.get("executor") == "prp-ci-refresh-resource-guard"]
+    if len(executed) != 1 or executed[0].get("configuration") != {
+            "target-client-id": CLIENT, "allowed-resource": RESOURCE}:
+        raise RuntimeError("CI_REFRESH_RESOURCE_SPI_CONFIG_NOT_PERSISTED")
+    print("PASS AUTHCODE: persisted exact-client and HTTPS-resource refresh policy.")
+    return snapshots
+
+
+def rollback_exact_refresh_policy(token, snapshots):
+    original_profiles, original_policies = snapshots
+    profiles_url = REALM_ADMIN + "/client-policies/profiles"
+    policies_url = REALM_ADMIN + "/client-policies/policies"
+    # Restore existing rules first to de-activate the disposable executor,
+    # then remove the unused profile. Never touch any persistent Realm.
+    replace_admin_doc(policies_url, token, original_policies)
+    replace_admin_doc(profiles_url, token, original_profiles)
+    if (read_json(profiles_url, token) != original_profiles
+            or read_json(policies_url, token) != original_policies):
+        raise RuntimeError("CI_REFRESH_POLICY_ROLLBACK_MISMATCH")
+    print("PASS AUTHCODE: exact refresh client policy rollback preserves prior Realm rules.")
+
+
 def create_user(token, password):
     username = "ci-jwt-browser-" + secrets.token_hex(5)
     value = {
@@ -149,9 +225,9 @@ def create_user(token, password):
     return username
 
 
-def register_client(token, certificate):
+def register_client(token, certificate, *, client_id=CLIENT, guarded=True):
     value = {
-        "clientId": CLIENT,
+        "clientId": client_id,
         "name": "Ephemeral CI authcode private-key-JWT refresh",
         "enabled": True,
         "protocol": "openid-connect",
@@ -172,6 +248,7 @@ def register_client(token, certificate):
             "jwt.credential.certificate": certificate,
             "token.endpoint.auth.signing.alg": "RS256",
             "pkce.code.challenge.method": "S256",
+            **({"prp.ci.refresh-resource-guard": "enabled"} if guarded else {}),
         },
         "protocolMappers": [{
             "name": "CI resource indicator only",
@@ -192,17 +269,19 @@ def register_client(token, certificate):
     print("PASS AUTHCODE: PKCE S256 confidential client with signed-JWT auth registered.")
 
 
-def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None, bad_auth=False):
+def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None,
+             bad_auth=False, resource=RESOURCE, scope=SCOPE, client_id=CLIENT):
     data = {
         "grant_type": grant,
-        "client_id": CLIENT,
+        "client_id": client_id,
         "client_assertion_type": ASSERTION_TYPE,
         "client_assertion": assertion(
-            key, issuer=CLIENT, subject=CLIENT,
+            key, issuer=client_id, subject=client_id,
             replace_signature=bad_auth,
         ),
-        "resource": RESOURCE,
     }
+    if resource is not None:
+        data["resource"] = resource
     if grant == "authorization_code":
         data.update({"code": code, "code_verifier": verifier,
                      "redirect_uri": CALLBACK})
@@ -211,7 +290,7 @@ def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None, bad_
         # Keep the already-granted resource and task scope explicit.
         # Some resource-indicator implementations recalculate the audience
         # from the refresh request rather than inheriting the original grant.
-        data["scope"] = SCOPE
+        data["scope"] = scope
     else:
         raise RuntimeError("UNSUPPORTED_CI_GRANT")
     result = browser.request(opener, TOKEN_ENDPOINT, data=data, form=True)
@@ -227,12 +306,12 @@ def exchange(opener, key, *, grant, code=None, verifier=None, refresh=None, bad_
     return 200, values
 
 
-def verify_access(value, jwks, *, subject=None):
+def verify_access(value, jwks, *, subject=None, client_id=CLIENT):
     bearer = value.get("access_token")
     if not isinstance(bearer, str):
         raise RuntimeError("ACCESS_TOKEN_ABSENT")
     try:
-        check_token(bearer, jwks, issuer=ISSUER, resource=RESOURCE, client_id=CLIENT)
+        check_token(bearer, jwks, issuer=ISSUER, resource=RESOURCE, client_id=client_id)
     except ValueError as exc:
         if str(exc) != "JWT audience must contain exact MCP resource":
             raise
@@ -254,11 +333,49 @@ def verify_access(value, jwks, *, subject=None):
     return claims["sub"]
 
 
-def revoke(opener, key, refresh):
+def classify_unapproved_refresh(status, response, jwks, *, subject, prior_refresh):
+    """Static, safe diagnosis for an unintended-resource refresh acceptance.
+
+    Never log JWTs, client credentials, tokens, user subjects or the arbitrary
+    requested resource. Verify issuer signature and trusted claims BEFORE
+    examining the signed audience. This diagnostic is NOT an acceptance gate:
+    caller must still fail closed when an unrelated resource is accepted.
+    """
+    if status != 200 or not isinstance(response, dict):
+        return "UNEXPECTED_RESPONSE"
+    bearer = response.get("access_token")
+    if not isinstance(bearer, str):
+        return "NO_ACCESS_TOKEN"
+    try:
+        verify_access(response, jwks, subject=subject)
+    except (ValueError, RuntimeError):
+        return "MCP_TOKEN_VALIDATION_FAILED"
+    claims = json.loads(_b64url(bearer.split(".")[1]))
+    aud = claims.get("aud")
+    audiences = [aud] if isinstance(aud, str) else aud
+    if not isinstance(audiences, list) or not all(isinstance(a, str) for a in audiences):
+        return "AUDIENCE_INVALID"
+    # The unexpected resource is a constant only within this disposable test.
+    # Do not print audience values, even those supplied by an AS response.
+    unexpected = "https://not-prp.staging.example.org/api/mcp"
+    if unexpected in audiences:
+        return "FOREIGN_RESOURCE_AUDIENCE_ISSUED"
+    if RESOURCE not in audiences:
+        return "CANONICAL_RESOURCE_AUDIENCE_MISSING"
+    scopes = claims.get("scope", "")
+    if not isinstance(scopes, str) or "prp.finance.read" in scopes.split():
+        return "UNEXPECTED_SCOPE_ISSUED"
+    token = response.get("refresh_token")
+    if isinstance(token, str) and token and token != prior_refresh:
+        return "CANONICAL_AUDIENCE_ONLY_REFRESH_ROTATED"
+    return "CANONICAL_AUDIENCE_ONLY_NO_ROTATION_PROOF"
+
+
+def revoke(opener, key, refresh, *, client_id=CLIENT):
     data = {
-        "client_id": CLIENT,
+        "client_id": client_id,
         "client_assertion_type": ASSERTION_TYPE,
-        "client_assertion": assertion(key, issuer=CLIENT, subject=CLIENT),
+        "client_assertion": assertion(key, issuer=client_id, subject=client_id),
         "token": refresh,
         "token_type_hint": "refresh_token",
     }
@@ -278,6 +395,7 @@ def main():
         admin = admin_token()
         configure_realm(admin)
         register_client(admin, certificate)
+        policy_snapshots = activate_exact_refresh_policy(admin)
         user_password = secrets.token_urlsafe(36)
         username = create_user(admin, user_password)
         opener = browser_opener()
@@ -310,6 +428,40 @@ def main():
         if bad_status not in (400, 401):
             raise RuntimeError("BAD_REFRESH_CLIENT_SIGNATURE_ACCEPTED")
 
+        wrong_resource_status, wrong_resource_response = exchange(
+            opener, key, grant="refresh_token", refresh=first_refresh,
+            resource="https://not-prp.staging.example.org/api/mcp")
+        if wrong_resource_status not in (400, 401):
+            # Distinguish a rejected resource policy from an issuer that
+            # ignores the request but stamps the correct MCP-only audience.
+            # Neither behavior can be silently labeled approved; preserve
+            # the intentional failing authorization-server negative test.
+            kind = classify_unapproved_refresh(
+                wrong_resource_status, wrong_resource_response, jwks,
+                subject=sub, prior_refresh=first_refresh)
+            print("NEGATIVE RESOURCE DIAGNOSTIC=" + kind)
+            raise RuntimeError("WRONG_REFRESH_RESOURCE_ACCEPTED")
+        # A form with duplicate resource keys is not an exact single
+        # resource even when one copy names the allowed MCP endpoint.
+        duplicate_status, _ = exchange(
+            opener, key, grant="refresh_token", refresh=first_refresh,
+            resource=[RESOURCE, "https://not-prp.staging.example.org/api/mcp"])
+        if duplicate_status not in (400, 401):
+            raise RuntimeError("DUPLICATE_REFRESH_RESOURCE_ACCEPTED")
+        blank_status, _ = exchange(
+            opener, key, grant="refresh_token", refresh=first_refresh,
+            resource="")
+        if blank_status not in (400, 401):
+            raise RuntimeError("BLANK_REFRESH_RESOURCE_ACCEPTED")
+        print("PASS AUTHCODE: duplicate and blank refresh resource values denied.")
+
+        wrong_scope_status, _ = exchange(
+            opener, key, grant="refresh_token", refresh=first_refresh,
+            scope="openid offline_access prp.finance.read")
+        if wrong_scope_status not in (400, 401):
+            raise RuntimeError("UNGRANTED_REFRESH_FINANCE_SCOPE_ACCEPTED")
+        print("PASS AUTHCODE: refresh rejects unrelated MCP resource and finance scope.")
+
         refreshed_status, refreshed = exchange(opener, key, grant="refresh_token",
                                                 refresh=first_refresh)
         if refreshed_status != 200 or not refreshed:
@@ -324,12 +476,58 @@ def main():
             raise RuntimeError("OLD_OFFLINE_REFRESH_REPLAY_ACCEPTED")
         print("PASS AUTHCODE: offline refresh with signed client JWT, rotation and replay denial.")
 
+        # An absent resource is rejected by this Keycloak fixture (HTTP 400).
+        # The client-policy extension itself ignores absence, so this denial
+        # originates in Keycloak's remaining token-grant policy. No claim of
+        # optional-resource refresh compatibility is permitted.
+        omitted_status, _ = exchange(opener, key, grant="refresh_token",
+                                     refresh=second_refresh, resource=None)
+        if omitted_status not in (400, 401):
+            raise RuntimeError("OMITTED_REFRESH_RESOURCE_UNEXPECTED_HTTP_" + str(omitted_status))
+        print("PASS AUTHCODE: absent refresh resource rejected; clients must send the canonical resource.")
+
         revoke(opener, key, second_refresh)
         revoked_status, _ = exchange(opener, key, grant="refresh_token",
                                      refresh=second_refresh)
         if revoked_status not in (400, 401):
             raise RuntimeError("REVOKED_OFFLINE_REFRESH_ACCEPTED")
         print("PASS AUTHCODE: refresh revocation blocks renewed access.")
+
+        # Real Keycloak non-target regression: another signed-JWT browser
+        # client with NO policy marker must keep its normal refresh ability.
+        # It is registered after policy activation to expose accidental policy
+        # application on CLIENT CRUD and authorization, not only refresh.
+        unrelated_client = "ci-other-private-jwt"
+        register_client(admin, certificate, client_id=unrelated_client, guarded=False)
+        browser.CLIENT = unrelated_client
+        try:
+            other_code, other_verifier = browser.code_pkce(
+                opener, username, user_password, SCOPE)
+            other_status, other_tokens = exchange(
+                opener, key, grant="authorization_code", code=other_code,
+                verifier=other_verifier, client_id=unrelated_client)
+            if other_status != 200 or not other_tokens:
+                raise RuntimeError("OTHER_CLIENT_AUTHCODE_HTTP_" + str(other_status))
+            other_subject = verify_access(
+                other_tokens, jwks, client_id=unrelated_client)
+            other_first = other_tokens.get("refresh_token")
+            if not isinstance(other_first, str) or not other_first:
+                raise RuntimeError("OTHER_CLIENT_REFRESH_MISSING")
+            other_status, other_refreshed = exchange(
+                opener, key, grant="refresh_token", refresh=other_first,
+                client_id=unrelated_client)
+            if other_status != 200 or not other_refreshed:
+                raise RuntimeError("OTHER_CLIENT_REFRESH_HTTP_" + str(other_status))
+            verify_access(other_refreshed, jwks, subject=other_subject,
+                          client_id=unrelated_client)
+            other_second = other_refreshed.get("refresh_token")
+            if not isinstance(other_second, str) or other_second == other_first:
+                raise RuntimeError("OTHER_CLIENT_REFRESH_NOT_ROTATED")
+            revoke(opener, key, other_second, client_id=unrelated_client)
+            print("PASS AUTHCODE: unmarked other OAuth client remains refresh-compatible.")
+        finally:
+            browser.CLIENT = CLIENT
+        rollback_exact_refresh_policy(admin, policy_snapshots)
         print("CI-ONLY: no real ChatGPT client keys, production data or server changes.")
 
 

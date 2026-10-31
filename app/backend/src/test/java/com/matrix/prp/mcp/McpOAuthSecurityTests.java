@@ -107,7 +107,12 @@ class McpOAuthSecurityTests {
         var list = mvc.perform(mcp("read-only",
             "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/list\",\"params\":{}}"))
             .andExpect(status().isOk()).andReturn();
-        assertThat(list.getResponse().getContentAsString()).contains("prp_tasks_list");
+        assertThat(list.getResponse().getContentAsString())
+            .contains("prp_tasks_list", "prp_task_get")
+            .doesNotContain("prp_finance_month", "prp_wellness_daily",
+                "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record",
+                "prp_prepare_task_update", "prp_prepare_task_delete",
+                "prp_draft_status", "prp_confirm_draft");
 
         var task = mvc.perform(mcp("read-only",
             "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"prp_tasks_list\",\"arguments\":{}}}"))
@@ -118,12 +123,16 @@ class McpOAuthSecurityTests {
         var finance = mvc.perform(mcp("read-only",
             "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"prp_finance_month\",\"arguments\":{}}}"))
             .andExpect(status().isOk()).andReturn();
-        assertThat(finance.getResponse().getContentAsString()).contains("\"isError\":true");
+        assertThat(finance.getResponse().getContentAsString())
+            .contains("\"error\"", "Tool not found: prp_finance_month")
+            .doesNotContain("\"result\"");
 
         var write = mvc.perform(mcp("read-only",
             "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"prp_prepare_task\",\"arguments\":{\"moduleCode\":\"work\",\"title\":\"Forbidden\"}}}"))
             .andExpect(status().isOk()).andReturn();
-        assertThat(write.getResponse().getContentAsString()).contains("\"isError\":true");
+        assertThat(write.getResponse().getContentAsString())
+            .contains("\"error\"", "Tool not found: prp_prepare_task")
+            .doesNotContain("\"result\"");
         verifyNoInteractions(jdbc);
     }
 

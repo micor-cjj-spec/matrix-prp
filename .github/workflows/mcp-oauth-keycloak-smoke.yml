@@ -4,8 +4,18 @@ on:
   push:
     branches:
       - feat/prp-mcp-gateway-v1
+      - test/mcp-authcode-privatejwt-refresh-20261024
     paths:
       - "app/deploy/mcp-oauth/**"
+      - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/mcp-oauth/ci_chatgpt_cimd_pkce.py"
+      - "app/deploy/mcp-oauth/ci_jwt_authcode_refresh.py"
+      - "app/deploy/mcp-oauth/build_realm.py"
+      - "app/deploy/mcp-oauth/keycloak-resource-guard/**"
       - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
   workflow_dispatch:
 
@@ -17,6 +27,10 @@ jobs:
     name: Ephemeral Keycloak OIDC and resource indicator
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        keycloak-version: ['26.8.0', '26.8.1']
     steps:
       - uses: actions/checkout@v4
       - name: Build reviewed staging realm with read-only PKCE test client
@@ -25,6 +39,62 @@ jobs:
             --resource https://prp.staging.example.org/api/mcp \
             --staging-client-id prp-pkce-probe \
             --staging-redirect http://127.0.0.1:8765/callback
+      - name: Syntax check restored-Realm host scripts without execution
+        shell: bash
+        run: |
+          bash -n app/deploy/mcp-oauth/keycloak-resource-guard/preflight_restored_realm_host.sh
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_preflight_restored_realm_host.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_restored_exact_clients.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_capture_current_keycloak_review.py' -v
+          # Synthetic tar/JAR markers only. Never contact running PRP/Docker on CI.
+          python3 -m unittest discover -s app/deploy/mcp-staging -p 'test_live_v2_artifact_readonly.py' -v
+          bash -n app/deploy/mcp-oauth/keycloak-resource-guard/verify_restored_realm_spi_clone.sh
+          python3 - <<'CHECK_RESTORED_PY'
+          from pathlib import Path
+          source = Path("app/deploy/mcp-oauth/keycloak-resource-guard/verify_restored_realm_spi_clone.sh")
+          data = source.read_text().splitlines()
+          blocks = []
+          collecting = None
+          for number, line in enumerate(data, 1):
+              if collecting is not None:
+                  if line == "PY":
+                      blocks.append(collecting)
+                      collecting = None
+                  else:
+                      collecting.append(line)
+              elif "<<'PY'" in line:
+                  collecting = []
+          assert collecting is None, "Unclosed Python shell heredoc"
+          assert len(blocks) >= 3, "Required Python safety/Realm verifiers missing"
+          for index, body in enumerate(blocks):
+              compile("\n".join(body) + "\n", f"{source}#heredoc-{index}", "exec")
+          print("RESTORED_CLONE_PYTHON_HEREDOC_SYNTAX=PASS")
+          CHECK_RESTORED_PY
+      - name: Verify read-only B2 evidence inventory cannot approve installation
+        run: |
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_b2_evidence_inventory.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_diagnose_live_nginx_guard.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_review_v2_nginx_lineage.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_prepare_v2_guard_review.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_isolated_v2_nginx_syntax.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_audit_v2_guard_routes.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_audit_v2_route_semantics.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_preflight_v2_netns.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_probe_v2_nginx_netns.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_sandbox_v2_raw_uri_overlay.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_prepare_v2_raw_uri_review.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_verify_v2_raw_uri_review_artifact.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_trace_v2_limit_zone.py' -v
+          python3 -m unittest discover -s app/deploy/mcp-oauth/keycloak-resource-guard -p 'test_isolated_v2_zone_overlay.py' -v
+          python3 -m py_compile app/deploy/mcp-oauth/keycloak-resource-guard/b2_evidence_inventory.py
+          python3 -m py_compile app/deploy/mcp-oauth/keycloak-resource-guard/diagnose_live_nginx_guard.py
+      - name: Select Java 21 for disposable provider build
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Compile and test candidate against Keycloak ${{ matrix.keycloak-version }}
+        run: mvn -B -ntp -f app/deploy/mcp-oauth/keycloak-resource-guard/pom.xml -Dkeycloak.version=${{ matrix.keycloak-version }} verify
       - name: Start real Keycloak, verify import, then delete everything
         shell: bash
         run: |
@@ -40,13 +110,26 @@ jobs:
             docker rm -f prp-mcp-keycloak-ci >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
+          # Reproduce the host's root-private Maven output mode (umask 077),
+          # then ensure the disposable non-root Keycloak process may read the
+          # provider mounted read-only. All credentials and DB files stay private.
+          jar=app/deploy/mcp-oauth/keycloak-resource-guard/target/prp-refresh-resource-guard.jar
+          test -s "$jar"
+          chmod 0600 "$jar"
+          test "$(stat -c '%a' "$jar")" = 600
+          chmod 0444 "$jar"
+          test "$(stat -c '%a' "$jar")" = 444
+          echo 'CI_PROVIDER_PRIVATE_TO_READONLY_MOUNT_PERMISSION=PASS'
+          # Both 26.8.0 (current host) and 26.8.1 (earlier CI) must pass.
+          # Never ignore resource denial, signed token verification or rollback.
           docker run --rm -d \
             --name prp-mcp-keycloak-ci \
             -p 127.0.0.1:18080:8080 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=prp-smoke-admin \
             -e KC_BOOTSTRAP_ADMIN_PASSWORD="${admin_secret}" \
             -v "${PWD}/app/deploy/mcp-oauth/.generated/realm:/opt/keycloak/data/import:ro" \
-            quay.io/keycloak/keycloak:26.8.0 \
+            -v "${PWD}/app/deploy/mcp-oauth/keycloak-resource-guard/target/prp-refresh-resource-guard.jar:/opt/keycloak/providers/prp-refresh-resource-guard.jar:ro" \
+            quay.io/keycloak/keycloak:${{ matrix.keycloak-version }} \
             start-dev --import-realm --features=cimd,resource-indicators \
             --hostname=http://127.0.0.1:18080
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
@@ -54,8 +137,24 @@ jobs:
               --admin-user prp-smoke-admin
           # Keycloak stays alive here; only this throwaway instance receives
           # the temporary CIMD policies and ChatGPT public metadata requests.
+          # Real disposable Keycloak: 13 disabled legacy fixtures + two exact
+          # clients + remove only additions; no active Realm/backup involvement.
+          CI_EXACT_CLIENT_PRESERVE=1 MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_exact_client_preservation.py
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_chatgpt_cimd_pkce.py
+          # Verify the registered URL still points to official ChatGPT public
+          # JWKS, test egress from the disposable Keycloak network namespace
+          # and reject an untrusted synthetic signed assertion. This is NOT
+          # proof of a real OpenAI private key or Keycloak JVM TLS fetch.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_chatgpt_official_jwks_probe.py
+          # The exact pre-registered ChatGPT client ID/callback can undergo a
+          # real disposable browser grant only after substituting a TEMPORARY
+          # CI-only signing certificate for the external OpenAI JWKS. This
+          # does NOT verify a real ChatGPT-originating signed assertion.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_chatgpt_exact_client_authcode.py
           # A separate ephemeral RSA keypair and client exercise Signed JWT
           # token authentication. No real ChatGPT private keys are available.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
@@ -64,3 +163,25 @@ jobs:
           # signed JWT client auth, offline refresh rotation and revocation.
           MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
             python3 app/deploy/mcp-oauth/ci_jwt_authcode_refresh.py
+          # Exercise the same public synthetic user password->refresh grant
+          # shape used only inside the separately restored 13-client clone.
+          # This is never a PRP production login flow.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_restored_password_refresh.py
+
+      - name: Hash verified isolated SPI artifact
+        run: |
+          set -euo pipefail
+          cd app/deploy/mcp-oauth/keycloak-resource-guard/target
+          test -s prp-refresh-resource-guard.jar
+          sha256sum prp-refresh-resource-guard.jar > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Retain verified CI-only SPI artifact for isolated restore testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: prp-refresh-resource-guard-${{ matrix.keycloak-version }}-CI-ONLY
+          path: |
+            app/deploy/mcp-oauth/keycloak-resource-guard/target/prp-refresh-resource-guard.jar
+            app/deploy/mcp-oauth/keycloak-resource-guard/target/SHA256SUMS
+          retention-days: 3
+          if-no-files-found: error

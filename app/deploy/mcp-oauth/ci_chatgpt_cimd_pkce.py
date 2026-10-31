@@ -201,6 +201,47 @@ def require_pkce_result(mode, *, scope="openid"):
             raise RuntimeError("PKCE_" + mode.upper() + "_NOT_ENFORCED_HTTP_" + str(status))
 
 
+def verify_authorization_error_issuer():
+    """RFC 9207: unsolicited prompt=none error callback must identify issuer.
+
+    The error is produced by Keycloak (NO login, NO user code/token). Never
+    follow or print the ChatGPT callback URL or its state.
+    """
+    from urllib.parse import urlencode, urlsplit, parse_qs
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(24)
+    params = {
+        "client_id": CLIENT,
+        "response_type": "code",
+        "redirect_uri": REDIRECT,
+        "scope": "openid offline_access prp.tasks.read",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+        "resource": RESOURCE,
+        "prompt": "none",
+    }
+    status, location, _ = request(AUTH_URL + "?" + urlencode(params))
+    if status != 302:
+        raise RuntimeError("NO_LOGIN_ERROR_RESPONSE_MUST_REDIRECT")
+    callback = urlsplit(location)
+    expected = urlsplit(REDIRECT)
+    if (callback.scheme != "https" or callback.netloc != expected.netloc
+            or callback.path != expected.path or callback.fragment
+            or callback.username or callback.password):
+        raise RuntimeError("ERROR_REDIRECT_TO_UNEXPECTED_ORIGIN")
+    q = parse_qs(callback.query, keep_blank_values=True)
+    if (q.get("state") != [state]
+            or q.get("error") != ["login_required"]
+            or q.get("iss") != [BASE + "/realms/prp-mcp"]):
+        raise RuntimeError("RFC9207_ERROR_CALLBACK_ISS_STATE_MISMATCH")
+    if "code" in q or "access_token" in q or "id_token" in q:
+        raise RuntimeError("ERROR_CALLBACK_CONTAINED_UNEXPECTED_TOKEN")
+    print("PASS RFC9207: prompt=none error redirect preserves state and exact issuer, no token/code.")
+
+
 def verify_persisted(token):
     from urllib.parse import quote
     status, _, body = request(REALM_ADMIN + "/clients?clientId=" + quote(CLIENT, safe=""), bearer=token)
@@ -215,7 +256,37 @@ def verify_persisted(token):
         raise RuntimeError("CIMD_CLIENT_S256_NOT_PERSISTED")
     if client.get("redirectUris") != [REDIRECT]:
         raise RuntimeError("CIMD_CLIENT_CALLBACK_MISMATCH")
-    print("PASS CLIENT: exact callback and persisted S256 verified.")
+    if client.get("publicClient") is not False or client.get("fullScopeAllowed") is not False:
+        raise RuntimeError("CIMD_CLIENT_SCOPE_OR_AUTH_BROADENED")
+    from urllib.parse import quote
+    internal_id = client.get("id")
+    if not isinstance(internal_id, str) or not internal_id:
+        raise RuntimeError("CIMD_CLIENT_INTERNAL_ID_MISSING")
+    endpoint = REALM_ADMIN + "/clients/" + quote(internal_id, safe="") + "/optional-client-scopes"
+    status, _, raw = request(endpoint, bearer=token)
+    if status != 200:
+        raise RuntimeError("CIMD_CLIENT_OPTIONAL_SCOPE_READ_FAILED")
+    optional = json.loads(raw)
+    if not isinstance(optional, list):
+        raise RuntimeError("CIMD_CLIENT_OPTIONAL_SCOPE_NOT_ARRAY")
+    names = {s.get("name") for s in optional if isinstance(s, dict)}
+    if names != {"prp.tasks.read", "offline_access"}:
+        raise RuntimeError("CIMD_CLIENT_TASK_OFFLINE_SCOPE_MISMATCH")
+    detail_status, _, detail_raw = request(
+        REALM_ADMIN + "/clients/" + quote(internal_id, safe=""), bearer=token)
+    if detail_status != 200:
+        raise RuntimeError("EXACT_CLIENT_DETAILS_UNAVAILABLE")
+    details = json.loads(detail_raw)
+    attributes = details.get("attributes", {})
+    if attributes.get("token.endpoint.auth.signing.alg") != "RS256":
+        raise RuntimeError("EXACT_CLIENT_SIGNED_JWT_ALGORITHM_MISSING")
+    if (attributes.get("use.jwks.url") != "true"
+            or attributes.get("jwks.url") != "https://chatgpt.com/oauth/jwks.json"):
+        raise RuntimeError("EXACT_CLIENT_OFFICIAL_JWKS_MISMATCH")
+    mappers = details.get("protocolMappers", [])
+    if [m.get("config", {}).get("included.custom.audience") for m in mappers] != [RESOURCE]:
+        raise RuntimeError("EXACT_CLIENT_RESOURCE_AUDIENCE_MISMATCH")
+    print("PASS CLIENT: exact callback, S256 and limited task/offline optional scopes verified.")
 
 
 
@@ -230,7 +301,6 @@ def has_known_chatgpt_parser_blocker():
     return b'Unrecognized field "token_endpoint_auth_methods_supported"' in (
         result.stdout + result.stderr
     )
-
 
 
 def ensure_offline_access(token):
@@ -297,6 +367,9 @@ def install_exact_preregistered(token):
             "protocol": "openid-connect",
             "protocolMapper": "oidc-audience-mapper",
             "config": {
+                # Exact HTTPS resource audience, not the internal bearer
+                # client's identifier. Token claims must still be verified
+                # from a real isolated authorization-code exchange.
                 "included.custom.audience": RESOURCE,
                 "id.token.claim": "false",
                 "access.token.claim": "true",
@@ -312,23 +385,6 @@ def install_exact_preregistered(token):
     matches = [x for x in json.loads(raw) if x.get("clientId") == CLIENT]
     if len(matches) != 1 or matches[0].get("publicClient") is not False:
         raise RuntimeError("EXACT_CLIENT_NOT_CONFIDENTIAL")
-    client_id = matches[0]["id"]
-    status, _, full_raw = request(endpoint + "/" + client_id, bearer=token)
-    if status != 200:
-        raise RuntimeError("EXACT_CLIENT_DETAILS_UNAVAILABLE")
-    details = json.loads(full_raw)
-    if not {"offline_access", "prp.tasks.read"}.issubset(
-            set(details.get("optionalClientScopes", []))):
-        raise RuntimeError("EXACT_CLIENT_REQUIRED_SCOPES_MISSING")
-    custom_aud = [
-        mapper.get("config", {}).get("included.custom.audience")
-        for mapper in details.get("protocolMappers", [])
-    ]
-    if custom_aud != [RESOURCE]:
-        raise RuntimeError("EXACT_CLIENT_RESOURCE_AUDIENCE_MISMATCH")
-    if details.get("attributes", {}).get("token.endpoint.auth.signing.alg") != "RS256":
-        raise RuntimeError("EXACT_CLIENT_SIGNED_JWT_ALGORITHM_MISSING")
-    print("PASS PREREG: exact resource URI mapper, offline scope, and RS256 settings.")
     print("PASS PREREG: exact ChatGPT ID/callback/JWKS/S256 configured in disposable Realm.")
 
 
@@ -374,18 +430,23 @@ def main():
         ensure_offline_access(token)
         install_exact_preregistered(token)
         disable_dynamic_cimd_after_preregistration(token)
-        # Match the minimal production ChatGPT authorization request. The
-        # generic CIMD-only test above intentionally used openid alone.
-        full_scope = "openid offline_access prp.tasks.read"
-        require_pkce_result("S256", scope=full_scope)
+        require_pkce_result("S256")
         verify_persisted(token)
+        # A bare 'openid' probe is insufficient: ChatGPT's actual grant
+        # requests both optional offline_access and PRP task-read scope.
+        # This verifies only the authorization/login entry; no user login,
+        # consent, code exchange or real ChatGPT assertion is simulated.
+        require_pkce_result("S256", scope="openid offline_access prp.tasks.read")
+        print("PASS PREREG: real three-scope authorization reaches login entry without OAuth error.")
+        verify_authorization_error_issuer()
         for mode in ("missing", "plain"):
-            require_pkce_result(mode, scope=full_scope)
+            require_pkce_result(mode)
             print("PASS PREREG: " + mode + " PKCE rejected on exact client.")
         print("PASS PREREG: disposable exact-client auth page & PKCE only; no token flow.")
         return
 
     verify_persisted(token)
+    verify_authorization_error_issuer()
     for mode in ("missing", "plain"):
         require_pkce_result(mode)
         print("PASS CIMD: " + mode + " PKCE rejected on registered client.")

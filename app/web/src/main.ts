@@ -7,6 +7,7 @@ import 'element-plus/dist/index.css'
 import App from './App.vue'
 import router from './router'
 import { useAuthStore } from './stores/auth'
+import { isFirstPartyOidcCallbackPath } from './utils/oidcCallbackPath'
 import './styles/main.css'
 
 const app = createApp(App)
@@ -22,8 +23,14 @@ void authStore.loadCurrentUser().catch(() => {
 
 window.addEventListener('matrix-prp:unauthorized', () => {
   authStore.logout()
+  // On a Keycloak callback the address bar can still contain code/state
+  // while Vue is bootstrapping. Never copy that fullPath into a login redirect.
+  // Let the callback view scrub the URL and display an expired-session error.
+  if (isFirstPartyOidcCallbackPath(window.location.pathname, import.meta.env.BASE_URL)) {
+    return
+  }
   if (router.currentRoute.value.name !== 'login') {
-    router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
+    void router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
   }
 })
 

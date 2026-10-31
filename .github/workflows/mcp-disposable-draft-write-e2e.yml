@@ -1,0 +1,61 @@
+name: PRP MCP draft write approval E2E (disposable CI only)
+
+on:
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
+    paths:
+      - ".github/workflows/mcp-disposable-draft-write-e2e.yml"
+      - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - "app/deploy/mcp-oauth/ci_pkce_browser.py"
+      - "app/deploy/mcp-oauth/ci_crud_flow.py"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/**"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/deploy/migration-policy.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prp-mcp-disposable-write-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-draft-write:
+    name: Synthetic OAuth, owner approval and exactly-once task mutations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      MCP_E2E_CRUD: "true"
+      MCP_E2E_FIRST_PARTY: "false"
+      MCP_E2E_EXACT_CHATGPT: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Review disposable-only shell, synthetic OAuth CRUD and migration policy
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = Linux
+          test -n "${RUNNER_TEMP:-}"
+          bash -n app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          python3 -m py_compile app/deploy/mcp-oauth/ci_pkce_browser.py app/deploy/mcp-oauth/ci_crud_flow.py
+          node app/scripts/verify-db-migrations.mjs
+      - name: Verify create/update/delete requires owner password approval and replay is idempotent
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          echo "CI_DISPOSABLE_DRAFT_APPROVAL_AND_WRITE=PASS"
+          echo "PRODUCTION_MCP_WRITE_ENABLED=NO"
+          echo "LIVE_CHATGPT_OAUTH_VERIFIED=NO"
+          echo "G0_B2_DEPLOYMENT_PERMITTED=NO"

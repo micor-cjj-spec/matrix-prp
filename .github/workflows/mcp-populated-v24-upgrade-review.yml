@@ -1,0 +1,152 @@
+name: PRP MCP populated V24 to V28 upgrade (disposable CI only)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/src/test/java/com/matrix/prp/ExistingPrpV24ToMcpV28UpgradeIT.java"
+      - "app/deploy/mcp-staging/review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_flyway_metadata_readonly.sql"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/backend/pom.xml"
+      - ".github/workflows/mcp-populated-v24-upgrade-review.yml"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/src/test/java/com/matrix/prp/ExistingPrpV24ToMcpV28UpgradeIT.java"
+      - "app/deploy/mcp-staging/review_production_flyway_history.py"
+      - "app/deploy/mcp-staging/production_flyway_metadata_readonly.sql"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/backend/pom.xml"
+      - ".github/workflows/mcp-populated-v24-upgrade-review.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  populated-upgrade:
+    name: Existing synthetic PRP data, real MySQL Flyway V24 to V28
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Verify every old migration is byte-identical to current main
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git show-ref --verify --quiet refs/remotes/origin/main
+          count=0
+          while IFS= read -r path; do
+            name="${path##*/}"
+            [[ "$name" =~ ^V([0-9]+)__.*\.sql$ ]] || continue
+            version="${BASH_REMATCH[1]}"
+            if (( version <= 24 )); then
+              test "$(git rev-parse "origin/main:$path")" = "$(git rev-parse "HEAD:$path")" || {
+                echo 'CI_UPGRADE_ORIGINAL_MIGRATION_BLOB_DIFFERS_FROM_MAIN' >&2
+                exit 1
+              }
+              count=$((count+1))
+            fi
+          done < <(git ls-tree -r --name-only origin/main -- app/backend/src/main/resources/db/migration/)
+          test "$count" -eq 24
+          echo 'CI_ORIGINAL_MAIN_MIGRATIONS_V1_THROUGH_V24_IDENTICAL=YES'
+      - name: Start only a brand-new loopback MySQL owned by this runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != true ||
+                "${RUNNER_OS:-}" != Linux ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            echo 'CI_DISPOSABLE_RUNNER_ONLY' >&2
+            exit 2
+          fi
+          umask 077
+          container="prp-mcp-v24-upgrade-${GITHUB_RUN_ID}"
+          cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          export MATRIX_PRP_DB_PASSWORD="$(openssl rand -hex 24)"
+          export MATRIX_PRP_DB_USER="prp_upgrade_ci"
+          export PRP_CI_DISPOSABLE_UPGRADE_ONLY="YES"
+          export MATRIX_PRP_DB_URL="jdbc:mysql://127.0.0.1:13308/matrix_prp_upgrade_ci?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai"
+          rootpass="$(openssl rand -hex 24)"
+          docker run -d --rm --name "$container" -p 127.0.0.1:13308:3306 \
+            -e MYSQL_ROOT_PASSWORD="$rootpass" \
+            -e MYSQL_DATABASE=matrix_prp_upgrade_ci \
+            -e MYSQL_USER="$MATRIX_PRP_DB_USER" \
+            -e MYSQL_PASSWORD="$MATRIX_PRP_DB_PASSWORD" \
+            mysql:8.4 >/dev/null
+
+          ok=0
+          for i in $(seq 1 60); do
+            if docker exec -e MYSQL_PWD="$MATRIX_PRP_DB_PASSWORD" "$container" \
+              mysql --protocol=TCP -h 127.0.0.1 -u "$MATRIX_PRP_DB_USER" \
+              -D matrix_prp_upgrade_ci -Nse 'SELECT 1' >/dev/null 2>&1; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ok" -eq 1 || {
+            echo 'CI_POPULATED_UPGRADE_MYSQL_NOT_READY' >&2
+            exit 1
+          }
+
+          cd app/backend
+          chmod +x mvnw
+          ./mvnw -B -ntp -Dtest=ExistingPrpV24ToMcpV28UpgradeIT test
+          # Exercise the EXACT read-only SQL export and offline parser
+          # against the newly upgraded disposable schema; never log raw
+          # MySQL history metadata or credentials. An unverified shape
+          # match MUST return code 3, not a deploy-success exit 0.
+          private_history="$RUNNER_TEMP/prp-v28-history.synthetic.private.json"
+          docker exec -e MYSQL_PWD="$MATRIX_PRP_DB_PASSWORD" "$container" \
+            mysql -u "$MATRIX_PRP_DB_USER" -D matrix_prp_upgrade_ci \
+            --batch --raw --skip-column-names \
+            -e "$(cat ../deploy/mcp-staging/production_flyway_metadata_readonly.sql)" \
+            > "$private_history"
+          set +e
+          python3 ../deploy/mcp-staging/review_production_flyway_history.py \
+            --input "$private_history" --expected-schema matrix_prp_upgrade_ci \
+            > "$RUNNER_TEMP/prp-v28-history-verdict.synthetic.json"
+          verify_status=$?
+          set -e
+          test "$verify_status" -eq 3 || {
+            echo 'CI_OFFLINE_REAL_MYSQL_HISTORY_EXPECTED_UNVERIFIED_EXIT_3' >&2
+            exit 1
+          }
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["decision"] == "V28_SOURCE_HISTORY_SHAPE_MATCH_CHECKSUMS_UNVERIFIED" and d["deployment_permitted"] is False and d["flyway_checksums_verified"] is False' \
+            "$RUNNER_TEMP/prp-v28-history-verdict.synthetic.json"
+          # Compare candidate source CRC against actual Flyway-generated
+          # installed CRC in the SAME temporary MySQL schema. Exit 4 is
+          # verified source-match but STILL NOT RELEASE AUTHORIZATION.
+          set +e
+          python3 ../deploy/mcp-staging/review_production_flyway_history.py \
+            --input "$private_history" --expected-schema matrix_prp_upgrade_ci \
+            --verify-source-crc \
+            > "$RUNNER_TEMP/prp-v28-history-crc.synthetic.json"
+          crc_status=$?
+          set -e
+          test "$crc_status" -eq 4 || {
+            echo 'CI_FLYWAY_ENGINE_CRC_NOT_MATCHING_SOURCE_ALGORITHM' >&2
+            exit 1
+          }
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["decision"] == "V28_SOURCE_CRC_MATCH_REVIEW_ONLY" and d["deployment_permitted"] is False and d["flyway_checksums_verified"] is True' \
+            "$RUNNER_TEMP/prp-v28-history-crc.synthetic.json"
+          rm -f -- "$RUNNER_TEMP/prp-v28-history-crc.synthetic.json"
+          echo 'CI_FLYWAY_SOURCE_CRC_MATCHED_ALL_28_REAL_MYSQL_ROWS_REVIEW_ONLY=YES'
+          rm -f -- "$private_history" "$RUNNER_TEMP/prp-v28-history-verdict.synthetic.json"
+          echo 'CI_REAL_MYSQL_JSON_METADATA_REVIEW_ONLY_NO_APPROVAL=YES'
+          echo 'CI_DISPOSABLE_UPGRADE_NO_HOST_SERVICE_OR_REAL_DATA_MUTATION=YES'

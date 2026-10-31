@@ -1,0 +1,43 @@
+name: PRP ChatGPT OAuth public discovery and client metadata (GET only)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - ".github/workflows/mcp-chatgpt-public-oauth-discovery-readonly.yml"
+      - "app/deploy/mcp-oauth/public_get_only_diagnostic.py"
+      - "app/deploy/mcp-oauth/chatgpt_cimd_preflight.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-get-only:
+    name: External TLS/issuer/CIMD discovery with no logins or token calls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Inspect fixed public staging JSON documents only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != true ||
+                "${RUNNER_OS:-}" != Linux ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            echo 'CI_RUNNER_ONLY' >&2
+            exit 2
+          fi
+          echo 'PUBLIC_OAUTH_DISCOVERY_PHASE=GET_ONLY'
+          # Only HTTPS GET on allowlisted public URLs. Never send
+          # client ID authorization requests, passwords, secrets,
+          # OAuth code/token exchange, MCP POST, or Keycloak admin calls.
+          python3 -B app/deploy/mcp-oauth/public_get_only_diagnostic.py
+          python3 -B app/deploy/mcp-oauth/chatgpt_cimd_preflight.py
+          echo 'PUBLIC_OAUTH_DISCOVERY_COMPLETED=YES'
+          echo 'REAL_CHATGPT_OAUTH_AND_TASKS_VERIFIED=NO'
+          echo 'G0_B2_PERMISSION_GRANTED=NO'

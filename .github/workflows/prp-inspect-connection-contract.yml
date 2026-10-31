@@ -1,0 +1,32 @@
+name: PRP production inspect SSH preflight (synthetic/offline only)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/preflight_readonly_inspection_env.py"
+      - "app/deploy/test_readonly_inspection_connection.py"
+      - ".github/workflows/prp-readonly-inspect.yml"
+      - ".github/workflows/prp-inspect-connection-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-only:
+    name: Local synthetic SSH key/pin and missing secret regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Assert no live read-only credentials/SSH needed
+        run: |
+          set -Eeuo pipefail
+          python3 -m py_compile app/deploy/preflight_readonly_inspection_env.py app/deploy/test_readonly_inspection_connection.py
+          python3 -m unittest discover -s app/deploy -p test_readonly_inspection_connection.py -v
+          echo "PRODUCTION_INSPECT_CREDENTIAL_GUARD_SYNTHETIC_ONLY=YES"
+          echo "NO_PRODUCTION_SSH_ATTEMPT_NO_DB_OR_DEPLOYMENT=YES"

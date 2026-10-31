@@ -1,0 +1,56 @@
+name: PRP first-party OIDC linking real disposable E2E
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/src/main/java/com/matrix/prp/mcp/**"
+      - "app/backend/src/main/resources/db/migration/V29__mcp_first_party_oidc_link_flows.sql"
+      - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
+      - "app/deploy/mcp-oauth/ci_pkce_browser.py"
+      - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - ".github/workflows/mcp-first-party-oidc-e2e.yml"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/src/main/java/com/matrix/prp/mcp/**"
+      - "app/backend/src/main/resources/db/migration/V29__mcp_first_party_oidc_link_flows.sql"
+      - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
+      - "app/deploy/mcp-oauth/ci_pkce_browser.py"
+      - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - ".github/workflows/mcp-first-party-oidc-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prp-first-party-oidc-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-first-party-keycloak-mysql:
+    name: One-use browser PKCE/subject/PRP task read on disposable real services
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    env:
+      MCP_E2E_FIRST_PARTY: "true"
+      MCP_E2E_CRUD: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Assert shell and browser orchestration syntax
+        run: |
+          bash -n app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          python3 -m py_compile app/deploy/mcp-oauth/ci_first_party_link_e2e.py app/deploy/mcp-oauth/ci_pkce_browser.py
+      - name: Run real isolated HTTPS browser PKCE and owner mapping, with fresh Keycloak and MySQL
+        run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh

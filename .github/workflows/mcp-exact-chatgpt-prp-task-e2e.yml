@@ -1,0 +1,74 @@
+name: PRP exact ChatGPT client ID to MCP task full CI (synthetic key)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - ".github/workflows/mcp-exact-chatgpt-prp-task-e2e.yml"
+      - "app/deploy/mcp-oauth/ci_pkce_browser.py"
+      - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - "app/deploy/mcp-oauth/review_exact_client_registrations.py"
+      - "app/deploy/mcp-oauth/ci_static_client_jwt.py"
+      - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/**"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
+    paths:
+      - ".github/workflows/mcp-exact-chatgpt-prp-task-e2e.yml"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/deploy/migration-policy.json"
+      - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prp-exact-client-task-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-id-real-keycloak-and-prp:
+    name: Exact OpenAI client ID, temporary signing key, real Keycloak+PRP, task-only tool
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    env:
+      MCP_E2E_FIRST_PARTY: "true"
+      MCP_E2E_EXACT_CHATGPT: "true"
+      MCP_E2E_CRUD: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Check exact client source contract and unprivileged CI syntax
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          python3 -m py_compile \
+            app/deploy/mcp-oauth/ci_pkce_browser.py \
+            app/deploy/mcp-oauth/ci_first_party_link_e2e.py \
+            app/deploy/mcp-oauth/review_exact_client_registrations.py
+          python3 -m unittest discover -s app/deploy/mcp-oauth -p test_review_exact_client_registrations.py -v
+      - name: Run exact client ID synthetic-signing-key OAuth PKCE + first party PRP task tool
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "DISPOSABLE_CHATGPT_ID_VS_REAL_OPENAI_ASSERTION=NOT_THE_SAME"
+          bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          echo "EXACT_CLIENT_ID_REAL_KEYCLOAK_PRP_TASK_E2E=PASS_CI_ONLY"
+          echo "REAL_OPENAI_CLIENT_SIGNED_ASSERTION_VERIFIED=NO"
+          echo "LIVE_PRP_OWNER_TASKS_RETRIEVED=NO"
+          echo "PRODUCTION_BACKUP_EXPORT_OR_MIGRATION=NO"
+          echo "G0_B2_DEPLOYMENT_PERMITTED=NO"

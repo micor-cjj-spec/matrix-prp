@@ -102,6 +102,25 @@ def check(config):
         raise ValueError("Staging MCP cannot activate without OAuth")
     if config["PRP_STAGE_OAUTH_ENABLED"] == "true" and config["PRP_STAGE_MCP_ENABLED"] != "true":
         raise ValueError("Staging OAuth requires MCP")
+    # These settings are optional for existing staging stacks; absent means
+    # default-off. When provided they must be exact even while disabled, so
+    # switching the feature on later cannot silently activate stale config.
+    first_party = config.get("PRP_STAGE_FIRST_PARTY_LINK_ENABLED", "false")
+    if first_party not in ("true", "false"):
+        raise ValueError("First-party OIDC link flag must be literal true or false")
+    first_client = config.get("PRP_STAGE_FIRST_PARTY_CLIENT_ID")
+    callback = config.get("PRP_STAGE_FIRST_PARTY_REDIRECT_URI")
+    if first_party == "true" and (not first_client or not callback):
+        raise ValueError("First-party OAuth client and exact callback required before opt-in")
+    if first_party == "true" and (config["PRP_STAGE_MCP_ENABLED"] != "true"
+                                   or config["PRP_STAGE_OAUTH_ENABLED"] != "true"):
+        raise ValueError("First-party link requires MCP and OAuth staging enabled")
+    if first_client is not None and first_client != "prp-first-party-link":
+        raise ValueError("First-party client ID must be the independently reviewed fixed value")
+    if callback is not None:
+        expected_callback = "https://" + host + "/prp/me/mcp-link/callback"
+        if callback != expected_callback:
+            raise ValueError("First-party redirect must match exact staging PRP callback")
     secret_keys = ("PRP_STAGE_DB_ROOT_PASSWORD", "PRP_STAGE_DB_PASSWORD",
                    "PRP_STAGE_JWT_SECRET", "PRP_STAGE_ADMIN_PASSWORD")
     for key in secret_keys:
@@ -117,6 +136,7 @@ def check(config):
         "oauth_host": auth_host,
         "mcp_enabled": config["PRP_STAGE_MCP_ENABLED"] == "true",
         "oauth_enabled": config["PRP_STAGE_OAUTH_ENABLED"] == "true",
+        "first_party_enabled": first_party == "true",
         "production_host_excluded": True,
     }
 
