@@ -6,7 +6,17 @@ on:
       - test/mcp-authcode-privatejwt-refresh-20261024
     paths:
       - "app/backend/src/main/java/com/matrix/prp/mcp/**"
-      - "app/backend/src/main/resources/db/migration/V28__mcp_first_party_oidc_link_flows.sql"
+      - "app/backend/src/main/resources/db/migration/V29__mcp_first_party_oidc_link_flows.sql"
+      - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
+      - "app/deploy/mcp-oauth/ci_pkce_browser.py"
+      - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
+      - ".github/workflows/mcp-first-party-oidc-e2e.yml"
+  pull_request:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/src/main/java/com/matrix/prp/mcp/**"
+      - "app/backend/src/main/resources/db/migration/V29__mcp_first_party_oidc_link_flows.sql"
       - "app/deploy/mcp-oauth/ci_first_party_link_e2e.py"
       - "app/deploy/mcp-oauth/ci_pkce_browser.py"
       - "app/deploy/mcp-oauth/test_full_e2e_ci.sh"
