@@ -1,0 +1,31 @@
+name: PRP 开发需求
+description: 创建可以拆分为并行子任务的开发需求（由协作控制器维护状态）
+title: "[REQ][REQ-YYYYMMDD-NNN] "
+labels: []
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: 需求目标与业务价值
+      description: 写明目标及最终交付物，不包含密钥或生产数据
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 约束与排除范围
+      description: 哪些文件、数据库或生产环境严禁操作
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 需求验收标准
+      description: 可验证的业务、集成和安全验收条件
+    validations:
+      required: true
+  - type: textarea
+    id: tasks
+    attributes:
+      label: 子任务目录（控制器同步）
+      description: 每项任务应有独立 Issue；此处是视图，不是任务锁

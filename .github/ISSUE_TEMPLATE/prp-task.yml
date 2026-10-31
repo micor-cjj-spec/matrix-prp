@@ -1,0 +1,40 @@
+name: PRP 并行开发任务
+description: 创建属于某个 Requirement 的独立可交付任务
+title: "[TASK][REQ-YYYYMMDD-NNN/T-NNN] "
+labels: []
+body:
+  - type: input
+    id: requirement
+    attributes:
+      label: Requirement ID / 父 Issue
+      placeholder: "REQ-YYYYMMDD-NNN / #132"
+    validations:
+      required: true
+  - type: textarea
+    id: deliverable
+    attributes:
+      label: 交付目标与验收标准
+      description: 描述可检查的代码或文档成果
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: 前置依赖
+      description: 使用 T-NNN 标识；独立任务写无
+    validations:
+      required: true
+  - type: textarea
+    id: allowed
+    attributes:
+      label: 允许修改的文件
+      description: 采用具体路径或以 / 结尾的目录白名单
+    validations:
+      required: true
+  - type: textarea
+    id: prohibited
+    attributes:
+      label: 禁止操作范围
+      description: 默认禁止生产数据库、SSH、部署、自动合并和密钥暴露
+    validations:
+      required: true
