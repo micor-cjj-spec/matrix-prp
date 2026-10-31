@@ -43,23 +43,31 @@ if ! curl -fsS -H 'Host: prp-test.micor.top' http://127.0.0.1:18081/prp/ >/dev/n
 fi
 echo 'Stage Web: PASS'
 
+# Check the immutable, hash-verified migration registry before asserting schema.
+# Never silently accept a newer DB version not present in the reviewed manifest.
+node ../../scripts/verify-db-migrations.mjs
+expected_version=$(node -p "Math.max(...require('../migration-policy.json').rules.map(r => r.version))")
+if [[ ! "$expected_version" =~ ^[0-9]+$ ]]; then
+  echo 'Stage Flyway migration manifest is invalid' >&2
+  exit 1
+fi
 # Fresh database must contain all approved MCP migration tables, not production data.
 schema=$( "${compose[@]}" exec -T mysql sh -c \
   'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B matrix_prp_mcp_stage -e "SELECT version FROM flyway_schema_history WHERE success=1 ORDER BY installed_rank DESC LIMIT 1;"')
-if [[ "$schema" != 27 ]]; then
-  echo "Stage Flyway expected version 27, got version: $schema" >&2
+if [[ "$schema" != "$expected_version" ]]; then
+  echo "Stage Flyway expected approved version $expected_version, got version: $schema" >&2
   exit 1
 fi
-echo 'Stage Flyway: PASS version 27'
+echo "Stage Flyway: PASS approved version $expected_version"
 tables=$( "${compose[@]}" exec -T mysql sh -c \
   'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B matrix_prp_mcp_stage -e "SHOW TABLES LIKE '\''prp_mcp_%'\'';"')
-for expected in prp_mcp_client_grants prp_mcp_identity_links prp_mcp_link_tickets prp_mcp_write_drafts; do
+for expected in prp_mcp_client_grants prp_mcp_identity_links prp_mcp_link_tickets prp_mcp_write_drafts prp_mcp_pairing_grant_leases; do
   if ! grep -q "^${expected}$" <<< "$tables"; then
     echo "Stage Flyway table missing: $expected" >&2
     exit 1
   fi
 done
-echo 'Stage MySQL: PASS all four MCP schema tables'
+echo 'Stage MySQL: PASS all five MCP schema tables'
 
 wrong_host=$(curl -sS -o /dev/null -w '%{http_code}'   -H 'Host: micor.top' http://127.0.0.1:18081/api/health)
 if [[ "$wrong_host" != 421 ]]; then
@@ -74,5 +82,5 @@ if [[ "$wrong_path" != 404 ]]; then
 fi
 echo 'Stage wrong API prefix: PASS'
 
-echo "PASS: isolated PRP stage backend + Web actually start; V27 migrated only the fresh test DB."
+echo "PASS: isolated PRP stage backend + Web actually start; approved Flyway version migrated only the fresh test DB."
 echo "PASS: 127.0.0.1:18081 staging routing and wrong Host/path rejection; OAuth remains OFF."

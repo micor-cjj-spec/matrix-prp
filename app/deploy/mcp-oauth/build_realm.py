@@ -139,7 +139,7 @@ def build_realm(resource, template=None, *, staging_client_id=None, staging_redi
                 "protocolMapper": "oidc-audience-mapper",
                 "consentRequired": False,
                 "config": {
-                    "included.client.audience": "matrix-prp-mcp-resource",
+                    "included.custom.audience": resource,
                     "id.token.claim": "false",
                     "access.token.claim": "true",
                 },

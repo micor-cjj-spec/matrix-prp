@@ -75,7 +75,8 @@ def register(token, certificate):
             "protocol": "openid-connect",
             "protocolMapper": "oidc-audience-mapper",
             "config": {
-                "included.client.audience": "matrix-prp-mcp-resource",
+                # MCP audience is an HTTPS resource, not an internal client id.
+                "included.custom.audience": RESOURCE,
                 "id.token.claim": "false",
                 "access.token.claim": "true",
             },
@@ -85,6 +86,37 @@ def register(token, certificate):
     if status != 201:
         raise RuntimeError("TEST_CLIENT_CREATION_REJECTED_HTTP_" + str(status))
     print("PASS JWT: generated disposable RSA credential and registered exact test client.")
+
+
+def verify_persisted_audience(token):
+    # Do not infer correct realm configuration from a generated document or
+    # a successful JWT alone. Inspect the actual imported protocol mapper.
+    endpoint = REALM_ADMIN + "/clients?clientId=" + CLIENT
+    status, _, raw = request(endpoint, bearer=token)
+    if status != 200:
+        raise RuntimeError("JWT_CLIENT_READ_HTTP_" + str(status))
+    clients = json.loads(raw)
+    matches = [item for item in clients if item.get("clientId") == CLIENT]
+    if len(matches) != 1:
+        raise RuntimeError("JWT_CLIENT_LOOKUP_NOT_UNIQUE")
+    cid = matches[0].get("id")
+    status, _, raw = request(
+        REALM_ADMIN + "/clients/" + cid + "/protocol-mappers/models", bearer=token
+    )
+    if status != 200:
+        raise RuntimeError("JWT_MAPPER_READ_HTTP_" + str(status))
+    mappers = json.loads(raw)
+    exact = [item for item in mappers if item.get("name") == "CI only exact PRP resource"]
+    if len(exact) != 1:
+        raise RuntimeError("JWT_RESOURCE_MAPPER_NOT_UNIQUE")
+    mapper = exact[0]
+    config = mapper.get("config") or {}
+    if (mapper.get("protocolMapper") != "oidc-audience-mapper"
+            or config.get("included.custom.audience") != RESOURCE
+            or config.get("included.client.audience") not in (None, "")
+            or config.get("access.token.claim") != "true"):
+        raise RuntimeError("JWT_PERSISTED_MAPPER_RESOURCE_MISMATCH")
+    print("PASS JWT: persisted audience mapper uses the exact MCP HTTPS resource.")
 
 
 def assertion(key, *, aud=TOKEN_ENDPOINT, issuer=CLIENT, subject=CLIENT, expires=60,
@@ -136,7 +168,9 @@ def main():
         raise RuntimeError("DISPOSABLE_RUNNER_ONLY")
     with tempfile.TemporaryDirectory(prefix="prp-private-key-jwt-", dir=os.environ["RUNNER_TEMP"]) as dir_name:
         key, cert = create_keypair(Path(dir_name))
-        register(admin_token(), cert)
+        realm_admin = admin_token()
+        register(realm_admin, cert)
+        verify_persisted_audience(realm_admin)
         status, access = token(key)
         if status != 200 or not isinstance(access, str):
             raise RuntimeError("VALID_PRIVATE_KEY_JWT_REJECTED_HTTP_" + str(status))
