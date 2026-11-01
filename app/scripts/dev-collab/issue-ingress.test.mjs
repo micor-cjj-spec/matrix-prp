@@ -156,7 +156,7 @@ test('task registration rejects reserved scopes, malformed dependencies and hidd
   {...base,allowed_paths:['.github/workflows/']},
   {...base,allowed_paths:['app/scripts/dev-collab/']},
   {...base,allowed_paths:['app/docs/']},
-  {...base,depends_on:['T-999']},
+  {...base,depends_on:['T-XYZ']},
   {...base,depends_on:['T-001','T-001']},
   {...base,claim_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
   {...base,allowed_paths:['app/web/src/','app/web/src/views/']}
