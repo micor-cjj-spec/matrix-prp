@@ -188,3 +188,26 @@ test('Issue ingress workflow filters request Issues and mints its writer only af
  const transaction=workflow.indexOf('Execute one strict Git CAS transaction')
  assert.ok(validation>=0&&token>validation&&transaction>token)
 })
+
+test('owner Issue read-only probe accepts only an exact four-field payload',()=>{
+ const e=event()
+ const request={schema_version:1,action:'probe',
+   request_id:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+   requirement_id:'REQ-20261031-001'}
+ e.issue.body=JSON.stringify(request)
+ const parsed=validateIssueEvent(env(),e,e.issue)
+ assert.equal(parsed.oneShotProbe,true)
+ assert.equal(parsed.command.type,'probe')
+ assert.equal(parsed.recoveryAuthorized,false)
+ assert.equal(parsed.source_issue,149)
+ for(const payload of [
+   {...request,task_id:'T-001'},
+   {...request,expected_version:0},
+   {...request,claim_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+   {...request,requirement_id:'REQ-20261031-002'},
+   {...request,request_id:'not-a-uuid'}
+ ]){
+   e.issue.body=JSON.stringify(payload)
+   reject(e,'INGRESS_UNAPPROVED_PROBE')
+ }
+})
