@@ -49,10 +49,17 @@ export function recoveryBrief(snapshot,taskId) {
       tests:cp.tests??null,branch:cp.branch,head_sha:cp.head_sha,
       pr_number:cp.pr_number??null,recorded_at:cp.recorded_at,
       source_worker:cp.worker_id,
+      checkpoint_origin:cp.origin??'legacy_unspecified',
       git_sha_verified:false,
       stale_vs_state_head:Boolean(t.head_sha&&t.head_sha!==cp.head_sha)
     }:null,
     handoff_count:t.handoff_history?.length??0,
+    last_handoff:t.handoff_history?.length?{
+      type:t.handoff_history.at(-1).type,
+      at:t.handoff_history.at(-1).at,
+      from_worker:t.handoff_history.at(-1).from_worker,
+      to_worker:t.handoff_history.at(-1).to_worker
+    }:null,
     requires_owner_approval_for_forced_takeover:true,
     can_recover_uncommitted_chat_work:false,
     warning:cp?'Verify the linked branch/SHA and CI on GitHub before continuing.':

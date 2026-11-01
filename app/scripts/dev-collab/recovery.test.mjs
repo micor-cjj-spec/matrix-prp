@@ -68,3 +68,20 @@ test('local CLI reads registered requirements only, no symlink or extra file',()
  assert.equal(p.status,0,p.stderr)
  assert.equal(JSON.parse(p.stdout).checkpoint.branch,'feature/recover')
 })
+
+test('recovery briefing labels owner-reconstructed evidence without exposing claim credentials',()=>{
+ const s=state()
+ s.tasks[1].checkpoint.origin='owner_verified_git'
+ s.tasks[1].handoff_history=[{
+   type:'takeover',from_worker:'chat-old',to_worker:'chat-new',
+   at:'2026-11-01T01:50:00Z',actor:'micor-cjj-spec',
+   reason:'Original session unavailable',head_sha:sha,
+   previous_generation:1,generation:2
+ }]
+ const b=recoveryBrief(s,'T-002')
+ assert.equal(b.checkpoint.checkpoint_origin,'owner_verified_git')
+ assert.equal(b.checkpoint.git_sha_verified,false)
+ assert.equal(b.last_handoff.from_worker,'chat-old')
+ assert.equal(b.last_handoff.to_worker,'chat-new')
+ assert.equal(JSON.stringify(b).includes('11111111-1111-4111'),false)
+})
