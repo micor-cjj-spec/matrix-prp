@@ -182,6 +182,9 @@ async function main(){
      '-m','Request-issue: '+validated.source_issue,
      '-m','Request-id: '+validated.command.request_id,
      '-m','Author: '+validated.actor)
+   check(git('ls-remote','--exit-code','--refs','origin',
+     'refs/heads/main')===env.GITHUB_SHA+'\\trefs/heads/main',
+     'ISSUE_MAIN_CHANGED_BEFORE_PUSH')
    check(git('ls-remote','--exit-code','--refs','origin',stateRef)===base,
      'ISSUE_RACE_BEFORE_PUSH')
    git('-C',tmp,'push','origin','HEAD:'+stateRef)
