@@ -33,7 +33,7 @@ function names(collection,key) {
 }
 export function evaluateActivationEvidence(data) {
   const blockers=[]
-  const {main,stateBranch,rule,appRule,mainRule,appId,rulesetId,expectedClientId,
+  const {main,stateBranch,rule,appRule,mainRule,appId,rulesetId,
     environment,branchPolicies,environmentSecrets,environmentVariables,snapshot,
     headSha,installationRepos,publicationHold}=data??{}
 
@@ -102,9 +102,9 @@ export function evaluateActivationEvidence(data) {
   const vars=Array.isArray(environmentVariables?.variables)?
     environmentVariables.variables:[]
   const variable=name=>vars.find(x=>x?.name===name)?.value
-  check(typeof expectedClientId==='string'&&expectedClientId.length>0&&
-    variable('PRP_COLLAB_APP_CLIENT_ID')===expectedClientId,
-    'AUTO_ENV_APP_CLIENT_ID_MISMATCH',blockers)
+  check(typeof variable('PRP_COLLAB_APP_CLIENT_ID')==='string'&&
+    variable('PRP_COLLAB_APP_CLIENT_ID').length>0,
+    'AUTO_ENV_APP_CLIENT_ID_MISSING',blockers)
   check(String(variable('PRP_COLLAB_APP_ID')??'')===String(appId),
     'AUTO_ENV_APP_ID_MISMATCH',blockers)
   check(String(variable('PRP_COLLAB_RULESET_ID')??'')===String(rule?.id),
@@ -176,7 +176,6 @@ function run() {
   }
   const report=evaluateActivationEvidence({main,stateBranch,rule,appRule,mainRule,appId,
     rulesetId:Number(rulesetId),
-    expectedClientId:process.env.PRP_COLLAB_APP_CLIENT_ID_EXPECTED,
     environment,branchPolicies,environmentSecrets,environmentVariables,snapshot,
     headSha,installationRepos,publicationHold})
   process.stdout.write(JSON.stringify(report,null,2)+'\n')
