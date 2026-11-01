@@ -11,6 +11,7 @@ import {applyOwnerIssuedMigration} from './issue-migrate.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp',SHA=/^[a-f0-9]{40}$/
 const check=(ok,code)=>{if(!ok)throw new CollabError(code)}
+const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)
 const run=(program,args,options={})=>execFileSync(program,args,{
  encoding:'utf8',timeout:15000,maxBuffer:4*1024*1024,...options}).trim()
 const gh=(endpoint)=>JSON.parse(run('gh',['api',endpoint]))
