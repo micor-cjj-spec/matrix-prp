@@ -60,5 +60,5 @@ test('automation workflow has only owner-opened Issue trigger and an isolated en
  assert.match(w,/repositories: matrix-prp/)
  assert.match(w,/permission-contents: write/)
  assert.match(w,/Post redacted success receipt/)
- assert.doesNotMatch(w,/secrets\.GITHUB_TOKEN|pull-requests: write|contents: write/)
+ assert.doesNotMatch(w,/secrets\.GITHUB_TOKEN|pull-requests: write|^\s*contents: write/m)
 })
