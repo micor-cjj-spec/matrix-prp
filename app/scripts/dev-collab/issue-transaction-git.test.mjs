@@ -122,7 +122,7 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
   f.prepare({...requestBase,action:'checkpoint',
    request_id:'22222222-2222-4222-8222-222222222222',
    expected_version:1,claim_id:oldClaim,checkpoint})
-  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const checkpointRun=f.execute()
   assert.equal(checkpointRun.status,0,checkpointRun.stderr)
   assert.equal(f.snapshot().tasks[0].checkpoint.head_sha,f.checkpointSha)
@@ -131,7 +131,7 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
    request_id:'33333333-3333-4333-8333-333333333333',
    expected_version:2,claim_id:oldClaim,new_worker_id:'chat-B',
    expected_head_sha:f.checkpointSha,note:'Continue in a fresh GPT conversation'})
-  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const handoff=f.execute()
   assert.equal(handoff.status,0,handoff.stderr)
   const transferred=f.snapshot()
@@ -142,7 +142,7 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
   f.prepare({...requestBase,action:'start',
    request_id:'44444444-4444-4444-8444-444444444444',
    expected_version:3,claim_id:oldClaim})
-  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const oldChat=f.execute()
   assert.notEqual(oldChat.status,0)
   assert.match(oldChat.stderr,/STALE_OR_FOREIGN_CLAIM/)
@@ -150,18 +150,18 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
   f.prepare({...requestBase,worker_id:'chat-B',action:'start',
    request_id:'55555555-5555-4555-8555-555555555555',
    expected_version:3,claim_id:newClaim})
-  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const newChat=f.execute()
   assert.equal(newChat.status,0,newChat.stderr)
   assert.equal(f.snapshot().tasks[0].status,'IN_PROGRESS')
   const prev=f.head()
   // Duplicate request ID is idempotent after a fresh Actions invocation.
-  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const replay=f.execute()
   assert.equal(replay.status,0,replay.stderr)
   assert.equal(f.head(),prev)
   f.prepare(request('66666666-6666-4666-8666-666666666666',0))
-  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const stale=f.execute()
   assert.notEqual(stale.status,0)
   assert.match(stale.stderr,/PRP_COLLAB_ISSUE_FAILURE=ISSUE_STALE_VERSION/)
