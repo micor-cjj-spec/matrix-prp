@@ -76,7 +76,7 @@ function setup(){
   id:26294671,target:'branch',enforcement:'active',
   conditions:{ref_name:{include:[REF],exclude:[]}},
   rules:[{type:'update'},{type:'deletion'},{type:'non_fast_forward'}],
-  bypass_actors:[{actor_type:'Integration',actor_id:5561446,bypass_mode:'always'}]
+  current_user_can_bypass:'always'
  }))
  const prepare=(payload,author=OWNER)=>{
   const issue={number:999,title:'[PRP-COLLAB-REQUEST]',state:'open',
