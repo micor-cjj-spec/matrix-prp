@@ -20,7 +20,7 @@ function safePath(path){
  return typeof path==='string'&&path.length>3&&path.length<=200&&
   SAFE_PATH.test(path)&&!path.startsWith('/')&&!path.includes('//')&&
   !path.split('/').includes('..')&&!path.split('/').includes('.')&&
-  !path.startsWith('.git/')&&path.includes('/')
+  !path.split('/').some(part=>part.toLowerCase()==='.git')&&path.includes('/')
 }
 function overlaps(a,b){
  return a===b||(a.endsWith('/')&&b.startsWith(a))||
