@@ -51,7 +51,7 @@ export function applyOwnerIssuedMigration(validated,env){
  const after=JSON.parse(git('show',PROPOSAL+':'+FILE))
  const pr=gh('repos/'+REPO+'/pulls/144')
  const prFiles=gh('repos/'+REPO+'/pulls/144/files?per_page=100')
- const ruleset=gh('repos/'+REPO+'/rulesets/'+env.COLLAB_RULESET_ID)
+ const ruleset=gh('repos/'+REPO+'/rulesets/'+env.COLLAB_RULESET_ID,env.COLLAB_APP_TOKEN)
  // The explicit owner-created Issue replaces a GUI approval, NOT any data-scope checks.
  verifyMigrationEvidence({before,after,pr,prFiles,rule:ruleset,
    appId:Number(env.COLLAB_APP_ID),ruleId:Number(env.COLLAB_RULESET_ID),
