@@ -10,7 +10,12 @@ const good=()=>({
  mainRule:{id:24968649,target:'branch',enforcement:'active',
   conditions:{ref_name:{include:['~DEFAULT_BRANCH'],exclude:[]}},
   rules:[{type:'deletion'},{type:'non_fast_forward'},
-   {type:'pull_request'},{type:'required_status_checks'}],
+   {type:'pull_request'},{type:'required_status_checks',parameters:{
+    strict_required_status_checks_policy:true,
+    required_status_checks:['backend-tests','web-build','mobile-build',
+     'db-migration-integration','video-db-integration','impact-report']
+     .map(context=>({context,integration_id:15368}))
+   }}],
   bypass_actors:[]},
  stateBranch:{name:'prp-collab-state',protected:true,commit:{sha:V0}},
  headSha:V0,appId:5561446,rulesetId:26294671,
@@ -18,7 +23,12 @@ const good=()=>({
   conditions:{ref_name:{include:['refs/heads/prp-collab-state'],exclude:[]}},
   rules:[{type:'update'},{type:'deletion'},{type:'non_fast_forward'}],
   bypass_actors:[{actor_type:'Integration',actor_id:5561446,bypass_mode:'always'}]},
- environment:{name:'prp-collab-automation',protection_rules:[],
+ appRule:{id:26294671,target:'branch',enforcement:'active',
+  conditions:{ref_name:{include:['refs/heads/prp-collab-state'],exclude:[]}},
+  rules:[{type:'update'},{type:'deletion'},{type:'non_fast_forward'}],
+  current_user_can_bypass:'always'},
+ expectedClientId:'Iv1.test-client-id',
+ environment:{name:'prp-collab-automation',can_admins_bypass:false,protection_rules:[],
   deployment_branch_policy:{protected_branches:false,custom_branch_policies:true}},
  branchPolicies:{total_count:1,branch_policies:[{name:'main'}]},
  environmentSecrets:{total_count:1,secrets:[{name:'PRP_COLLAB_APP_PRIVATE_KEY'}]},
@@ -64,6 +74,33 @@ test('unprotected branches, main bypass, missing rulesets and broad App scope fa
  assert.ok(out.blockers.includes('MAIN_BYPASS_ACTORS_NOT_EMPTY_OR_VISIBLE'))
  assert.ok(out.blockers.some(x=>x.startsWith('STATE_RULESET_')))
  assert.ok(out.blockers.includes('DEDICATED_APP_TOKEN_SCOPE_UNVERIFIED'))
+})
+test('administrator bypass must be disabled for the automation environment',()=>{
+ const x=good();x.environment.can_admins_bypass=true
+ assert.ok(evaluateActivationEvidence(x).blockers.includes(
+  'AUTO_ENV_ADMIN_BYPASS_ENABLED_OR_UNVERIFIED'))
+ const missing=good();delete missing.environment.can_admins_bypass
+ assert.ok(evaluateActivationEvidence(missing).blockers.includes(
+  'AUTO_ENV_ADMIN_BYPASS_ENABLED_OR_UNVERIFIED'))
+})
+test('the App-scoped token must independently see its state Ruleset bypass',()=>{
+ const x=good();x.appRule.current_user_can_bypass='never'
+ assert.ok(evaluateActivationEvidence(x).blockers.includes(
+  'APP_TOKEN_RULESET_RULESET_APP_BYPASS_NOT_VERIFIED'))
+})
+test('main required checks must be strict and match the exact six protected contexts',()=>{
+ const x=good()
+ x.mainRule.rules.find(r=>r.type==='required_status_checks')
+  .parameters.strict_required_status_checks_policy=false
+ assert.ok(evaluateActivationEvidence(x).blockers.includes('MAIN_REQUIRED_CHECKS_NOT_EXACT'))
+ const y=good()
+ y.mainRule.rules.find(r=>r.type==='required_status_checks')
+  .parameters.required_status_checks.pop()
+ assert.ok(evaluateActivationEvidence(y).blockers.includes('MAIN_REQUIRED_CHECKS_NOT_EXACT'))
+})
+test('the Environment App Client ID must equal GitHub App metadata',()=>{
+ const x=good();x.expectedClientId='Iv1.different-client-id'
+ assert.ok(evaluateActivationEvidence(x).blockers.includes('AUTO_ENV_APP_CLIENT_ID_MISMATCH'))
 })
 test('the automation environment must have no reviewers or wait timer',()=>{
  for(const protection of [
