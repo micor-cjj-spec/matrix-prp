@@ -95,7 +95,7 @@
 
 ## 请求格式：一次性 V0 → V1 迁移
 
-只有当 `prp-collab-state` **仍处于指定 V0 SHA**、提案分支仍处于审核过的 SHA，且 **PR #144 已退出 Draft，并在精确提案 SHA 上取得至少一名非仓库所有者、非 PR 作者的真实 GitHub 用户 `APPROVED` review**，才允许执行以下严格固定的唯一迁移。最新 review 必须仍为 `APPROVED`；当前 SHA 上的 `CHANGES_REQUESTED`、机器人或旧 SHA review、缺失/不完整的 review 列表均拒绝迁移。若 PR 仍为 Draft，用户先在 ChatGPT 中明确授权迁移后，ChatGPT 可将其标记为 Ready for review；独立 reviewer 批准后，ChatGPT 才创建最终 migration Issue。普通“继续”不会触发迁移：
+只有当 `prp-collab-state` **仍处于指定 V0 SHA**、提案分支仍处于审核过的 SHA，且 **PR #144 已退出 Draft，并在精确提案 SHA 上取得至少一名非仓库所有者、非 PR 作者且 `author_association` 为 `COLLABORATOR`/`MEMBER` 的真实 GitHub 用户 `APPROVED` review**，才允许执行以下严格固定的唯一迁移。最新 review 必须仍为 `APPROVED`；当前 SHA 上的 `CHANGES_REQUESTED`、机器人或旧 SHA review、缺失/不完整的 review 列表均拒绝迁移。若 PR 仍为 Draft，用户先在 ChatGPT 中明确授权迁移后，ChatGPT 可将其标记为 Ready for review；独立 reviewer 批准后，ChatGPT 才创建最终 migration Issue。普通“继续”不会触发迁移：
 
 ```json
 {

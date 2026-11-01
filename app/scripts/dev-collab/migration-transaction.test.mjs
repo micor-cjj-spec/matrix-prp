@@ -159,7 +159,7 @@ test('isolated Git preview is read only; simulated authorized apply commits once
   assert.match(noReview.stderr,/INDEPENDENT_REVIEW_REQUIRED/)
   assert.equal(f.state(),before)
   f.save(f.names.reviews,[{id:1,user:{login:'independent-reviewer',id:999,type:'User'},
-   state:'APPROVED',commit_id:f.pr.head.sha,submitted_at:'2026-11-01T03:00:00Z'}])
+   author_association:'COLLABORATOR',state:'APPROVED',commit_id:f.pr.head.sha,submitted_at:'2026-11-01T03:00:00Z'}])
   const accepted=f.execute(input)
   assert.equal(accepted.status,0,accepted.stderr)
   assert.match(accepted.stdout,/PRP_COLLAB_MIGRATION_APPLIED_SHA=/)
