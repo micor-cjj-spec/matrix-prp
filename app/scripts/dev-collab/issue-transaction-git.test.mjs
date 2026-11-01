@@ -101,8 +101,8 @@ function setup(){
   GITHUB_REF:'refs/heads/main',GITHUB_SHA:main,GITHUB_ACTOR:OWNER,
   GITHUB_REPOSITORY:REPO,GITHUB_REPOSITORY_OWNER:OWNER,
   GITHUB_WORKFLOW_REF:REPO+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main',
-  GH_TOKEN:'not-a-real-token',COLLAB_APP_ID:'5561446',
-  COLLAB_RULESET_ID:'26294671',RUNNER_TEMP:temp,
+  GH_TOKEN:'not-a-real-token',COLLAB_APP_TOKEN:'isolated-test-app-token',
+  COLLAB_APP_ID:'5561446',COLLAB_RULESET_ID:'26294671',RUNNER_TEMP:temp,
   PRP_MOCK_ISSUE:issuePath,PRP_MOCK_TASK_ISSUE:taskIssuePath,
   PRP_MOCK_RULESET:rulePath}
  const execute=()=>spawnSync(process.execPath,['app/scripts/dev-collab/issue-transaction.mjs'],
