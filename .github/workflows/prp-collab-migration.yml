@@ -41,8 +41,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - name: Mint least-privilege App token for reviewed apply only
-        if: inputs.mode == 'apply'
+      - name: Mint read-only verification token or scoped writer for apply
         id: migration-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
         with:
