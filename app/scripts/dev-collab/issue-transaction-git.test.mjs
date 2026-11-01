@@ -47,6 +47,13 @@ function setup(){
  git(seed,'add',REQ);git(seed,'commit','-m','initial state')
  git(seed,'push','origin','prp-collab-state')
  const first=git(root,'--git-dir',origin,'rev-parse',REF)
+ // A real remote feature ref is needed for checkpoint verification.
+ git(seed,'checkout','-b','feat/chat-a-checkpoint','main')
+ writeFileSync(join(seed,'checkpoint-proof.txt'),'committed chat checkpoint\\n')
+ git(seed,'add','checkpoint-proof.txt')
+ git(seed,'commit','-m','checkpoint commit from old chat')
+ git(seed,'push','origin','feat/chat-a-checkpoint')
+ const checkpointSha=git(seed,'rev-parse','HEAD')
  git(root,'clone','--branch','main',origin,runner)
  const fakeDir=join(root,'bin');mkdirSync(fakeDir)
  const mock=[
@@ -91,7 +98,7 @@ function setup(){
   {cwd:runner,env,encoding:'utf8',timeout:15000})
  const head=()=>git(root,'--git-dir',origin,'rev-parse',REF)
  const snapshot=()=>JSON.parse(git(root,'--git-dir',origin,'show',REF+':'+REQ))
- return {root,prepare,execute,head,snapshot,initialHead:first,
+ return {root,prepare,execute,head,snapshot,initialHead:first,checkpointSha,
   dispose:()=>rmSync(root,{recursive:true,force:true})}
 }
 test('isolated bare Git: owner issue atomically claims, repeat is idempotent and stale claim rejects',
@@ -105,15 +112,55 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
   const s=f.snapshot()
   assert.equal(s.version,1)
   assert.equal(s.tasks[0].claim.worker_id,'chat-A')
-  const receipt=readFileSync(join(f.root,'run-temp/prp-issue-receipt.md'),'utf8')
-  assert.doesNotMatch(receipt,new RegExp(s.tasks[0].claim.claim_id))
+  const oldClaim=s.tasks[0].claim.claim_id
+  const checkpoint={summary:'Committed work from the original GPT session',
+   next_step:'Transfer to a fresh GPT session and run CI',
+   branch:'feat/chat-a-checkpoint',head_sha:f.checkpointSha,
+   tests:'CI pending; no passing result claimed'}
+  const requestBase={schema_version:1,requirement_id:'REQ-20261031-001',
+   task_id:'T-001',worker_id:'chat-A'}
+  f.prepare({...requestBase,action:'checkpoint',
+   request_id:'22222222-2222-4222-8222-222222222222',
+   expected_version:1,claim_id:oldClaim,checkpoint})
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  const checkpointRun=f.execute()
+  assert.equal(checkpointRun.status,0,checkpointRun.stderr)
+  assert.equal(f.snapshot().tasks[0].checkpoint.head_sha,f.checkpointSha)
+  assert.equal(f.snapshot().tasks[0].checkpoint.origin,'claimant')
+  f.prepare({...requestBase,action:'handoff',
+   request_id:'33333333-3333-4333-8333-333333333333',
+   expected_version:2,claim_id:oldClaim,new_worker_id:'chat-B',
+   expected_head_sha:f.checkpointSha,note:'Continue in a fresh GPT conversation'})
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  const handoff=f.execute()
+  assert.equal(handoff.status,0,handoff.stderr)
+  const transferred=f.snapshot()
+  assert.equal(transferred.version,3)
+  assert.equal(transferred.tasks[0].claim.worker_id,'chat-B')
+  assert.equal(transferred.tasks[0].claim.generation,2)
+  const newClaim=transferred.tasks[0].claim.claim_id
+  f.prepare({...requestBase,action:'start',
+   request_id:'44444444-4444-4444-8444-444444444444',
+   expected_version:3,claim_id:oldClaim})
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  const oldChat=f.execute()
+  assert.notEqual(oldChat.status,0)
+  assert.match(oldChat.stderr,/STALE_OR_FOREIGN_CLAIM/)
+  assert.equal(f.snapshot().version,3)
+  f.prepare({...requestBase,worker_id:'chat-B',action:'start',
+   request_id:'55555555-5555-4555-8555-555555555555',
+   expected_version:3,claim_id:newClaim})
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
+  const newChat=f.execute()
+  assert.equal(newChat.status,0,newChat.stderr)
+  assert.equal(f.snapshot().tasks[0].status,'IN_PROGRESS')
   const prev=f.head()
-  // New run temp simulates a fresh Actions invocation using the same Issue event.
+  // Duplicate request ID is idempotent after a fresh Actions invocation.
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
   const replay=f.execute()
   assert.equal(replay.status,0,replay.stderr)
   assert.equal(f.head(),prev)
-  f.prepare(request('22222222-2222-4222-8222-222222222222',0))
+  f.prepare(request('66666666-6666-4666-8666-666666666666',0))
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'))
   const stale=f.execute()
   assert.notEqual(stale.status,0)
