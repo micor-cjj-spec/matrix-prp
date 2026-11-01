@@ -25,7 +25,7 @@ const state=(id='REQ-20261031-001')=>({
 })
 test('read-only all-requirement index finds open tasks without old chat ID',()=>{
  const a=state(),b=state('REQ-20261031-002')
- b.tasks.splice(1)
+ b.tasks.splice(1); b.tasks[0].status='READY'
  const result=listUnfinishedRequirements([b,a])
  assert.equal(result.length,2)
  assert.deepEqual(result.map(x=>x.requirement_id),['REQ-20261031-001','REQ-20261031-002'])
