@@ -32,6 +32,8 @@ GitHub 的 prp-collab-state 分支保存 requirements/<REQ-ID>.json，是任务�
 6. 保留 main 的保护 Ruleset #24968649，不给协作 App main bypass；保留 app/deploy/publication-hold.json 的生产发布冻结。
 7. 先运行只读 `probe` 真实 Issue opened 事件，核对 Actions、App installation token 作用域、脱敏回执和状态 SHA **完全未变**；探针不证明写入权限。之后只有在另行明确授权的低影响写入试点中，才核验专用 App 非强制 Git 推送与新远端 SHA。
 
+专用 App token 故意不授予 Administration 权限。GitHub 可能对该低权限 token 隐藏完整 bypass_actors 列表；运行时验证该 App 自身确实具有 state-ref bypass 能力。启用前必须使用仓库管理员身份运行只读 preflight，确认完整 bypass_actors 列表恰好只有 Integration App 5561446。Ruleset 变更后必须重新运行管理员 preflight；不要为了读取列表而给协作 App 增加 Administration 权限。
+
 不要为了绕过审批而解除现有保护。旧的 prp-collab-controller Environment 保持不变；它不作为日常 Issue 自动入口的审批路径。
 
 ## 一次性 V0→V1 迁移
