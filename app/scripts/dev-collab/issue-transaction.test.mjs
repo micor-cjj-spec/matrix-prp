@@ -9,6 +9,15 @@ const snap=()=>({schema_version:1,requirement_id:req,issue_number:132,
  title:'Task registry',status:'ACTIVE',version:0,processed_requests:[],
  tasks:[{task_id:'T-001',issue_number:133,title:'Core',status:'READY',
   depends_on:[],allowed_paths:['app/scripts/dev-collab/core.mjs'],claim:null}]})
+const migrated=()=>{
+ const s=snap()
+ s.version=1
+ for(const [number,issue] of [[2,134],[3,135],[4,136],[5,137],[6,141],[7,142],[8,143],[9,146]]){
+  s.tasks.push({task_id:'T-'+String(number).padStart(3,'0'),issue_number:issue,
+   title:'V1 task '+number,status:'READY',depends_on:[],allowed_paths:[],claim:null})
+ }
+ return s
+}
 const v=(action,command={},version=0)=>{
  const value={type:action,requirement_id:req,task_id:'T-001',request_id:uuid,
   worker_id:'chat-A',...command}
@@ -187,8 +196,8 @@ test('task registry write requires a matching owner-authored task Issue manifest
   e=>e.code==='ISSUE_TASK_IDENTITY')
 })
 test('register_task is refused without a verified related Issue and records no claim',()=>{
- const state=snap();state.version=1
- const command={type:'register_task',requirement_id:req,task_id:'T-002',
+ const state=migrated()
+ const command={type:'register_task',requirement_id:req,task_id:'T-010',
   request_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',issue_number:151,
   title:'Add dashboard filtering',depends_on:['T-001'],allowed_paths:['app/web/src/']}
  const validated={command,actor:'micor-cjj-spec',actorId:101,
@@ -197,8 +206,8 @@ test('register_task is refused without a verified related Issue and records no c
   e=>e.code==='ISSUE_TASK_NOT_VERIFIED')
  const result=applyAuthenticatedIssue(state,{...validated,taskIssueVerified:true},
   '2026-11-01T03:50:00Z')
- assert.equal(result.snapshot.tasks.length,2)
- assert.equal(result.snapshot.tasks[1].task_id,'T-002')
+ assert.equal(result.snapshot.tasks.length,10)
+ assert.equal(result.snapshot.tasks[9].task_id,'T-010')
  assert.equal(result.snapshot.tasks[1].status,'READY')
  assert.equal(result.snapshot.tasks[1].claim,null)
  assert.equal(result.receipt.issue_number,151)
