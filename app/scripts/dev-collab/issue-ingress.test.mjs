@@ -221,3 +221,18 @@ test('registered task scopes reject nested Git metadata and governance roots',()
  assert.equal(validateTaskScopeList(['.github/workflows/']),false)
  assert.equal(validateTaskScopeList(['app/docs/dev-collab/']),false)
 })
+
+test('privileged and collaboration external Actions are pinned by full commit SHA',()=>{
+ const paths=[
+  '.github/workflows/feature-impact.yml',
+  '.github/workflows/prp-collab-coordinator.yml',
+  '.github/workflows/prp-collab-issue-ingress.yml',
+  '.github/workflows/prp-collab-migration.yml'
+ ]
+ for(const path of paths){
+  const workflow=readFileSync(new URL('../../../'+path,import.meta.url),'utf8')
+  for(const match of workflow.matchAll(/^\\s*uses:\\s*([^@\\s]+)@([^\\s]+)/gm)){
+   assert.match(match[2],/^[a-f0-9]{40}$/,`${path} contains an unpinned action: ${match[0]}`)
+  }
+ }
+})
