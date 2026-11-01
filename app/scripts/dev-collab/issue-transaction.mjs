@@ -7,6 +7,7 @@ import {resolve} from 'node:path'
 import {validateIssueEvent} from './issue-ingress.mjs'
 import {applyCommand,validateSnapshot,CollabError} from './core.mjs'
 import {verifyStateBranchRuleset} from './state-rule-policy.mjs'
+import {applyOwnerIssuedMigration} from './issue-migrate.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp',SHA=/^[a-f0-9]{40}$/
 const check=(ok,code)=>{if(!ok)throw new CollabError(code)}
@@ -71,6 +72,19 @@ async function main(){
  const issue=gh('repos/'+REPO+'/issues/'+event.issue?.number)
  const validated=validateIssueEvent(env,event,issue)
  verifyBranchAndRunner(env)
+ if(validated.oneShotMigration===true){
+   const result=applyOwnerIssuedMigration(validated,env)
+   const summary=['### PRP V0 to V1 migration completed','',
+     'Request ID: '+result.request_id,
+     'Requirement: '+result.requirement_id,
+     'State version: '+result.version,
+     'Remote state SHA: '+result.state_sha,
+     '','Completed with an owner-authenticated GitHub Issue and a non-force App push.']
+   writeFileSync(join(env.RUNNER_TEMP,'prp-issue-receipt.md'),
+     summary.join('\n')+'\n',{mode:0o600,flag:'wx'})
+   console.log('PRP_COLLAB_ISSUE_MIGRATION='+result.source_issue)
+   return
+ }
  const stateRef='refs/heads/prp-collab-state'
  const base=git('ls-remote','--exit-code','--refs','origin',stateRef)
  const [head,ref]=base.split('\t')
