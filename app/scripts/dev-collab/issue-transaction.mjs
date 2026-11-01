@@ -14,7 +14,7 @@ const check=(ok,code)=>{if(!ok)throw new CollabError(code)}
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)
 const run=(program,args,options={})=>execFileSync(program,args,{
  encoding:'utf8',timeout:15000,maxBuffer:4*1024*1024,...options}).trim()
-const gh=(endpoint)=>JSON.parse(run('gh',['api',endpoint]))
+const gh=(endpoint,token)=>JSON.parse(run('gh',['api',endpoint],token?{env:{...process.env,GH_TOKEN:token}}:{}))
 const git=(...args)=>run('git',args)
 export function verifyTaskIssue(issue,validated){
  const {command,actor,actorId,source_issue}=validated
@@ -70,7 +70,9 @@ function verifyBranchAndRunner(env){
  const hold=JSON.parse(readFileSync('app/deploy/publication-hold.json','utf8'))
  check(hold?.schema_version===1&&typeof hold.reason==='string'&&
    hold.reason.trim().length>0,'ISSUE_PUBLICATION_NOT_HELD')
- const ruleset=gh('repos/'+REPO+'/rulesets/'+env.COLLAB_RULESET_ID)
+ check(typeof env.COLLAB_APP_TOKEN==='string'&&env.COLLAB_APP_TOKEN.length>0,
+   'ISSUE_APP_TOKEN_MISSING')
+ const ruleset=gh('repos/'+REPO+'/rulesets/'+env.COLLAB_RULESET_ID,env.COLLAB_APP_TOKEN)
  verifyStateBranchRuleset(ruleset,Number(env.COLLAB_APP_ID))
  const status=gh('repos/'+REPO+'/branches/prp-collab-state')
  check(status.protected===true,'ISSUE_STATE_NOT_PROTECTED')
