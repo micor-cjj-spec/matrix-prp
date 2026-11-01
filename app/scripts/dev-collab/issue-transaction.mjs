@@ -192,6 +192,10 @@ async function main(){
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
  main().catch(e=>{
    console.error('PRP_COLLAB_ISSUE_FAILURE='+(e instanceof CollabError?e.code:'TRANSACTION_FAILED'))
+   if(process.env.PRP_COLLAB_TEST_DIAGNOSTICS==='1'){
+     const detail=e?.stderr?.toString('utf8')||e?.message||'unknown'
+     console.error('ISOLATED_TEST_DETAIL='+detail.replace(/\s+/g,' ').slice(0,280))
+   }
    process.exitCode=1
  })
 }
