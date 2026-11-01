@@ -24,7 +24,7 @@ export function verifyTaskIssue(issue,validated){
    issue.title==='[TASK]['+command.requirement_id+'/'+command.task_id+'] '+command.title,
    'ISSUE_TASK_IDENTITY')
  check(typeof issue.body==='string','ISSUE_TASK_BODY')
- const markers=[...issue.body.matchAll(/<!-- PRP_TASK_MANIFEST\\n([\\s\\S]*?)\\n-->/g)]
+ const markers=[...issue.body.matchAll(/<!-- PRP_TASK_MANIFEST\n([\s\S]*?)\n-->/g)]
  check(markers.length===1,'ISSUE_TASK_MANIFEST_COUNT')
  let manifest
  try{manifest=JSON.parse(markers[0][1])}catch{throw new CollabError('ISSUE_TASK_MANIFEST_JSON')}
