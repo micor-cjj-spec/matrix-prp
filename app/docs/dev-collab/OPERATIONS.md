@@ -30,7 +30,7 @@ GitHub 的 prp-collab-state 分支保存 requirements/<REQ-ID>.json，是任务�
 4. 专用 GitHub App 只安装到 micor-cjj-spec/matrix-prp，并只申请所需的最小仓库权限。自动入口只请求单仓库 Contents: write。
 5. 保留 prp-collab-state 的精确 Ruleset #26294671：仅匹配 refs/heads/prp-collab-state，要求 update、deletion、non_fast_forward 限制，唯一 bypass 为专用 Integration App。
 6. 保留 main 的保护 Ruleset #24968649，不给协作 App main bypass；保留 app/deploy/publication-hold.json 的生产发布冻结。
-7. 完成一次低影响真实 Issue opened 事件验收，核对 Actions 运行、App installation token、状态分支提交 SHA 和脱敏回执。
+7. 先运行只读 `probe` 真实 Issue opened 事件，核对 Actions、App installation token 作用域、脱敏回执和状态 SHA **完全未变**；探针不证明写入权限。之后只有在另行明确授权的低影响写入试点中，才核验专用 App 非强制 Git 推送与新远端 SHA。
 
 不要为了绕过审批而解除现有保护。旧的 prp-collab-controller Environment 保持不变；它不作为日常 Issue 自动入口的审批路径。
 
