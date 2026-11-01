@@ -5,6 +5,9 @@ import {CollabError} from './core.mjs'
 import {validateTaskScopeList} from './task-scope-policy.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp'
+// Numeric GitHub owner ID is stable across username changes and prevents an
+// abandoned or renamed owner login from silently authorizing a different user.
+const OWNER_ID=123868412
 const WORKFLOW=REPO+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const SHA=/^[0-9a-f]{40}$/
@@ -127,6 +130,7 @@ export function validateIssueEvent(env,event,currentIssue=null){
  event.repository?.default_branch==='main'&&
  event.repository?.owner?.login==='micor-cjj-spec'&&
  Number.isSafeInteger(event.repository?.owner?.id)&&
+ event.repository.owner.id===OWNER_ID&&
  event.repository.owner.id===event.sender?.id&&
  event.sender?.login==='micor-cjj-spec'&&event.sender?.type==='User'&&
  Number.isSafeInteger(event.sender?.id)&&event.sender.id>0 &&
