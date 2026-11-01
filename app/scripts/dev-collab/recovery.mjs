@@ -61,6 +61,8 @@ export function recoveryBrief(snapshot,taskId) {
       to_worker:t.handoff_history.at(-1).to_worker
     }:null,
     requires_owner_approval_for_forced_takeover:true,
+    takeover_authorization:'explicit_owner_authored_issue',
+    requires_github_gui_approval_for_forced_takeover:false,
     can_recover_uncommitted_chat_work:false,
     warning:cp?'Verify the linked branch/SHA and CI on GitHub before continuing.':
       'No durable checkpoint; reconstruct only from existing GitHub commits, Issues and PRs.'
