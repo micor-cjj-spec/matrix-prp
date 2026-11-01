@@ -65,6 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          COLLAB_APP_TOKEN: ${{ steps.writer.outputs.token }}
           COLLAB_APP_ID: ${{ vars.PRP_COLLAB_APP_ID }}
           COLLAB_RULESET_ID: ${{ vars.PRP_COLLAB_RULESET_ID }}
         shell: bash
@@ -75,3 +76,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: gh issue comment "${{ github.event.issue.number }}" --body-file "$RUNNER_TEMP/prp-issue-receipt.md"
+      - name: Post generic failure status
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" --body             "PRP collaboration request was rejected or failed. Review the [Actions run](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}). No successful state update is asserted."
