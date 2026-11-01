@@ -26,3 +26,11 @@ The audit never modifies GitHub refs, issues, state, PRs or servers. It rejects 
 **No production merge, GitHub App installation, Ruleset creation, environment mutation, task claiming, or task acceptance is performed by this audit or documentation.**
 
 **Important:** `matches_integration_pr_shape` is only structural evidence. The offline audit always returns `task_acceptance_verified: false`; only the trusted owner-triggered live verifier can establish CI provenance, merge ancestry, task write scope, and final approval.
+
+## Protected state V0→V1 migration candidate (2026-11-01)
+
+The concrete proposal is [Draft PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144), **against `prp-collab-state`**, not main. It preserves all five tasks' READY/null-claim state and adds [T-006 / #141](https://github.com/micor-cjj-spec/matrix-prp/issues/141) with 9 paths, [T-007 / #142](https://github.com/micor-cjj-spec/matrix-prp/issues/142) with 12 paths, and [T-008 / #143](https://github.com/micor-cjj-spec/matrix-prp/issues/143) with 5 paths. It gives T-005 one future integration acceptance artifact, replacing the former impossible empty allowlist.
+
+The scope proposal validator `verifyScopeMigrationProposal` compares old and candidate snapshots, checks exact task scopes and issues, unchanged historic task states, approved dependencies, zero processed requests and the sole sequential T-004/T-005 document-path overlap. Its result is only `structurally_valid`: **it never authorizes the state write or certifies task acceptance**. Three critical CI workflow files remain bootstrap-governance-only and must not enter ordinary task scopes.
+
+PR #144 cannot be merged as an ordinary maintainer PR because the live state branch Ruleset requires the dedicated GitHub App bypass. The coordinator still has no audited `migrate` action; configure and separately approve a protected migration mechanism before considering application. Do not force-push, bypass the Ruleset or mark any task DONE to make the merge possible.

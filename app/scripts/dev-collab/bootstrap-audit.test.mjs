@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { auditBootstrap } from './bootstrap-audit.mjs'
+import { auditBootstrap, verifyScopeMigrationProposal, SCOPE_MIGRATION_FILES } from './bootstrap-audit.mjs'
 const state=()=>({
   schema_version:1,requirement_id:'REQ-20261031-001',issue_number:132,
   title:'Multi-conversation MVP',status:'ACTIVE',version:0,processed_requests:[],
@@ -53,4 +53,62 @@ test('offline scope audit never certifies actual task acceptance, even when PR s
   const report=auditBootstrap(s,p,files())
   assert.equal(report.matches_integration_pr_shape,true)
   assert.equal(report.task_acceptance_verified,false)
+})
+
+const baselineMigration=()=>({
+ schema_version:1,requirement_id:'REQ-20261031-001',issue_number:132,
+ title:'多 GPT 会话共享开发任务 MVP',status:'ACTIVE',version:0,
+ updated_at:'2026-10-31T16:05:00Z',processed_requests:[],
+ tasks:[
+ {task_id:'T-001',issue_number:133,title:'Core',status:'READY',depends_on:[],allowed_paths:['app/scripts/dev-collab/core.mjs'],claim:null},
+ {task_id:'T-002',issue_number:134,title:'Templates',status:'READY',depends_on:[],allowed_paths:['.github/ISSUE_TEMPLATE/'],claim:null},
+ {task_id:'T-003',issue_number:135,title:'Coordinator',status:'READY',depends_on:['T-001'],allowed_paths:['app/scripts/dev-collab/coordinator-cli.mjs'],claim:null},
+ {task_id:'T-004',issue_number:136,title:'Docs',status:'READY',depends_on:['T-001','T-003'],allowed_paths:['app/docs/dev-collab/'],claim:null},
+ {task_id:'T-005',issue_number:137,title:'Integration',status:'READY',depends_on:['T-001','T-002','T-003','T-004'],allowed_paths:[],claim:null}
+ ]
+})
+const proposedMigration=()=> {
+ const x=baselineMigration()
+ x.version=1;x.updated_at='2026-11-01T01:42:57.795Z'
+ x.tasks[4].allowed_paths=['app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md']
+ x.tasks[4].depends_on.push('T-006','T-007','T-008')
+ for(const [tid,issue,deps] of [
+  ['T-006',141,['T-003']],['T-007',142,['T-003']],['T-008',143,['T-003','T-007']]
+ ]){
+  x.tasks.push({task_id:tid,issue_number:issue,title:tid,status:'READY',
+   depends_on:deps,allowed_paths:[...SCOPE_MIGRATION_FILES[tid]],claim:null})
+ }
+ return x
+}
+const assertMigrationFails=(before,after,code)=>assert.throws(
+ ()=>verifyScopeMigrationProposal(before,after),e=>e.message==='SCOPE_MIGRATION_'+code)
+test('V0 to V1 scope proposal is structurally safe but cannot authorize application',()=>{
+ const result=verifyScopeMigrationProposal(baselineMigration(),proposedMigration())
+ assert.equal(result.structurally_valid,true)
+ assert.equal(result.ready_for_direct_merge,false)
+ assert.deepEqual(result.new_task_ids,['T-006','T-007','T-008'])
+})
+test('state migration cannot retroactively claim or mark a historical task DONE',()=>{
+ const s=proposedMigration();s.tasks[0].status='DONE'
+ assertMigrationFails(baselineMigration(),s,'HISTORIC_TASK_MODIFIED')
+ const y=proposedMigration();y.tasks[5].status='DONE'
+ assertMigrationFails(baselineMigration(),y,'UNAUTHORIZED_NEW_TASK_SCOPE')
+})
+test('scope migration refuses broader write paths or CI workflow bypass',()=>{
+ const s=proposedMigration();s.tasks[5].allowed_paths=['app/scripts/dev-collab/']
+ assertMigrationFails(baselineMigration(),s,'UNAUTHORIZED_NEW_TASK_SCOPE')
+ const t=proposedMigration();t.tasks[5].allowed_paths=['.github/workflows/ci.yml',...SCOPE_MIGRATION_FILES['T-006']]
+ assertMigrationFails(baselineMigration(),t,'UNAUTHORIZED_NEW_TASK_SCOPE')
+})
+test('existing task review artifact must be defined and all new task dependencies held',()=>{
+ const s=proposedMigration();s.tasks[4].allowed_paths=[]
+ assertMigrationFails(baselineMigration(),s,'T005_SCOPE_OR_DEPENDENCIES')
+ const t=proposedMigration();t.tasks[7].depends_on=[]
+ assertMigrationFails(baselineMigration(),t,'UNAUTHORIZED_NEW_TASK_SCOPE')
+})
+test('migration must be versioned with unchanged request history',()=>{
+ const s=proposedMigration();s.version=0
+ assertMigrationFails(baselineMigration(),s,'UNEXPECTED_STATE_CHANGE')
+ const t=proposedMigration();t.processed_requests=[{request_id:'bad'}]
+ assert.throws(()=>verifyScopeMigrationProposal(baselineMigration(),t))
 })
