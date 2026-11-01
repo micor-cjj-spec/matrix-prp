@@ -79,3 +79,29 @@ test('progress and checkpoint require existing claim and clean checkpoint schema
  checkpoint:{...cp,origin:'owner_verified_git'}})
  reject(e,'INGRESS_CHECKPOINT_FIELDS')
 })
+
+test('one-click-free V0 to V1 request is owner-authenticated and pinned to exact commits',()=>{
+ const e=event()
+ const raw={schema_version:1,action:'migrate_v1',
+  request_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  requirement_id:'REQ-20261031-001',
+  expected_state_sha:'062036f7021e215ffbfdcbf5689d207a0549b68b',
+  expected_proposal_sha:'fb57656dca6df5f12e083fc0430263b4d88e452d'}
+ e.issue.body=JSON.stringify(raw)
+ const out=validateIssueEvent(env(),e,e.issue)
+ assert.equal(out.oneShotMigration,true)
+ assert.equal(out.command.type,'migrate_v1')
+ assert.equal(out.command.expected_proposal_sha,raw.expected_proposal_sha)
+ const variants=[
+  {...raw,expected_proposal_sha:'f'.repeat(40)},
+  {...raw,expected_state_sha:'e'.repeat(40)},
+  {...raw,task_id:'T-001'},
+  {...raw,worker_id:'chat-A'},
+  {...raw,action:'migrate_v2'}
+ ]
+ for(const data of variants){
+  e.issue.body=JSON.stringify(data)
+  assert.throws(()=>validateIssueEvent(env(),e),x=>
+   ['INGRESS_UNAPPROVED_MIGRATION','INGRESS_REQUIRED'].includes(x.code))
+ }
+})
