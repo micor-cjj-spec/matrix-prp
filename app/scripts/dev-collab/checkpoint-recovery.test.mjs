@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {applyCommand,validateSnapshot,CollabError} from './core.mjs'
-import {trustedRecoveryContext} from './recovery-auth.mjs'
+import {trustedRecoveryContext,verifyRecoveryGitBranch} from './recovery-auth.mjs'
 
 const REQ='REQ-20261031-001'
 let n=0
@@ -149,4 +149,53 @@ test('takeover event authorization requires trusted GitHub manual main owner wor
   {GITHUB_REPOSITORY:'other/repo'},
   {GITHUB_SHA:'bad'}
  ])fail(()=>trustedRecoveryContext({...good,...bad}),'UNTRUSTED_RECOVERY_CONTEXT')
+})
+
+test('owner can reconstruct an unsaved checkpoint only with separately verified remote evidence',()=>{
+ const {state,old}=running()
+ const data={summary:'Reconstructed from pushed feature commit',
+ next_step:'Review remote diff and run CI',branch:'feature/recovery',head_sha:sha,
+ tests:'Tests have not been verified'}
+ const base={worker_id:'chat-A',new_worker_id:'chat-B',
+ expected_version:state.version,expected_claim_id:old,
+ expected_head_sha:sha,note:'Original conversation crashed with no saved checkpoint',
+ checkpoint:data}
+ fail(()=>applyCommand(state,command('takeover',base),
+ {...owner,recoveryAuthorized:true}),'RECOVERY_GIT_EVIDENCE_REQUIRED')
+ const transferred=applyCommand(state,command('takeover',base),
+ {...owner,recoveryAuthorized:true,gitEvidenceVerified:true})
+ const task=transferred.snapshot.tasks[0]
+ assert.equal(task.checkpoint.origin,'owner_verified_git')
+ assert.equal(task.checkpoint.branch,'feature/recovery')
+ assert.equal(task.claim.worker_id,'chat-B')
+ assert.equal(task.claim.generation,2)
+ fail(()=>applyCommand(transferred.snapshot,command('start',
+ {worker_id:'chat-A',claim_id:old}),owner),'STALE_OR_FOREIGN_CLAIM')
+ const missing=command('takeover',{...base,checkpoint:{...data,head_sha:'b'.repeat(40)}})
+ fail(()=>applyCommand(state,missing,
+ {...owner,recoveryAuthorized:true,gitEvidenceVerified:true}),'STALE_RECOVERY_HEAD')
+})
+test('remote evidence must exactly match branch head; no main or untrusted ref',()=>{
+ const env={GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'workflow_dispatch',
+ GITHUB_REPOSITORY:'micor-cjj-spec/matrix-prp',GITHUB_REF:'refs/heads/main',
+ GITHUB_WORKFLOW_REF:'micor-cjj-spec/matrix-prp/.github/workflows/prp-collab-coordinator.yml@refs/heads/main',
+ GITHUB_ACTOR:'micor-cjj-spec',GITHUB_REPOSITORY_OWNER:'micor-cjj-spec',GITHUB_SHA:sha}
+ const cp={branch:'feature/recovery',head_sha:sha}
+ let invoked=0
+ const good=(program,args)=>{
+   invoked++
+   assert.equal(program,'git')
+   assert.deepEqual(args,['ls-remote','--exit-code','--refs','origin','refs/heads/feature/recovery'])
+   return sha+'\trefs/heads/feature/recovery\n'
+ }
+ assert.deepEqual(verifyRecoveryGitBranch(cp,env,good),{gitEvidenceVerified:true})
+ assert.equal(invoked,1)
+ fail(()=>verifyRecoveryGitBranch(cp,env,()=> 'b'.repeat(40)+'\trefs/heads/feature/recovery\n'),
+   'RECOVERY_GIT_HEAD_MISMATCH')
+ fail(()=>verifyRecoveryGitBranch({branch:'main',head_sha:sha},env,good),
+   'INVALID_RECOVERY_GIT_REFERENCE')
+ fail(()=>verifyRecoveryGitBranch({branch:'feature/../wrong',head_sha:sha},env,good),
+   'INVALID_RECOVERY_GIT_REFERENCE')
+ fail(()=>verifyRecoveryGitBranch(cp,{...env,GITHUB_ACTOR:'intruder'},good),
+   'UNTRUSTED_RECOVERY_CONTEXT')
 })

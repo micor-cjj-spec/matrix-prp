@@ -196,3 +196,53 @@ test('two independent Git processes racing owner-approved takeover produce one n
   assert.equal(git(f.root,['--git-dir',f.origin,'rev-parse','refs/heads/main']),f.mainHead)
  }finally{f.destroy()}
 })
+
+test('lost original chat with zero checkpoint can be owner-reconstructed only from an existing remote feature SHA',
+ {timeout:30000},async()=>{
+ const f=setup()
+ try{
+  const start=await run(f.workers[0],'cccccccc-cccc-4ccc-8ccc-cccccccccccc','T-001')
+  assert.equal(start.status,0,start.err)
+  const original=f.readState().tasks[0].claim
+  const prior=await run(f.workers[0],'dddddddd-dddd-4ddd-8ddd-dddddddddddd','T-001',{
+    COLLAB_ACTION:'start',COLLAB_WORKER_ID:original.worker_id,COLLAB_CLAIM_ID:original.claim_id
+  })
+  assert.equal(prior.status,0,prior.err)
+  git(f.root,['--git-dir',f.origin,'update-ref','refs/heads/feature/lost-chat',f.mainHead])
+  const prev=f.readState()
+  const fields={
+    new_worker_id:'chat-restarted',expected_claim_id:original.claim_id,
+    expected_version:prev.version,expected_head_sha:f.mainHead,
+    checkpoint:{
+      summary:'Reconstructed from remote Git branch only',
+      next_step:'Inspect pushed Git diff and rerun tests',
+      branch:'feature/lost-chat',head_sha:f.mainHead,
+      tests:'Pending owner verification'
+    }
+  }
+  const common={
+    GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'workflow_dispatch',
+    GITHUB_WORKFLOW_REF:'micor-cjj-spec/matrix-prp/.github/workflows/prp-collab-coordinator.yml@refs/heads/main',
+    GITHUB_REPOSITORY:'micor-cjj-spec/matrix-prp',GITHUB_SHA:f.mainHead,
+    COLLAB_ACTION:'takeover',COLLAB_WORKER_ID:original.worker_id,
+    COLLAB_NOTE:'Original conversation lost with no checkpoint',
+    COLLAB_RECOVERY_PAYLOAD:JSON.stringify(fields)
+  }
+  const invalid=await run(f.workers[0],'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','T-001',{
+    ...common,COLLAB_RECOVERY_PAYLOAD:JSON.stringify({...fields,checkpoint:{
+      ...fields.checkpoint,head_sha:'f'.repeat(40)
+    }})
+  })
+  assert.notEqual(invalid.status,0)
+  assert.equal(f.readState().version,prev.version)
+  const rescue=await run(f.workers[0],'ffffffff-ffff-4fff-8fff-ffffffffffff','T-001',common)
+  assert.equal(rescue.status,0,rescue.err)
+  const result=f.readState()
+  assert.equal(result.version,prev.version+1)
+  assert.equal(result.tasks[0].claim.worker_id,'chat-restarted')
+  assert.equal(result.tasks[0].checkpoint.origin,'owner_verified_git')
+  assert.equal(result.tasks[0].checkpoint.head_sha,f.mainHead)
+  assert.equal(result.tasks[0].handoff_history.length,1)
+  assert.equal(result.tasks[0].status,'IN_PROGRESS')
+ }finally{f.destroy()}
+})
