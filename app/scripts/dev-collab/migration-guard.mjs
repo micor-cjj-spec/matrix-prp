@@ -34,7 +34,7 @@ function verifyIndependentProposalReview(pr,reviews,proposalSha){
     const login=review?.user?.login
     const userId=review?.user?.id
     const submittedAt=Date.parse(review?.submitted_at)
-    if(typeof login!=='string'||login.length===0||
+    if(typeof login!=='string'||login.length===0||review?.user?.type!=='User'||
        !Number.isSafeInteger(userId)||!Number.isFinite(submittedAt))continue
     const id=Number.isSafeInteger(review.id)?review.id:0
     const previous=latest.get(login)
