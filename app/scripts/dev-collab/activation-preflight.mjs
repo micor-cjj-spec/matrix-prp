@@ -14,6 +14,8 @@ const REF='prp-collab-state'
 const REQ='REQ-20261031-001'
 const ENV_NAME='prp-collab-automation'
 const MAIN_RULESET_ID=24968649
+const EXPECTED_APP_ID=5561446
+const STATE_RULESET_ID=26294671
 const SHA=/^[a-f0-9]{40}$/
 
 function api(path) {
@@ -54,7 +56,8 @@ export function evaluateActivationEvidence(data) {
     'STATE_REF_UNVERIFIED',blockers)
   check(headSha==='062036f7021e215ffbfdcbf5689d207a0549b68b',
     'STATE_NOT_PINNED_V0',blockers)
-  check(Number.isSafeInteger(rulesetId)&&rule?.id===rulesetId,
+  check(appId===EXPECTED_APP_ID,'APP_ID_MISMATCH',blockers)
+  check(rulesetId===STATE_RULESET_ID&&rule?.id===STATE_RULESET_ID,
     'STATE_RULESET_ID_MISMATCH',blockers)
   let policy=null
   try {
