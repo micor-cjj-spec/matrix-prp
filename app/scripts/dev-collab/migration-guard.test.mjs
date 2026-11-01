@@ -137,5 +137,5 @@ test('migration preflight distinguishes App bypass verification from a redacted 
  assert.equal(report.designated_app_bypass_verified,true)
  assert.equal(report.bypass_actor_list_visible,false)
  const denied=input();delete denied.rule.bypass_actors;denied.rule.current_user_can_bypass='never'
- fails(denied,'RULESET_APP_BYPASS_NOT_VERIFIED')
+ assert.throws(()=>verifyMigrationEvidence(denied),e=>e.code==='RULESET_APP_BYPASS_NOT_VERIFIED')
 })
