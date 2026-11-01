@@ -76,7 +76,7 @@ test('full owner Issue -> checkpoint -> handoff -> new chat; stale worker is fen
    user:{login:owner,id:101},author_association:'OWNER',body:JSON.stringify(body)}})
  const receive=(payload,n,state)=>{
   const evt=issue(payload,n),parsed=validateIssueEvent(env,evt,evt.issue)
-  return applyAuthenticatedIssue(state,parsed,'2026-11-01T03:30:00Z')
+  return applyAuthenticatedIssue(state,parsed,'2026-11-01T03:30:00Z',cp=>cp.head_sha===sha)
  }
  let state=snap()
  const base={schema_version:1,requirement_id:req,task_id:'T-001',worker_id:'chat-A'}
@@ -133,4 +133,27 @@ test('full owner Issue takeover maps the expected state version, not just the ou
  assert.equal(recovered.snapshot.tasks[0].claim.worker_id,'chat-B')
  assert.equal(recovered.snapshot.tasks[0].checkpoint.origin,'owner_verified_git')
  assert.notEqual(recovered.snapshot.tasks[0].claim.claim_id,old)
+})
+
+test('checkpoint and handoff both require the exact remote Git branch SHA',()=>{
+ const base=snap()
+ const claimed=applyAuthenticatedIssue(base,v('claim'),'2026-11-01T03:30:00Z')
+ const claim=claimed.receipt.claim_id
+ const cp={summary:'Committed work on the old chat branch',
+  next_step:'Continue with review and tests',branch:'feat/old-session',head_sha:sha}
+ const checkpoint=v('checkpoint',{claim_id:claim,checkpoint:cp},1)
+ checkpoint.command.request_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+ assert.throws(()=>applyAuthenticatedIssue(claimed.snapshot,checkpoint,
+  '2026-11-01T03:31:00Z',()=>false),e=>e.code==='ISSUE_UNVERIFIED_RECOVERY_HEAD')
+ const saved=applyAuthenticatedIssue(claimed.snapshot,checkpoint,
+  '2026-11-01T03:31:00Z',()=>true)
+ const transfer=v('handoff',{worker_id:'chat-A',claim_id:claim,
+  new_worker_id:'chat-B',expected_head_sha:sha,note:'Continue in a fresh chat'},2)
+ transfer.command.request_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+ assert.throws(()=>applyAuthenticatedIssue(saved.snapshot,transfer,
+  '2026-11-01T03:32:00Z',()=>false),e=>e.code==='ISSUE_UNVERIFIED_RECOVERY_HEAD')
+ const handed=applyAuthenticatedIssue(saved.snapshot,transfer,
+  '2026-11-01T03:32:00Z',()=>true)
+ assert.equal(handed.snapshot.tasks[0].claim.worker_id,'chat-B')
+ assert.equal(handed.snapshot.tasks[0].checkpoint.head_sha,sha)
 })
