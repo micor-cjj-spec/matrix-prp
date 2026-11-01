@@ -196,4 +196,5 @@ test('register_task is refused without a verified related Issue and records no c
  assert.equal(result.snapshot.tasks[1].status,'READY')
  assert.equal(result.snapshot.tasks[1].claim,null)
  assert.equal(result.receipt.issue_number,151)
+ assert.equal(redactedReceipt(result.receipt,{requirement_id:req,state_sha:sha}).task_issue_number,151)
 })
