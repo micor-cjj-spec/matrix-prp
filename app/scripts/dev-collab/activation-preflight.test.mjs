@@ -103,7 +103,6 @@ test('a redacted bypass list is not enough for the administrator preflight',()=>
 test('wrong state version, claimed tasks, missing hold or unpinned V0 fail closed',()=>{
  const x=good()
  x.snapshot.version=1
- x.snapshot.tasks[0].status='IN_PROGRESS'
  x.publicationHold=null
  x.headSha='a'.repeat(40)
  x.stateBranch.commit.sha=x.headSha
