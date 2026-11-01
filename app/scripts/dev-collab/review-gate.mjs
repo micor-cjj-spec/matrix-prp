@@ -68,6 +68,7 @@ export function verifyTaskChangedFiles(task,pr,files){
     check(!CRITICAL_WORKFLOWS.has(name),'CRITICAL_WORKFLOW_CHANGE_NOT_ALLOWED')
     check(withinScope(name,task.allowed_paths),'TASK_FILE_OUTSIDE_SCOPE')
     if(file.status==='renamed'){
+      check(!CRITICAL_WORKFLOWS.has(file.previous_filename),'CRITICAL_WORKFLOW_CHANGE_NOT_ALLOWED')
       check(filePath(file.previous_filename) && withinScope(file.previous_filename,task.allowed_paths),
         'RENAME_SOURCE_OUTSIDE_SCOPE')
     }

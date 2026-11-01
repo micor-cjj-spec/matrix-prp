@@ -61,6 +61,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+      actions: read
     steps:
       - name: Mint state-writer GitHub App token
         id: collab-token

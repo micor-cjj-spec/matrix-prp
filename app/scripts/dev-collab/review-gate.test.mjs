@@ -89,3 +89,12 @@ test('incomplete or paginated PR file list fails closed',()=>{
   const a=pack();a.pr.changed_files=2
   refuses(()=>verifyTaskEvidence(make(),'T-001',a),'INCOMPLETE_PR_FILE_LIST')
 })
+
+test('critical CI workflow rename cannot bypass changed-file allowlist',()=>{
+  const s=make()
+  s.tasks[0].allowed_paths=['.github/']
+  const evidence=pack()
+  evidence.files=[{filename:'.github/workflows/ci-copy.yml',
+    previous_filename:'.github/workflows/ci.yml',status:'renamed'}]
+  refuses(()=>verifyTaskEvidence(s,'T-001',evidence),'CRITICAL_WORKFLOW_CHANGE_NOT_ALLOWED')
+})

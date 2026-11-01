@@ -15,3 +15,7 @@ Green checks are not accepted by their display name alone. The verifier reads ea
 ## Authorized code footprint
 
 For each subtask acceptance, the verifier additionally requests the actual GitHub PR changed-file list and compares every path against the task's `allowed_paths`. Renames must have both old and new paths authorized. Lists with more than 100 files or a mismatch against `pr.changed_files` are rejected (rather than silently accepting truncated pagination). Ordinary tasks cannot modify any of the three security-critical required CI workflow definitions even when a broad directory scope was declared; such changes need separate reviewed bootstrap/governance PRs.
+
+## Required read API permissions
+
+The owner-only manual coordination job explicitly declares `actions: read` in addition to `checks: read`, `pull-requests: read` and `contents: read`, since it checks the actual Actions workflow run metadata through GitHub's REST API. These are permissions for the standard read-only `GITHUB_TOKEN`; the separately minted dedicated GitHub App token is only for approved state-ref Git pushes. Ordinary subtasks also cannot rename security-critical CI workflow files to bypass the changed-file policy.

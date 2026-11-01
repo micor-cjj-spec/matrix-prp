@@ -19,6 +19,8 @@ test('coordinator is manual, main-only, owner-only, and avoids production permis
   assert.match(workflow, /state-rule-policy\.mjs/)
   assert.match(workflow, /create-github-app-token@v3/)
   assert.match(workflow, /contents: read/)
+  assert.match(workflow, /actions: read/)
+  assert.match(workflow, /checks: read/)
   assert.doesNotMatch(workflow, /\n      contents: write\n/)
   assert.match(workflow, /STATE_BRANCH_UNPROTECTED/)
   assert.match(workflow, /branches\/prp-collab-state/)
