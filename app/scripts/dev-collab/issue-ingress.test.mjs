@@ -173,7 +173,7 @@ test('task registration rejects reserved scopes, malformed dependencies and hidd
  }
 })
 
-test('Issue ingress workflow filters request Issues and mints its writer only after validation',()=>{
+test('Issue ingress workflow filters request Issues and mints least-privilege App token only after validation',()=>{
  const workflow=readFileSync(new URL('../../../.github/workflows/prp-collab-issue-ingress.yml',import.meta.url),'utf8')
  assert.match(workflow,/issues:\s*\n\s+types:\s*\[opened\]/)
  assert.match(workflow,/github\.event\.issue\.title == '\[PRP-COLLAB-REQUEST\]'/)
@@ -186,7 +186,7 @@ test('Issue ingress workflow filters request Issues and mints its writer only af
  assert.match(workflow,/queue: max/)
  assert.doesNotMatch(workflow,/workflow_dispatch:|pull_request_target:|actions:\s*write/)
  const validation=workflow.indexOf('Validate original GitHub event against current Issue')
- const token=workflow.indexOf('Mint repository-scoped writer token after event validation')
+ const token=workflow.indexOf('Mint repository-scoped App token after event validation')
  const transaction=workflow.indexOf('Execute one strict Git CAS transaction')
  assert.ok(validation>=0&&token>validation&&transaction>token)
 })
