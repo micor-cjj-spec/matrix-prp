@@ -68,7 +68,8 @@ test('unprotected branches, main bypass, missing rulesets and broad App scope fa
 test('the automation environment must have no reviewers or wait timer',()=>{
  for(const protection of [
   {type:'required_reviewers',reviewers:[{type:'User',reviewer:{login:'owner'}}]},
-  {type:'wait_timer',wait_timer:1}
+  {type:'wait_timer',wait_timer:1},
+  {type:'custom_deployment_protection_rule'}
  ]){
   const x=good();x.environment.protection_rules=[protection]
   assert.ok(evaluateActivationEvidence(x).blockers.includes('AUTO_ENV_HAS_MANUAL_APPROVAL_GATE'))
