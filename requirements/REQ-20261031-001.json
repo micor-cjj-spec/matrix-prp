@@ -5,7 +5,7 @@
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
   "version": 1,
-  "updated_at": "2026-11-01T01:42:57.795Z",
+  "updated_at": "2026-11-01T02:13:08.532Z",
   "processed_requests": [],
   "tasks": [
     {
@@ -74,7 +74,8 @@
         "T-004",
         "T-006",
         "T-007",
-        "T-008"
+        "T-008",
+        "T-009"
       ],
       "allowed_paths": [
         "app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md"
@@ -133,7 +134,8 @@
       "status": "READY",
       "depends_on": [
         "T-003",
-        "T-007"
+        "T-007",
+        "T-009"
       ],
       "allowed_paths": [
         "app/scripts/dev-collab/git-cas.test.mjs",
@@ -141,6 +143,23 @@
         "app/scripts/dev-collab/integration-ci-boundary.test.mjs",
         "app/scripts/dev-collab/workflow-boundary.test.mjs",
         "app/scripts/dev-collab/workflow-contract.test.mjs"
+      ],
+      "claim": null
+    },
+    {
+      "task_id": "T-009",
+      "issue_number": 146,
+      "title": "GPT 会话任务恢复、持久化断点与授权接管",
+      "status": "READY",
+      "depends_on": [
+        "T-003",
+        "T-007"
+      ],
+      "allowed_paths": [
+        "app/scripts/dev-collab/checkpoint-recovery.test.mjs",
+        "app/scripts/dev-collab/recovery-auth.mjs",
+        "app/scripts/dev-collab/recovery.mjs",
+        "app/scripts/dev-collab/recovery.test.mjs"
       ],
       "claim": null
     }
