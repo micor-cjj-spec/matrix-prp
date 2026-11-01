@@ -10,7 +10,7 @@
 - V1 提案 SHA：fb57656dca6df5f12e083fc0430263b4d88e452d
 - 唯一状态文件：requirements/REQ-20261031-001.json
 - 唯一迁移动作：从固定 V0 的五个任务迁移到 PR #144 提案的九个任务。
-- PR #144 必须退出 Draft，并在固定提案 SHA 上取得至少一名**非仓库所有者、非 PR 作者的真实 GitHub 用户**的 `APPROVED` review；最新 review 必须仍为 `APPROVED`。对当前 SHA 的 `CHANGES_REQUESTED`、仅所有者自审、机器人 review、旧 SHA review 或不完整的 review 列表均 fail closed。若仍为 Draft 或缺少独立批准，mode=apply 必须拒绝。用户明确授权迁移后，ChatGPT 可通过 GitHub 连接将其标记为 Ready for review；这不是合并，也不需要用户手动点击。
+- PR #144 必须先退出 Draft，再在固定提案 SHA 上取得至少一名**非仓库所有者、非 PR 作者的真实 GitHub 用户**的 `APPROVED` review；最新 review 必须仍为 `APPROVED`。若用户已明确授权迁移，ChatGPT 可以先将 PR 标记为 Ready for review；这一步只开放审查，不会写状态。独立 reviewer 批准后，ChatGPT 才创建最终 owner-authored migration Issue。对当前 SHA 的 `CHANGES_REQUESTED`、仅所有者自审、机器人 review、旧 SHA review 或不完整的 review 列表均 fail closed。若仍为 Draft 或缺少独立批准，mode=apply 必须拒绝。将 PR 标记为 Ready for review 不是合并，也不需要用户手动点击；真正的状态迁移仍只由随后经过校验的 owner-authored Issue 触发。
 
 迁移必须保持原五个任务的 READY/null-claim 状态和空请求账本；仅允许精确增加四个新任务及已审查的 scope/dependency 差异。任何额外字段、路径、依赖、历史状态变化或 SHA 漂移均拒绝。
 
