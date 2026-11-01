@@ -1,6 +1,5 @@
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
-#!/usr/bin/env node
 /**
  * Read-only GitHub preflight. A pass means prerequisites are observable,
  * NEVER authorization to merge, deploy, or accept a task.
