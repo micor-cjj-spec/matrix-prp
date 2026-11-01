@@ -79,7 +79,7 @@ test('full owner Issue -> checkpoint -> handoff -> new chat; stale worker is fen
   GITHUB_REPOSITORY_OWNER:owner,GITHUB_ACTOR:owner,GITHUB_SHA:sha,
   GITHUB_WORKFLOW_REF:repo+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'}
  const issue=(body,number)=>({action:'opened',sender:{login:owner,id:101,type:'User'},
-  repository:{full_name:repo,default_branch:'main',owner:{login:owner}},
+  repository:{full_name:repo,default_branch:'main',owner:{login:owner,id:101}},
   issue:{number,title:'[PRP-COLLAB-REQUEST]',state:'open',
    user:{login:owner,id:101},author_association:'OWNER',body:JSON.stringify(body)}})
  const receive=(payload,n,state)=>{
@@ -131,7 +131,7 @@ test('full owner Issue takeover maps the expected state version, not just the ou
   checkpoint:{summary:'Recovered remote work from GitHub',next_step:'Inspect next CI run',
    branch:'feat/recovered-work',head_sha:sha}}
  const evt={action:'opened',sender:{login:owner,id:101,type:'User'},
-  repository:{full_name:repo,default_branch:'main',owner:{login:owner}},
+  repository:{full_name:repo,default_branch:'main',owner:{login:owner,id:101}},
   issue:{number:206,title:'[PRP-COLLAB-REQUEST]',state:'open',user:{login:owner,id:101},
    author_association:'OWNER',body:JSON.stringify(body)}}
  const parsed=validateIssueEvent(env,evt,evt.issue)
