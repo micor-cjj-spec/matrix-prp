@@ -19,7 +19,7 @@
 
 1. Environment 名称：prp-collab-automation。
 2. 不配置 Required reviewers，不配置 Wait timer。日常领取、进度、断点、交接、接管和迁移由 owner-authored Issue 作为明确授权事件，不再逐次点击 GitHub 审批。
-3. Deployment branches and tags 使用 custom branch policies，且唯一规则为 main；不要选择所有受保护分支。
+3. Deployment branches and tags 使用 custom branch policies，且唯一规则为 main；protection_rules 只能包含 branch_policy，不得包含 Required reviewers、Wait timer 或其他外部审批规则；不要选择所有受保护分支。
 4. Environment secret：PRP_COLLAB_APP_PRIVATE_KEY。
 5. Environment variables：
    - PRP_COLLAB_APP_CLIENT_ID：专用 GitHub App Client ID。
