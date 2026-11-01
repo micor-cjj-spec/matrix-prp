@@ -32,7 +32,7 @@ function setup(){
  mkdirSync(dest,{recursive:true})
  for(const filename of [
   'core.mjs','issue-ingress.mjs','issue-transaction.mjs','issue-migrate.mjs',
-  'migration-guard.mjs','bootstrap-audit.mjs','state-rule-policy.mjs'])
+  'migration-guard.mjs','bootstrap-audit.mjs','state-rule-policy.mjs','task-scope-policy.mjs'])
   cpSync(join(location,filename),join(dest,filename))
  mkdirSync(join(seed,'app/deploy'),{recursive:true})
  writeFileSync(join(seed,'app/deploy/publication-hold.json'),
@@ -61,6 +61,7 @@ function setup(){
   '[[ "$1" == api ]] || exit 3',
   'case "$2" in',
   ' */issues/999) cat "$PRP_MOCK_ISSUE" ;;',
+  ' */issues/1000) cat "$PRP_MOCK_TASK_ISSUE" ;;',
   ' */rulesets/26294671) cat "$PRP_MOCK_RULESET" ;;',
   ' */branches/prp-collab-state) echo "{\\"protected\\":true}" ;;',
   ' *) echo "UNKNOWN_GH_ROUTE" >&2; exit 3 ;;',
@@ -68,6 +69,7 @@ function setup(){
  ].join('\n')+'\n'
  writeFileSync(join(fakeDir,'gh'),mock,{mode:0o755})
  const eventPath=join(root,'event.json'),issuePath=join(root,'issue.json')
+ const taskIssuePath=join(root,'task-issue.json')
  const rulePath=join(root,'rule.json'),temp=join(root,'run-temp')
  mkdirSync(temp)
  writeFileSync(rulePath,JSON.stringify({
@@ -85,6 +87,14 @@ function setup(){
   writeFileSync(eventPath,JSON.stringify(evt));writeFileSync(issuePath,JSON.stringify(issue))
  }
  prepare(request())
+ const prepareTaskIssue=(manifest,author=OWNER)=>{
+  const issue={number:1000,title:'[TASK]['+manifest.requirement_id+'/'+
+   manifest.task_id+'] '+manifest.title,state:'open',
+   user:{login:author,id:author===OWNER?101:202},author_association:'OWNER',
+   body:'Task objective and acceptance criteria\\n\\n<!-- PRP_TASK_MANIFEST\\n'+
+    JSON.stringify(manifest)+'\\n-->'}
+  writeFileSync(taskIssuePath,JSON.stringify(issue))
+ }
  const env={...process.env,PATH:fakeDir+':'+process.env.PATH,
   GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'issues',
   GITHUB_EVENT_ACTION:'opened',GITHUB_EVENT_PATH:eventPath,
@@ -93,12 +103,13 @@ function setup(){
   GITHUB_WORKFLOW_REF:REPO+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main',
   GH_TOKEN:'not-a-real-token',COLLAB_APP_ID:'5561446',
   COLLAB_RULESET_ID:'26294671',RUNNER_TEMP:temp,
-  PRP_MOCK_ISSUE:issuePath,PRP_MOCK_RULESET:rulePath}
+  PRP_MOCK_ISSUE:issuePath,PRP_MOCK_TASK_ISSUE:taskIssuePath,
+  PRP_MOCK_RULESET:rulePath}
  const execute=()=>spawnSync(process.execPath,['app/scripts/dev-collab/issue-transaction.mjs'],
   {cwd:runner,env,encoding:'utf8',timeout:15000})
  const head=()=>git(root,'--git-dir',origin,'rev-parse',REF)
  const snapshot=()=>JSON.parse(git(root,'--git-dir',origin,'show',REF+':'+REQ))
- return {root,prepare,execute,head,snapshot,initialHead:first,checkpointSha,
+ return {root,prepare,prepareTaskIssue,execute,head,snapshot,initialHead:first,checkpointSha,
   dispose:()=>rmSync(root,{recursive:true,force:true})}
 }
 test('isolated bare Git: owner issue atomically claims, repeat is idempotent and stale claim rejects',
@@ -154,13 +165,29 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
   const newChat=f.execute()
   assert.equal(newChat.status,0,newChat.stderr)
   assert.equal(f.snapshot().tasks[0].status,'IN_PROGRESS')
+  const manifest={schema_version:1,requirement_id:'REQ-20261031-001',
+   task_id:'T-002',title:'Add dashboard filtering',depends_on:['T-001'],
+   allowed_paths:['app/web/src/']}
+  f.prepareTaskIssue(manifest)
+  f.prepare({...requestBase,action:'register_task',task_id:'T-002',
+   request_id:'66666666-6666-4666-8666-666666666666',
+   expected_version:4,issue_number:1000,title:manifest.title,
+   depends_on:manifest.depends_on,allowed_paths:manifest.allowed_paths})
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
+  const registered=f.execute()
+  assert.equal(registered.status,0,registered.stderr)
+  assert.equal(f.snapshot().version,5)
+  assert.equal(f.snapshot().tasks.length,2)
+  assert.equal(f.snapshot().tasks[1].task_id,'T-002')
+  assert.equal(f.snapshot().tasks[1].issue_number,1000)
+  assert.equal(f.snapshot().tasks[1].status,'READY')
   const prev=f.head()
   // Duplicate request ID is idempotent after a fresh Actions invocation.
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const replay=f.execute()
   assert.equal(replay.status,0,replay.stderr)
   assert.equal(f.head(),prev)
-  f.prepare(request('66666666-6666-4666-8666-666666666666',0))
+  f.prepare(request('77777777-7777-4777-8777-777777777777',0))
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const stale=f.execute()
   assert.notEqual(stale.status,0)
@@ -176,5 +203,26 @@ test('isolated Git never writes state for a non-owner opened Issue', {timeout:30
   assert.notEqual(attempt.status,0)
   assert.match(attempt.stderr,/INGRESS_UNTRUSTED_ISSUE/)
   assert.equal(f.head(),f.initialHead)
+ }finally{f.dispose()}
+})
+
+test('isolated Git rejects a task Issue whose owner-authored manifest does not match the request', 
+ {timeout:30000},()=>{
+ const f=setup()
+ try{
+  const manifest={schema_version:1,requirement_id:'REQ-20261031-001',
+   task_id:'T-002',title:'Different title',depends_on:[],
+   allowed_paths:['app/web/src/']}
+  f.prepareTaskIssue(manifest)
+  f.prepare({schema_version:1,action:'register_task',
+   request_id:'88888888-8888-4888-8888-888888888888',
+   requirement_id:'REQ-20261031-001',task_id:'T-002',worker_id:'chat-A',
+   expected_version:0,issue_number:1000,title:'Requested title',
+   depends_on:[],allowed_paths:['app/web/src/']})
+  const before=f.head()
+  const attempt=f.execute()
+  assert.notEqual(attempt.status,0)
+  assert.match(attempt.stderr,/ISSUE_TASK_IDENTITY/)
+  assert.equal(f.head(),before)
  }finally{f.dispose()}
 })
