@@ -30,7 +30,7 @@ function names(collection,key) {
 }
 export function evaluateActivationEvidence(data) {
   const blockers=[]
-  const {main,stateBranch,rule,mainRule,appId,environment,branchPolicies,
+  const {main,stateBranch,rule,mainRule,appId,rulesetId,environment,branchPolicies,
     environmentSecrets,environmentVariables,snapshot,headSha,installationRepos,
     publicationHold}=data??{}
 
@@ -52,7 +52,9 @@ export function evaluateActivationEvidence(data) {
     'STATE_BRANCH_UNPROTECTED',blockers)
   check(SHA.test(headSha||'')&&stateBranch?.commit?.sha===headSha,
     'STATE_REF_UNVERIFIED',blockers)
-  check(rule?.id===Number(process.env.PRP_COLLAB_RULESET_ID||rule?.id),
+  check(headSha==='062036f7021e215ffbfdcbf5689d207a0549b68b',
+    'STATE_NOT_PINNED_V0',blockers)
+  check(Number.isSafeInteger(rulesetId)&&rule?.id===rulesetId,
     'STATE_RULESET_ID_MISMATCH',blockers)
   let policy=null
   try {
@@ -121,7 +123,7 @@ function run() {
   const stateBranch=get('branches/'+REF).data
   const appId=Number(process.env.PRP_COLLAB_APP_ID)
   const rulesetId=process.env.PRP_COLLAB_RULESET_ID
-  const rule=/^[1-9]\\d*$/.test(rulesetId??'')?get('rulesets/'+rulesetId).data:null
+  const rule=/^[1-9]\d*$/.test(rulesetId??'')?get('rulesets/'+rulesetId).data:null
   const mainRule=get('rulesets/'+MAIN_RULESET_ID).data
   const environment=get('environments/'+ENV_NAME).data
   const branchPolicies=get('environments/'+ENV_NAME+'/deployment-branch-policies').data
@@ -151,7 +153,8 @@ function run() {
     }catch{/* refuse to infer app access */}
   }
   const report=evaluateActivationEvidence({main,stateBranch,rule,mainRule,appId,
-    environment,branchPolicies,environmentSecrets,environmentVariables,snapshot,
+    rulesetId:Number(rulesetId),environment,branchPolicies,environmentSecrets,
+    environmentVariables,snapshot,
     headSha,installationRepos,publicationHold})
   process.stdout.write(JSON.stringify(report,null,2)+'\\n')
   if(report.status!=='PRECONDITIONS_OBSERVED')process.exitCode=2
