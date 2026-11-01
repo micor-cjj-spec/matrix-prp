@@ -63,7 +63,7 @@ test('takeover requires exact old claim, old Git SHA, explicit reason and stays 
  e.issue.body=JSON.stringify({...p,new_worker_id:'chat-old'})
  reject(e,'INGRESS_RECOVERY_FIELDS')
  e.issue.body=JSON.stringify({...p,note:''})
- reject(e,'INGRESS_RECOVERY_FIELDS')
+ reject(e,'INGRESS_NOTE')
 })
 test('progress and checkpoint require existing claim and clean checkpoint schema',()=>{
  const e=event(),p={...request(),action:'progress',note:'Reviewed files'}
