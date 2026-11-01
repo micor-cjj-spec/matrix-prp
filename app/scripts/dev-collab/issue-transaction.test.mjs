@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {applyAuthenticatedIssue,redactedReceipt} from './issue-transaction.mjs'
+import {validateIssueEvent} from './issue-ingress.mjs'
 const sha='a'.repeat(40),req='REQ-20261031-001'
 const uuid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const snap=()=>({schema_version:1,requirement_id:req,issue_number:132,
@@ -61,4 +62,75 @@ test('automation workflow has only owner-opened Issue trigger and an isolated en
  assert.match(w,/permission-contents: write/)
  assert.match(w,/Post redacted success receipt/)
  assert.doesNotMatch(w,/secrets\.GITHUB_TOKEN|pull-requests: write|^\s*contents: write/m)
+})
+
+test('full owner Issue -> checkpoint -> handoff -> new chat; stale worker is fenced',()=>{
+ const owner='micor-cjj-spec',repo=owner+'/matrix-prp'
+ const env={GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'issues',GITHUB_EVENT_ACTION:'opened',
+  GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:repo,
+  GITHUB_REPOSITORY_OWNER:owner,GITHUB_ACTOR:owner,GITHUB_SHA:sha,
+  GITHUB_WORKFLOW_REF:repo+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'}
+ const issue=(body,number)=>({action:'opened',sender:{login:owner,id:101,type:'User'},
+  repository:{full_name:repo,default_branch:'main',owner:{login:owner}},
+  issue:{number,title:'[PRP-COLLAB-REQUEST]',state:'open',
+   user:{login:owner,id:101},author_association:'OWNER',body:JSON.stringify(body)}})
+ const receive=(payload,n,state)=>{
+  const evt=issue(payload,n),parsed=validateIssueEvent(env,evt,evt.issue)
+  return applyAuthenticatedIssue(state,parsed,'2026-11-01T03:30:00Z')
+ }
+ let state=snap()
+ const base={schema_version:1,requirement_id:req,task_id:'T-001',worker_id:'chat-A'}
+ const claimed=receive({...base,action:'claim',expected_version:0,
+  request_id:'11111111-1111-4111-8111-111111111111'},201,state)
+ const old=claimed.receipt.claim_id
+ state=claimed.snapshot
+ const cp={summary:'Pushed feature implementation',
+  next_step:'Run CI and inspect reviewed changes',branch:'feat/old-session',
+  head_sha:sha,tests:'No CI evidence verified'}
+ const checked=receive({...base,action:'checkpoint',expected_version:1,
+  request_id:'22222222-2222-4222-8222-222222222222',claim_id:old,
+  checkpoint:cp},202,state)
+ assert.equal(checked.snapshot.tasks[0].checkpoint.head_sha,sha)
+ state=checked.snapshot
+ const transferred=receive({...base,action:'handoff',expected_version:2,
+  request_id:'33333333-3333-4333-8333-333333333333',claim_id:old,
+  new_worker_id:'chat-B',expected_head_sha:sha,
+  note:'Former chat is handing off work'},203,state)
+ assert.equal(transferred.snapshot.tasks[0].claim.worker_id,'chat-B')
+ assert.equal(transferred.snapshot.tasks[0].claim.generation,2)
+ const latest=transferred.snapshot.tasks[0].claim.claim_id
+ assert.notEqual(latest,old)
+ assert.throws(()=>receive({...base,action:'start',expected_version:3,
+  request_id:'44444444-4444-4444-8444-444444444444',claim_id:old},204,
+  transferred.snapshot),e=>e.code==='STALE_OR_FOREIGN_CLAIM')
+ const nextChat=receive({...base,worker_id:'chat-B',action:'start',expected_version:3,
+  request_id:'55555555-5555-4555-8555-555555555555',claim_id:latest},205,
+  transferred.snapshot)
+ assert.equal(nextChat.snapshot.tasks[0].status,'IN_PROGRESS')
+})
+test('full owner Issue takeover maps the expected state version, not just the outer envelope',()=>{
+ const owner='micor-cjj-spec',repo=owner+'/matrix-prp'
+ const env={GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'issues',GITHUB_EVENT_ACTION:'opened',
+  GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:repo,
+  GITHUB_REPOSITORY_OWNER:owner,GITHUB_ACTOR:owner,GITHUB_SHA:sha,
+  GITHUB_WORKFLOW_REF:repo+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'}
+ const first=applyAuthenticatedIssue(snap(),v('claim'),'2026-11-01T03:30:00Z')
+ const old=first.receipt.claim_id
+ const body={schema_version:1,action:'takeover',request_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  requirement_id:req,task_id:'T-001',worker_id:'chat-A',new_worker_id:'chat-B',
+  expected_version:1,expected_claim_id:old,expected_head_sha:sha,
+  note:'Old chat crashed before a checkpoint',
+  checkpoint:{summary:'Recovered remote work from GitHub',next_step:'Inspect next CI run',
+   branch:'feat/recovered-work',head_sha:sha}}
+ const evt={action:'opened',sender:{login:owner,id:101,type:'User'},
+  repository:{full_name:repo,default_branch:'main',owner:{login:owner}},
+  issue:{number:206,title:'[PRP-COLLAB-REQUEST]',state:'open',user:{login:owner,id:101},
+   author_association:'OWNER',body:JSON.stringify(body)}}
+ const parsed=validateIssueEvent(env,evt,evt.issue)
+ assert.equal(parsed.command.expected_version,1)
+ const recovered=applyAuthenticatedIssue(first.snapshot,parsed,'2026-11-01T03:40:00Z',
+  ()=>true)
+ assert.equal(recovered.snapshot.tasks[0].claim.worker_id,'chat-B')
+ assert.equal(recovered.snapshot.tasks[0].checkpoint.origin,'owner_verified_git')
+ assert.notEqual(recovered.snapshot.tasks[0].claim.claim_id,old)
 })
