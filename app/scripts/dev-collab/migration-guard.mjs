@@ -63,7 +63,7 @@ export function verifyMigrationEvidence(input){
     prFiles.length===1 && prFiles[0]?.filename===FILE &&
     prFiles[0]?.status==='modified','PROPOSAL_FILES')
   requireRule(Number.isSafeInteger(ruleId)&&ruleId>0&&rule?.id===ruleId,'RULESET_ID')
-  verifyStateBranchRuleset(rule,appId)
+  const rulePolicy=verifyStateBranchRuleset(rule,appId)
   const delta=verifyExactTaskDelta(before,after)
   if(mode==='apply'){
     requireRule(pr.draft===false,'PROPOSAL_STILL_DRAFT')
@@ -75,6 +75,8 @@ export function verifyMigrationEvidence(input){
   return {status:mode==='apply'?'APP_WRITE_PRECONDITIONS_OBSERVED':'READ_ONLY_PRECHECK_PASSED',
     mode,expected_state_sha:stateSha,expected_proposal_sha:proposalSha,
     proposal_pr:144,rule_id:ruleId,...delta,
+    designated_app_bypass_verified:rulePolicy.appCanBypass,
+    bypass_actor_list_visible:rulePolicy.bypassActorsVerified,
     state_write_authorized_by_this_report:false,production_deploy_authorized:false}
 }
 
