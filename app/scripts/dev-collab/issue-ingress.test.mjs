@@ -231,7 +231,7 @@ test('privileged and collaboration external Actions are pinned by full commit SH
  ]
  for(const path of paths){
   const workflow=readFileSync(new URL('../../../'+path,import.meta.url),'utf8')
-  for(const match of workflow.matchAll(/^\\s*uses:\\s*([^@\\s]+)@([^\\s]+)/gm)){
+  for(const match of workflow.matchAll(/^\s*uses:\s*([^@\s]+)@([^\s]+)/gm)){
    assert.match(match[2],/^[a-f0-9]{40}$/,`${path} contains an unpinned action: ${match[0]}`)
   }
  }
