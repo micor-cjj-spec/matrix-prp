@@ -1,58 +1,72 @@
-# Matrix PRP cross-session development collaboration — MVP v1
+# Matrix PRP 跨会话任务协作 — MVP 候选实现
 
-Parent requirement: [REQ-20261031-001 / #132](https://github.com/micor-cjj-spec/matrix-prp/issues/132)
+父需求：[Issue #132](https://github.com/micor-cjj-spec/matrix-prp/issues/132)。
+跨会话恢复：[Issue #145](https://github.com/micor-cjj-spec/matrix-prp/issues/145)。
+零点击操作：[Issue #148](https://github.com/micor-cjj-spec/matrix-prp/issues/148)。
+核心候选实现：[Draft PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)。
+V0→V1 状态提案：[Draft PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144)。
 
-## Source of truth and safety
+## 权威状态与安全边界
 
-- A requirement owns tasks; chat conversations are transient workers.
-- One root GitHub Issue represents the requirement; individual Issues represent tasks.
-- The intended authoritative state is a protected, independently controlled `prp-collab-state` Git ref containing `requirements/<REQ-ID>.json`. Issue titles, checkboxes and labels are projections, not mutexes.
-- `main` stays protected. Never automatically merge, deploy, run SSH, use production DB/Keycloak or install MCP as part of the coordination workflow.
-- Current review branch includes the pure contract, templates, owner-only manual workflow coordinator, Git fast-forward state transactions and local-Git concurrency tests. The `prp-collab-state` branch has been seeded with `REQ-20261031-001` at version 0. **The coordinator is NOT active on protected main.** Claims become operational only after separate review, protected state-ref authorization and approved activation.
-- The existing `.github/workflows/codex-prp-worker.yml` is manual-only and currently opens review PRs against `main`. Do not assume it targets a requirement integration branch or allows arbitrary directories. Adapt separately.
+- 每个 requirement 有一个状态 JSON：requirements/<REQ-ID>.json。
+- 受保护的 prp-collab-state Git 分支是任务状态唯一权威来源；Issue、评论、标签和 ChatGPT 对话都不是互斥锁或权威状态库。
+- main 保持受保护。协作工作流不自动合并 PR、不部署生产、不运行 SSH、不访问生产数据库/Keycloak，也不安装 MCP。
+- 公开仓库和状态分支不得保存私密聊天全文、密码、Token、PEM、个人敏感信息。worker_id 是会话标签，不是 ChatGPT 会话 ID 或认证凭证。
+- 当前实现仍在 Draft PR #138，尚未合并到 main。prp-collab-automation Environment 和真实 Issue 事件/App 写入尚未完成验收；不能因为 CI 通过就宣称已上线。
 
-## Task status and lifecycle
+## ChatGPT 日常操作入口
 
-`READY -> CLAIMED -> IN_PROGRESS -> IN_REVIEW -> DONE` is the normal path.
-`IN_PROGRESS -> BLOCKED/PAUSED -> IN_PROGRESS` and `CLAIMED/IN_PROGRESS/BLOCKED/PAUSED -> READY` on release are supported. Task `DONE` requires independent reviewer authorization, verified CI and verified integration merge. Requirement `CLOSED` requires explicit acceptance and every task to be DONE/CANCELED. No chat message alone updates authoritative state.
+正式启用后，日常任务操作直接在 ChatGPT 中提出。ChatGPT 读取最新状态，然后以仓库所有者身份创建标题严格为 [PRP-COLLAB-REQUEST] 的 Issue。GitHub issues.opened 自动触发 main 上的 Issue ingress 工作流，校验原始事件、作者、请求 schema、状态版本和 App 范围，再通过单文件非强制 Git CAS 写入状态分支，并将脱敏回执写回请求 Issue。
 
-## Cross-session behavior
+支持的操作包括：
 
-1. Any new conversation reads the parent Issue, linked tasks and current state version before acting.
-2. A conversation requests a claim with GitHub-authenticated actor, `worker_id`, task ID and unique UUID `request_id`.
-3. The coordinator must validate ownership, dependency DAG, write-path overlap, and optimistic Git non-fast-forward update. It returns an opaque `claim_id`.
-4. Only operations presenting the latest claim ID plus the same authenticated GitHub actor/worker may update a claimed task. `worker_id` is advisory; it is not a credential.
-5. Worker commits on an isolated branch and records PR, commit SHA and CI evidence. It cannot self-approve.
-6. New sessions use the latest recorded state and linked artifacts, not ChatGPT memory alone.
+- claim、start、progress；
+- pause、block、resume、release；
+- 按需 checkpoint；
+- handoff、明确授权的 takeover；
+- submit、rework；
+- V1 生效后的 register_task；
+- 用户明确要求时执行固定 V0→V1 的 migrate_v1。
 
-## Implementation and permission boundaries
+日常任务操作不需要逐次打开 Actions → Run workflow，也不需要逐次点击 Required reviewers。一个操作请求 Issue 就是该次操作的明确所有者授权；创建 Issue 本身不等于状态写入成功，必须读取工作流回执和最新远端 SHA。
 
-The pure `core.mjs` module implements dependency validation, path reservation, state transitions, idempotent command receipts and fail-closed approval requirements. This is accompanied by a manual-only GitHub Actions transaction runner, which uses re-fetch, non-force Git push and bounded retries. Local bare-Git concurrent process tests are included. Verified reviewer/CI acceptance and automatic Issue reconciliation are **not implemented**; coordinator cannot invoke `accept` or `close`. No user-provided Issue content may execute as shell commands.
+## 任务生命周期与跨会话恢复
 
-## Start and acceptance checks
+常规流程为 READY → CLAIMED → IN_PROGRESS → IN_REVIEW → DONE。支持 BLOCKED、PAUSED、恢复和 release。
 
-Run locally from the repo root:
+- progress 不要求每次对话都更新。
+- checkpoint 是可选的持久化动作，不要求每个任务或每次进度更新都保存。
+- 主动 handoff 要求可核验 checkpoint。
+- takeover 必须由用户明确要求。若没有 checkpoint，可根据已存在的远端分支和准确 SHA 重建最小恢复点；没有远端证据时不能恢复未提交代码。
+- 不得仅因旧会话长时间无活动就自动抢占。
+- worker_id 只是任务记录标签，不能证明某个 ChatGPT 会话仍然存活，也不能恢复私有聊天上下文。
 
-```bash
-node --test app/scripts/dev-collab/*.test.mjs
-```
+## 新任务登记
 
-Before a real multi-session acceptance, verify two simultaneous claims for the same task lead to one winner, independent tasks can both progress, duplicate request IDs are idempotent, stale claims fail, issue projection failures can be reconciled, unauthorized users fail closed, and no production deployment occurs.
+V1 状态生效后，ChatGPT 创建新任务时会自动完成两步：
 
-## Planned work items
+1. 创建 owner-authored Task Issue，包含唯一 PRP_TASK_MANIFEST JSON。
+2. 创建 [PRP-COLLAB-REQUEST] Issue，执行 register_task，引用任务 Issue 和最新状态版本。
 
-- T-001 #133 contract/tests (Draft PR #138; awaiting acceptance)
-- T-002 #134 Issue/PR templates (Draft PR #138; awaiting acceptance)
-- T-003 #135 trusted workflow coordinator and atomic Git state writes (Draft PR #138; not active on main)
-- T-004 #136 cross-process/test fixtures and operating guide (Draft PR #138; acceptance pending)
-- T-005 #137 integration acceptance (not started)
+工作流会重新读取并校验 Task Issue 的作者、标题、状态、manifest、依赖和文件范围，再把任务登记为 READY。登记不会自动领取；用户要求立即开始时，再单独执行 claim。任务 scope 不允许修改协作治理、GitHub Actions 工作流、迁移或信任根文件。
 
-The state request history is deliberately bounded at 512 entries per requirement and fails closed when full; archival/re-keying requires a separately reviewed protocol change. A PR being green is evidence of tests passing; it is not evidence that live coordination, OAuth or production release has occurred.
+## 一次性启用条件
 
-## Current activation blocker
+1. 完成 PR #138 的 bootstrap 信任边界审查，并由仓库所有者授权合并。
+2. 一次性配置 prp-collab-automation Environment：不配置 Required reviewers 或 Wait timer；custom deployment branch policy 只允许 main。
+3. 配置 Environment secret PRP_COLLAB_APP_PRIVATE_KEY，以及变量 PRP_COLLAB_APP_CLIENT_ID、PRP_COLLAB_APP_ID=5561446、PRP_COLLAB_RULESET_ID=26294671。
+4. 专用 GitHub App 只安装到 micor-cjj-spec/matrix-prp；每次 token 限定该仓库。
+5. 完成一次真实 issues.opened → App token → 状态分支 CAS → 远端 SHA → 脱敏回执验收。
 
-The `prp-collab-state` branch **is protected**: repository Ruleset `26294671` was verified active, with update/deletion/non-fast-forward protections and sole GitHub App id `5561446` bypass. The dedicated App was installed for this repository by its owner. Environment secrets and approvals were configured through the UI but cannot be independently inspected by the current GitHub connector; actual App write actions and reviewer behavior have **not** yet been proved. Never treat feature-branch green CI as permission to merge.
+旧 prp-collab-controller Environment 和手动协调器作为独立旧路径保留，不是日常任务操作入口。accept / close 不在 Issue ingress 的允许操作中，仍走独立可信验收流程。
 
-The protected `main` branch contains the authorized publication hold (PR #140, commit `528c54c`); its actual downstream workflow completed with `publish=skipped`. The hold does **not** disable builds. The coordinator and lost-chat recovery implementation are still only in Draft PR #138, and the proposal to change authoritative task state is Draft PR #144. **Do not modify state, merge the Draft PR or deploy without separate approval.**
+## 当前真实状态（2026-11-01）
 
-Lost-chat recovery candidate: [SESSION-RECOVERY.md](./SESSION-RECOVERY.md) and Issue #145. This adds read-only discovery, checkpoints, optional voluntary handoff and explicitly owner-authorized forced takeover with stale-claim fencing; GitHub actor identity is not proof of a unique ChatGPT conversation.
+- prp-collab-state 仍为 V0，SHA：062036f7021e215ffbfdcbf5689d207a0549b68b；五个任务均 READY。
+- 状态分支 Ruleset #26294671 已启用，唯一 bypass 是专用 Integration App 5561446。
+- main Ruleset #24968649 已启用，没有 bypass actors。
+- main 的 app/deploy/publication-hold.json 仍有效，生产发布冻结保持。
+- PR #138 和 PR #144 均为 Draft；没有执行 V0→V1 迁移，也没有生产发布。
+- CI 和专项测试只证明候选代码，不证明真实 Environment 或 App 写入已经启用。
+
+请求账本每个 requirement 最多保留 512 条记录，满额后 fail closed；归档/重新分钥匙需要单独审查。
