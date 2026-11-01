@@ -22,10 +22,13 @@ export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>
  check(replay||snapshot.version===expected_version,'ISSUE_STALE_VERSION')
  check(actor==='micor-cjj-spec','ISSUE_UNTRUSTED_ACTOR')
  const context={actor,now,recoveryAuthorized:validated.recoveryAuthorized===true}
- if(command.type==='takeover'&&command.checkpoint!==undefined&&
-   !snapshot.tasks.find(t=>t.task_id===command.task_id)?.checkpoint){
-   check(verifyRemote(command.checkpoint),'ISSUE_UNVERIFIED_RECOVERY_HEAD')
-   context.gitEvidenceVerified=true
+ if(['checkpoint','handoff','takeover'].includes(command.type)){
+   const task=snapshot.tasks.find(t=>t.task_id===command.task_id)
+   const checkpoint=command.type==='checkpoint'
+     ? command.checkpoint
+     : (command.checkpoint??task?.checkpoint)
+   check(checkpoint && verifyRemote(checkpoint),'ISSUE_UNVERIFIED_RECOVERY_HEAD')
+   if(command.type==='takeover')context.gitEvidenceVerified=true
  }
  return applyCommand(snapshot,command,context)
 }
