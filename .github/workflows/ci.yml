@@ -4,7 +4,11 @@ on:
   push:
     branches: [main, feat/multi-user-foundation]
   pull_request:
-    branches: [main]
+    branches: [main, 'integrate/**']
+
+# PR code runs with read-only credentials; state writes use the dedicated App workflow.
+permissions:
+  contents: read
 
 jobs:
   controller-compatibility:

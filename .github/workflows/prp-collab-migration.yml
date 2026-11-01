@@ -1,0 +1,75 @@
+name: PRP Collaboration State Migration
+
+# Owner-triggered one-shot migration; no pull_request, push or schedule entry.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'verify = read only; apply = reviewed state write'
+        type: choice
+        required: true
+        options: [verify, apply]
+      expected_state_sha:
+        description: 'Current state V0 commit (40 hex)'
+        type: string
+        required: true
+      expected_proposal_sha:
+        description: 'Reviewed proposal PR #144 head (40 hex)'
+        type: string
+        required: true
+      approval_phrase:
+        description: 'Apply only: APPLY-REQ-20261031-001-V1'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: prp-collab-one-shot-migration
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main' && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prp-collab-controller
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Mint read-only verification token or scoped writer for apply
+        id: migration-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          client-id: ${{ vars.PRP_COLLAB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PRP_COLLAB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: matrix-prp
+          permission-contents: ${{ inputs.mode == 'apply' && 'write' || 'read' }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          token: ${{ steps.migration-token.outputs.token || github.token }}
+          persist-credentials: ${{ inputs.mode == 'apply' }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Verify exact state scope then optionally apply non-force Git CAS
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COLLAB_APP_TOKEN: ${{ steps.migration-token.outputs.token }}
+          COLLAB_APP_ID: ${{ vars.PRP_COLLAB_APP_ID }}
+          COLLAB_RULESET_ID: ${{ vars.PRP_COLLAB_RULESET_ID }}
+          COLLAB_MIGRATION_MODE: ${{ inputs.mode }}
+          COLLAB_EXPECTED_STATE_SHA: ${{ inputs.expected_state_sha }}
+          COLLAB_EXPECTED_PROPOSAL_SHA: ${{ inputs.expected_proposal_sha }}
+          COLLAB_APPROVED_STATE_SHA: '062036f7021e215ffbfdcbf5689d207a0549b68b'
+          COLLAB_APPROVED_PROPOSAL_SHA: 'fb57656dca6df5f12e083fc0430263b4d88e452d'
+          COLLAB_APPROVAL_PHRASE: ${{ inputs.approval_phrase }}
+        run: bash app/scripts/dev-collab/migration-transaction.sh
