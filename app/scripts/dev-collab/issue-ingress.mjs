@@ -11,10 +11,11 @@ const REQ=/^REQ-[0-9]{8}-[0-9]{3}$/
 const TASK=/^T-[0-9]{3}$/
 const WORKER=/^[a-zA-Z0-9_-]{3,64}$/
 const ACTIONS=new Set(['claim','start','progress','pause','block','resume','release',
- 'checkpoint','handoff','takeover','submit','rework'])
+ 'checkpoint','handoff','takeover','submit','rework','migrate_v1'])
 const FIELDS=new Set(['schema_version','action','request_id','requirement_id',
  'task_id','worker_id','claim_id','note','pr_number','head_sha','checkpoint',
- 'new_worker_id','expected_claim_id','expected_head_sha','expected_version'])
+ 'new_worker_id','expected_claim_id','expected_head_sha','expected_version',
+ 'expected_state_sha','expected_proposal_sha'])
 const CP_FIELDS=new Set(['summary','next_step','branch','head_sha','tests','blockers','pr_number'])
 const check=(ok,code)=>{if(!ok)throw new CollabError(code)}
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)
@@ -38,6 +39,17 @@ function payload(body){
  let data
  try{data=JSON.parse(body)}catch{throw new CollabError('INGRESS_BODY_NOT_JSON')}
  check(plain(data)&&exact(data,FIELDS),'INGRESS_BODY_FIELDS')
+ if(data.action==='migrate_v1'){
+   const approved=new Set(['schema_version','action','request_id','requirement_id',
+     'expected_state_sha','expected_proposal_sha'])
+   check(data.schema_version===1 && UUID.test(data.request_id) &&
+     data.requirement_id==='REQ-20261031-001' &&
+     exact(data,approved) && Object.keys(data).length===6 &&
+     data.expected_state_sha==='062036f7021e215ffbfdcbf5689d207a0549b68b' &&
+     data.expected_proposal_sha==='fb57656dca6df5f12e083fc0430263b4d88e452d',
+     'INGRESS_UNAPPROVED_MIGRATION')
+   return data
+ }
  check(data.schema_version===1 && ACTIONS.has(data.action) &&
  UUID.test(data.request_id) && REQ.test(data.requirement_id) &&
  TASK.test(data.task_id) && WORKER.test(data.worker_id),'INGRESS_REQUIRED')
@@ -92,6 +104,14 @@ export function validateIssueEvent(env,event,currentIssue=null){
      currentIssue.state==='open' && !currentIssue.pull_request,'INGRESS_ISSUE_MODIFIED')
  }
  const data=payload(event.issue.body)
+ if(data.action==='migrate_v1')return {
+   command:{type:data.action,request_id:data.request_id,
+     requirement_id:data.requirement_id,
+     expected_state_sha:data.expected_state_sha,
+     expected_proposal_sha:data.expected_proposal_sha},
+   expected_version:0,source_issue:event.issue.number,
+   actor:event.sender.login,recoveryAuthorized:false,oneShotMigration:true
+ }
  // Only the event-authorized GitHub actor becomes the state-transaction actor.
  const command={type:data.action,requirement_id:data.requirement_id,
    task_id:data.task_id,request_id:data.request_id,worker_id:data.worker_id}
