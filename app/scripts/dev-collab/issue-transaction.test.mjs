@@ -64,6 +64,11 @@ test('automation workflow has only owner-opened Issue trigger and an isolated en
  assert.match(w,/repositories: matrix-prp/)
  assert.match(w,/permission-contents: write/)
  assert.match(w,/Post redacted success receipt/)
+ assert.match(w,/actions\\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/)
+ assert.match(w,/actions\\/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1/)
+ assert.match(w,/actions\\/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510/)
+ assert.match(w,/package-manager-cache: false/)
+ assert.doesNotMatch(w,/actions\\/(checkout|setup-node|create-github-app-token)@v[0-9]+/)
  assert.doesNotMatch(w,/secrets\.GITHUB_TOKEN|pull-requests: write|^\s*contents: write/m)
 })
 
