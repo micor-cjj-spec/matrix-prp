@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
 import {authorizeOwnerIssuedMigration} from './issue-migrate.mjs'
 const state='062036f7021e215ffbfdcbf5689d207a0549b68b'
 const proposal='fb57656dca6df5f12e083fc0430263b4d88e452d'
@@ -20,4 +21,13 @@ test('wrong Issue actor, stale V0 and wrong proposal are rejected',()=>{
   [{...valid(),command:{...valid().command,type:'migrate_v2'}},state,proposal]
  ])assert.throws(()=>authorizeOwnerIssuedMigration(request,b,p),
   e=>e.code==='MIGRATION_ISSUE_NOT_APPROVED')
+})
+
+test('owner-issued migration uses the full reviewed apply gate, not read-only verification',()=>{
+ const source=readFileSync(new URL('./issue-migrate.mjs',import.meta.url),'utf8')
+ assert.ok(source.includes("mode:'apply'"))
+ assert.ok(source.includes("approvalPhrase:'APPLY-REQ-20261031-001-V1'"))
+ assert.ok(source.includes('appInstallation:repos'))
+ assert.ok(source.includes('verifyMigrationEvidence({before,after,pr,prFiles,rule:ruleset'))
+ assert.doesNotMatch(source,/mode:'verify'/)
 })
