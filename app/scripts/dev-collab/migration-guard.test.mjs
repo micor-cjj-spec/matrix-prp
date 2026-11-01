@@ -98,6 +98,7 @@ test('workflow only runs on reviewed main with owner, environment and App on app
  assert.match(sh,/PUBLICATION_HOLD_MISSING/)
  assert.match(sh,/PUBLICATION_HOLD_INVALID/)
  assert.match(sh,/MAIN_HEAD_MOVED/)
+ assert.match(sh,/MAIN_HEAD_RACE/)
  assert.match(sh,/UNAPPROVED_STATE_SHA/)
  assert.match(sh,/UNAPPROVED_PROPOSAL_SHA/)
  assert.match(w,/COLLAB_APPROVED_STATE_SHA: '062036f7021e215ffbfdcbf5689d207a0549b68b'/)
