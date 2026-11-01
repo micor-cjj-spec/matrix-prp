@@ -34,6 +34,44 @@
 
 `request_id` 必须为本次操作新生成的 UUID；重试**相同操作**复用原 UUID。 `expected_version` 必须来自最新的受保护状态文件。其他变更操作（`start`、`progress`、`checkpoint`、`handoff`、`takeover`、`submit`、`rework`）受同一版本检查、原有状态机和领取校验约束。接管旧会话必须明确指定 `expected_claim_id`、目标 `new_worker_id`、当前版本和准确 Git SHA；没有断点时还须提供现存 Git 远端分支以证明可恢复的代码范围。任何仅凭“可能超时”发起的隐式抢占均不支持。
 
+## 请求格式：无点击新增任务登记
+
+新增任务采用两个 owner-authored Issue，均可由 ChatGPT GitHub 连接创建，不需要人工打开 Actions 或逐次审批：
+
+1. 先创建普通任务 Issue，标题严格为 `[TASK][REQ-ID/T-NNN] 任务标题`，正文包含目标、验收、依赖和范围，并在末尾加入唯一的机器清单：
+   
+   ```html
+   <!-- PRP_TASK_MANIFEST
+   {"schema_version":1,"requirement_id":"REQ-20261031-001","task_id":"T-010","title":"增加任务看板筛选","depends_on":[],"allowed_paths":["app/web/src/"]}
+   -->
+   ```
+
+2. 再创建标题为 `[PRP-COLLAB-REQUEST]` 的请求 Issue，正文仅为以下 JSON。将 `issue_number` 替换为刚创建的任务 Issue 编号，并使用读取到的最新状态版本。
+
+   ```json
+   {
+     "schema_version": 1,
+     "action": "register_task",
+     "request_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+     "requirement_id": "REQ-20261031-001",
+     "task_id": "T-010",
+     "worker_id": "chat-example-001",
+     "expected_version": 1,
+     "issue_number": 151,
+     "title": "增加任务看板筛选",
+     "depends_on": [],
+     "allowed_paths": ["app/web/src/"]
+   }
+   ```
+
+工作流会核对任务 Issue 与请求清单的作者、Issue 编号、标题、依赖及范围是否完全一致；只允许登记下一个连续任务编号、未重复使用的 Issue 编号和已存在的依赖任务。登记成功后任务状态为 `READY`，不会自动领取；随后 ChatGPT 再发起一次 `claim` 请求。
+
+普通任务的路径范围采用白名单：`app/backend/src/main/java/`、`app/backend/src/test/java/`、`app/web/src/`、`app/mobile/src/`，以及非协作治理文档目录（`app/docs/ai-notes/`、`api/`、`bugs/`、`data/`、`decisions/`、`features/`、`product/`、`releases/`、`technical/`、`README.md`）。GitHub Actions 工作流、协作协调器、部署配置、后端资源配置和数据库迁移不属于普通任务范围，必须单独做治理审查。
+
+对当前 `REQ-20261031-001`，必须先完成固定 V0→V1 迁移，之后才能登记新任务；当前 V0 不会因创建任务 Issue 而被修改。多任务创建按最新状态版本逐项登记，不能并发复用同一版本。
+
+**当前仍是 Draft 候选实现**：需要 PR #138 经过独立审查和授权合并、完成一次性 Environment 配置及 V0→V1 迁移后，才能做真实 Issue 事件验收。
+ 
 ## 请求格式：一次性 V0 → V1 迁移
 
 只有当 `prp-collab-state` **仍处于指定 V0 SHA** 且提案分支仍处于审核过的 SHA，才允许执行以下严格固定的唯一迁移：
