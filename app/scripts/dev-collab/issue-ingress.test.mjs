@@ -49,7 +49,7 @@ test('arbitrary JSON fields, code shell or excessive payload are rejected',()=>{
  e.issue.body=JSON.stringify({...request(),worker_id:'foo; echo pwned'})
  reject(e,'INGRESS_REQUIRED')
  e.issue.body=JSON.stringify({...request(),claim_id:'a'.repeat(36)})
- reject(e,'INGRESS_CLAIM')
+ reject(e,'INGRESS_ACTION_FIELDS')
 })
 test('takeover requires exact old claim, old Git SHA, explicit reason and stays owner-gated',()=>{
  const e=event();const p={...request(),action:'takeover',worker_id:'chat-old',
@@ -60,6 +60,7 @@ test('takeover requires exact old claim, old Git SHA, explicit reason and stays 
  assert.equal(out.recoveryAuthorized,true)
  assert.equal(out.command.claim_id,p.expected_claim_id)
  assert.equal(out.command.expected_claim_id,p.expected_claim_id)
+ assert.equal(out.command.expected_version,p.expected_version)
  e.issue.body=JSON.stringify({...p,new_worker_id:'chat-old'})
  reject(e,'INGRESS_RECOVERY_FIELDS')
  e.issue.body=JSON.stringify({...p,note:''})
@@ -104,4 +105,26 @@ test('one-click-free V0 to V1 request is owner-authenticated and pinned to exact
   assert.throws(()=>validateIssueEvent(env(),e),x=>
    ['INGRESS_UNAPPROVED_MIGRATION','INGRESS_REQUIRED'].includes(x.code))
  }
+})
+
+test('per-action field allowlist prevents smuggling unrelated or migration parameters',()=>{
+ const e=event()
+ const cases=[
+  {...request(),head_sha:sha},
+  {...request(),new_worker_id:'chat-next'},
+  {...request(),expected_proposal_sha:sha},
+  {...request(),action:'start',claim_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',checkpoint:{}},
+  {...request(),action:'progress',claim_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',note:'Reviewed code',expected_head_sha:sha}
+ ]
+ for(const data of cases){
+  e.issue.body=JSON.stringify(data)
+  reject(e,'INGRESS_ACTION_FIELDS')
+ }
+ const takeover={...request(),action:'takeover',worker_id:'chat-old',
+   new_worker_id:'chat-new',expected_version:12,expected_head_sha:sha,
+   note:'Recover task from broken old session',
+   expected_claim_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+   claim_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}
+ e.issue.body=JSON.stringify(takeover)
+ reject(e,'INGRESS_TAKEOVER_EXPECTED_CLAIM')
 })
