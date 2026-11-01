@@ -1,5 +1,7 @@
 # Trusted manual acceptance review path
 
+Routine task operations are handled by the owner-authenticated Issue ingress without per-operation GitHub GUI approvals. This manual coordinator path is reserved for high-impact accept / close decisions; do not use it for ordinary claim, progress, checkpoint, handoff, takeover, registration or V0→V1 migration.
+
 The manual-only `PRP Collaboration Coordinator` may accept a task only after a repository-owner `workflow_dispatch` on protected `main`, with exact `pr_number`, `head_sha`, `task_id` and a unique request UUID. It fetches the actual GitHub PR, the protected `integrate/<REQ-ID>` branch, a GitHub compare proof and the complete check runs for the stored PR head SHA. Every required check must be a successful GitHub Actions check. Missing, moved, unmerged, failed or unsigned evidence is rejected. The reviewer context cannot be supplied through workflow inputs and is recomputed on each Git CAS retry.
 
 For `close`, the owner explicitly supplies the final merged integration PR number and final submitted head SHA targeting protected `main`. All tasks must already be DONE. The main branch must contain the merge commit and have all required exact-head checks green. Merely finishing tasks, passing CI or typing `done` cannot close a requirement.
