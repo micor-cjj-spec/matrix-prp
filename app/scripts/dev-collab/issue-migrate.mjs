@@ -51,13 +51,14 @@ export function applyOwnerIssuedMigration(validated,env){
  const after=JSON.parse(git('show',PROPOSAL+':'+FILE))
  const pr=gh('repos/'+REPO+'/pulls/144')
  const prFiles=gh('repos/'+REPO+'/pulls/144/files?per_page=100')
+ const reviews=gh('repos/'+REPO+'/pulls/144/reviews?per_page=100')
  check(typeof env.COLLAB_APP_TOKEN==='string'&&env.COLLAB_APP_TOKEN.length>0,
    'MIGRATION_APP_TOKEN_MISSING')
  const ruleset=gh('repos/'+REPO+'/rulesets/'+env.COLLAB_RULESET_ID,env.COLLAB_APP_TOKEN)
  const repos=gh('installation/repositories',env.COLLAB_APP_TOKEN)
  // An owner-authored Issue authorizes this ONE pinned migration, not a draft proposal.
  // Apply the same Draft PR, approved delta, App scope and Ruleset checks as manual apply.
- verifyMigrationEvidence({before,after,pr,prFiles,rule:ruleset,
+ verifyMigrationEvidence({before,after,pr,prFiles,reviews,rule:ruleset,
    appId:Number(env.COLLAB_APP_ID),ruleId:Number(env.COLLAB_RULESET_ID),
    stateSha:BASE,proposalSha:PROPOSAL,mode:'apply',
    approvalPhrase:'APPLY-REQ-20261031-001-V1',appInstallation:repos})
