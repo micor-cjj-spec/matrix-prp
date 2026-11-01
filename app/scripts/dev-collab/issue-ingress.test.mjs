@@ -230,11 +230,14 @@ test('privileged and collaboration external Actions are pinned by full commit SH
   '.github/workflows/feature-impact.yml',
   '.github/workflows/prp-collab-coordinator.yml',
   '.github/workflows/prp-collab-issue-ingress.yml',
-  '.github/workflows/prp-collab-migration.yml'
+  '.github/workflows/prp-collab-migration.yml',
+  '.github/workflows/prp-dev-collab-contract.yml'
  ]
  for(const path of paths){
   const workflow=readFileSync(new URL('../../../'+path,import.meta.url),'utf8')
-  for(const match of workflow.matchAll(/^\s*uses:\s*([^@\s]+)@([^\s]+)/gm)){
+  const matches=[...workflow.matchAll(/^\s*(?:-\s*)?uses:\s*([^@\s]+)@([^\s]+)/gm)]
+  assert.ok(matches.length>0,`${path} has no external actions to verify`)
+  for(const match of matches){
    assert.match(match[2],/^[a-f0-9]{40}$/,`${path} contains an unpinned action: ${match[0]}`)
   }
  }
