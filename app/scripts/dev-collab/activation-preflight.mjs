@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 #!/usr/bin/env node
 /**
  * Read-only GitHub preflight. A pass means prerequisites are observable,
@@ -85,7 +87,7 @@ function run() {
   process.stdout.write(JSON.stringify(report,null,2)+'\n')
   if(report.status!=='PRECONDITIONS_OBSERVED')process.exitCode=2
 }
-if (process.argv[1] && import.meta.url.endsWith('/activation-preflight.mjs')){
+if (process.argv[1] && fileURLToPath(import.meta.url)===resolve(process.argv[1])){
   try {run()} catch {
     console.error('PRP_ACTIVATION_PREFLIGHT_ERROR=INVALID_INPUT_OR_API')
     process.exitCode=2
