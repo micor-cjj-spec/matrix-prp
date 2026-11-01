@@ -42,7 +42,7 @@ function setup(){
  git(seed,'config','user.email','ci@example.invalid')
  git(seed,'remote','add','origin',origin)
  const dest=join(seed,'app/scripts/dev-collab');mkdirSync(dest,{recursive:true})
- for(const n of ['core.mjs','bootstrap-audit.mjs','state-rule-policy.mjs',
+ for(const n of ['core.mjs','task-scope-policy.mjs','bootstrap-audit.mjs','state-rule-policy.mjs',
    'migration-guard.mjs','migration-transaction.sh'])
    cpSync(join(source,n),join(dest,n))
  mkdirSync(join(seed,'app/deploy'),{recursive:true})
