@@ -1,0 +1,77 @@
+name: PRP Collaboration Auto Requests
+
+# Owner-created GitHub Issue is the no-click request entrypoint.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prp-collab-auto-state
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  apply-owner-request:
+    if: >-
+      github.event.action == 'opened' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == github.repository_owner &&
+      github.event.issue.user.login == github.repository_owner &&
+      github.event.issue.title == '[PRP-COLLAB-REQUEST]' &&
+      github.event.issue.author_association == 'OWNER' &&
+      github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: prp-collab-automation
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate original GitHub event against current Issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.issue.number }}" > "$RUNNER_TEMP/prp-issue-current.json"
+          node app/scripts/dev-collab/issue-ingress.mjs "$GITHUB_EVENT_PATH" "$RUNNER_TEMP/prp-issue-current.json"
+      - name: Mint repository-scoped writer token after event validation
+        id: writer
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.PRP_COLLAB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PRP_COLLAB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: matrix-prp
+          permission-contents: write
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          token: ${{ steps.writer.outputs.token }}
+          persist-credentials: true
+      - name: Execute one strict Git CAS transaction
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          COLLAB_APP_ID: ${{ vars.PRP_COLLAB_APP_ID }}
+          COLLAB_RULESET_ID: ${{ vars.PRP_COLLAB_RULESET_ID }}
+        shell: bash
+        run: node app/scripts/dev-collab/issue-transaction.mjs
+      - name: Post redacted success receipt
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh issue comment "${{ github.event.issue.number }}" --body-file "$RUNNER_TEMP/prp-issue-receipt.md"
