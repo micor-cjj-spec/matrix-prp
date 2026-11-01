@@ -71,6 +71,7 @@ test('automation workflow has only owner-opened Issue trigger and an isolated en
  assert.match(w,/issue-ingress\.mjs/)
  assert.match(w,/issue-transaction\.mjs/)
  assert.match(w,/repositories: matrix-prp/)
+ assert.match(w,/pull-requests: read/)
  assert.ok(w.includes('permission-contents: ${{ steps.validate.outputs.app_contents_permission }}'))
  assert.ok(w.includes('oneShotProbe===true?"read":"write"'))
  assert.match(w,/Post redacted success receipt/)
