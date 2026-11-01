@@ -12,10 +12,10 @@ const request=()=>({schema_version:1,action:'claim',
  request_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
  requirement_id:'REQ-20261031-001',task_id:'T-001',
  worker_id:'chat-123',expected_version:1})
-const event=()=>({action:'opened',sender:{login:owner,id:101,type:'User'},
- repository:{full_name:repo,default_branch:'main',owner:{login:owner,id:101}},
+const event=()=>({action:'opened',sender:{login:owner,id:123868412,type:'User'},
+ repository:{full_name:repo,default_branch:'main',owner:{login:owner,id:123868412}},
  issue:{number:149,title:'[PRP-COLLAB-REQUEST]',state:'open',
-  user:{login:owner,id:101},author_association:'OWNER',body:JSON.stringify(request())}})
+  user:{login:owner,id:123868412},author_association:'OWNER',body:JSON.stringify(request())}})
 const reject=(e,code,environment=env(),current=null)=>
  assert.throws(()=>validateIssueEvent(environment,e,current),x=>x.code===code)
 test('authenticated owner-authored issue opens a strict task claim without workflow clicking',()=>{
@@ -146,7 +146,7 @@ test('owner Issue can request registration of a separately authored task Issue',
  assert.equal(out.command.issue_number,151)
  assert.deepEqual(out.command.depends_on,['T-009'])
  assert.deepEqual(out.command.allowed_paths,data.allowed_paths)
- assert.equal(out.actorId,101)
+ assert.equal(out.actorId,123868412)
  assert.equal(out.expected_version,9)
 })
 test('task registration rejects reserved scopes, malformed dependencies and hidden credentials',()=>{
