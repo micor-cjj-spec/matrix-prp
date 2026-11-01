@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, 'integrate/**']
 
+# PR code runs with read-only credentials; state writes use the dedicated App workflow.
+permissions:
+  contents: read
+
 jobs:
   controller-compatibility:
     runs-on: ubuntu-latest
