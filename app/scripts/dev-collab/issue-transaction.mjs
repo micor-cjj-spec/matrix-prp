@@ -117,6 +117,25 @@ async function main(){
    validated.taskIssueVerified=true
  }
  verifyBranchAndRunner(env)
+ if(validated.oneShotProbe===true){
+   const stateRef='refs/heads/prp-collab-state'
+   const current=git('ls-remote','--exit-code','--refs','origin',stateRef)
+   const [head,ref]=current.split('\t')
+   check(ref===stateRef&&SHA.test(head),'ISSUE_PROBE_STATE_REF')
+   const receipt=['### PRP collaboration read-only probe passed','',
+     'Request ID: '+validated.command.request_id,
+     'Source Issue: #'+validated.source_issue,
+     'State SHA observed: '+head,
+     '','Verified owner Issue event, reviewed main source, publication hold,',
+     'branch protections, state Ruleset and one-repository App installation scope.',
+     '**No task was claimed and no Git state was written.**',
+     'This probe does not prove App write permission or a real Ruleset bypass push.']
+   writeFileSync(join(env.RUNNER_TEMP,'prp-issue-receipt.md'),
+     receipt.join('\n')+'\n',{mode:0o600,flag:'wx'})
+   console.log('PRP_COLLAB_PROBE_READ_ONLY='+validated.source_issue)
+   console.log('PRP_COLLAB_PROBE_STATE_SHA='+head)
+   return
+ }
  if(validated.oneShotMigration===true){
    const result=applyOwnerIssuedMigration(validated,env)
    const summary=['### PRP V0 to V1 migration completed','',
