@@ -161,3 +161,53 @@ test('accept requires verified exact PR number and head SHA in addition to revie
   assert.equal(done.tasks[0].status,'DONE')
   assert.equal(done.tasks[0].claim,null)
 })
+
+test('owner registers the next task from a verified Issue with safe non-overlapping module scopes',()=>{
+ const state=make();state.version=1
+ const cmd=command('register_task','T-004',{
+  issue_number:138,title:'Add dashboard filtering',
+  depends_on:['T-003'],allowed_paths:['app/web/src/','app/backend/src/main/java/']
+ })
+ const out=applyCommand(state,cmd,actor)
+ const created=out.snapshot.tasks.at(-1)
+ assert.deepEqual(created,{
+  task_id:'T-004',issue_number:138,title:'Add dashboard filtering',
+  status:'READY',depends_on:['T-003'],
+  allowed_paths:['app/web/src/','app/backend/src/main/java/'],claim:null
+ })
+ assert.equal(out.snapshot.version,2)
+ assert.equal(out.receipt.status,'READY')
+ assert.equal(out.receipt.issue_number,138)
+ assert.equal(availableTasks(out.snapshot).some(t=>t.task_id==='T-004'),false)
+})
+test('task registration rejects pre-migration state, wrong sequence, duplicate Issue and unsafe scope',()=>{
+ const state=make()
+ const valid=()=>command('register_task','T-004',{
+  issue_number:138,title:'Add dashboard filtering',depends_on:[],
+  allowed_paths:['app/web/src/']
+ })
+ assertCode(()=>applyCommand(state,valid(),actor),'TASK_REGISTRATION_REQUIRES_V1')
+ state.version=1
+ assertCode(()=>applyCommand(state,{...valid(),task_id:'T-005'},actor),'TASK_ID_NOT_NEXT')
+ assertCode(()=>applyCommand(state,{...valid(),issue_number:133},actor),'TASK_ISSUE_NUMBER')
+ assertCode(()=>applyCommand(state,{...valid(),allowed_paths:['.github/workflows/']},actor),'TASK_SCOPE_NOT_ALLOWED')
+ assertCode(()=>applyCommand(state,{...valid(),allowed_paths:['app/docs/']},actor),'TASK_SCOPE_NOT_ALLOWED')
+ assertCode(()=>applyCommand(state,{...valid(),depends_on:['T-999']},actor),'TASK_DEPENDENCIES')
+ assertCode(()=>applyCommand(state,{...valid(),depends_on:['T-001','T-001']},actor),'TASK_DEPENDENCIES')
+})
+test('registered task request is idempotent and cannot change its manifest on replay',()=>{
+ const state=make();state.version=1
+ const cmd=command('register_task','T-004',{
+  issue_number:138,title:'Add dashboard filtering',depends_on:[],
+  allowed_paths:['app/web/src/']
+ })
+ const out=applyCommand(state,cmd,actor)
+ const replay=applyCommand(out.snapshot,cmd,actor)
+ assert.equal(replay.receipt.replayed,true)
+ assert.strictEqual(replay.snapshot,out.snapshot)
+ assertCode(()=>applyCommand(out.snapshot,{...cmd,title:'Different title'},actor),'REQUEST_ID_COLLISION')
+})
+test('snapshot rejects duplicated parent and task Issue numbers',()=>{
+ const state=make();state.tasks[1].issue_number=132
+ assertCode(()=>validateSnapshot(state),'TASK_ISSUE')
+})
