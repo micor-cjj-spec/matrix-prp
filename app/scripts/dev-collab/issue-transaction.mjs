@@ -9,7 +9,7 @@ import {applyCommand,validateSnapshot,CollabError} from './core.mjs'
 import {verifyStateBranchRuleset} from './state-rule-policy.mjs'
 import {applyOwnerIssuedMigration} from './issue-migrate.mjs'
 
-const REPO='micor-cjj-spec/matrix-prp',SHA=/^[a-f0-9]{40}$/
+const REPO='micor-cjj-spec/matrix-prp',EXPECTED_APP_ID=5561446,EXPECTED_RULESET_ID=26294671,SHA=/^[a-f0-9]{40}$/
 const check=(ok,code)=>{if(!ok)throw new CollabError(code)}
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)
 const run=(program,args,options={})=>execFileSync(program,args,{
