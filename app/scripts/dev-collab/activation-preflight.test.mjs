@@ -128,7 +128,7 @@ test('environment secret and exact variables are required without exposing secre
   {name:'PRP_COLLAB_APP_ID',value:'999'}]}
  const out=evaluateActivationEvidence(x)
  assert.ok(out.blockers.includes('AUTO_ENV_APP_PRIVATE_KEY_SECRET_MISSING'))
- assert.ok(out.blockers.includes('AUTO_ENV_APP_CLIENT_ID_MISMATCH'))
+ assert.ok(out.blockers.includes('AUTO_ENV_APP_CLIENT_ID_MISSING'))
  assert.ok(out.blockers.includes('AUTO_ENV_APP_ID_MISMATCH'))
  assert.ok(out.blockers.includes('AUTO_ENV_RULESET_ID_MISMATCH'))
 })
