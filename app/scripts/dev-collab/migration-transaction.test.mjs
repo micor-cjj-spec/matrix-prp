@@ -70,6 +70,7 @@ function setup(){
   'case "$2" in',
   ' */pulls/144) cat "$PRP_MOCK_PR" ;;',
   ' */pulls/144/files*) cat "$PRP_MOCK_FILES" ;;',
+  ' */pulls/144/reviews*) cat "$PRP_MOCK_REVIEWS" ;;',
   ' */rulesets/26294671) [[ "${GH_TOKEN:-}" == "local-test-read-token" || "${GH_TOKEN:-}" == "local-test-write-token" ]] || exit 4; cat "$PRP_MOCK_RULE" ;;',
   ' installation/repositories) cat "$PRP_MOCK_APP" ;;',
   " *) echo UNEXPECTED_API >&2; exit 2 ;;",
@@ -77,9 +78,10 @@ function setup(){
  ].join('\n')+'\n'
  writeFileSync(join(bin,'gh'),mock,{mode:0o755})
  const temp=join(root,'temp');mkdirSync(temp)
- const names={pr:join(root,'pr.json'),files:join(root,'files.json'),
+ const names={pr:join(root,'pr.json'),files:join(root,'files.json'),reviews:join(root,'reviews.json'),
   rule:join(root,'rule.json'),app:join(root,'app.json')}
  const pr={number:144,state:'open',draft:true,changed_files:1,
+  user:{login:'micor-cjj-spec',id:123868412},
   base:{ref:'prp-collab-state',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
   head:{ref:'proposal/prp-collab-state-scope-20261101',sha:proposalSha,
    repo:{full_name:'micor-cjj-spec/matrix-prp'}}}
@@ -88,7 +90,7 @@ function setup(){
   rules:[{type:'update'},{type:'deletion'},{type:'non_fast_forward'}],
   bypass_actors:[{actor_type:'Integration',actor_id:5561446,bypass_mode:'always'}]}
  const save=(file,value)=>writeFileSync(file,JSON.stringify(value))
- save(names.pr,pr);save(names.files,[{filename:REQ,status:'modified'}])
+ save(names.pr,pr);save(names.files,[{filename:REQ,status:'modified'}]);save(names.reviews,[])
  save(names.rule,rule)
  save(names.app,{total_count:1,repositories:[{full_name:'micor-cjj-spec/matrix-prp'}]})
  const env={...process.env,PATH:bin+':'+process.env.PATH,RUNNER_TEMP:temp,
@@ -102,7 +104,7 @@ function setup(){
   COLLAB_APPROVED_STATE_SHA:stateSha,COLLAB_APPROVED_PROPOSAL_SHA:proposalSha,
   COLLAB_MIGRATION_MODE:'verify',COLLAB_APPROVAL_PHRASE:'',
   COLLAB_APP_TOKEN:'local-test-read-token',GH_TOKEN:'read-only',
-  PRP_MOCK_PR:names.pr,PRP_MOCK_FILES:names.files,
+  PRP_MOCK_PR:names.pr,PRP_MOCK_FILES:names.files,PRP_MOCK_REVIEWS:names.reviews,
   PRP_MOCK_RULE:names.rule,PRP_MOCK_APP:names.app}
  return {root,names,pr,save,
   execute:(override={})=>spawnSync('bash',['app/scripts/dev-collab/migration-transaction.sh'],
@@ -152,6 +154,12 @@ test('isolated Git preview is read only; simulated authorized apply commits once
   assert.match(denied.stderr,/PROPOSAL_STILL_DRAFT/)
   assert.equal(f.state(),before)
   f.pr.draft=false;f.save(f.names.pr,f.pr)
+  const noReview=f.execute(input)
+  assert.notEqual(noReview.status,0)
+  assert.match(noReview.stderr,/INDEPENDENT_REVIEW_REQUIRED/)
+  assert.equal(f.state(),before)
+  f.save(f.names.reviews,[{id:1,user:{login:'independent-reviewer',id:999},
+   state:'APPROVED',commit_id:f.pr.head.sha,submitted_at:'2026-11-01T03:00:00Z'}])
   const accepted=f.execute(input)
   assert.equal(accepted.status,0,accepted.stderr)
   assert.match(accepted.stdout,/PRP_COLLAB_MIGRATION_APPLIED_SHA=/)
