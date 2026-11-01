@@ -62,6 +62,7 @@ if [[ "$COLLAB_MIGRATION_MODE" == verify ]]; then
 fi
 
 # Check both refs again after approval and verification; never retry a stale write.
+[[ "$(git ls-remote --exit-code --refs origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]] || fail MAIN_HEAD_RACE
 [[ "$(git ls-remote --refs origin refs/heads/prp-collab-state | cut -f1)" == "$state_sha" ]] || fail STATE_RACE
 [[ "$(git ls-remote --refs origin refs/heads/proposal/prp-collab-state-scope-20261101 | cut -f1)" == "$proposal_sha" ]] || fail PROPOSAL_RACE
 state_worktree="$dir/state-worktree"
