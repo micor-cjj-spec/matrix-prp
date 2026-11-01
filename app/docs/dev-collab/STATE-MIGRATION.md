@@ -10,17 +10,18 @@
 - V1 提案 SHA：fb57656dca6df5f12e083fc0430263b4d88e452d
 - 唯一状态文件：requirements/REQ-20261031-001.json
 - 唯一迁移动作：从固定 V0 的五个任务迁移到 PR #144 提案的九个任务。
+- PR #144 必须完成独立审查并退出 Draft；若仍为 Draft，mode=apply 必须 fail closed。用户明确授权迁移后，ChatGPT 可通过 GitHub 连接将其标记为 Ready for review；这不是合并，也不需要用户手动点击。
 
 迁移必须保持原五个任务的 READY/null-claim 状态和空请求账本；仅允许精确增加四个新任务及已审查的 scope/dependency 差异。任何额外字段、路径、依赖、历史状态变化或 SHA 漂移均拒绝。
 
 ## ChatGPT 零点击迁移入口
 
-正式启用后，只有用户在 ChatGPT 中明确要求“执行 V0→V1 迁移”，ChatGPT 才能创建 owner-authored [PRP-COLLAB-REQUEST] Issue，正文使用 action=migrate_v1。
+正式启用后，只有用户在 ChatGPT 中明确要求“执行 V0→V1 迁移”，且 PR #144 已完成独立审查后，ChatGPT 才能将 PR 标记为 Ready for review，并创建 owner-authored [PRP-COLLAB-REQUEST] Issue，正文使用 action=migrate_v1。请求携带固定 V0/提案 SHA；迁移脚本内部注入一次性固定 apply acknowledgement，不接受任意 acknowledgement。
 
 GitHub issues.opened 自动触发 main 上的 Issue ingress。该工作流：
 
 1. 验证请求 Issue 的原始事件、仓库所有者身份、当前 Issue 和严格 JSON schema。
-2. 校验固定 V0 SHA、固定 V1 提案 SHA、PR #144 的仓库/base/head/单文件差异和精确五到九任务迁移。
+2. 校验固定 V0 SHA、固定 V1 提案 SHA、PR #144 已非 Draft、仓库/base/head/单文件差异和精确五到九任务迁移。
 3. 校验 main 与状态分支保护、状态 Ruleset、专用 App ID/Ruleset ID、App installation token 的单仓库范围和生产发布冻结。
 4. 在受保护的 prp-collab-automation Environment 中签发单仓库 App token。
 5. 只写 requirements/REQ-20261031-001.json，执行一次非强制 Git push，并重新读取远端状态 SHA。
@@ -34,7 +35,7 @@ owner-authored Issue 本身就是这次迁移的明确授权，不再要求额�
 - prp-collab-automation Environment 已配置：无 Required reviewers、无 Wait timer、唯一 custom deployment branch policy 为 main。
 - Environment secret PRP_COLLAB_APP_PRIVATE_KEY 和三个变量 PRP_COLLAB_APP_CLIENT_ID、PRP_COLLAB_APP_ID、PRP_COLLAB_RULESET_ID 已配置。
 - 状态分支 Ruleset #26294671 和 main Ruleset #24968649 保持有效；main 发布冻结保持有效。
-- 完成一次真实 Issue 事件和 App token 写入验收。
+- 先完成一次 Contents:read 只读 probe，确认状态 SHA 不变；再经单独明确授权，完成一次 Contents:write 低影响试点。
 
 旧 prp-collab-migration workflow 保留为 legacy 手动路径；它不是 ChatGPT 日常入口。新 Issue ingress 的 migrate_v1 才是无逐次 GUI 审批的路径。
 
