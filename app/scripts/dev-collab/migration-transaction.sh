@@ -46,6 +46,7 @@ git show "$proposal_sha:$file" > "$dir/after.json"
 # Paths and PR identifiers are constants, never interpreted from Issue comments.
 gh api "repos/$GITHUB_REPOSITORY/pulls/144" > "$dir/pr.json"
 gh api "repos/$GITHUB_REPOSITORY/pulls/144/files?per_page=100" > "$dir/pr-files.json"
+gh api "repos/$GITHUB_REPOSITORY/pulls/144/reviews?per_page=100" > "$dir/pr-reviews.json"
 GH_TOKEN="$COLLAB_APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/rulesets/$COLLAB_RULESET_ID" > "$dir/ruleset.json"
 app_repos='-'
 if [[ "$COLLAB_MIGRATION_MODE" == apply ]]; then
@@ -54,7 +55,7 @@ if [[ "$COLLAB_MIGRATION_MODE" == apply ]]; then
 fi
 node "$root/app/scripts/dev-collab/migration-guard.mjs" \
   "$dir/before.json" "$dir/after.json" "$dir/pr.json" \
-  "$dir/pr-files.json" "$dir/ruleset.json" "$app_repos"
+  "$dir/pr-files.json" "$dir/ruleset.json" "$dir/pr-reviews.json" "$app_repos"
 
 if [[ "$COLLAB_MIGRATION_MODE" == verify ]]; then
   echo 'PRP_COLLAB_MIGRATION=VERIFIED_READ_ONLY'
