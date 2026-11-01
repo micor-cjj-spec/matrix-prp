@@ -80,4 +80,7 @@ git -C "$state_worktree" commit \
   -m "Requested-by: $GITHUB_ACTOR" \
   -m "Actions-run: $GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" >/dev/null
 git -C "$state_worktree" push origin HEAD:refs/heads/prp-collab-state || fail NON_FAST_FORWARD_OR_RULESET_DENIED
-echo "PRP_COLLAB_MIGRATION_APPLIED_SHA=$(git -C "$state_worktree" rev-parse HEAD)"
+local_applied_sha="$(git -C "$state_worktree" rev-parse HEAD)"
+remote_applied_sha="$(git ls-remote --exit-code --refs origin refs/heads/prp-collab-state | cut -f1)" || fail POST_PUSH_REF_UNAVAILABLE
+[[ "$remote_applied_sha" == "$local_applied_sha" ]] || fail POST_PUSH_SHA_MISMATCH
+echo "PRP_COLLAB_MIGRATION_APPLIED_SHA=$remote_applied_sha"
