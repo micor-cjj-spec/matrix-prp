@@ -115,6 +115,26 @@ function setup(){
  return {root,prepare,prepareTaskIssue,execute,head,snapshot,initialHead:first,checkpointSha,appReposPath,
   dispose:()=>rmSync(root,{recursive:true,force:true})}
 }
+test('isolated Git: owner probe verifies App scope without mutating protected state',
+ {timeout:30000},()=>{
+ const f=setup()
+ try{
+  const initialSha=f.head()
+  f.prepare({schema_version:1,action:'probe',
+    request_id:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    requirement_id:'REQ-20261031-001'})
+  const result=f.execute()
+  assert.equal(result.status,0,result.stderr)
+  assert.match(result.stdout,/PRP_COLLAB_PROBE_READ_ONLY=999/)
+  assert.equal(f.head(),initialSha)
+  assert.equal(f.snapshot().version,0)
+  assert.equal(f.snapshot().tasks[0].claim,null)
+  const receipt=readFileSync(join(f.root,'run-temp/prp-issue-receipt.md'),'utf8')
+  assert.match(receipt,/No task was claimed and no Git state was written/)
+  assert.doesNotMatch(receipt,/claim_id|private-key|Token:/)
+ }finally{f.dispose()}
+})
+
 test('isolated bare Git: owner issue atomically claims, repeat is idempotent and stale claim rejects',
  {timeout:40000},()=>{
  const f=setup()
