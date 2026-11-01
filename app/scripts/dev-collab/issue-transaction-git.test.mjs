@@ -206,7 +206,7 @@ test('isolated Git never writes state for a non-owner opened Issue', {timeout:30
  }finally{f.dispose()}
 })
 
-test('isolated Git rejects a task Issue whose owner-authored manifest does not match the request', 
+test('isolated Git rejects a task Issue whose owner-authored manifest does not match the request',
  {timeout:30000},()=>{
  const f=setup()
  try{
