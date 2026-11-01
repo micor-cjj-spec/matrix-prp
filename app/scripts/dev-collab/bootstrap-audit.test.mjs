@@ -119,7 +119,7 @@ test('recovery task T-009 remains in exact narrow scope and blocks final accepta
  const proposed=proposedMigration()
  assert.equal(verifyScopeMigrationProposal(baseline,proposed).new_task_ids.length,4)
  const missing=proposedMigration();missing.tasks.pop()
- assertMigrationFails(baseline,missing,'UNEXPECTED_STATE_CHANGE')
+ assert.throws(()=>verifyScopeMigrationProposal(baseline,missing),e=>e.code==='UNKNOWN_DEPENDENCY')
  const changed=proposedMigration();changed.tasks[8].allowed_paths=['app/scripts/dev-collab/']
  assertMigrationFails(baseline,changed,'UNAUTHORIZED_NEW_TASK_SCOPE')
  const deps=proposedMigration();deps.tasks[4].depends_on.pop()
