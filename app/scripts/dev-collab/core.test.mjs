@@ -112,6 +112,8 @@ test('path traversal and broad invalid scopes fail closed', () => {
   const s = make()
   s.tasks[0].allowed_paths = ['../secrets']
   assertCode(() => validateSnapshot(s), 'ALLOWED_PATHS')
+  s.tasks[0].allowed_paths = ['app/web/src/.git/config']
+  assertCode(() => validateSnapshot(s), 'ALLOWED_PATHS')
   assert.equal(scopesOverlap(['app/web/src/'], ['app/web/src/views/thing.vue']), true)
   assert.equal(scopesOverlap(['app/web/src/'], ['app/backend/src/']), false)
   assert.equal(scopesOverlap(['app/a'], ['app/ab']), false)
