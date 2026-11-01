@@ -31,7 +31,7 @@ function safePath(path) {
   return typeof path === 'string' && path.length > 3 && path.length <= 200 &&
     /^[a-zA-Z0-9_.\/-]+$/.test(path) && !path.startsWith('/') &&
     !path.includes('//') && !path.split('/').includes('..') &&
-    !path.split('/').includes('.') && !path.startsWith('.git/') &&
+    !path.split('/').includes('.') && !path.split('/').some(part => part.toLowerCase() === '.git') &&
     path.includes('/')
 }
 
