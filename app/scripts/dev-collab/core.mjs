@@ -17,6 +17,13 @@ const HEX_SHA = /^[a-f0-9]{40}$/
 const WORKER = /^[a-zA-Z0-9_-]{3,64}$/
 const REQ = /^REQ-[0-9]{8}-[0-9]{3}$/
 const TASK = /^T-[0-9]{3}$/
+// State revision is NOT a schema/migration generation: ordinary claims increment
+// it too. Anchor this requirement to the four task identities in reviewed PR #144.
+const V1_SEED_TASKS = [['T-006',141],['T-007',142],['T-008',143],['T-009',146]]
+function hasV1Seed(snapshot){
+  return snapshot.tasks.length>=9 && V1_SEED_TASKS.every(([id,issue]) =>
+    snapshot.tasks.some(t=>t.task_id===id && t.issue_number===issue))
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function check(condition, code) {
@@ -210,7 +217,7 @@ export function applyCommand(original, command, context) {
   let receipt = { type, task_id: command.task_id ?? null, request_id: command.request_id }
   switch (type) {
     case 'register_task': {
-      check(original.requirement_id!=='REQ-20261031-001'||original.version>=1,
+      check(original.requirement_id!=='REQ-20261031-001'||hasV1Seed(original),
         'TASK_REGISTRATION_REQUIRES_V1')
       check(next.tasks.length<100,'TASK_LIST_FULL')
       const highest=Math.max(...next.tasks.map(t=>Number(t.task_id.slice(2))))
