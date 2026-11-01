@@ -23,9 +23,9 @@ fail(){ echo "PRP_COLLAB_MIGRATION_BLOCKED=$1" >&2; exit 2; }
 node -e 'const x=JSON.parse(require("fs").readFileSync("app/deploy/publication-hold.json","utf8")); if(x.schema_version!==1 || typeof x.reason!=="string" || x.reason.trim().length===0)process.exit(2)' || fail PUBLICATION_HOLD_INVALID
 main_head="$(git ls-remote --exit-code --refs origin refs/heads/main | cut -f1)"
 [[ "$main_head" == "$GITHUB_SHA" ]] || fail MAIN_HEAD_MOVED
+[[ -n "$COLLAB_APP_TOKEN" ]] || fail DEDICATED_APP_TOKEN
 if [[ "$COLLAB_MIGRATION_MODE" == apply ]]; then
   [[ "$COLLAB_APPROVAL_PHRASE" == 'APPLY-REQ-20261031-001-V1' ]] || fail EXPLICIT_APPROVAL
-  [[ -n "$COLLAB_APP_TOKEN" ]] || fail DEDICATED_APP_TOKEN
 fi
 
 root="$(pwd -P)"
