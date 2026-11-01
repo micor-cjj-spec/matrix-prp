@@ -57,7 +57,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: matrix-prp
           permission-contents: write
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           token: ${{ steps.writer.outputs.token }}
