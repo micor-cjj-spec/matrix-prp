@@ -114,7 +114,7 @@
 
 新任务必须先创建独立的 GitHub Task Issue，再由一个 owner-authored `[PRP-COLLAB-REQUEST]` Issue 请求把它登记进受保护状态文件。两步都由 ChatGPT 使用已认证的仓库所有者连接执行；不能把“创建了 Issue”误报为“已登记”。
 
-1. 先读取受保护状态，确认 Requirement 为 ACTIVE、版本为 V1 或更高，并读取下一个连续任务 ID（例如 T-010）。
+1. 先读取受保护状态，确认 Requirement 为 ACTIVE，且存在经固定 V0→V1 迁移建立的 T-006/#141、T-007/#142、T-008/#143、T-009/#146 四个任务身份；再读取最新 `state.version` 作为并发修订号及下一个连续任务 ID（例如 T-010）。**状态版本号会被领取、进度等操作递增，不能单独当作迁移完成证明。**
 2. 创建 Task Issue，标题必须为 `[TASK][REQ-20261031-001/T-010] Add dashboard filtering`。正文包含目标/验收说明，并且**恰好包含一次**以下机器清单（JSON 字段不能增删）：
 
 ```html
