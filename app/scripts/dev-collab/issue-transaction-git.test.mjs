@@ -92,7 +92,7 @@ function setup(){
    manifest.task_id+'] '+manifest.title,state:'open',
    user:{login:author,id:author===OWNER?101:202},author_association:'OWNER',
    body:'Task objective and acceptance criteria\n\n<!-- PRP_TASK_MANIFEST\n'+
-    JSON.stringify(manifest)+'\\n-->'}
+    JSON.stringify(manifest)+'\n-->'}
   writeFileSync(taskIssuePath,JSON.stringify(issue))
  }
  const env={...process.env,PATH:fakeDir+':'+process.env.PATH,
