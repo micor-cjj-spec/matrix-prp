@@ -10,10 +10,19 @@ fail(){ echo "PRP_COLLAB_MIGRATION_BLOCKED=$1" >&2; exit 2; }
 [[ "$COLLAB_MIGRATION_MODE" == verify || "$COLLAB_MIGRATION_MODE" == apply ]] || fail MODE
 [[ "$COLLAB_EXPECTED_STATE_SHA" =~ ^[a-f0-9]{40}$ ]] || fail STATE_SHA
 [[ "$COLLAB_EXPECTED_PROPOSAL_SHA" =~ ^[a-f0-9]{40}$ ]] || fail PROPOSAL_SHA
+# Immutable, independently reviewed SHA pins; inputs cannot select a different proposal.
+[[ "$COLLAB_APPROVED_STATE_SHA" == '062036f7021e215ffbfdcbf5689d207a0549b68b' || "${PRP_TEST_MIGRATION_FIXTURE:-}" == 'local-only' ]] || fail APPROVED_STATE_PIN_CONFIG
+[[ "$COLLAB_APPROVED_PROPOSAL_SHA" == 'fb57656dca6df5f12e083fc0430263b4d88e452d' || "${PRP_TEST_MIGRATION_FIXTURE:-}" == 'local-only' ]] || fail APPROVED_PROPOSAL_PIN_CONFIG
+[[ "$COLLAB_EXPECTED_STATE_SHA" == "$COLLAB_APPROVED_STATE_SHA" ]] || fail UNAPPROVED_STATE_SHA
+[[ "$COLLAB_EXPECTED_PROPOSAL_SHA" == "$COLLAB_APPROVED_PROPOSAL_SHA" ]] || fail UNAPPROVED_PROPOSAL_SHA
 [[ "$COLLAB_RULESET_ID" =~ ^[1-9][0-9]*$ ]] || fail RULESET_ID
 [[ "$COLLAB_APP_ID" =~ ^[1-9][0-9]*$ ]] || fail APP_ID
 [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]] || fail SOURCE_SHA
 [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || fail SOURCE_REVISION
+[[ -f app/deploy/publication-hold.json ]] || fail PUBLICATION_HOLD_MISSING
+node -e 'const x=JSON.parse(require("fs").readFileSync("app/deploy/publication-hold.json","utf8")); if(x.schema_version!==1 || typeof x.reason!=="string" || x.reason.trim().length===0)process.exit(2)' || fail PUBLICATION_HOLD_INVALID
+main_head="$(git ls-remote --exit-code --refs origin refs/heads/main | cut -f1)"
+[[ "$main_head" == "$GITHUB_SHA" ]] || fail MAIN_HEAD_MOVED
 if [[ "$COLLAB_MIGRATION_MODE" == apply ]]; then
   [[ "$COLLAB_APPROVAL_PHRASE" == 'APPLY-REQ-20261031-001-V1' ]] || fail EXPLICIT_APPROVAL
   [[ -n "$COLLAB_APP_TOKEN" ]] || fail DEDICATED_APP_TOKEN
