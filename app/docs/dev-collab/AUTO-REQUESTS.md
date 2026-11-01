@@ -16,6 +16,27 @@
 - 必须先独立审核并单独批准将 Draft PR #138 合入受保护 `main`。当前仍有发布冻结 `app/deploy/publication-hold.json`；本入口不会移除冻结，也不执行 PRP 生产应用部署。
 - 首次真实自动写入只在已审核的低影响测试任务上执行；保留远端 SHA、Issue 回执和 Actions 日志。没有真实审批配置、App Token 和 Ruleset 验证前不得宣称已上线。
 
+## 首次启用：不修改任务状态的只读探针
+
+在独立审查与一次性 Environment 配置完成、PR #138 获授权并合入 main 后，**优先运行以下只读探针**，不要直接领取 T-001 或迁移 V0。
+
+由 ChatGPT GitHub 连接以仓库所有者身份创建标题严格为 `[PRP-COLLAB-REQUEST]` 的 Issue，正文仅包含：
+
+```json
+{
+  "schema_version": 1,
+  "action": "probe",
+  "request_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  "requirement_id": "REQ-20261031-001"
+}
+```
+
+实际操作必须生成新的随机 UUID，不能在不同探针中重复使用示例值。探针只接受这四个字段，不允许传入任务编号、领取 ID、目标分支、迁移 SHA 或任意命令。
+
+工作流先核验 owner-authored GitHub Issue、受保护 main 来源及发布冻结，再检查 GitHub App token 的安装仓库仅为 `micor-cjj-spec/matrix-prp`、状态分支保护和专用 Ruleset，最后读取当前远端状态 SHA 并发布脱敏回执。**不会提交 Git 变更，不会修改正式任务状态，不会触发生产部署。**
+
+探针通过仅证明 Issue → Actions → 安装令牌签发与只读权限范围核验链路可用。它**不证明 Contents: write 权限或 Ruleset bypass 真实推送成功**。后续写入试点仍需明确授权和独立证据，不能把只读探针成功等同于整个零点击系统上线。
+
 ## 请求格式：任务领取
 
 创建 GitHub Issue，标题必须**完全等于** `[PRP-COLLAB-REQUEST]`；正文仅为 JSON（不要 Markdown 代码围栏）。
