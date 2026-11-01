@@ -85,7 +85,7 @@ function setup(){
   const issue={number:999,title:'[PRP-COLLAB-REQUEST]',state:'open',
    user:{login:author,id:101},author_association:'OWNER',body:JSON.stringify(payload)}
   const evt={action:'opened',sender:{login:author,id:101,type:'User'},
-   repository:{full_name:REPO,default_branch:'main',owner:{login:OWNER}},
+   repository:{full_name:REPO,default_branch:'main',owner:{login:OWNER,id:101}},
    issue}
   writeFileSync(eventPath,JSON.stringify(evt));writeFileSync(issuePath,JSON.stringify(issue))
  }
