@@ -23,3 +23,15 @@ test('role and broad GitHub Actions app bypass are not permitted',()=>{
 test('cannot activate without configured numeric app identity',()=>{
  fails(make(),'CONFIGURE_DEDICATED_APP',NaN)
 })
+
+test('redacted bypass actor list is accepted only when the designated App itself can always bypass',()=>{
+ const r=make();delete r.bypass_actors;r.current_user_can_bypass='always'
+ const result=verifyStateBranchRuleset(r,1234)
+ assert.equal(result.allowed,true)
+ assert.equal(result.bypassActorsVerified,false)
+ assert.equal(result.appCanBypass,true)
+ const never=make();delete never.bypass_actors;never.current_user_can_bypass='never'
+ fails(never,'RULESET_APP_BYPASS_NOT_VERIFIED')
+ const missing=make();delete missing.bypass_actors
+ fails(missing,'RULESET_APP_BYPASS_NOT_VERIFIED')
+})
