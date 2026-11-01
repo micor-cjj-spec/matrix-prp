@@ -45,6 +45,9 @@ function setup(){
  for(const n of ['core.mjs','bootstrap-audit.mjs','state-rule-policy.mjs',
    'migration-guard.mjs','migration-transaction.sh'])
    cpSync(join(source,n),join(dest,n))
+ mkdirSync(join(seed,'app/deploy'),{recursive:true})
+ writeFileSync(join(seed,'app/deploy/publication-hold.json'),
+   JSON.stringify({schema_version:1,reason:'Isolated local-test publication freeze'})+'\n')
  git(seed,'add','.');git(seed,'commit','-m','reviewed main source')
  git(seed,'push','origin','main')
  const main=git(seed,'rev-parse','HEAD')
@@ -96,6 +99,8 @@ function setup(){
   GITHUB_SHA:main,GITHUB_RUN_ID:'12345678',GITHUB_RUN_ATTEMPT:'1',
   COLLAB_APP_ID:'5561446',COLLAB_RULESET_ID:'26294671',
   COLLAB_EXPECTED_STATE_SHA:stateSha,COLLAB_EXPECTED_PROPOSAL_SHA:proposalSha,
+  COLLAB_APPROVED_STATE_SHA:stateSha,COLLAB_APPROVED_PROPOSAL_SHA:proposalSha,
+  PRP_TEST_MIGRATION_FIXTURE:'local-only',
   COLLAB_MIGRATION_MODE:'verify',COLLAB_APPROVAL_PHRASE:'',
   COLLAB_APP_TOKEN:'',GH_TOKEN:'read-only',
   PRP_MOCK_PR:names.pr,PRP_MOCK_FILES:names.files,
@@ -111,6 +116,12 @@ test('isolated Git preview is read only; simulated authorized apply commits once
  const f=setup()
  try{
   const before=f.state()
+  const wrongState=f.execute({COLLAB_EXPECTED_STATE_SHA:'0'.repeat(40)})
+  assert.notEqual(wrongState.status,0)
+  assert.match(wrongState.stderr,/UNAPPROVED_STATE_SHA/)
+  const wrongProposal=f.execute({COLLAB_EXPECTED_PROPOSAL_SHA:'1'.repeat(40)})
+  assert.notEqual(wrongProposal.status,0)
+  assert.match(wrongProposal.stderr,/UNAPPROVED_PROPOSAL_SHA/)
   const verify=f.execute()
   assert.equal(verify.status,0,verify.stderr)
   assert.match(verify.stdout,/PRP_COLLAB_MIGRATION=VERIFIED_READ_ONLY/)
