@@ -8,7 +8,7 @@ on:
         description: 'Allowed task transition'
         type: choice
         required: true
-        options: [claim, start, progress, pause, block, resume, release, submit, rework, accept, close]
+        options: [claim, start, progress, pause, block, resume, release, submit, rework, accept, close, checkpoint, handoff, takeover]
       requirement_id:
         description: 'REQ-YYYYMMDD-NNN'
         type: string
@@ -39,6 +39,10 @@ on:
         required: false
       head_sha:
         description: 'Exact task PR head SHA for submit'
+        type: string
+        required: false
+      recovery_payload:
+        description: 'JSON checkpoint or transfer parameters; no secrets; owner approval required for takeover'
         type: string
         required: false
 
@@ -110,4 +114,5 @@ jobs:
           COLLAB_NOTE: ${{ inputs.note }}
           COLLAB_PR_NUMBER: ${{ inputs.pr_number }}
           COLLAB_HEAD_SHA: ${{ inputs.head_sha }}
+          COLLAB_RECOVERY_PAYLOAD: ${{ inputs.recovery_payload }}
         run: bash app/scripts/dev-collab/state-transaction.sh

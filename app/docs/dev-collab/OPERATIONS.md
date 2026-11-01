@@ -59,3 +59,8 @@ If the app, secrets, reviewer environment, ruleset or its exact bypass actor are
 ## Pending workflow dispatches
 
 GitHub Actions defaults to one pending run per concurrency group: a newer pending run replaces the older one even if `cancel-in-progress` is false. This implementation uses `queue: max` for per-task coordination and per-requirement Issue projections, allowing up to 100 pending runs. The Git fast-forward compare-and-swap remains the conflict resolution for different tasks running concurrently. A canceled or failed run must not be marked as a received claim; retry with the original UUID only if its Git receipt is absent.
+
+
+## Lost-chat durable checkpoints and authorized takeover (candidate, not active)
+
+The proposed Issue #145 protocol is documented in [SESSION-RECOVERY.md](./SESSION-RECOVERY.md). The new `checkpoint`, `handoff` and `takeover` actions are implemented **only in Draft PR #138**, not in reviewed `main`. No real cross-chat takeover has been performed. The coordinator remains owner-only, main-ref-only, environment-approved and uses a dedicated App token. The `recovery_payload` input is one JSON string, keeping `workflow_dispatch` within GitHub's 10-input limit.

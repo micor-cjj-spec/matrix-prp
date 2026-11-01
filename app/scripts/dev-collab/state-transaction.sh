@@ -15,7 +15,7 @@ fi
 [[ "${COLLAB_REQUEST_ID:-}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
   echo 'INVALID_REQUEST_ID'; exit 2;
 }
-[[ "${COLLAB_ACTION:-}" =~ ^(claim|start|progress|pause|block|resume|release|submit|rework|accept|close)$ ]] || {
+[[ "${COLLAB_ACTION:-}" =~ ^(claim|start|progress|pause|block|resume|release|submit|rework|accept|close|checkpoint|handoff|takeover)$ ]] || {
   echo 'INVALID_ACTION'; exit 2;
 }
 
