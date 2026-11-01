@@ -118,6 +118,8 @@ export function validateIssueEvent(env,event,currentIssue=null){
  check(plain(event)&&event.action==='opened'&&event.repository?.full_name===REPO&&
  event.repository?.default_branch==='main'&&
  event.repository?.owner?.login==='micor-cjj-spec'&&
+ Number.isSafeInteger(event.repository?.owner?.id)&&
+ event.repository.owner.id===event.sender?.id&&
  event.sender?.login==='micor-cjj-spec'&&event.sender?.type==='User'&&
  Number.isSafeInteger(event.sender?.id)&&event.sender.id>0 &&
  event.issue?.user?.login===event.sender.login&&
@@ -130,6 +132,7 @@ export function validateIssueEvent(env,event,currentIssue=null){
    check(currentIssue.number===event.issue.number &&
      currentIssue.user?.id===event.sender.id &&
      currentIssue.user?.login===event.sender.login &&
+     currentIssue.author_association==='OWNER' &&
      currentIssue.title===event.issue.title &&
      currentIssue.body===event.issue.body &&
      currentIssue.state==='open' && !currentIssue.pull_request,'INGRESS_ISSUE_MODIFIED')
