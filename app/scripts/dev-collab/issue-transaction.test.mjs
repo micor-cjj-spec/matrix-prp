@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
-import {applyAuthenticatedIssue,redactedReceipt} from './issue-transaction.mjs'
+import {applyAuthenticatedIssue,redactedReceipt,verifyTaskIssue} from './issue-transaction.mjs'
 import {validateIssueEvent} from './issue-ingress.mjs'
 const sha='a'.repeat(40),req='REQ-20261031-001'
 const uuid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -159,4 +159,41 @@ test('checkpoint and handoff both require the exact remote Git branch SHA',()=>{
   '2026-11-01T03:32:00Z',()=>true)
  assert.equal(handed.snapshot.tasks[0].claim.worker_id,'chat-B')
  assert.equal(handed.snapshot.tasks[0].checkpoint.head_sha,sha)
+})
+
+test('task registry write requires a matching owner-authored task Issue manifest',()=>{
+ const command={type:'register_task',requirement_id:req,task_id:'T-002',
+  issue_number:151,title:'Add dashboard filtering',depends_on:['T-001'],
+  allowed_paths:['app/web/src/']}
+ const validated={command,actor:'micor-cjj-spec',actorId:101,source_issue:150}
+ const manifest={schema_version:1,requirement_id:req,task_id:'T-002',
+  title:command.title,depends_on:command.depends_on,allowed_paths:command.allowed_paths}
+ const issue={number:151,title:'[TASK]['+req+'/T-002] '+command.title,
+  state:'open',user:{login:'micor-cjj-spec',id:101},author_association:'OWNER',
+  body:'Task objective and acceptance criteria\\n\\n<!-- PRP_TASK_MANIFEST\\n'+
+   JSON.stringify(manifest)+'\\n-->'}
+ assert.equal(verifyTaskIssue(issue,validated),true)
+ assert.throws(()=>verifyTaskIssue({...issue,user:{login:'attacker',id:202}},validated),
+  e=>e.code==='ISSUE_TASK_IDENTITY')
+ assert.throws(()=>verifyTaskIssue({...issue,body:issue.body.replace('T-001','T-003')},validated),
+  e=>e.code==='ISSUE_TASK_MANIFEST_MISMATCH')
+ assert.throws(()=>verifyTaskIssue({...issue,title:'[TASK]['+req+'/T-003] '+command.title},validated),
+  e=>e.code==='ISSUE_TASK_IDENTITY')
+})
+test('register_task is refused without a verified related Issue and records no claim',()=>{
+ const state=snap();state.version=1
+ const command={type:'register_task',requirement_id:req,task_id:'T-002',
+  request_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',issue_number:151,
+  title:'Add dashboard filtering',depends_on:['T-001'],allowed_paths:['app/web/src/']}
+ const validated={command,actor:'micor-cjj-spec',actorId:101,
+  source_issue:150,expected_version:1,taskIssueVerified:false}
+ assert.throws(()=>applyAuthenticatedIssue(state,validated,'2026-11-01T03:50:00Z'),
+  e=>e.code==='ISSUE_TASK_NOT_VERIFIED')
+ const result=applyAuthenticatedIssue(state,{...validated,taskIssueVerified:true},
+  '2026-11-01T03:50:00Z')
+ assert.equal(result.snapshot.tasks.length,2)
+ assert.equal(result.snapshot.tasks[1].task_id,'T-002')
+ assert.equal(result.snapshot.tasks[1].status,'READY')
+ assert.equal(result.snapshot.tasks[1].claim,null)
+ assert.equal(result.receipt.issue_number,151)
 })
