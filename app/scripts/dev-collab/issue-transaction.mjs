@@ -15,6 +15,30 @@ const run=(program,args,options={})=>execFileSync(program,args,{
  encoding:'utf8',timeout:15000,maxBuffer:4*1024*1024,...options}).trim()
 const gh=(endpoint)=>JSON.parse(run('gh',['api',endpoint]))
 const git=(...args)=>run('git',args)
+export function verifyTaskIssue(issue,validated){
+ const {command,actor,actorId,source_issue}=validated
+ check(command?.type==='register_task'&&issue?.number===command.issue_number&&
+   issue.number!==source_issue&&issue.state==='open'&&!issue.pull_request&&
+   issue.user?.login===actor&&issue.user?.id===actorId&&
+   issue.author_association==='OWNER'&&
+   issue.title==='[TASK]['+command.requirement_id+'/'+command.task_id+'] '+command.title,
+   'ISSUE_TASK_IDENTITY')
+ check(typeof issue.body==='string','ISSUE_TASK_BODY')
+ const markers=[...issue.body.matchAll(/<!-- PRP_TASK_MANIFEST\\n([\\s\\S]*?)\\n-->/g)]
+ check(markers.length===1,'ISSUE_TASK_MANIFEST_COUNT')
+ let manifest
+ try{manifest=JSON.parse(markers[0][1])}catch{throw new CollabError('ISSUE_TASK_MANIFEST_JSON')}
+ const fields=['schema_version','requirement_id','task_id','title','depends_on','allowed_paths']
+ check(plain(manifest)&&Object.keys(manifest).length===fields.length&&
+   Object.keys(manifest).every(k=>fields.includes(k))&&manifest.schema_version===1&&
+   manifest.requirement_id===command.requirement_id&&
+   manifest.task_id===command.task_id&&manifest.title===command.title&&
+   JSON.stringify(manifest.depends_on)===JSON.stringify(command.depends_on)&&
+   JSON.stringify(manifest.allowed_paths)===JSON.stringify(command.allowed_paths),
+   'ISSUE_TASK_MANIFEST_MISMATCH')
+ return true
+}
+
 export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>false){
  validateSnapshot(snapshot)
  const {command,expected_version,actor}=validated
@@ -22,6 +46,8 @@ export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>
  check(replay||snapshot.version===expected_version,'ISSUE_STALE_VERSION')
  check(actor==='micor-cjj-spec','ISSUE_UNTRUSTED_ACTOR')
  const context={actor,now,recoveryAuthorized:validated.recoveryAuthorized===true}
+ if(command.type==='register_task')
+   check(validated.taskIssueVerified===true,'ISSUE_TASK_NOT_VERIFIED')
  if(['checkpoint','handoff','takeover'].includes(command.type)){
    const task=snapshot.tasks.find(t=>t.task_id===command.task_id)
    const checkpoint=command.type==='checkpoint'
@@ -74,6 +100,11 @@ async function main(){
  const event=JSON.parse(readFileSync(env.GITHUB_EVENT_PATH,'utf8'))
  const issue=gh('repos/'+REPO+'/issues/'+event.issue?.number)
  const validated=validateIssueEvent(env,event,issue)
+ if(validated.command.type==='register_task'){
+   const taskIssue=gh('repos/'+REPO+'/issues/'+validated.command.issue_number)
+   verifyTaskIssue(taskIssue,validated)
+   validated.taskIssueVerified=true
+ }
  verifyBranchAndRunner(env)
  if(validated.oneShotMigration===true){
    const result=applyOwnerIssuedMigration(validated,env)
