@@ -8,7 +8,7 @@
 - prp-collab-state 分支受保护，Ruleset #26294671 已启用，只配置专用 GitHub App Integration ID 5561446，bypass mode 为 always。
 - 正式状态仍为 V0，当前 SHA 为 062036f7021e215ffbfdcbf5689d207a0549b68b，五个任务尚未领取。
 - main 中 app/deploy/publication-hold.json 仍存在，生产发布冻结有效。
-- prp-collab-automation Environment 的 secret、variables、无审批规则和 main-only 部署分支策略，尚未完成真实核验。
+- prp-collab-automation Environment 已于 2026-11-01 通过 GitHub 页面核验：Required reviewers 与 Wait timer 均关闭；custom branch policies 仅允许 main；Environment secret `PRP_COLLAB_APP_PRIVATE_KEY` 存在；三个变量 `PRP_COLLAB_APP_CLIENT_ID`、`PRP_COLLAB_APP_ID`、`PRP_COLLAB_RULESET_ID` 均存在且 ID 值匹配。尚未执行管理员 activation-preflight.mjs，因此 API 级完整证据与短期 Installation Token 范围核验仍待完成。
 - Draft PR #138 尚未合并，因此 Issue 自动入口目前不会在 main 上运行。
 
 ## 一次性自动化 Environment 配置
