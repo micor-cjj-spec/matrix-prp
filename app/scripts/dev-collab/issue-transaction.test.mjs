@@ -9,11 +9,14 @@ const snap=()=>({schema_version:1,requirement_id:req,issue_number:132,
  title:'Task registry',status:'ACTIVE',version:0,processed_requests:[],
  tasks:[{task_id:'T-001',issue_number:133,title:'Core',status:'READY',
   depends_on:[],allowed_paths:['app/scripts/dev-collab/core.mjs'],claim:null}]})
-const v=(action,command={},version=0)=>({
- expected_version:version,actor:'micor-cjj-spec',recoveryAuthorized:action==='takeover',
- command:{type:action,requirement_id:req,task_id:'T-001',request_id:uuid,
+const v=(action,command={},version=0)=>{
+ const value={type:action,requirement_id:req,task_id:'T-001',request_id:uuid,
   worker_id:'chat-A',...command}
-})
+ if(['handoff','takeover'].includes(action)&&value.expected_version===undefined)
+   value.expected_version=version
+ return {expected_version:version,actor:'micor-cjj-spec',
+  recoveryAuthorized:action==='takeover',command:value}
+}
 test('owner request claims exactly once; public receipt never leaks claim ID',()=>{
  const a=applyAuthenticatedIssue(snap(),v('claim'),'2026-11-01T03:20:00Z')
  assert.equal(a.snapshot.version,1)
