@@ -258,9 +258,9 @@ export function applyCommand(original, command, context) {
     case 'takeover': {
       check(CLAIMED_STATES.has(task.status),'NOT_CLAIMED')
       check(task.checkpoint!==undefined,'RECOVERY_CHECKPOINT_REQUIRED')
-      check(task.checkpoint.worker_id===task.claim.worker_id,'RECOVERY_CHECKPOINT_OWNER_MISMATCH')
       check(Number.isInteger(command.expected_version) &&
         command.expected_version===original.version,'STALE_RECOVERY_VERSION')
+      check(task.checkpoint.worker_id===task.claim.worker_id,'RECOVERY_CHECKPOINT_OWNER_MISMATCH')
       check(WORKER.test(command.new_worker_id) &&
         command.new_worker_id!==task.claim.worker_id,'RECOVERY_TARGET_WORKER')
       check(singleLine(command.note,4,300),'RECOVERY_REASON')
