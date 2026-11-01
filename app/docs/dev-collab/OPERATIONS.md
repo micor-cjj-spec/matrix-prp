@@ -51,7 +51,7 @@ V1 生效后，创建新任务分两步，均可由 ChatGPT GitHub 连接自动�
 1. 创建 owner-authored Task Issue，标题为 [TASK][REQ-ID/T-NNN] 标题；正文包含目标、验收标准和唯一的 PRP_TASK_MANIFEST JSON 清单。
 2. 创建 [PRP-COLLAB-REQUEST] Issue，action=register_task，引用 Task Issue 编号、标题、依赖、允许路径和最新状态版本。
 
-工作流会重新读取 Task Issue，校验作者、标题、Issue 状态和机器清单，然后通过 CAS 将任务登记为 READY。登记成功不等于自动领取；如用户要求立即开始，ChatGPT 再发起 claim 操作。任务编号必须连续，依赖必须存在，文件范围必须符合 task-scope-policy.mjs 的白名单。协作治理工作流、迁移、部署配置和信任根文件不属于普通任务范围。
+工作流在登记前先验证 V1 的 T-006/#141、T-007/#142、T-008/#143、T-009/#146 固定种子任务身份，而不是仅检查随普通操作递增的 `state.version`。随后重新读取 Task Issue，校验作者、标题、Issue 状态和机器清单，再通过 CAS 将任务登记为 READY。登记成功不等于自动领取；如用户要求立即开始，ChatGPT 再发起 claim 操作。任务编号必须连续，依赖必须存在，文件范围必须符合 task-scope-policy.mjs 的白名单。协作治理工作流、迁移、部署配置和信任根文件不属于普通任务范围。
 
 ## 任务状态和代码审查边界
 
