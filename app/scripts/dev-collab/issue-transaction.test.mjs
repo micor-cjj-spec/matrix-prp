@@ -171,7 +171,7 @@ test('task registry write requires a matching owner-authored task Issue manifest
  const issue={number:151,title:'[TASK]['+req+'/T-002] '+command.title,
   state:'open',user:{login:'micor-cjj-spec',id:101},author_association:'OWNER',
   body:'Task objective and acceptance criteria\n\n<!-- PRP_TASK_MANIFEST\n'+
-   JSON.stringify(manifest)+'\\n-->'}
+   JSON.stringify(manifest)+'\n-->'}
  assert.equal(verifyTaskIssue(issue,validated),true)
  assert.throws(()=>verifyTaskIssue({...issue,user:{login:'attacker',id:202}},validated),
   e=>e.code==='ISSUE_TASK_IDENTITY')
