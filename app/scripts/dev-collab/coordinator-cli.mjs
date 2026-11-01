@@ -4,7 +4,7 @@ import { dirname, basename, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { applyCommand, CollabError } from './core.mjs'
 import { trustedReviewContext, ghApi } from './review-context.mjs'
-import { trustedRecoveryContext } from './recovery-auth.mjs'
+import { trustedRecoveryContext, verifyRecoveryGitBranch } from './recovery-auth.mjs'
 
 const ALLOWED = new Set(['claim', 'start', 'progress', 'pause', 'block', 'resume', 'release', 'submit', 'rework', 'accept', 'close', 'checkpoint', 'handoff', 'takeover'])
 
@@ -38,7 +38,7 @@ async function execute() {
     else{
       const allowed=env.COLLAB_ACTION==='handoff'
         ? ['new_worker_id','expected_version','expected_head_sha']
-        : ['new_worker_id','expected_version','expected_claim_id','expected_head_sha']
+        : ['new_worker_id','expected_version','expected_claim_id','expected_head_sha','checkpoint']
       if(!Object.keys(value).every(k=>allowed.includes(k)))
         throw new CollabError('RECOVERY_PAYLOAD_FIELDS')
       Object.assign(command,value)
@@ -55,11 +55,16 @@ async function execute() {
   const recoveryContext = !isKnownReplay && env.COLLAB_ACTION==='takeover'
     ? trustedRecoveryContext(env)
     : {}
+  const recoveryGitContext = env.COLLAB_ACTION==='takeover' && !isKnownReplay &&
+    command.checkpoint !== undefined && recoveryContext.recoveryAuthorized===true
+    ? verifyRecoveryGitBranch(command.checkpoint, env)
+    : {}
   const { snapshot, receipt } = applyCommand(raw, command, {
     actor: env.GITHUB_ACTOR,
     now: new Date().toISOString(),
     ...reviewContext,
-    ...recoveryContext
+    ...recoveryContext,
+    ...recoveryGitContext
   })
   const tmp = join(dirname(statePath), '.state-' + randomUUID() + '.tmp')
   writeFileSync(tmp, JSON.stringify(snapshot, null, 2) + '\n', { mode: 0o600, flag: 'wx' })
