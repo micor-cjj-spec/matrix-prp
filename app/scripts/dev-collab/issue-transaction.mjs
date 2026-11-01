@@ -72,8 +72,15 @@ function verifyBranchAndRunner(env){
    hold.reason.trim().length>0,'ISSUE_PUBLICATION_NOT_HELD')
  check(typeof env.COLLAB_APP_TOKEN==='string'&&env.COLLAB_APP_TOKEN.length>0,
    'ISSUE_APP_TOKEN_MISSING')
+ check(/^[1-9][0-9]*$/.test(env.COLLAB_APP_ID||''),'ISSUE_APP_ID')
+ check(/^[1-9][0-9]*$/.test(env.COLLAB_RULESET_ID||''),'ISSUE_RULESET_ID')
  const ruleset=gh('repos/'+REPO+'/rulesets/'+env.COLLAB_RULESET_ID,env.COLLAB_APP_TOKEN)
  verifyStateBranchRuleset(ruleset,Number(env.COLLAB_APP_ID))
+ const installation=gh('installation/repositories',env.COLLAB_APP_TOKEN)
+ check(installation?.total_count===1&&installation?.repositories?.length===1&&
+   installation.repositories[0]?.full_name===REPO,'ISSUE_APP_SCOPE')
+ const mainStatus=gh('repos/'+REPO+'/branches/main')
+ check(mainStatus.protected===true,'ISSUE_MAIN_NOT_PROTECTED')
  const status=gh('repos/'+REPO+'/branches/prp-collab-state')
  check(status.protected===true,'ISSUE_STATE_NOT_PROTECTED')
 }
