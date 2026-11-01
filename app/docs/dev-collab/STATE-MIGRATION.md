@@ -10,7 +10,7 @@
 - V1 提案 SHA：fb57656dca6df5f12e083fc0430263b4d88e452d
 - 唯一状态文件：requirements/REQ-20261031-001.json
 - 唯一迁移动作：从固定 V0 的五个任务迁移到 PR #144 提案的九个任务。
-- PR #144 必须完成独立审查并退出 Draft；若仍为 Draft，mode=apply 必须 fail closed。用户明确授权迁移后，ChatGPT 可通过 GitHub 连接将其标记为 Ready for review；这不是合并，也不需要用户手动点击。
+- PR #144 必须退出 Draft，并在固定提案 SHA 上取得至少一名**非仓库所有者、非 PR 作者的真实 GitHub 用户**的 `APPROVED` review；最新 review 必须仍为 `APPROVED`。对当前 SHA 的 `CHANGES_REQUESTED`、仅所有者自审、机器人 review、旧 SHA review 或不完整的 review 列表均 fail closed。若仍为 Draft 或缺少独立批准，mode=apply 必须拒绝。用户明确授权迁移后，ChatGPT 可通过 GitHub 连接将其标记为 Ready for review；这不是合并，也不需要用户手动点击。
 
 迁移必须保持原五个任务的 READY/null-claim 状态和空请求账本；仅允许精确增加四个新任务及已审查的 scope/dependency 差异。任何额外字段、路径、依赖、历史状态变化或 SHA 漂移均拒绝。
 
@@ -21,7 +21,7 @@
 GitHub issues.opened 自动触发 main 上的 Issue ingress。该工作流：
 
 1. 验证请求 Issue 的原始事件、仓库所有者身份、当前 Issue 和严格 JSON schema。
-2. 校验固定 V0 SHA、固定 V1 提案 SHA、PR #144 已非 Draft、仓库/base/head/单文件差异和精确五到九任务迁移。
+2. 校验固定 V0 SHA、固定 V1 提案 SHA、PR #144 已非 Draft、至少一名独立人类 reviewer 对精确提案 SHA 的最新 `APPROVED` review、仓库/base/head/单文件差异和精确五到九任务迁移。
 3. 校验 main 与状态分支保护、状态 Ruleset、专用 App ID/Ruleset ID、App installation token 的单仓库范围和生产发布冻结。
 4. 在受保护的 prp-collab-automation Environment 中签发单仓库 App token。
 5. 只写 requirements/REQ-20261031-001.json，执行一次非强制 Git push，并重新读取远端状态 SHA。
