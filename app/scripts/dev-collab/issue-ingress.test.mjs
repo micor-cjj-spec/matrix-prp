@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
+import {validateTaskScopeList} from './task-scope-policy.mjs'
 import {validateIssueEvent} from './issue-ingress.mjs'
 const owner='micor-cjj-spec',repo=owner+'/matrix-prp',sha='a'.repeat(40)
 const env=()=>({GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'issues',
@@ -210,4 +211,12 @@ test('owner Issue read-only probe accepts only an exact four-field payload',()=>
    e.issue.body=JSON.stringify(payload)
    reject(e,'INGRESS_UNAPPROVED_PROBE')
  }
+})
+
+test('registered task scopes reject nested Git metadata and governance roots',()=>{
+ assert.equal(validateTaskScopeList(['app/web/src/']),true)
+ assert.equal(validateTaskScopeList(['app/web/src/.git/config']),false)
+ assert.equal(validateTaskScopeList(['app/web/src/.GIT/config']),false)
+ assert.equal(validateTaskScopeList(['.github/workflows/']),false)
+ assert.equal(validateTaskScopeList(['app/docs/dev-collab/']),false)
 })
