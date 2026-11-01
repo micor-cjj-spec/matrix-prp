@@ -40,6 +40,8 @@ test('recovery brief shows checkpoint and explicitly disclaims unverifiable sour
  assert.equal(b.checkpoint.next_step,'Inspect CI logs')
  assert.equal(b.checkpoint.git_sha_verified,false)
  assert.equal(b.requires_owner_approval_for_forced_takeover,true)
+ assert.equal(b.takeover_authorization,'explicit_owner_authored_issue')
+ assert.equal(b.requires_github_gui_approval_for_forced_takeover,false)
  assert.equal(b.can_recover_uncommitted_chat_work,false)
  assert.doesNotMatch(JSON.stringify(b),/11111111-1111/)
 })
