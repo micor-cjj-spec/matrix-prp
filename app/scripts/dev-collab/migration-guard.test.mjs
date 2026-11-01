@@ -40,7 +40,7 @@ const input=()=>({before:state(),after:proposal(),pr:{
  head:{ref:'proposal/prp-collab-state-scope-20261101',sha:h,
  repo:{full_name:'micor-cjj-spec/matrix-prp'}}},
  prFiles:[{filename:'requirements/REQ-20261031-001.json',status:'modified'}],
- rule:rule(),appId:5561446,ruleId:26294671,stateSha:z,proposalSha:h,
+ reviews:[],rule:rule(),appId:5561446,ruleId:26294671,stateSha:z,proposalSha:h,
  mode:'verify',approvalPhrase:'',appInstallation:null})
 const fails=(e,code)=>assert.throws(()=>verifyMigrationEvidence(e),x=>x.message==='MIGRATION_'+code)
 test('exact V0 to V1 preserves original claims and rejects hidden fields and approvals',()=>{
@@ -72,8 +72,44 @@ test('apply refuses draft, missing consent or broader App installation',()=>{
  e.appInstallation={total_count:2,repositories:[{full_name:'micor-cjj-spec/matrix-prp'},{full_name:'other/repo'}]}
  fails(e,'APP_INSTALLATION_SCOPE')
  e.appInstallation={total_count:1,repositories:[{full_name:'micor-cjj-spec/matrix-prp'}]}
+ e.reviews=[{id:1,user:{login:'independent-reviewer',id:999},state:'APPROVED',
+  commit_id:h,submitted_at:'2026-11-01T03:00:00Z'}]
  assert.equal(verifyMigrationEvidence(e).status,'APP_WRITE_PRECONDITIONS_OBSERVED')
 })
+test('apply requires a current-head approval from a reviewer independent of the owner and PR author',()=>{
+ const ready=()=>{
+  const e=input();e.mode='apply';e.pr.draft=false
+  e.approvalPhrase='APPLY-REQ-20261031-001-V1'
+  e.appInstallation={total_count:1,repositories:[{full_name:'micor-cjj-spec/matrix-prp'}]}
+  return e
+ }
+ const missing=ready();fails(missing,'INDEPENDENT_REVIEW_REQUIRED')
+ const ownerOnly=ready()
+ ownerOnly.reviews=[{id:1,user:{login:'micor-cjj-spec',id:123868412},
+  state:'APPROVED',commit_id:h,submitted_at:'2026-11-01T03:00:00Z'}]
+ fails(ownerOnly,'INDEPENDENT_REVIEW_REQUIRED')
+ const authorOnly=ready()
+ authorOnly.reviews=[{id:1,user:{login:'micor-cjj-spec',id:123868412},
+  state:'APPROVED',commit_id:h,submitted_at:'2026-11-01T03:00:00Z'}]
+ fails(authorOnly,'INDEPENDENT_REVIEW_REQUIRED')
+ const stale=ready()
+ stale.reviews=[{id:1,user:{login:'independent-reviewer',id:999},
+  state:'APPROVED',commit_id:'9'.repeat(40),submitted_at:'2026-11-01T03:00:00Z'}]
+ fails(stale,'INDEPENDENT_REVIEW_REQUIRED')
+ const approved=ready()
+ approved.reviews=[{id:1,user:{login:'independent-reviewer',id:999},
+  state:'APPROVED',commit_id:h,submitted_at:'2026-11-01T03:00:00Z'}]
+ assert.equal(verifyMigrationEvidence(approved).independent_review_verified,true)
+ const changesRequested=ready()
+ changesRequested.reviews=[
+  {id:1,user:{login:'independent-reviewer',id:999},state:'APPROVED',
+   commit_id:h,submitted_at:'2026-11-01T03:00:00Z'},
+  {id:2,user:{login:'independent-reviewer',id:999},state:'CHANGES_REQUESTED',
+   commit_id:h,submitted_at:'2026-11-01T03:10:00Z'}
+ ]
+ fails(changesRequested,'INDEPENDENT_REVIEW_CHANGES_REQUESTED')
+})
+
 test('wrong PR, modified file scope, state revision or rule bypass must fail',()=>{
  let e=input();e.pr.head.sha=z;fails(e,'PROPOSAL_PR_IDENTITY')
  e=input();e.pr.base.ref='main';fails(e,'PROPOSAL_PR_IDENTITY')
