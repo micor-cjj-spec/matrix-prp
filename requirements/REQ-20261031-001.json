@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 0,
-  "updated_at": "2026-10-31T16:05:00Z",
+  "version": 1,
+  "updated_at": "2026-11-01T01:42:57.795Z",
   "processed_requests": [],
   "tasks": [
     {
@@ -71,9 +71,77 @@
         "T-001",
         "T-002",
         "T-003",
-        "T-004"
+        "T-004",
+        "T-006",
+        "T-007",
+        "T-008"
       ],
-      "allowed_paths": [],
+      "allowed_paths": [
+        "app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md"
+      ],
+      "claim": null
+    },
+    {
+      "task_id": "T-006",
+      "issue_number": 141,
+      "title": "只读任务看板与 Issue 投影",
+      "status": "READY",
+      "depends_on": [
+        "T-003"
+      ],
+      "allowed_paths": [
+        ".github/workflows/prp-collab-board.yml",
+        ".github/workflows/prp-collab-issue-projection.yml",
+        "app/scripts/dev-collab/board-workflow.test.mjs",
+        "app/scripts/dev-collab/board.mjs",
+        "app/scripts/dev-collab/board.test.mjs",
+        "app/scripts/dev-collab/projection-cli.mjs",
+        "app/scripts/dev-collab/projection-workflow.test.mjs",
+        "app/scripts/dev-collab/projection.mjs",
+        "app/scripts/dev-collab/projection.test.mjs"
+      ],
+      "claim": null
+    },
+    {
+      "task_id": "T-007",
+      "issue_number": 142,
+      "title": "可信验收与 GitHub App 安全验证",
+      "status": "READY",
+      "depends_on": [
+        "T-003"
+      ],
+      "allowed_paths": [
+        "app/scripts/dev-collab/activation-preflight.mjs",
+        "app/scripts/dev-collab/activation-preflight.test.mjs",
+        "app/scripts/dev-collab/bootstrap-audit.mjs",
+        "app/scripts/dev-collab/bootstrap-audit.test.mjs",
+        "app/scripts/dev-collab/review-context.mjs",
+        "app/scripts/dev-collab/review-context.test.mjs",
+        "app/scripts/dev-collab/review-gate.mjs",
+        "app/scripts/dev-collab/review-gate.test.mjs",
+        "app/scripts/dev-collab/review-provenance.mjs",
+        "app/scripts/dev-collab/review-provenance.test.mjs",
+        "app/scripts/dev-collab/state-rule-policy.mjs",
+        "app/scripts/dev-collab/state-rule-policy.test.mjs"
+      ],
+      "claim": null
+    },
+    {
+      "task_id": "T-008",
+      "issue_number": 143,
+      "title": "CAS 并发及工作流边界测试",
+      "status": "READY",
+      "depends_on": [
+        "T-003",
+        "T-007"
+      ],
+      "allowed_paths": [
+        "app/scripts/dev-collab/git-cas.test.mjs",
+        "app/scripts/dev-collab/git-transaction.test.mjs",
+        "app/scripts/dev-collab/integration-ci-boundary.test.mjs",
+        "app/scripts/dev-collab/workflow-boundary.test.mjs",
+        "app/scripts/dev-collab/workflow-contract.test.mjs"
+      ],
       "claim": null
     }
   ]
