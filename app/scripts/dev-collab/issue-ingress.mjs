@@ -17,6 +17,22 @@ const FIELDS=new Set(['schema_version','action','request_id','requirement_id',
  'new_worker_id','expected_claim_id','expected_head_sha','expected_version',
  'expected_state_sha','expected_proposal_sha'])
 const CP_FIELDS=new Set(['summary','next_step','branch','head_sha','tests','blockers','pr_number'])
+const BASE_FIELDS=['schema_version','action','request_id','requirement_id',
+ 'task_id','worker_id','expected_version']
+const ACTION_FIELDS={
+ claim:[],
+ start:['claim_id'],
+ pause:['claim_id'],
+ resume:['claim_id'],
+ release:['claim_id'],
+ progress:['claim_id','note','head_sha'],
+ block:['claim_id','note'],
+ rework:['claim_id','note'],
+ checkpoint:['claim_id','checkpoint'],
+ handoff:['claim_id','new_worker_id','expected_head_sha','note'],
+ takeover:['claim_id','new_worker_id','expected_claim_id','expected_head_sha','note','checkpoint'],
+ submit:['claim_id','pr_number','head_sha']
+}
 const check=(ok,code)=>{if(!ok)throw new CollabError(code)}
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)
 const line=(v,max)=>typeof v==='string'&&v.length>0&&v.length<=max&&
@@ -55,6 +71,8 @@ function payload(body){
  TASK.test(data.task_id) && WORKER.test(data.worker_id),'INGRESS_REQUIRED')
  check(Number.isSafeInteger(data.expected_version)&&data.expected_version>=0,
    'INGRESS_EXPECTED_VERSION')
+ const allowed=new Set([...BASE_FIELDS,...ACTION_FIELDS[data.action]])
+ check(exact(data,allowed),'INGRESS_ACTION_FIELDS')
  check(data.claim_id===undefined||UUID.test(data.claim_id),'INGRESS_CLAIM')
  check(data.expected_claim_id===undefined||UUID.test(data.expected_claim_id),'INGRESS_OLD_CLAIM')
  check(data.new_worker_id===undefined||WORKER.test(data.new_worker_id),'INGRESS_NEW_WORKER')
@@ -70,7 +88,10 @@ function payload(body){
  if(['handoff','takeover'].includes(data.action)){
    check(WORKER.test(data.new_worker_id) && data.new_worker_id!==data.worker_id &&
      SHA.test(data.expected_head_sha) && line(data.note,300),'INGRESS_RECOVERY_FIELDS')
-   if(data.action==='takeover')check(UUID.test(data.expected_claim_id),'INGRESS_TAKEOVER_EXPECTED_CLAIM')
+   if(data.action==='takeover')check(
+     UUID.test(data.expected_claim_id) &&
+     (data.claim_id===undefined||data.claim_id===data.expected_claim_id),
+     'INGRESS_TAKEOVER_EXPECTED_CLAIM')
  }
  if(['progress','block','rework'].includes(data.action))check(line(data.note,500),'INGRESS_NOTE_REQUIRED')
  if(data.action==='submit')check(data.pr_number>0&&SHA.test(data.head_sha),'INGRESS_SUBMIT_EVIDENCE')
@@ -118,6 +139,8 @@ export function validateIssueEvent(env,event,currentIssue=null){
  for(const key of ['claim_id','note','pr_number','head_sha','checkpoint',
    'new_worker_id','expected_claim_id','expected_head_sha'])
    if(data[key]!==undefined)command[key]=data[key]
+ if(['handoff','takeover'].includes(data.action))
+   command.expected_version=data.expected_version
  if(data.action==='takeover'&&command.claim_id===undefined)
    command.claim_id=data.expected_claim_id
  return {command,expected_version:data.expected_version,
