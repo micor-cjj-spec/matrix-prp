@@ -18,12 +18,13 @@ const EXPECTED_APP_ID=5561446
 const STATE_RULESET_ID=26294671
 const SHA=/^[a-f0-9]{40}$/
 
-function api(path) {
-  return JSON.parse(execFileSync('gh',['api','repos/'+REPO+'/'+path],
-    {encoding:'utf8',maxBuffer:1024*1024,stdio:['ignore','pipe','pipe']}))
+function api(path,token) {
+  const options={encoding:'utf8',maxBuffer:1024*1024,stdio:['ignore','pipe','pipe']}
+  if(token) options.env={...process.env,GH_TOKEN:token}
+  return JSON.parse(execFileSync('gh',['api','repos/'+REPO+'/'+path],options))
 }
-function get(path) {
-  try { return {data:api(path)} }
+function get(path,token) {
+  try { return {data:api(path,token)} }
   catch { return {error:'API_UNAVAILABLE_OR_ACCESS_DENIED'} }
 }
 function check(value,code,blocks) {if(!value)blocks.push(code)}
@@ -32,9 +33,9 @@ function names(collection,key) {
 }
 export function evaluateActivationEvidence(data) {
   const blockers=[]
-  const {main,stateBranch,rule,mainRule,appId,rulesetId,environment,branchPolicies,
-    environmentSecrets,environmentVariables,snapshot,headSha,installationRepos,
-    publicationHold}=data??{}
+  const {main,stateBranch,rule,appRule,mainRule,appId,rulesetId,expectedClientId,
+    environment,branchPolicies,environmentSecrets,environmentVariables,snapshot,
+    headSha,installationRepos,publicationHold}=data??{}
 
   check(main?.name==='main'&&main?.protected===true,'MAIN_NOT_PROTECTED',blockers)
   check(mainRule?.id===MAIN_RULESET_ID&&mainRule?.target==='branch'&&
@@ -47,6 +48,15 @@ export function evaluateActivationEvidence(data) {
   const mainTypes=new Set((mainRule?.rules??[]).map(x=>x?.type))
   check(['deletion','non_fast_forward','pull_request','required_status_checks']
     .every(x=>mainTypes.has(x)),'MAIN_RULESET_GUARDS_MISSING',blockers)
+  const requiredRule=mainRule?.rules?.find(x=>x?.type==='required_status_checks')?.parameters
+  const requiredChecks=requiredRule?.required_status_checks
+  const expectedChecks=['backend-tests','web-build','mobile-build',
+    'db-migration-integration','video-db-integration','impact-report']
+  check(requiredRule?.strict_required_status_checks_policy===true &&
+    Array.isArray(requiredChecks) && requiredChecks.length===expectedChecks.length &&
+    expectedChecks.every(context=>requiredChecks.some(x=>
+      x?.context===context && x?.integration_id===15368)),
+    'MAIN_REQUIRED_CHECKS_NOT_EXACT',blockers)
   check(Array.isArray(mainRule?.bypass_actors)&&mainRule.bypass_actors.length===0,
     'MAIN_BYPASS_ACTORS_NOT_EMPTY_OR_VISIBLE',blockers)
 
@@ -59,16 +69,22 @@ export function evaluateActivationEvidence(data) {
   check(appId===EXPECTED_APP_ID,'APP_ID_MISMATCH',blockers)
   check(rulesetId===STATE_RULESET_ID&&rule?.id===STATE_RULESET_ID,
     'STATE_RULESET_ID_MISMATCH',blockers)
-  let policy=null
   try {
-    policy=verifyStateBranchRuleset(rule,appId)
+    const policy=verifyStateBranchRuleset(rule,appId)
     check(policy.bypassActorsVerified===true,
       'STATE_RULESET_BYPASS_LIST_NOT_VISIBLE',blockers)
   }catch(e){blockers.push('STATE_RULESET_'+(e.code??'UNVERIFIED'))}
+  try {
+    const appPolicy=verifyStateBranchRuleset(appRule,appId)
+    check(appPolicy.appCanBypass===true,
+      'APP_TOKEN_STATE_BYPASS_NOT_VERIFIED',blockers)
+  }catch(e){blockers.push('APP_TOKEN_RULESET_'+(e.code??'UNVERIFIED'))}
 
   const protections=environment?.protection_rules
   check(environment?.name===ENV_NAME&&Array.isArray(protections),
     'AUTO_ENV_NOT_FOUND_OR_UNREADABLE',blockers)
+  check(environment?.can_admins_bypass===false,
+    'AUTO_ENV_ADMIN_BYPASS_ENABLED_OR_UNVERIFIED',blockers)
   check(Array.isArray(protections)&&
     protections.every(x=>x?.type==='branch_policy'),
     'AUTO_ENV_HAS_MANUAL_APPROVAL_GATE',blockers)
@@ -86,9 +102,9 @@ export function evaluateActivationEvidence(data) {
   const vars=Array.isArray(environmentVariables?.variables)?
     environmentVariables.variables:[]
   const variable=name=>vars.find(x=>x?.name===name)?.value
-  check(typeof variable('PRP_COLLAB_APP_CLIENT_ID')==='string'&&
-    variable('PRP_COLLAB_APP_CLIENT_ID').length>0,
-    'AUTO_ENV_APP_CLIENT_ID_MISSING',blockers)
+  check(typeof expectedClientId==='string'&&expectedClientId.length>0&&
+    variable('PRP_COLLAB_APP_CLIENT_ID')===expectedClientId,
+    'AUTO_ENV_APP_CLIENT_ID_MISMATCH',blockers)
   check(String(variable('PRP_COLLAB_APP_ID')??'')===String(appId),
     'AUTO_ENV_APP_ID_MISMATCH',blockers)
   check(String(variable('PRP_COLLAB_RULESET_ID')??'')===String(rule?.id),
@@ -127,6 +143,9 @@ function run() {
   const appId=Number(process.env.PRP_COLLAB_APP_ID)
   const rulesetId=process.env.PRP_COLLAB_RULESET_ID
   const rule=/^[1-9]\d*$/.test(rulesetId??'')?get('rulesets/'+rulesetId).data:null
+  const appRule=/^[1-9]\d*$/.test(rulesetId??'')&&process.env.PRP_COLLAB_APP_TOKEN
+    ?get('rulesets/'+rulesetId,process.env.PRP_COLLAB_APP_TOKEN).data
+    :null
   const mainRule=get('rulesets/'+MAIN_RULESET_ID).data
   const environment=get('environments/'+ENV_NAME).data
   const branchPolicies=get('environments/'+ENV_NAME+'/deployment-branch-policies').data
@@ -155,9 +174,10 @@ function run() {
          stdio:['ignore','pipe','pipe']}))
     }catch{/* refuse to infer app access */}
   }
-  const report=evaluateActivationEvidence({main,stateBranch,rule,mainRule,appId,
-    rulesetId:Number(rulesetId),environment,branchPolicies,environmentSecrets,
-    environmentVariables,snapshot,
+  const report=evaluateActivationEvidence({main,stateBranch,rule,appRule,mainRule,appId,
+    rulesetId:Number(rulesetId),
+    expectedClientId:process.env.PRP_COLLAB_APP_CLIENT_ID_EXPECTED,
+    environment,branchPolicies,environmentSecrets,environmentVariables,snapshot,
     headSha,installationRepos,publicationHold})
   process.stdout.write(JSON.stringify(report,null,2)+'\n')
   if(report.status!=='PRECONDITIONS_OBSERVED')process.exitCode=2
