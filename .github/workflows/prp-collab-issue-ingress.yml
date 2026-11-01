@@ -67,6 +67,7 @@ jobs:
           token: ${{ steps.writer.outputs.token }}
           persist-credentials: true
       - name: Execute one strict Git CAS transaction
+        id: transaction
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_EVENT_ACTION: ${{ github.event.action }}
@@ -76,13 +77,13 @@ jobs:
         shell: bash
         run: node app/scripts/dev-collab/issue-transaction.mjs
       - name: Post redacted success receipt
-        if: success()
+        if: steps.transaction.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: gh issue comment "${{ github.event.issue.number }}" --body-file "$RUNNER_TEMP/prp-issue-receipt.md"
       - name: Post generic failure status
-        if: failure()
+        if: failure() && steps.transaction.outcome != 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
