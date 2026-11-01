@@ -2,6 +2,7 @@ import {readFileSync,writeFileSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import {resolve} from 'node:path'
 import {CollabError} from './core.mjs'
+import {validateTaskScopeList} from './task-scope-policy.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const WORKFLOW=REPO+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'
@@ -11,11 +12,11 @@ const REQ=/^REQ-[0-9]{8}-[0-9]{3}$/
 const TASK=/^T-[0-9]{3}$/
 const WORKER=/^[a-zA-Z0-9_-]{3,64}$/
 const ACTIONS=new Set(['claim','start','progress','pause','block','resume','release',
- 'checkpoint','handoff','takeover','submit','rework','migrate_v1'])
+ 'checkpoint','handoff','takeover','submit','rework','register_task','migrate_v1'])
 const FIELDS=new Set(['schema_version','action','request_id','requirement_id',
  'task_id','worker_id','claim_id','note','pr_number','head_sha','checkpoint',
  'new_worker_id','expected_claim_id','expected_head_sha','expected_version',
- 'expected_state_sha','expected_proposal_sha'])
+ 'expected_state_sha','expected_proposal_sha','issue_number','title','depends_on','allowed_paths'])
 const CP_FIELDS=new Set(['summary','next_step','branch','head_sha','tests','blockers','pr_number'])
 const BASE_FIELDS=['schema_version','action','request_id','requirement_id',
  'task_id','worker_id','expected_version']
@@ -31,7 +32,8 @@ const ACTION_FIELDS={
  checkpoint:['claim_id','checkpoint'],
  handoff:['claim_id','new_worker_id','expected_head_sha','note'],
  takeover:['claim_id','new_worker_id','expected_claim_id','expected_head_sha','note','checkpoint'],
- submit:['claim_id','pr_number','head_sha']
+ submit:['claim_id','pr_number','head_sha'],
+ register_task:['issue_number','title','depends_on','allowed_paths']
 }
 const check=(ok,code)=>{if(!ok)throw new CollabError(code)}
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)
@@ -81,7 +83,7 @@ function payload(body){
  check(data.head_sha===undefined||SHA.test(data.head_sha),'INGRESS_SHA')
  check(data.expected_head_sha===undefined||SHA.test(data.expected_head_sha),'INGRESS_EXPECTED_SHA')
  if(data.checkpoint!==undefined)checkpoint(data.checkpoint)
- if(data.action==='claim')check(data.claim_id===undefined,'INGRESS_CLAIM_NOT_ALLOWED')
+ if(['claim','register_task'].includes(data.action))check(data.claim_id===undefined,'INGRESS_CLAIM_NOT_ALLOWED')
  else if(data.action!=='takeover')
    check(UUID.test(data.claim_id),'INGRESS_CLAIM_REQUIRED')
  if(['checkpoint'].includes(data.action))check(data.checkpoint!==undefined,'INGRESS_CHECKPOINT_REQUIRED')
@@ -95,6 +97,14 @@ function payload(body){
  }
  if(['progress','block','rework'].includes(data.action))check(line(data.note,500),'INGRESS_NOTE_REQUIRED')
  if(data.action==='submit')check(data.pr_number>0&&SHA.test(data.head_sha),'INGRESS_SUBMIT_EVIDENCE')
+ if(data.action==='register_task'){
+   check(Number.isSafeInteger(data.issue_number)&&data.issue_number>0,'INGRESS_TASK_ISSUE')
+   check(line(data.title,200)&&data.title.trim().length>=4,'INGRESS_TASK_TITLE')
+   check(Array.isArray(data.depends_on)&&data.depends_on.length<=99&&
+     data.depends_on.every(x=>TASK.test(x))&&
+     new Set(data.depends_on).size===data.depends_on.length,'INGRESS_TASK_DEPENDENCIES')
+   check(validateTaskScopeList(data.allowed_paths),'INGRESS_TASK_SCOPE')
+ }
  return data
 }
 
@@ -131,20 +141,21 @@ export function validateIssueEvent(env,event,currentIssue=null){
      expected_state_sha:data.expected_state_sha,
      expected_proposal_sha:data.expected_proposal_sha},
    expected_version:0,source_issue:event.issue.number,
-   actor:event.sender.login,recoveryAuthorized:false,oneShotMigration:true
+   actor:event.sender.login,actorId:event.sender.id,recoveryAuthorized:false,oneShotMigration:true
  }
  // Only the event-authorized GitHub actor becomes the state-transaction actor.
  const command={type:data.action,requirement_id:data.requirement_id,
    task_id:data.task_id,request_id:data.request_id,worker_id:data.worker_id}
  for(const key of ['claim_id','note','pr_number','head_sha','checkpoint',
-   'new_worker_id','expected_claim_id','expected_head_sha'])
+   'new_worker_id','expected_claim_id','expected_head_sha','issue_number',
+   'title','depends_on','allowed_paths'])
    if(data[key]!==undefined)command[key]=data[key]
  if(['handoff','takeover'].includes(data.action))
    command.expected_version=data.expected_version
  if(data.action==='takeover'&&command.claim_id===undefined)
    command.claim_id=data.expected_claim_id
  return {command,expected_version:data.expected_version,
-   source_issue:event.issue.number,actor:event.sender.login,
+   source_issue:event.issue.number,actor:event.sender.login,actorId:event.sender.id,
    recoveryAuthorized:data.action==='takeover'}
 }
 if(process.argv[1] && fileURLToPath(import.meta.url)===resolve(process.argv[1])){
