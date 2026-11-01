@@ -67,7 +67,7 @@ export function evaluateActivationEvidence(data) {
   check(environment?.name===ENV_NAME&&Array.isArray(protections),
     'AUTO_ENV_NOT_FOUND_OR_UNREADABLE',blockers)
   check(Array.isArray(protections)&&
-    !protections.some(x=>x?.type==='required_reviewers'||x?.type==='wait_timer'),
+    protections.every(x=>x?.type==='branch_policy'),
     'AUTO_ENV_HAS_MANUAL_APPROVAL_GATE',blockers)
   const deploy=environment?.deployment_branch_policy
   check(deploy?.protected_branches===false&&deploy?.custom_branch_policies===true,
