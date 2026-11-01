@@ -70,8 +70,9 @@ function setup(){
  writeFileSync(join(fakeDir,'gh'),mock,{mode:0o755})
  const eventPath=join(root,'event.json'),issuePath=join(root,'issue.json')
  const taskIssuePath=join(root,'task-issue.json')
- const rulePath=join(root,'rule.json'),temp=join(root,'run-temp')
+ const rulePath=join(root,'rule.json'),appReposPath=join(root,'app-repos.json'),temp=join(root,'run-temp')
  mkdirSync(temp)
+ writeFileSync(appReposPath,JSON.stringify({total_count:1,repositories:[{full_name:REPO}]}))
  writeFileSync(rulePath,JSON.stringify({
   id:26294671,target:'branch',enforcement:'active',
   conditions:{ref_name:{include:[REF],exclude:[]}},
@@ -104,12 +105,12 @@ function setup(){
   GH_TOKEN:'not-a-real-token',COLLAB_APP_TOKEN:'isolated-test-app-token',
   COLLAB_APP_ID:'5561446',COLLAB_RULESET_ID:'26294671',RUNNER_TEMP:temp,
   PRP_MOCK_ISSUE:issuePath,PRP_MOCK_TASK_ISSUE:taskIssuePath,
-  PRP_MOCK_RULESET:rulePath}
+  PRP_MOCK_RULESET:rulePath,PRP_MOCK_APP_REPOS:appReposPath}
  const execute=()=>spawnSync(process.execPath,['app/scripts/dev-collab/issue-transaction.mjs'],
   {cwd:runner,env,encoding:'utf8',timeout:15000})
  const head=()=>git(root,'--git-dir',origin,'rev-parse',REF)
  const snapshot=()=>JSON.parse(git(root,'--git-dir',origin,'show',REF+':'+REQ))
- return {root,prepare,prepareTaskIssue,execute,head,snapshot,initialHead:first,checkpointSha,
+ return {root,prepare,prepareTaskIssue,execute,head,snapshot,initialHead:first,checkpointSha,appReposPath,
   dispose:()=>rmSync(root,{recursive:true,force:true})}
 }
 test('isolated bare Git: owner issue atomically claims, repeat is idempotent and stale claim rejects',
@@ -203,6 +204,20 @@ test('isolated Git never writes state for a non-owner opened Issue', {timeout:30
   assert.notEqual(attempt.status,0)
   assert.match(attempt.stderr,/INGRESS_UNTRUSTED_ISSUE/)
   assert.equal(f.head(),f.initialHead)
+ }finally{f.dispose()}
+})
+
+
+test('isolated Git rejects a writer token not confined to this repository', {timeout:30000},()=>{
+ const f=setup()
+ try{
+  writeFileSync(f.appReposPath,JSON.stringify({total_count:2,repositories:[
+   {full_name:REPO},{full_name:'another/repository'}]}))
+  const before=f.head()
+  const attempt=f.execute()
+  assert.notEqual(attempt.status,0)
+  assert.match(attempt.stderr,/ISSUE_APP_SCOPE/)
+  assert.equal(f.head(),before)
  }finally{f.dispose()}
 })
 
