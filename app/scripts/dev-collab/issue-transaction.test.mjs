@@ -204,3 +204,51 @@ test('register_task is refused without a verified related Issue and records no c
  assert.equal(result.receipt.issue_number,151)
  assert.equal(redactedReceipt(result.receipt,{requirement_id:req,state_sha:sha}).task_issue_number,151)
 })
+
+test('replayed checkpoint and handoff stay idempotent after their remote branch has moved',()=>{
+ const claimed=applyAuthenticatedIssue(snap(),v('claim'),'2026-11-01T03:30:00Z')
+ const claimId=claimed.receipt.claim_id
+ const cp={summary:'Remote branch was committed for recovery',
+  next_step:'Hand over to the next conversation',branch:'feat/old-session',head_sha:sha}
+ const checkpoint=v('checkpoint',{claim_id:claimId,checkpoint:cp},1)
+ checkpoint.command.request_id='11111111-2222-4333-8444-555555555555'
+ const saved=applyAuthenticatedIssue(claimed.snapshot,checkpoint,'2026-11-01T03:31:00Z',()=>true)
+ let remoteChecks=0
+ const moved=()=>{remoteChecks++;return false}
+ const retry=applyAuthenticatedIssue(saved.snapshot,checkpoint,'2026-11-01T03:33:00Z',moved)
+ assert.strictEqual(retry.snapshot,saved.snapshot)
+ assert.equal(retry.receipt.replayed,true)
+ assert.equal(remoteChecks,0)
+ assert.throws(()=>applyAuthenticatedIssue(saved.snapshot,{
+  ...checkpoint,command:{...checkpoint.command,checkpoint:{...cp,summary:'Different checkpoint'}}
+ },'2026-11-01T03:33:00Z',moved),e=>e.code==='REQUEST_ID_COLLISION')
+ const handoff=v('handoff',{claim_id:claimId,new_worker_id:'chat-B',
+  expected_head_sha:sha,note:'Old session handing off work'},2)
+ handoff.command.request_id='22222222-3333-4444-8555-666666666666'
+ const accepted=applyAuthenticatedIssue(saved.snapshot,handoff,'2026-11-01T03:34:00Z',()=>true)
+ const handoffRetry=applyAuthenticatedIssue(accepted.snapshot,handoff,
+  '2026-11-01T03:35:00Z',moved)
+ assert.strictEqual(handoffRetry.snapshot,accepted.snapshot)
+ assert.equal(handoffRetry.receipt.replayed,true)
+ assert.equal(remoteChecks,0)
+})
+test('replayed takeover still validates owner and exact request fingerprint',()=>{
+ const a=applyAuthenticatedIssue(snap(),v('claim'),'2026-11-01T03:30:00Z')
+ const id=a.receipt.claim_id
+ const cmd=v('takeover',{claim_id:id,expected_claim_id:id,
+  expected_version:1,new_worker_id:'chat-C',expected_head_sha:sha,
+  note:'Old chat cannot continue',
+  checkpoint:{summary:'Recovery from committed Git history',
+   next_step:'Resume tests in the new chat',branch:'feat/recovered-old-chat',head_sha:sha}},1)
+ cmd.command.request_id='33333333-4444-4555-8666-777777777777'
+ const accepted=applyAuthenticatedIssue(a.snapshot,cmd,'2026-11-01T03:40:00Z',()=>true)
+ const retry=applyAuthenticatedIssue(accepted.snapshot,cmd,'2026-11-01T03:41:00Z',()=>false)
+ assert.strictEqual(retry.snapshot,accepted.snapshot)
+ assert.equal(retry.receipt.replayed,true)
+ assert.throws(()=>applyAuthenticatedIssue(accepted.snapshot,
+  {...cmd,actor:'another-user'},'2026-11-01T03:41:00Z',()=>false),
+  e=>e.code==='ISSUE_UNTRUSTED_ACTOR')
+ assert.throws(()=>applyAuthenticatedIssue(accepted.snapshot,
+  {...cmd,command:{...cmd.command,new_worker_id:'chat-D'}},
+  '2026-11-01T03:41:00Z',()=>false),e=>e.code==='REQUEST_ID_COLLISION')
+})
