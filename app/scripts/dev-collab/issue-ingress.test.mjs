@@ -128,3 +128,41 @@ test('per-action field allowlist prevents smuggling unrelated or migration param
  e.issue.body=JSON.stringify(takeover)
  reject(e,'INGRESS_TAKEOVER_EXPECTED_CLAIM')
 })
+
+test('owner Issue can request registration of a separately authored task Issue',()=>{
+ const e=event()
+ const data={schema_version:1,action:'register_task',
+  request_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  requirement_id:'REQ-20261031-001',task_id:'T-010',worker_id:'chat-new',
+  expected_version:9,issue_number:151,title:'Add dashboard filtering',
+  depends_on:['T-009'],allowed_paths:['app/web/src/','app/backend/src/main/java/']}
+ e.issue.body=JSON.stringify(data)
+ const out=validateIssueEvent(env(),e,e.issue)
+ assert.equal(out.command.type,'register_task')
+ assert.equal(out.command.issue_number,151)
+ assert.deepEqual(out.command.depends_on,['T-009'])
+ assert.deepEqual(out.command.allowed_paths,data.allowed_paths)
+ assert.equal(out.actorId,101)
+ assert.equal(out.expected_version,9)
+})
+test('task registration rejects reserved scopes, malformed dependencies and hidden credentials',()=>{
+ const e=event()
+ const base={schema_version:1,action:'register_task',
+  request_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  requirement_id:'REQ-20261031-001',task_id:'T-010',worker_id:'chat-new',
+  expected_version:9,issue_number:151,title:'Add dashboard filtering',
+  depends_on:[],allowed_paths:['app/web/src/']}
+ for(const data of [
+  {...base,allowed_paths:['.github/workflows/']},
+  {...base,allowed_paths:['app/scripts/dev-collab/']},
+  {...base,allowed_paths:['app/docs/']},
+  {...base,depends_on:['T-999']},
+  {...base,depends_on:['T-001','T-001']},
+  {...base,claim_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+  {...base,allowed_paths:['app/web/src/','app/web/src/views/']}
+ ]){
+  e.issue.body=JSON.stringify(data)
+  reject(e,data.claim_id?'INGRESS_ACTION_FIELDS':
+    (data.depends_on.some(x=>!/^T-[0-9]{3}$/.test(x))?'INGRESS_TASK_DEPENDENCIES':'INGRESS_TASK_SCOPE'))
+ }
+})
