@@ -128,6 +128,13 @@ test('isolated Git preview is read only; simulated authorized apply commits once
  const f=setup()
  try{
   const before=f.state()
+  const wrongApp=f.execute({COLLAB_APP_ID:'999999'})
+  assert.notEqual(wrongApp.status,0)
+  assert.match(wrongApp.stderr,/APP_ID/)
+  const wrongRuleset=f.execute({COLLAB_RULESET_ID:'999999'})
+  assert.notEqual(wrongRuleset.status,0)
+  assert.match(wrongRuleset.stderr,/RULESET_ID/)
+  assert.equal(f.state(),before)
   const wrongState=f.execute({COLLAB_EXPECTED_STATE_SHA:'0'.repeat(40)})
   assert.notEqual(wrongState.status,0)
   assert.match(wrongState.stderr,/UNAPPROVED_STATE_SHA/)
