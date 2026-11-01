@@ -61,6 +61,8 @@ test('verification is read-only, with no implicit permission for state updates',
  assert.equal(report.status,'READ_ONLY_PRECHECK_PASSED')
  assert.equal(report.state_write_authorized_by_this_report,false)
  assert.equal(report.production_deploy_authorized,false)
+ assert.equal(report.designated_app_bypass_verified,true)
+ assert.equal(report.bypass_actor_list_visible,true)
 })
 test('apply refuses draft, missing consent or broader App installation',()=>{
  const e=input();e.mode='apply'
@@ -91,7 +93,11 @@ test('workflow only runs on reviewed main with owner, environment and App on app
  assert.match(w,/github\.actor == github\.repository_owner/)
  assert.match(w,/environment: prp-collab-controller/)
  assert.match(w,/if: inputs\.mode == 'apply'/)
- assert.match(w,/create-github-app-token@v3/)
+ assert.match(w,/actions\\/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510/)
+ assert.match(w,/permission-contents: \\$\\{\\{ inputs\\.mode == 'apply' && 'write' \\|\\| 'read' \\}\\}/)
+ assert.match(w,/package-manager-cache: false/)
+ assert.match(w,/actions\\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/)
+ assert.match(w,/actions\\/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1/)
  assert.match(w,/owner: \$\{\{ github\.repository_owner \}\}/)
  assert.match(w,/repositories: matrix-prp/)
  assert.match(sh,/POST_PUSH_SHA_MISMATCH/)
@@ -123,4 +129,13 @@ test('unauthorized workflow ref is rejected before any Git access',()=>{
  const p=spawnSync('bash',[path],{encoding:'utf8',env:e})
  assert.equal(p.status,2)
  assert.match(p.stderr,/PRP_COLLAB_MIGRATION_BLOCKED=SOURCE_REF/)
+})
+
+test('migration preflight distinguishes App bypass verification from a redacted bypass actor list',()=>{
+ const e=input();delete e.rule.bypass_actors;e.rule.current_user_can_bypass='always'
+ const report=verifyMigrationEvidence(e)
+ assert.equal(report.designated_app_bypass_verified,true)
+ assert.equal(report.bypass_actor_list_visible,false)
+ const denied=input();delete denied.rule.bypass_actors;denied.rule.current_user_can_bypass='never'
+ fails(denied,'RULESET_APP_BYPASS_NOT_VERIFIED')
 })
