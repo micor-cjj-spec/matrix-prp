@@ -13,6 +13,7 @@ const REQUIREMENT_STATES = new Set(['ACTIVE', 'ACCEPTANCE', 'CLOSED', 'CANCELED'
 const CLAIMED_STATES = new Set(['CLAIMED', 'IN_PROGRESS', 'PAUSED', 'BLOCKED', 'IN_REVIEW'])
 const WORKING_STATES = new Set(['CLAIMED', 'IN_PROGRESS', 'PAUSED', 'BLOCKED'])
 const HEX_SHA = /^[a-f0-9]{40}$/
+const WORKER = /^[a-zA-Z0-9_-]{3,64}$/
 const REQ = /^REQ-[0-9]{8}-[0-9]{3}$/
 const TASK = /^T-[0-9]{3}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -40,6 +41,30 @@ function overlaps(a, b) {
 
 export function scopesOverlap(a, b) {
   return a.some(left => b.some(right => overlaps(left, right)))
+}
+
+
+function singleLine(value,min,max){
+  return typeof value === 'string' && value.length>=min && value.length<=max &&
+    value.trim().length>0 && !/[\x00-\x1f\x7f]/.test(value)
+}
+function safeBranch(value){
+  return typeof value==='string' && /^[a-zA-Z0-9][a-zA-Z0-9_.\/-]{0,119}$/.test(value) &&
+    !value.includes('..') && !value.includes('//') &&
+    !value.endsWith('/') && !value.endsWith('.') && !value.endsWith('.lock')
+}
+function verifyCheckpoint(cp){
+  check(plain(cp) && Object.keys(cp).every(k=>
+    ['summary','next_step','branch','head_sha','tests','blockers','pr_number','recorded_at','worker_id'].includes(k)),
+    'CHECKPOINT_FIELDS')
+  check(singleLine(cp.summary,4,400) && singleLine(cp.next_step,4,400),'CHECKPOINT_DESCRIPTION')
+  check(safeBranch(cp.branch) && HEX_SHA.test(cp.head_sha),'CHECKPOINT_GIT_REFERENCE')
+  check(cp.tests===undefined || singleLine(cp.tests,4,300),'CHECKPOINT_TESTS')
+  check(cp.blockers===undefined || singleLine(cp.blockers,4,300),'CHECKPOINT_BLOCKERS')
+  check(cp.pr_number===undefined || (Number.isInteger(cp.pr_number)&&cp.pr_number>0),'CHECKPOINT_PR_NUMBER')
+  check(cp.recorded_at===undefined || (typeof cp.recorded_at==='string' &&
+    Number.isFinite(Date.parse(cp.recorded_at))),'CHECKPOINT_TIME')
+  check(cp.worker_id===undefined || WORKER.test(cp.worker_id),'CHECKPOINT_WORKER')
 }
 
 export function validateSnapshot(snapshot) {
@@ -70,10 +95,28 @@ export function validateSnapshot(snapshot) {
     check(Array.isArray(task.depends_on) && task.depends_on.every(id => TASK.test(id)), 'DEPENDENCIES')
     check(Array.isArray(task.allowed_paths) && task.allowed_paths.length <= 20 &&
       task.allowed_paths.every(safePath), 'ALLOWED_PATHS')
+    if(task.checkpoint!==undefined){
+      verifyCheckpoint(task.checkpoint)
+      check(typeof task.checkpoint.recorded_at==='string' &&
+        WORKER.test(task.checkpoint.worker_id),'CHECKPOINT_METADATA')
+    }
+    if(task.handoff_history!==undefined){
+      check(Array.isArray(task.handoff_history) && task.handoff_history.length<=32,'HANDOFF_HISTORY')
+      for(const h of task.handoff_history){
+        check(plain(h) && ['handoff','takeover'].includes(h.type) &&
+          WORKER.test(h.from_worker) && WORKER.test(h.to_worker) &&
+          typeof h.actor==='string' && /^[a-zA-Z0-9-]{1,39}$/.test(h.actor) &&
+          typeof h.at==='string' && Number.isFinite(Date.parse(h.at)) &&
+          singleLine(h.reason,4,300) && HEX_SHA.test(h.head_sha) &&
+          Number.isInteger(h.previous_generation) && h.previous_generation>=1 &&
+          h.generation===h.previous_generation+1,'HANDOFF_RECORD')
+      }
+    }
     if (CLAIMED_STATES.has(task.status)) {
       check(plain(task.claim) && UUID.test(task.claim.claim_id) &&
         typeof task.claim.worker_id === 'string' && /^[a-zA-Z0-9_-]{3,64}$/.test(task.claim.worker_id) &&
-        typeof task.claim.actor === 'string' && /^[a-zA-Z0-9-]{1,39}$/.test(task.claim.actor), 'ACTIVE_CLAIM')
+        typeof task.claim.actor === 'string' && /^[a-zA-Z0-9-]{1,39}$/.test(task.claim.actor) &&
+        (task.claim.generation === undefined || (Number.isInteger(task.claim.generation) && task.claim.generation>=1)), 'ACTIVE_CLAIM')
     } else check(task.claim === null, 'UNEXPECTED_CLAIM')
   }
   const graph = new Map(snapshot.tasks.map(t => [t.task_id, t.depends_on]))
@@ -133,7 +176,8 @@ export function applyCommand(original, command, context) {
   check(typeof command.type === 'string', 'COMMAND_TYPE')
   check(Object.keys(command).every(key => [
     'type', 'requirement_id', 'request_id', 'task_id', 'worker_id',
-    'claim_id', 'note', 'pr_number', 'head_sha'
+    'claim_id', 'note', 'pr_number', 'head_sha', 'checkpoint',
+    'new_worker_id', 'expected_version', 'expected_claim_id', 'expected_head_sha'
   ].includes(key)), 'UNEXPECTED_COMMAND_FIELD')
   const hash = fingerprint(command)
   const previous = original.processed_requests.find(r => r.request_id === command.request_id)
@@ -160,7 +204,7 @@ export function applyCommand(original, command, context) {
       check(task.depends_on.every(id => next.tasks.find(d => d.task_id === id).status === 'DONE'), 'DEPENDENCY_BLOCKED')
       check(!next.tasks.some(other => other.task_id !== task.task_id &&
         CLAIMED_STATES.has(other.status) && scopesOverlap(task.allowed_paths, other.allowed_paths)), 'SCOPE_CONFLICT')
-      task.claim = { claim_id: randomUUID(), worker_id: command.worker_id, actor: context.actor, claimed_at: context.now }
+      task.claim = { claim_id: randomUUID(), worker_id: command.worker_id, actor: context.actor, claimed_at: context.now, generation: 1 }
       task.status = 'CLAIMED'
       receipt.claim_id = task.claim.claim_id
       break
@@ -195,6 +239,58 @@ export function applyCommand(original, command, context) {
       check(['PAUSED', 'BLOCKED'].includes(task.status), 'INVALID_TRANSITION')
       task.status = 'IN_PROGRESS'
       break
+    case 'checkpoint': {
+      requireOwner()
+      check(plain(command.checkpoint),'CHECKPOINT_REQUIRED')
+      check(!Object.keys(command.checkpoint).some(k=>['recorded_at','worker_id'].includes(k)),
+        'CHECKPOINT_METADATA_RESERVED')
+      verifyCheckpoint(command.checkpoint)
+      check(task.head_sha===undefined || task.head_sha===command.checkpoint.head_sha,
+        'CHECKPOINT_STALE_HEAD')
+      check(task.pr_number===undefined || task.pr_number===command.checkpoint.pr_number,
+        'CHECKPOINT_STALE_PR')
+      task.checkpoint={...command.checkpoint,recorded_at:context.now,
+        worker_id:task.claim.worker_id}
+      receipt.checkpoint_head_sha=task.checkpoint.head_sha
+      break
+    }
+    case 'handoff':
+    case 'takeover': {
+      check(CLAIMED_STATES.has(task.status),'NOT_CLAIMED')
+      check(task.checkpoint!==undefined,'RECOVERY_CHECKPOINT_REQUIRED')
+      check(Number.isInteger(command.expected_version) &&
+        command.expected_version===original.version,'STALE_RECOVERY_VERSION')
+      check(WORKER.test(command.new_worker_id) &&
+        command.new_worker_id!==task.claim.worker_id,'RECOVERY_TARGET_WORKER')
+      check(singleLine(command.note,4,300),'RECOVERY_REASON')
+      check(HEX_SHA.test(command.expected_head_sha) &&
+        command.expected_head_sha===task.checkpoint.head_sha &&
+        (task.head_sha===undefined || task.head_sha===command.expected_head_sha),
+        'STALE_RECOVERY_HEAD')
+      if(type==='handoff'){
+        requireOwner()
+      }else{
+        check(context.recoveryAuthorized===true,'RECOVERY_OWNER_APPROVAL_REQUIRED')
+        check(UUID.test(command.expected_claim_id) &&
+          command.expected_claim_id===task.claim.claim_id &&
+          command.worker_id===task.claim.worker_id,'STALE_RECOVERY_CLAIM')
+      }
+      const old=task.claim
+      const generation=(old.generation??1)+1
+      const history=task.handoff_history??[]
+      check(history.length<32,'HANDOFF_HISTORY_FULL')
+      history.push({type,from_worker:old.worker_id,to_worker:command.new_worker_id,
+        actor:context.actor,at:context.now,reason:command.note,
+        head_sha:task.checkpoint.head_sha,previous_generation:old.generation??1,generation})
+      task.handoff_history=history
+      task.claim={claim_id:randomUUID(),worker_id:command.new_worker_id,
+        actor:context.actor,claimed_at:context.now,generation}
+      receipt.claim_id=task.claim.claim_id
+      receipt.generation=generation
+      receipt.previous_worker_id=old.worker_id
+      receipt.new_worker_id=task.claim.worker_id
+      break
+    }
     case 'release':
       requireOwner()
       check(WORKING_STATES.has(task.status), 'INVALID_TRANSITION')
