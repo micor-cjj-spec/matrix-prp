@@ -36,6 +36,7 @@ const rule=()=>({id:26294671,target:'branch',enforcement:'active',
  bypass_actors:[{actor_type:'Integration',actor_id:5561446,bypass_mode:'always'}]})
 const input=()=>({before:state(),after:proposal(),pr:{
  number:144,state:'open',draft:true,changed_files:1,
+ user:{login:'micor-cjj-spec',id:123868412},
  base:{ref:'prp-collab-state',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
  head:{ref:'proposal/prp-collab-state-scope-20261101',sha:h,
  repo:{full_name:'micor-cjj-spec/matrix-prp'}}},
