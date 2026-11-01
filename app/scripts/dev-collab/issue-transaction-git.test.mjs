@@ -76,7 +76,7 @@ function setup({v1=false}={}){
   ' */rulesets/26294671) [[ "${GH_TOKEN:-}" == "isolated-test-app-token" ]] || exit 4; cat "$PRP_MOCK_RULESET" ;;',
   ' installation/repositories) [[ "${GH_TOKEN:-}" == "isolated-test-app-token" ]] || exit 4; cat "$PRP_MOCK_APP_REPOS" ;;',
   ' */branches/main) echo "{\\"protected\\":true}" ;;',
-  ' */branches/prp-collab-state) echo "{\\"protected\\":true}" ;;',
+  ' */branches/prp-collab-state) if [[ "${PRP_MOCK_DRIFT_MAIN:-}" == "1" ]]; then git -C "$PRP_MOCK_SEED" checkout main >/dev/null 2>&1; echo drift > "$PRP_MOCK_SEED/main-moved.txt"; git -C "$PRP_MOCK_SEED" add main-moved.txt; git -C "$PRP_MOCK_SEED" commit -m "new trusted source" >/dev/null; git -C "$PRP_MOCK_SEED" push origin main >/dev/null 2>&1; fi; echo "{\\"protected\\":true}" ;;',
   ' *) echo "UNKNOWN_GH_ROUTE" >&2; exit 3 ;;',
   'esac'
  ].join('\n')+'\n'
@@ -118,12 +118,12 @@ function setup({v1=false}={}){
   GH_TOKEN:'not-a-real-token',COLLAB_APP_TOKEN:'isolated-test-app-token',
   COLLAB_APP_ID:'5561446',COLLAB_RULESET_ID:'26294671',RUNNER_TEMP:temp,
   PRP_MOCK_ISSUE:issuePath,PRP_MOCK_TASK_ISSUE:taskIssuePath,
-  PRP_MOCK_RULESET:rulePath,PRP_MOCK_APP_REPOS:appReposPath}
- const execute=()=>spawnSync(process.execPath,['app/scripts/dev-collab/issue-transaction.mjs'],
-  {cwd:runner,env,encoding:'utf8',timeout:15000})
+  PRP_MOCK_RULESET:rulePath,PRP_MOCK_APP_REPOS:appReposPath,PRP_MOCK_SEED:seed}
+ const execute=(extra={})=>spawnSync(process.execPath,['app/scripts/dev-collab/issue-transaction.mjs'],
+  {cwd:runner,env:{...env,...extra},encoding:'utf8',timeout:15000})
  const head=()=>git(root,'--git-dir',origin,'rev-parse',REF)
  const snapshot=()=>JSON.parse(git(root,'--git-dir',origin,'show',REF+':'+REQ))
- return {root,prepare,prepareTaskIssue,execute,head,snapshot,initialHead:first,checkpointSha,appReposPath,
+ return {root,prepare,prepareTaskIssue,execute,head,snapshot,initialHead:first,initialMain:main,origin,checkpointSha,appReposPath,
   dispose:()=>rmSync(root,{recursive:true,force:true})}
 }
 test('isolated Git: owner probe verifies App scope without mutating protected state',
@@ -300,5 +300,20 @@ test('isolated Git registers T-010 on reviewed V1 seed and safely replays after 
   assert.equal(replay.status,0,replay.stderr)
   assert.equal(f.head(),prev)
   assert.equal(f.snapshot().tasks.length,10)
+ }finally{f.dispose()}
+})
+
+test('isolated Git refuses a state push if trusted main changes after initial validation',
+ {timeout:30000},()=>{
+ const f=setup()
+ try{
+  const before=f.head()
+  const attempt=f.execute({PRP_MOCK_DRIFT_MAIN:'1'})
+  assert.notEqual(attempt.status,0)
+  assert.match(attempt.stderr,/ISSUE_MAIN_CHANGED_BEFORE_PUSH/)
+  assert.equal(f.head(),before)
+  assert.equal(f.snapshot().version,0)
+  assert.equal(f.snapshot().tasks[0].claim,null)
+  assert.notEqual(git(f.root,'--git-dir',f.origin,'rev-parse','refs/heads/main'),f.initialMain)
  }finally{f.dispose()}
 })
