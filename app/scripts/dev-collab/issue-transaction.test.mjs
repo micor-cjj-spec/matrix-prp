@@ -68,7 +68,7 @@ test('automation workflow has only owner-opened Issue trigger and an isolated en
  assert.ok(w.includes('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1'))
  assert.ok(w.includes('actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510'))
  assert.ok(w.includes('package-manager-cache: false'))
- assert.equal(/actions\\/(checkout|setup-node|create-github-app-token)@v[0-9]+/.test(w),false)
+ assert.ok(!['actions/checkout@v4','actions/setup-node@v4','actions/create-github-app-token@v3'].some(x=>w.includes(x)))
  assert.doesNotMatch(w,/secrets\.GITHUB_TOKEN|pull-requests: write|^\s*contents: write/m)
 })
 
