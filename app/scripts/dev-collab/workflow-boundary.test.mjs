@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const workflow = readFileSync(new URL('../../../.github/workflows/prp-collab-coordinator.yml', import.meta.url), 'utf8')
+const issueIngress = readFileSync(new URL('../../../.github/workflows/prp-collab-issue-ingress.yml', import.meta.url), 'utf8')
 const transaction = readFileSync(new URL('./state-transaction.sh', import.meta.url), 'utf8')
 
 test('coordinator is manual, main-only, owner-only, and avoids production permissions', () => {
@@ -24,9 +25,9 @@ test('coordinator is manual, main-only, owner-only, and avoids production permis
   assert.doesNotMatch(workflow, /\n      contents: write\n/)
   assert.match(workflow, /STATE_BRANCH_UNPROTECTED/)
   assert.match(workflow, /branches\/prp-collab-state/)
-  assert.match(workflow, /id: transaction/)
-  assert.ok(workflow.includes("if: steps.transaction.outcome == 'success'"))
-  assert.ok(workflow.includes("if: failure() && steps.transaction.outcome != 'success'"))
+  assert.match(issueIngress, /id: transaction/)
+  assert.ok(issueIngress.includes("if: steps.transaction.outcome == 'success'"))
+  assert.ok(issueIngress.includes("if: failure() && steps.transaction.outcome != 'success'"))
   assert.match(workflow, /cancel-in-progress: false/)
   assert.match(workflow, /queue: max/)
   assert.doesNotMatch(workflow, /\bproduction\s*\n|secrets\.(?!PRP_COLLAB_APP_PRIVATE_KEY)[A-Z_]+|pull-requests: write/)
