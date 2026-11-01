@@ -19,7 +19,18 @@ const request=(id='11111111-1111-4111-8111-111111111111',version=0)=>({
  schema_version:1,action:'claim',request_id:id,
  requirement_id:'REQ-20261031-001',task_id:'T-001',
  worker_id:'chat-A',expected_version:version})
-function setup(){
+const reviewedV1=()=>{
+ const snapshot=initial()
+ snapshot.version=1
+ for(const [number,issue] of [[2,134],[3,135],[4,136],[5,137],
+  [6,141],[7,142],[8,143],[9,146]]){
+  snapshot.tasks.push({task_id:'T-'+String(number).padStart(3,'0'),
+   issue_number:issue,title:'Reviewed task '+number,status:'READY',
+   depends_on:[],allowed_paths:[],claim:null})
+ }
+ return snapshot
+}
+function setup({v1=false}={}){
  const root=mkdtempSync(join(tmpdir(),'prp-issue-local-'))
  const origin=join(root,'origin.git'),seed=join(root,'seed'),runner=join(root,'runner')
  mkdirSync(seed)
@@ -43,7 +54,7 @@ function setup(){
  const main=git(seed,'rev-parse','HEAD')
  git(seed,'checkout','-b','prp-collab-state')
  mkdirSync(join(seed,'requirements'))
- writeFileSync(join(seed,REQ),JSON.stringify(initial(),null,2)+'\n')
+ writeFileSync(join(seed,REQ),JSON.stringify(v1?reviewedV1():initial(),null,2)+'\n')
  git(seed,'add',REQ);git(seed,'commit','-m','initial state')
  git(seed,'push','origin','prp-collab-state')
  const first=git(root,'--git-dir',origin,'rev-parse',REF)
@@ -197,21 +208,13 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
    expected_version:4,issue_number:1000,title:manifest.title,
    depends_on:manifest.depends_on,allowed_paths:manifest.allowed_paths})
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
+  const beforeRegister=f.head()
   const registered=f.execute()
-  assert.equal(registered.status,0,registered.stderr)
-  assert.equal(f.snapshot().version,5)
-  assert.equal(f.snapshot().tasks.length,2)
-  assert.equal(f.snapshot().tasks[1].task_id,'T-002')
-  assert.equal(f.snapshot().tasks[1].issue_number,1000)
-  assert.equal(f.snapshot().tasks[1].status,'READY')
+  assert.notEqual(registered.status,0)
+  assert.match(registered.stderr,/TASK_REGISTRATION_REQUIRES_V1/)
+  assert.equal(f.head(),beforeRegister)
+  assert.equal(f.snapshot().version,4)
   const prev=f.head()
-  // Owner edited Task Issue details after the first successful registration.
-  // Replaying the original event must return the ledger result, not re-register.
-  f.prepareTaskIssue({...manifest,title:'Updated task description'})
-  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
-  const replay=f.execute()
-  assert.equal(replay.status,0,replay.stderr)
-  assert.equal(f.head(),prev)
   f.prepare(request('77777777-7777-4777-8777-777777777777',0))
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const stale=f.execute()
@@ -263,5 +266,39 @@ test('isolated Git rejects a task Issue whose owner-authored manifest does not m
   assert.notEqual(attempt.status,0)
   assert.match(attempt.stderr,/ISSUE_TASK_IDENTITY/)
   assert.equal(f.head(),before)
+ }finally{f.dispose()}
+})
+
+
+test('isolated Git registers T-010 on reviewed V1 seed and safely replays after Task Issue edit',
+ {timeout:40000},()=>{
+ const f=setup({v1:true})
+ try{
+  const manifest={schema_version:1,requirement_id:'REQ-20261031-001',
+   task_id:'T-010',title:'Add dashboard filtering',depends_on:['T-001'],
+   allowed_paths:['app/web/src/']}
+  f.prepareTaskIssue(manifest)
+  f.prepare({schema_version:1,action:'register_task',
+   request_id:'66666666-6666-4666-8666-666666666666',
+   requirement_id:'REQ-20261031-001',task_id:'T-010',
+   worker_id:'chat-A',expected_version:1,issue_number:1000,
+   title:manifest.title,depends_on:manifest.depends_on,
+   allowed_paths:manifest.allowed_paths})
+  const added=f.execute()
+  assert.equal(added.status,0,added.stderr)
+  const updated=f.snapshot()
+  assert.equal(updated.version,2)
+  assert.equal(updated.tasks.length,10)
+  assert.equal(updated.tasks[9].task_id,'T-010')
+  assert.equal(updated.tasks[9].issue_number,1000)
+  assert.equal(updated.tasks[9].status,'READY')
+  assert.equal(updated.tasks[9].claim,null)
+  const prev=f.head()
+  f.prepareTaskIssue({...manifest,title:'Changed Issue after registration'})
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
+  const replay=f.execute()
+  assert.equal(replay.status,0,replay.stderr)
+  assert.equal(f.head(),prev)
+  assert.equal(f.snapshot().tasks.length,10)
  }finally{f.dispose()}
 })
