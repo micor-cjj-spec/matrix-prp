@@ -163,6 +163,8 @@ test('task registration rejects reserved scopes, malformed dependencies and hidd
  ]){
   e.issue.body=JSON.stringify(data)
   reject(e,data.claim_id?'INGRESS_ACTION_FIELDS':
-    (data.depends_on.some(x=>!/^T-[0-9]{3}$/.test(x))?'INGRESS_TASK_DEPENDENCIES':'INGRESS_TASK_SCOPE'))
+    (data.depends_on.some(x=>!/^T-[0-9]{3}$/.test(x))||
+     new Set(data.depends_on).size!==data.depends_on.length
+      ?'INGRESS_TASK_DEPENDENCIES':'INGRESS_TASK_SCOPE'))
  }
 })
