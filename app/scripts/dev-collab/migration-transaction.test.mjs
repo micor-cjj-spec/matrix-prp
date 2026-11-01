@@ -70,7 +70,7 @@ function setup(){
   'case "$2" in',
   ' */pulls/144) cat "$PRP_MOCK_PR" ;;',
   ' */pulls/144/files*) cat "$PRP_MOCK_FILES" ;;',
-  ' */rulesets/26294671) cat "$PRP_MOCK_RULE" ;;',
+  ' */rulesets/26294671) [[ "${GH_TOKEN:-}" == "local-test-read-token" || "${GH_TOKEN:-}" == "local-test-write-token" ]] || exit 4; cat "$PRP_MOCK_RULE" ;;',
   ' installation/repositories) cat "$PRP_MOCK_APP" ;;',
   " *) echo UNEXPECTED_API >&2; exit 2 ;;",
   'esac'
@@ -101,7 +101,7 @@ function setup(){
   COLLAB_EXPECTED_STATE_SHA:stateSha,COLLAB_EXPECTED_PROPOSAL_SHA:proposalSha,
   COLLAB_APPROVED_STATE_SHA:stateSha,COLLAB_APPROVED_PROPOSAL_SHA:proposalSha,
   COLLAB_MIGRATION_MODE:'verify',COLLAB_APPROVAL_PHRASE:'',
-  COLLAB_APP_TOKEN:'',GH_TOKEN:'read-only',
+  COLLAB_APP_TOKEN:'local-test-read-token',GH_TOKEN:'read-only',
   PRP_MOCK_PR:names.pr,PRP_MOCK_FILES:names.files,
   PRP_MOCK_RULE:names.rule,PRP_MOCK_APP:names.app}
  return {root,names,pr,save,
@@ -110,6 +110,19 @@ function setup(){
   state:()=>git(root,'--git-dir',origin,'rev-parse','refs/heads/prp-collab-state'),
   cleanup:()=>rmSync(root,{recursive:true,force:true})}
 }
+
+test('read-only migration verification requires a scoped App token to inspect the ruleset',
+ {timeout:30000},()=>{
+ const f=setup()
+ try{
+  const before=f.state()
+  const result=f.execute({COLLAB_APP_TOKEN:''})
+  assert.notEqual(result.status,0)
+  assert.match(result.stderr,/DEDICATED_APP_TOKEN/)
+  assert.equal(f.state(),before)
+ }finally{f.cleanup()}
+})
+
 test('isolated Git preview is read only; simulated authorized apply commits once; stale replay is denied',
  {timeout:45000},()=>{
  const f=setup()
@@ -125,7 +138,7 @@ test('isolated Git preview is read only; simulated authorized apply commits once
   assert.equal(verify.status,0,verify.stderr)
   assert.match(verify.stdout,/PRP_COLLAB_MIGRATION=VERIFIED_READ_ONLY/)
   assert.equal(f.state(),before)
-  const input={COLLAB_MIGRATION_MODE:'apply',COLLAB_APP_TOKEN:'local-test-only-token',
+  const input={COLLAB_MIGRATION_MODE:'apply',COLLAB_APP_TOKEN:'local-test-write-token',
    COLLAB_APPROVAL_PHRASE:'APPLY-REQ-20261031-001-V1'}
   const denied=f.execute(input)
   assert.notEqual(denied.status,0)
