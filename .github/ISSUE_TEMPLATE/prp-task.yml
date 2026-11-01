@@ -38,3 +38,14 @@ body:
       description: 默认禁止生产数据库、SSH、部署、自动合并和密钥暴露
     validations:
       required: true
+  - type: textarea
+    id: manifest
+    attributes:
+      label: PRP Task Manifest（机器校验）
+      description: 必须与标题、依赖和允许修改范围一致；普通任务仅允许 backend/web/mobile 的源码与测试目录及非协作治理文档目录。
+      placeholder: |
+        <!-- PRP_TASK_MANIFEST
+        {"schema_version":1,"requirement_id":"REQ-YYYYMMDD-NNN","task_id":"T-NNN","title":"任务标题","depends_on":[],"allowed_paths":["app/web/src/"]}
+        -->
+    validations:
+      required: true
