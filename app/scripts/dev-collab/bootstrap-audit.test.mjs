@@ -24,14 +24,14 @@ test('read-only reconciliation detects out-of-scope files and dependency readine
   assert.deepEqual(result.ready_task_ids,['T-001','T-002'])
   assert.equal(result.pr_base,'main')
   assert.deepEqual(result.unassigned_files,['app/scripts/dev-collab/review-gate.mjs'])
-  assert.equal(result.eligible_for_task_acceptance,false)
+  assert.equal(result.task_acceptance_verified,false)
   assert.equal(result.claim_count,0)
   assert.equal(result.assigned_files_by_task['T-003'].length,0)
 })
 test('a main-targeted bootstrap PR cannot masquerade as an accepted task PR',()=>{
   const r=pr();r.merged=true
   const result=auditBootstrap(state(),r,files())
-  assert.equal(result.eligible_for_task_acceptance,false)
+  assert.equal(result.task_acceptance_verified,false)
   assert.ok(result.warnings.includes('BOOTSTRAP_PR_NOT_TARGETING_INTEGRATION'))
 })
 test('truncated or duplicated GitHub PR file evidence is rejected',()=>{
@@ -44,5 +44,13 @@ test('scope overlaps are visible rather than assigned to an arbitrary worker',()
   const s=state();s.tasks[2].allowed_paths=['app/scripts/dev-collab/'];s.tasks[2].depends_on=[]
   const report=auditBootstrap(s,pr(),files())
   assert.deepEqual(report.overlap_files,['app/scripts/dev-collab/core.mjs'])
-  assert.equal(report.eligible_for_task_acceptance,false)
+  assert.equal(report.task_acceptance_verified,false)
+})
+
+test('offline scope audit never certifies actual task acceptance, even when PR shape looks valid',()=>{
+  const p=pr();p.base.ref='integrate/REQ-20261031-001';p.merged=true
+  const s=state();s.tasks[2].allowed_paths=['app/scripts/dev-collab/review-gate.mjs'];
+  const report=auditBootstrap(s,p,files())
+  assert.equal(report.matches_integration_pr_shape,true)
+  assert.equal(report.task_acceptance_verified,false)
 })

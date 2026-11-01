@@ -24,3 +24,5 @@ The audit never modifies GitHub refs, issues, state, PRs or servers. It rejects 
 5. Start the first real `claim` from a fresh requirement or explicitly approved continuation. Do not alter historical task statuses as a substitute for live evidence.
 
 **No production merge, GitHub App installation, Ruleset creation, environment mutation, task claiming, or task acceptance is performed by this audit or documentation.**
+
+**Important:** `matches_integration_pr_shape` is only structural evidence. The offline audit always returns `task_acceptance_verified: false`; only the trusted owner-triggered live verifier can establish CI provenance, merge ancestry, task write scope, and final approval.

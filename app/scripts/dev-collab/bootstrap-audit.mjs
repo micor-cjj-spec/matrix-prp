@@ -45,8 +45,9 @@ export function auditBootstrap(snapshot, pr, files) {
     assigned_files_by_task: byTask,
     unassigned_files: unassigned,
     overlap_files: overlaps,
-    eligible_for_task_acceptance: canAcceptAsTaskPr && unassigned.length === 0 &&
+    matches_integration_pr_shape: canAcceptAsTaskPr && unassigned.length === 0 &&
       overlaps.length === 0 && pr.merged === true,
+    task_acceptance_verified: false, // This read-only path never fetches CI/merge/owner proof.
     warnings: [
       ...(canAcceptAsTaskPr ? [] : ['BOOTSTRAP_PR_NOT_TARGETING_INTEGRATION']),
       ...(unassigned.length ? ['UNASSIGNED_CHANGED_FILES'] : []),
