@@ -15,8 +15,8 @@ fail(){ echo "PRP_COLLAB_MIGRATION_BLOCKED=$1" >&2; exit 2; }
 [[ "${COLLAB_APPROVED_PROPOSAL_SHA:-}" =~ ^[a-f0-9]{40}$ ]] || fail APPROVED_PROPOSAL_PIN_CONFIG
 [[ "$COLLAB_EXPECTED_STATE_SHA" == "$COLLAB_APPROVED_STATE_SHA" ]] || fail UNAPPROVED_STATE_SHA
 [[ "$COLLAB_EXPECTED_PROPOSAL_SHA" == "$COLLAB_APPROVED_PROPOSAL_SHA" ]] || fail UNAPPROVED_PROPOSAL_SHA
-[[ "$COLLAB_RULESET_ID" =~ ^[1-9][0-9]*$ ]] || fail RULESET_ID
-[[ "$COLLAB_APP_ID" =~ ^[1-9][0-9]*$ ]] || fail APP_ID
+[[ "$COLLAB_RULESET_ID" == '26294671' ]] || fail RULESET_ID
+[[ "$COLLAB_APP_ID" == '5561446' ]] || fail APP_ID
 [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]] || fail SOURCE_SHA
 [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || fail SOURCE_REVISION
 [[ -f app/deploy/publication-hold.json ]] || fail PUBLICATION_HOLD_MISSING
