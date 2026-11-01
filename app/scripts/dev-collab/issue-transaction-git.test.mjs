@@ -205,7 +205,9 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
   assert.equal(f.snapshot().tasks[1].issue_number,1000)
   assert.equal(f.snapshot().tasks[1].status,'READY')
   const prev=f.head()
-  // Duplicate request ID is idempotent after a fresh Actions invocation.
+  // Owner edited Task Issue details after the first successful registration.
+  // Replaying the original event must return the ledger result, not re-register.
+  f.prepareTaskIssue({...manifest,title:'Updated task description'})
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const replay=f.execute()
   assert.equal(replay.status,0,replay.stderr)
