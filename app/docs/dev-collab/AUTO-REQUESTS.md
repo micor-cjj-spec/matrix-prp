@@ -89,6 +89,41 @@
 
 这一请求通过 GitHub 原始 `issues.opened` 事件确认作者是仓库所有者，作为此次唯一结构迁移的明确授权，**不用再到 GitHub 点击 approve**。程序仍需要检查 PR #144 的身份、单文件变更、九任务精确内容、未修改的原任务状态与领取记录、专用 App 单仓库作用域、当前 main 发布冻结、源 SHA、并发和远端写入结果。它不会提供任意版本迁移接口，也不会自动将 Draft PR #144 合并或标记 DONE。
 
+## 请求格式：创建并登记新任务（V1 之后）
+
+新任务必须先创建独立的 GitHub Task Issue，再由一个 owner-authored `[PRP-COLLAB-REQUEST]` Issue 请求把它登记进受保护状态文件。两步都由 ChatGPT 使用已认证的仓库所有者连接执行；不能把“创建了 Issue”误报为“已登记”。
+
+1. 先读取受保护状态，确认 Requirement 为 ACTIVE、版本为 V1 或更高，并读取下一个连续任务 ID（例如 T-010）。
+2. 创建 Task Issue，标题必须为 `[TASK][REQ-20261031-001/T-010] Add dashboard filtering`。正文包含目标/验收说明，并且**恰好包含一次**以下机器清单（JSON 字段不能增删）：
+
+```html
+<!-- PRP_TASK_MANIFEST
+{"schema_version":1,"requirement_id":"REQ-20261031-001","task_id":"T-010","title":"Add dashboard filtering","depends_on":["T-009"],"allowed_paths":["app/web/src/views/"]}
+-->
+```
+
+3. 再创建请求 Issue，标题为 `[PRP-COLLAB-REQUEST]`，正文例如：
+
+```json
+{
+  "schema_version": 1,
+  "action": "register_task",
+  "request_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  "requirement_id": "REQ-20261031-001",
+  "task_id": "T-010",
+  "worker_id": "chat-new",
+  "expected_version": 9,
+  "issue_number": 151,
+  "title": "Add dashboard filtering",
+  "depends_on": ["T-009"],
+  "allowed_paths": ["app/web/src/views/"]
+}
+```
+
+把示例中的 Issue 编号、版本、ID、依赖和路径替换为本次读取/创建的真实值。协调器会重新从 GitHub API 读取 Task Issue，核对作者与请求作者均为仓库所有者、Issue 仍 open、标题完全匹配、清单字段逐项匹配；随后检查任务 ID 连续性、依赖存在性、Issue 编号唯一性和受限文件路径，最后通过非强制 Git CAS 写入一条 READY 任务。任务不会因登记而自动领取或启动。重复请求使用同一 UUID；不能通过复用 UUID 改写另一项操作。
+
+普通任务的路径白名单仅允许产品代码与文档目录，不允许修改 `.github/workflows/**`、`app/scripts/dev-collab/**`、迁移/协调器信任根或部署文件。任务之间的重叠范围由状态机拒绝。新任务登记仅在该需求完成受审查的 V0→V1 迁移后开放；V0 状态不接受注册。
+
 ## 限制与审计
 
 当前 GitHub 连接能创建 owner-authored Issues，但未提供直接 `workflow_dispatch` 接口；选择 Issue 事件是为了避免 GUI。**GitHub Actions 是否确实响应此连接所创建的 Issue，尚需上线后真实验收**。GitHub 事件可能延迟；创建 Issue 不代表写入已完成。ChatGPT 必须读取关联 Actions 和原 Issue 的回执以及受保护状态 SHA，才能汇报成功。
