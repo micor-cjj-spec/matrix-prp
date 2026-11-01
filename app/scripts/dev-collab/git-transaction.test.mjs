@@ -148,3 +148,51 @@ test('same request rerun in Git coordinator keeps exactly one claim commit', { t
     assert.equal(f.readState().version, 1)
   } finally { f.destroy() }
 })
+
+test('two independent Git processes racing owner-approved takeover produce one new owner and fence the old claim',
+  {timeout:30000},async()=>{
+ const f=setup()
+ try{
+  const init=await run(f.workers[0],'77777777-7777-4777-8777-777777777777','T-001')
+  assert.equal(init.status,0,init.err)
+  const old=f.readState().tasks[0].claim
+  const ownerEnv={COLLAB_WORKER_ID:old.worker_id,COLLAB_CLAIM_ID:old.claim_id}
+  const started=await run(f.workers[0],'88888888-8888-4888-8888-888888888888',
+    'T-001',{...ownerEnv,COLLAB_ACTION:'start'})
+  assert.equal(started.status,0,started.err)
+  const checkpoint=await run(f.workers[0],'99999999-9999-4999-8999-999999999999',
+    'T-001',{...ownerEnv,COLLAB_ACTION:'checkpoint',
+     COLLAB_RECOVERY_PAYLOAD:JSON.stringify({
+       summary:'Pushed initial implementation',next_step:'Review changed files on GitHub',
+       branch:'feature/task-core',head_sha:f.mainHead,tests:'Local contract tests passed'
+     })})
+  assert.equal(checkpoint.status,0,checkpoint.err)
+  const current=f.readState()
+  assert.equal(current.version,3)
+  const common={
+   GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'workflow_dispatch',
+   GITHUB_WORKFLOW_REF:'micor-cjj-spec/matrix-prp/.github/workflows/prp-collab-coordinator.yml@refs/heads/main',
+   GITHUB_REPOSITORY:'micor-cjj-spec/matrix-prp',GITHUB_SHA:f.mainHead,
+   COLLAB_ACTION:'takeover',COLLAB_WORKER_ID:old.worker_id,
+   COLLAB_NOTE:'Original GPT conversation can no longer operate',
+   COLLAB_RECOVERY_PAYLOAD:JSON.stringify({
+     new_worker_id:'chat-rescue',expected_version:current.version,
+     expected_claim_id:old.claim_id,expected_head_sha:f.mainHead
+   })
+  }
+  const [a,b]=await Promise.all([
+   run(f.workers[0],'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','T-001',common),
+   run(f.workers[1],'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','T-001',common)
+  ])
+  assert.equal([a,b].filter(x=>x.status===0).length,1,JSON.stringify([a,b]))
+  const state=f.readState()
+  assert.equal(state.version,4)
+  assert.equal(state.tasks[0].status,'IN_PROGRESS')
+  assert.equal(state.tasks[0].claim.worker_id,'chat-rescue')
+  assert.equal(state.tasks[0].claim.generation,2)
+  assert.notEqual(state.tasks[0].claim.claim_id,old.claim_id)
+  assert.equal(state.tasks[0].handoff_history.length,1)
+  assert.equal(state.processed_requests.length,4)
+  assert.equal(git(f.root,['--git-dir',f.origin,'rev-parse','refs/heads/main']),f.mainHead)
+ }finally{f.destroy()}
+})
