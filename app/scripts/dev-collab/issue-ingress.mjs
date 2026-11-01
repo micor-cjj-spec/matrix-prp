@@ -57,6 +57,14 @@ function payload(body){
  let data
  try{data=JSON.parse(body)}catch{throw new CollabError('INGRESS_BODY_NOT_JSON')}
  check(plain(data)&&exact(data,FIELDS),'INGRESS_BODY_FIELDS')
+ if(data.action==='probe'){
+   const allowed=new Set(['schema_version','action','request_id','requirement_id'])
+   check(data.schema_version===1&&UUID.test(data.request_id)&&
+     data.requirement_id==='REQ-20261031-001'&&
+     exact(data,allowed)&&Object.keys(data).length===4,
+     'INGRESS_UNAPPROVED_PROBE')
+   return data
+ }
  if(data.action==='migrate_v1'){
    const approved=new Set(['schema_version','action','request_id','requirement_id',
      'expected_state_sha','expected_proposal_sha'])
@@ -138,6 +146,13 @@ export function validateIssueEvent(env,event,currentIssue=null){
      currentIssue.state==='open' && !currentIssue.pull_request,'INGRESS_ISSUE_MODIFIED')
  }
  const data=payload(event.issue.body)
+ if(data.action==='probe')return {
+   command:{type:'probe',request_id:data.request_id,
+     requirement_id:data.requirement_id},
+   expected_version:0,source_issue:event.issue.number,
+   actor:event.sender.login,actorId:event.sender.id,
+   recoveryAuthorized:false,oneShotProbe:true
+ }
  if(data.action==='migrate_v1')return {
    command:{type:data.action,request_id:data.request_id,
      requirement_id:data.requirement_id,
