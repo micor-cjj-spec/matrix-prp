@@ -11,7 +11,7 @@ const request=()=>({schema_version:1,action:'claim',
  requirement_id:'REQ-20261031-001',task_id:'T-001',
  worker_id:'chat-123',expected_version:1})
 const event=()=>({action:'opened',sender:{login:owner,id:101,type:'User'},
- repository:{full_name:repo,default_branch:'main',owner:{login:owner}},
+ repository:{full_name:repo,default_branch:'main',owner:{login:owner,id:101}},
  issue:{number:149,title:'[PRP-COLLAB-REQUEST]',state:'open',
   user:{login:owner,id:101},author_association:'OWNER',body:JSON.stringify(request())}})
 const reject=(e,code,environment=env(),current=null)=>
@@ -31,10 +31,12 @@ test('unauthorized trigger, issue author, PR, wrong workflow and edited issue fa
  reject(e,'INGRESS_UNTRUSTED_RUN',{...env(),GITHUB_EVENT_NAME:'issue_comment'})
  reject(e,'INGRESS_UNTRUSTED_RUN',{...env(),GITHUB_WORKFLOW_REF:'evil'})
  reject({...e,sender:{login:'attacker',id:202,type:'User'}},'INGRESS_UNTRUSTED_ISSUE')
+ reject({...e,repository:{...e.repository,owner:{login:owner,id:202}}},'INGRESS_UNTRUSTED_ISSUE')
  reject({...e,issue:{...e.issue,user:{login:owner,id:202}}},'INGRESS_UNTRUSTED_ISSUE')
  reject({...e,issue:{...e.issue,pull_request:{url:'forged'}}},'INGRESS_UNTRUSTED_ISSUE')
  reject(e,'INGRESS_ISSUE_MODIFIED',env(),{...e.issue,body:'{"edited":true}'})
  reject(e,'INGRESS_ISSUE_MODIFIED',env(),{...e.issue,state:'closed'})
+ reject(e,'INGRESS_ISSUE_MODIFIED',env(),{...e.issue,author_association:'COLLABORATOR'})
 })
 test('arbitrary JSON fields, code shell or excessive payload are rejected',()=>{
  const e=event()
