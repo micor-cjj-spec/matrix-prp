@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
 import {validateIssueEvent} from './issue-ingress.mjs'
 const owner='micor-cjj-spec',repo=owner+'/matrix-prp',sha='a'.repeat(40)
 const env=()=>({GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'issues',
@@ -169,4 +170,21 @@ test('task registration rejects reserved scopes, malformed dependencies and hidd
      new Set(data.depends_on).size!==data.depends_on.length
       ?'INGRESS_TASK_DEPENDENCIES':'INGRESS_TASK_SCOPE'))
  }
+})
+
+test('Issue ingress workflow filters request Issues and mints its writer only after validation',()=>{
+ const workflow=readFileSync(new URL('../../../.github/workflows/prp-collab-issue-ingress.yml',import.meta.url),'utf8')
+ assert.match(workflow,/issues:\\s*\\n\\s+types:\\s*\\[opened\\]/)
+ assert.match(workflow,/github\\.event\\.issue\\.title == '\\[PRP-COLLAB-REQUEST\\]'/)
+ assert.match(workflow,/github\\.event\\.issue\\.author_association == 'OWNER'/)
+ assert.match(workflow,/github\\.event\\.issue\\.pull_request == null/)
+ assert.match(workflow,/environment: prp-collab-automation/)
+ assert.match(workflow,/repositories: matrix-prp/)
+ assert.match(workflow,/permission-contents: write/)
+ assert.match(workflow,/queue: max/)
+ assert.doesNotMatch(workflow,/workflow_dispatch:|pull_request_target:|actions:\\s*write/)
+ const validation=workflow.indexOf('Validate original GitHub event against current Issue')
+ const token=workflow.indexOf('Mint repository-scoped writer token after event validation')
+ const transaction=workflow.indexOf('Execute one strict Git CAS transaction')
+ assert.ok(validation>=0&&token>validation&&transaction>token)
 })
