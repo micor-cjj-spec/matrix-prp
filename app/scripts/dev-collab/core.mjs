@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { validateTaskScopeList } from './task-scope-policy.mjs'
 
 export class CollabError extends Error {
   constructor(code, message = code) {
@@ -80,6 +81,7 @@ export function validateSnapshot(snapshot) {
   check(Array.isArray(snapshot.tasks) && snapshot.tasks.length > 0 && snapshot.tasks.length <= 100, 'TASK_LIST')
   check(Array.isArray(snapshot.processed_requests) && snapshot.processed_requests.length <= 512, 'REQUEST_LEDGER')
   const ids = new Set()
+  const issueNumbers = new Set([snapshot.issue_number])
   const receipts = new Set()
   for (const r of snapshot.processed_requests) {
     check(plain(r) && UUID.test(r.request_id) && typeof r.fingerprint === 'string' &&
@@ -91,10 +93,13 @@ export function validateSnapshot(snapshot) {
   for (const task of snapshot.tasks) {
     check(plain(task) && TASK.test(task.task_id) && !ids.has(task.task_id), 'TASK_ID')
     ids.add(task.task_id)
-    check(Number.isInteger(task.issue_number) && task.issue_number > 0, 'TASK_ISSUE')
+    check(Number.isInteger(task.issue_number) && task.issue_number > 0 &&
+      !issueNumbers.has(task.issue_number), 'TASK_ISSUE')
+    issueNumbers.add(task.issue_number)
     check(typeof task.title === 'string' && task.title.length > 0 && task.title.length <= 200, 'TASK_TITLE')
     check(TASK_STATES.has(task.status), 'TASK_STATUS')
-    check(Array.isArray(task.depends_on) && task.depends_on.every(id => TASK.test(id)), 'DEPENDENCIES')
+    check(Array.isArray(task.depends_on) && task.depends_on.every(id => TASK.test(id)) &&
+      new Set(task.depends_on).size===task.depends_on.length, 'DEPENDENCIES')
     check(Array.isArray(task.allowed_paths) && task.allowed_paths.length <= 20 &&
       task.allowed_paths.every(safePath), 'ALLOWED_PATHS')
     if(task.checkpoint!==undefined){
@@ -179,7 +184,8 @@ export function applyCommand(original, command, context) {
   check(Object.keys(command).every(key => [
     'type', 'requirement_id', 'request_id', 'task_id', 'worker_id',
     'claim_id', 'note', 'pr_number', 'head_sha', 'checkpoint',
-    'new_worker_id', 'expected_version', 'expected_claim_id', 'expected_head_sha'
+    'new_worker_id', 'expected_version', 'expected_claim_id', 'expected_head_sha',
+    'issue_number', 'title', 'depends_on', 'allowed_paths'
   ].includes(key)), 'UNEXPECTED_COMMAND_FIELD')
   const hash = fingerprint(command)
   const previous = original.processed_requests.find(r => r.request_id === command.request_id)
@@ -192,14 +198,43 @@ export function applyCommand(original, command, context) {
   const next = structuredClone(original)
   const task = next.tasks.find(t => t.task_id === command.task_id)
   const type = command.type
-  if (type !== 'close') {
-    check(TASK.test(command.task_id) && task, 'UNKNOWN_TASK')
+  if(type==='register_task'){
+    check(TASK.test(command.task_id)&&!task,'TASK_ALREADY_EXISTS')
+  }else if(type!=='close'){
+    check(TASK.test(command.task_id)&&task,'UNKNOWN_TASK')
   }
   const requireOwner = () => {
     owned(task, command, context.actor)
   }
+  let receiptTask=task
   let receipt = { type, task_id: command.task_id ?? null, request_id: command.request_id }
   switch (type) {
+    case 'register_task': {
+      check(original.requirement_id!=='REQ-20261031-001'||original.version>=1,
+        'TASK_REGISTRATION_REQUIRES_V1')
+      check(next.tasks.length<100,'TASK_LIST_FULL')
+      const highest=Math.max(...next.tasks.map(t=>Number(t.task_id.slice(2))))
+      check(highest<999&&command.task_id==='T-'+String(highest+1).padStart(3,'0'),
+        'TASK_ID_NOT_NEXT')
+      check(Number.isInteger(command.issue_number)&&command.issue_number>0&&
+        ![next.issue_number,...next.tasks.map(t=>t.issue_number)].includes(command.issue_number),
+        'TASK_ISSUE_NUMBER')
+      check(singleLine(command.title,4,200),'TASK_TITLE')
+      check(Array.isArray(command.depends_on)&&command.depends_on.length<=99&&
+        new Set(command.depends_on).size===command.depends_on.length&&
+        command.depends_on.every(id=>TASK.test(id)&&next.tasks.some(t=>t.task_id===id&&t.status!=='CANCELED')),
+        'TASK_DEPENDENCIES')
+      check(Array.isArray(command.allowed_paths)&&command.allowed_paths.length<=20&&
+        command.allowed_paths.every(safePath)&&validateTaskScopeList(command.allowed_paths),
+        'TASK_SCOPE_NOT_ALLOWED')
+      const created={task_id:command.task_id,issue_number:command.issue_number,
+        title:command.title,status:'READY',depends_on:[...command.depends_on],
+        allowed_paths:[...command.allowed_paths],claim:null}
+      next.tasks.push(created)
+      receiptTask=created
+      receipt.issue_number=created.issue_number
+      break
+    }
     case 'claim': {
       check(task.status === 'READY', 'TASK_NOT_READY')
       check(typeof command.worker_id === 'string' && /^[a-zA-Z0-9_-]{3,64}$/.test(command.worker_id), 'WORKER_ID')
@@ -353,7 +388,7 @@ export function applyCommand(original, command, context) {
   }
   next.version += 1
   next.updated_at = context.now
-  receipt = { ...receipt, version: next.version, status: task?.status ?? next.status, replayed: false }
+  receipt = { ...receipt, version: next.version, status: receiptTask?.status ?? next.status, replayed: false }
   // Never evict deduplication receipts silently: an old request could otherwise be replayed.
   check(next.processed_requests.length < 512, 'REQUEST_LEDGER_FULL')
   next.processed_requests.push({ request_id: command.request_id, fingerprint: hash, actor: context.actor, receipt })
