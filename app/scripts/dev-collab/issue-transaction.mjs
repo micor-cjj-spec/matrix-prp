@@ -115,11 +115,6 @@ async function main(){
  const event=JSON.parse(readFileSync(env.GITHUB_EVENT_PATH,'utf8'))
  const issue=gh('repos/'+REPO+'/issues/'+event.issue?.number)
  const validated=validateIssueEvent(env,event,issue)
- if(validated.command.type==='register_task'){
-   const taskIssue=gh('repos/'+REPO+'/issues/'+validated.command.issue_number)
-   verifyTaskIssue(taskIssue,validated)
-   validated.taskIssueVerified=true
- }
  verifyBranchAndRunner(env)
  if(validated.oneShotProbe===true){
    const stateRef='refs/heads/prp-collab-state'
@@ -164,6 +159,14 @@ async function main(){
  const path='requirements/'+validated.command.requirement_id+'.json'
  const file=join(tmp,path)
  const before=JSON.parse(readFileSync(file,'utf8'))
+ // A successfully recorded registration is immutable in the state ledger.
+ // Replays must not depend on the mutable Task Issue body still being present.
+ if(validated.command.type==='register_task' &&
+    !before.processed_requests?.some(r=>r.request_id===validated.command.request_id)){
+   const taskIssue=gh('repos/'+REPO+'/issues/'+validated.command.issue_number)
+   verifyTaskIssue(taskIssue,validated)
+   validated.taskIssueVerified=true
+ }
  const {snapshot,receipt}=applyAuthenticatedIssue(before,validated,
    new Date().toISOString(),verifiedGitCheckpoint)
  const replay=snapshot===before
