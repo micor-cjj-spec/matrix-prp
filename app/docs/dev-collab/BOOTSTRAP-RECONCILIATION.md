@@ -58,15 +58,15 @@ PR #138 已包含 owner-authenticated Issue ingress，支持 claim、进度、ch
 
 新任务登记通过两个 owner-authored Issue 完成：先创建 Task Issue 和 PRP_TASK_MANIFEST，再创建 register_task 请求 Issue。工作流验证作者、manifest、依赖和 scope，成功后登记为 READY；领取仍是独立操作。
 
-V0→V1 迁移通过固定 SHA 的 migrate_v1 请求执行。用户必须明确在 ChatGPT 中要求迁移；普通“继续 PRP”不代表迁移授权。该请求本身就是所有者授权，不需要额外 GUI approve。
+V0→V1 迁移通过固定 SHA 的 migrate_v1 请求执行。PR #144 必须先完成独立审查并退出 Draft；用户必须明确在 ChatGPT 中要求迁移，ChatGPT 才可将 PR 标记为 Ready for review 并发起请求。普通“继续 PRP”不代表迁移授权；不需要用户手动点击 approve，也不会自动合并 PR。
 
 ## 尚未完成的真实启用条件
 
 1. 对 17 个 bootstrap-only 文件完成信任边界审查，特别是 Issue 事件验证、App token 签发、Ruleset 校验、CAS 写入、迁移脚本和 task-scope-policy。
 2. PR #138 仍为 Draft；尚未合并到 main，因此 Issue ingress 尚未在 main 上运行。
 3. prp-collab-automation Environment 的 secret、variables、无审批规则和 main-only custom deployment branch policy 尚未完成真实核验。
-4. 尚未完成真实 issues.opened → App installation token → prp-collab-state CAS → 远端 SHA → 脱敏回执端到端验收。
-5. PR #144 尚未应用，正式状态保持 V0。
+4. 尚未完成真实只读 probe（Contents:read，状态 SHA 必须不变），也尚未完成之后单独授权的低影响 Contents:write CAS 试点。
+5. PR #144 仍为 Draft；V0→V1 apply gate 要求独立审查完成并退出 Draft。用户明确授权迁移后，ChatGPT 可将 PR 标记为 Ready for review，但不会合并它。PR #144 尚未应用，正式状态保持 V0。
 
 旧 prp-collab-controller Environment 和手动协调器保留为 legacy 路径。accept / close 不在 Issue ingress 的允许操作中，仍走独立可信验收流程。
 
