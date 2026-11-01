@@ -112,3 +112,10 @@ test('wrong state version, claimed tasks, missing hold or unpinned V0 fail close
  assert.ok(out.blockers.includes('PUBLICATION_HOLD_MISSING_OR_INVALID'))
  assert.ok(out.blockers.includes('STATE_NOT_PINNED_V0'))
 })
+
+test('activation preflight rejects a substituted App or state Ruleset ID',()=>{
+ const x=good();x.appId=999999;x.rulesetId=999999
+ const out=evaluateActivationEvidence(x)
+ assert.ok(out.blockers.includes('APP_ID_MISMATCH'))
+ assert.ok(out.blockers.includes('STATE_RULESET_ID_MISMATCH'))
+})
