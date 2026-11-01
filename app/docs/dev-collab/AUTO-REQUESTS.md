@@ -39,7 +39,7 @@
 新增任务采用两个 owner-authored Issue，均可由 ChatGPT GitHub 连接创建，不需要人工打开 Actions 或逐次审批：
 
 1. 先创建普通任务 Issue，标题严格为 `[TASK][REQ-ID/T-NNN] 任务标题`，正文包含目标、验收、依赖和范围，并在末尾加入唯一的机器清单：
-   
+
    ```html
    <!-- PRP_TASK_MANIFEST
    {"schema_version":1,"requirement_id":"REQ-20261031-001","task_id":"T-010","title":"增加任务看板筛选","depends_on":[],"allowed_paths":["app/web/src/"]}
@@ -71,7 +71,7 @@
 对当前 `REQ-20261031-001`，必须先完成固定 V0→V1 迁移，之后才能登记新任务；当前 V0 不会因创建任务 Issue 而被修改。多任务创建按最新状态版本逐项登记，不能并发复用同一版本。
 
 **当前仍是 Draft 候选实现**：需要 PR #138 经过独立审查和授权合并、完成一次性 Environment 配置及 V0→V1 迁移后，才能做真实 Issue 事件验收。
- 
+
 ## 请求格式：一次性 V0 → V1 迁移
 
 只有当 `prp-collab-state` **仍处于指定 V0 SHA** 且提案分支仍处于审核过的 SHA，才允许执行以下严格固定的唯一迁移：
