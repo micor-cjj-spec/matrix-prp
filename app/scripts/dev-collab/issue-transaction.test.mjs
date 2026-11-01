@@ -88,10 +88,10 @@ test('full owner Issue -> checkpoint -> handoff -> new chat; stale worker is fen
   GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:repo,
   GITHUB_REPOSITORY_OWNER:owner,GITHUB_ACTOR:owner,GITHUB_SHA:sha,
   GITHUB_WORKFLOW_REF:repo+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'}
- const issue=(body,number)=>({action:'opened',sender:{login:owner,id:101,type:'User'},
-  repository:{full_name:repo,default_branch:'main',owner:{login:owner,id:101}},
+ const issue=(body,number)=>({action:'opened',sender:{login:owner,id:123868412,type:'User'},
+  repository:{full_name:repo,default_branch:'main',owner:{login:owner,id:123868412}},
   issue:{number,title:'[PRP-COLLAB-REQUEST]',state:'open',
-   user:{login:owner,id:101},author_association:'OWNER',body:JSON.stringify(body)}})
+   user:{login:owner,id:123868412},author_association:'OWNER',body:JSON.stringify(body)}})
  const receive=(payload,n,state)=>{
   const evt=issue(payload,n),parsed=validateIssueEvent(env,evt,evt.issue)
   return applyAuthenticatedIssue(state,parsed,'2026-11-01T03:30:00Z',cp=>cp.head_sha===sha)
@@ -140,9 +140,9 @@ test('full owner Issue takeover maps the expected state version, not just the ou
   note:'Old chat crashed before a checkpoint',
   checkpoint:{summary:'Recovered remote work from GitHub',next_step:'Inspect next CI run',
    branch:'feat/recovered-work',head_sha:sha}}
- const evt={action:'opened',sender:{login:owner,id:101,type:'User'},
-  repository:{full_name:repo,default_branch:'main',owner:{login:owner,id:101}},
-  issue:{number:206,title:'[PRP-COLLAB-REQUEST]',state:'open',user:{login:owner,id:101},
+ const evt={action:'opened',sender:{login:owner,id:123868412,type:'User'},
+  repository:{full_name:repo,default_branch:'main',owner:{login:owner,id:123868412}},
+  issue:{number:206,title:'[PRP-COLLAB-REQUEST]',state:'open',user:{login:owner,id:123868412},
    author_association:'OWNER',body:JSON.stringify(body)}}
  const parsed=validateIssueEvent(env,evt,evt.issue)
  assert.equal(parsed.command.expected_version,1)
@@ -180,11 +180,11 @@ test('task registry write requires a matching owner-authored task Issue manifest
  const command={type:'register_task',requirement_id:req,task_id:'T-002',
   issue_number:151,title:'Add dashboard filtering',depends_on:['T-001'],
   allowed_paths:['app/web/src/']}
- const validated={command,actor:'micor-cjj-spec',actorId:101,source_issue:150}
+ const validated={command,actor:'micor-cjj-spec',actorId:123868412,source_issue:150}
  const manifest={schema_version:1,requirement_id:req,task_id:'T-002',
   title:command.title,depends_on:command.depends_on,allowed_paths:command.allowed_paths}
  const issue={number:151,title:'[TASK]['+req+'/T-002] '+command.title,
-  state:'open',user:{login:'micor-cjj-spec',id:101},author_association:'OWNER',
+  state:'open',user:{login:'micor-cjj-spec',id:123868412},author_association:'OWNER',
   body:'Task objective and acceptance criteria\n\n<!-- PRP_TASK_MANIFEST\n'+
    JSON.stringify(manifest)+'\n-->'}
  assert.equal(verifyTaskIssue(issue,validated),true)
@@ -200,7 +200,7 @@ test('register_task is refused without a verified related Issue and records no c
  const command={type:'register_task',requirement_id:req,task_id:'T-010',
   request_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',issue_number:151,
   title:'Add dashboard filtering',depends_on:['T-001'],allowed_paths:['app/web/src/']}
- const validated={command,actor:'micor-cjj-spec',actorId:101,
+ const validated={command,actor:'micor-cjj-spec',actorId:123868412,
   source_issue:150,expected_version:1,taskIssueVerified:false}
  assert.throws(()=>applyAuthenticatedIssue(state,validated,'2026-11-01T03:50:00Z'),
   e=>e.code==='ISSUE_TASK_NOT_VERIFIED')
