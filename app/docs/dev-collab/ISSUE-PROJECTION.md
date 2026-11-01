@@ -10,4 +10,4 @@ Ref changes between fetch and publication are detected before write, and a newer
 
 A missing state branch protection policy causes the workflow to fail closed. The workflow has a distinct Issue-write scope and never receives repository contents-write permission. Its review and activation is separate from task coordinator enablement.
 
-This is manual-only; there is no automatic cross-chat refresh or webhook push in MVP v1.
+This optional projection remains manual-only; it is not part of the ChatGPT task-command path and does not gate claim, progress, checkpoint, handoff, takeover, task registration or V0→V1 migration. ChatGPT reads the authoritative state ref directly for each operation. There is no automatic cross-chat refresh or webhook push in this optional projection.
