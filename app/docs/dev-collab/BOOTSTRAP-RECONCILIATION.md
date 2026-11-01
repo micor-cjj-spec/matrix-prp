@@ -1,42 +1,75 @@
 # Bootstrap PR reconciliation — REQ-20261031-001
 
-The current Draft PR #138 was built **before** live cross-chat claiming was activated. The authoritative `prp-collab-state` snapshot remains version 0 with no claims, and PR #138 targets `main`, not the planned `integrate/REQ-20261031-001` branch. The existing task acceptance policy **must not** retroactively treat this bootstrap PR as five independently claimed, checked and accepted task PRs.
+PR #138 是初始 bootstrap 候选实现，目标分支为 main；它不是五个独立任务 PR 的集合。prp-collab-state 仍为 V0，当前 SHA 为 062036f7021e215ffbfdcbf5689d207a0549b68b，五个历史任务均 READY、无 claim。
 
-An audit of the actual 39 changed files in PR #138 against the original five task scopes, performed on 2026-11-01, found **14 assigned files** (T-001 2, T-002 3, T-003 3, T-004 6, T-005 0) and **25 unassigned files**. A current audit should always be generated from live GitHub data rather than trusting these historical counts.
+## 当前文件范围审计（2026-11-01）
 
-Read-only reproducible audit:
+根据 Draft PR #138 的完整 GitHub changed-file 列表，并使用 Draft PR #144 的九任务 scope proposal 逐文件匹配：
 
-```sh
-gh api repos/micor-cjj-spec/matrix-prp/pulls/138 > /tmp/prp-bootstrap-pr.json
-gh api 'repos/micor-cjj-spec/matrix-prp/pulls/138/files?per_page=100' > /tmp/prp-bootstrap-files.json
-gh api 'repos/micor-cjj-spec/matrix-prp/contents/requirements/REQ-20261031-001.json?ref=prp-collab-state' --jq '.content' | base64 -d > /tmp/prp-bootstrap-state.json
-node app/scripts/dev-collab/bootstrap-audit.mjs /tmp/prp-bootstrap-state.json /tmp/prp-bootstrap-pr.json /tmp/prp-bootstrap-files.json
-```
+- PR changed files：66
+- 唯一映射到普通任务 scope：49
+- bootstrap/governance-only：17
+- 同一 changed file 同时落入多个任务 scope：0
 
-The audit never modifies GitHub refs, issues, state, PRs or servers. It rejects truncated or duplicate file evidence.
+普通任务 scope 的文件数：
+- T-001：2
+- T-002：3
+- T-003：3
+- T-004：11
+- T-005：0
+- T-006：9
+- T-007：12
+- T-008：5
+- T-009：4
 
-## Required reconciliation before pilot activation
+17 个 bootstrap-only 文件必须作为信任根单独审查，不得通过普通任务 PR 修改：
 
-1. Independently review PR #138 as an **initial bootstrap implementation**, keeping it Draft. Do not merge to `main` without separately assessing the existing production deployment workflow and explicitly approving any release impact.
-2. Allocate the 25 additional files to reviewed work packages (status board/projection, evidence+security verifier, CI+governance), using narrow path ownership, and publish the resulting requirement/task manifest through a **separate approved state migration**. Do not silently append tasks or overwrite state V0 through an ordinary unprotected Git push.
-3. Provision the dedicated GitHub App, reviewer environment, and exact protected state Ruleset; independently verify the app write path and all blocking permissions.
-4. Prepare an independent, protected integration branch and task-specific development PRs. Each new task PR must have a submitted head SHA, a true PR CI result, the allowed files and an owner-authorized acceptance workflow.
-5. Start the first real `claim` from a fresh requirement or explicitly approved continuation. Do not alter historical task statuses as a substitute for live evidence.
+- .github/workflows/ci.yml
+- .github/workflows/feature-impact.yml
+- .github/workflows/prp-collab-issue-ingress.yml
+- .github/workflows/prp-collab-migration.yml
+- .github/workflows/prp-dev-collab-contract.yml
+- app/scripts/dev-collab/issue-ingress.mjs
+- app/scripts/dev-collab/issue-ingress.test.mjs
+- app/scripts/dev-collab/issue-migrate.mjs
+- app/scripts/dev-collab/issue-migrate.test.mjs
+- app/scripts/dev-collab/issue-transaction-git.test.mjs
+- app/scripts/dev-collab/issue-transaction.mjs
+- app/scripts/dev-collab/issue-transaction.test.mjs
+- app/scripts/dev-collab/migration-guard.mjs
+- app/scripts/dev-collab/migration-guard.test.mjs
+- app/scripts/dev-collab/migration-transaction.sh
+- app/scripts/dev-collab/migration-transaction.test.mjs
+- app/scripts/dev-collab/task-scope-policy.mjs
 
-**No production merge, GitHub App installation, Ruleset creation, environment mutation, task claiming, or task acceptance is performed by this audit or documentation.**
+只读审计脚本不会修改 refs、Issues、PR、状态文件或服务器。每次审查都应从实时 GitHub changed-file 列表和精确 V1 proposal 重新生成结果，不应依赖历史计数。
 
-**Important:** `matches_integration_pr_shape` is only structural evidence. The offline audit always returns `task_acceptance_verified: false`; only the trusted owner-triggered live verifier can establish CI provenance, merge ancestry, task write scope, and final approval.
+## 当前安全配置证据
 
-## Protected state V0→V1 migration candidate (2026-11-01)
+- prp-collab-state Ruleset #26294671 已启用，唯一配置的 bypass actor 为专用 Integration App 5561446。
+- main Ruleset #24968649 已启用，bypass actors 为空。
+- main 的 app/deploy/publication-hold.json 仍有效。
+- 状态分支仍为 V0；PR #144 是 Draft 提案，尚未应用。
+- PR #138 仍为 Draft，尚未合并。
 
-The concrete proposal is [Draft PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144), **against `prp-collab-state`**, not main. It preserves all five tasks' READY/null-claim state and adds [T-006 / #141](https://github.com/micor-cjj-spec/matrix-prp/issues/141) with 9 paths, [T-007 / #142](https://github.com/micor-cjj-spec/matrix-prp/issues/142) with 12 paths, and [T-008 / #143](https://github.com/micor-cjj-spec/matrix-prp/issues/143) with 5 paths. It gives T-005 one future integration acceptance artifact, replacing the former impossible empty allowlist.
+## 零点击入口候选实现
 
-The scope proposal validator `verifyScopeMigrationProposal` compares old and candidate snapshots, checks exact task scopes and issues, unchanged historic task states, approved dependencies, zero processed requests and the sole sequential T-004/T-005 document-path overlap. Its result is only `structurally_valid`: **it never authorizes the state write or certifies task acceptance**. Three critical CI workflow files remain bootstrap-governance-only and must not enter ordinary task scopes.
+PR #138 已包含 owner-authenticated Issue ingress，支持 claim、进度、checkpoint、handoff、takeover、register_task 和固定 migrate_v1。正常操作由 ChatGPT 创建 [PRP-COLLAB-REQUEST] Issue，GitHub issues.opened 自动触发；不需要逐次 workflow_dispatch 或 Required reviewers 点击。
 
-PR #144 cannot be merged as an ordinary maintainer PR because the live state branch Ruleset requires the dedicated GitHub App bypass. The coordinator still has no audited `migrate` action; configure and separately approve a protected migration mechanism before considering application. Do not force-push, bypass the Ruleset or mark any task DONE to make the merge possible.
+新任务登记通过两个 owner-authored Issue 完成：先创建 Task Issue 和 PRP_TASK_MANIFEST，再创建 register_task 请求 Issue。工作流验证作者、manifest、依赖和 scope，成功后登记为 READY；领取仍是独立操作。
 
-## Issue #145 recovery expansion — candidate T-009 (2026-11-01)
+V0→V1 迁移通过固定 SHA 的 migrate_v1 请求执行。用户必须明确在 ChatGPT 中要求迁移；普通“继续 PRP”不代表迁移授权。该请求本身就是所有者授权，不需要额外 GUI approve。
 
-The updated [Draft state PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144) proposes **nine**, not eight, total tasks. It adds [T-009 / Issue #146](https://github.com/micor-cjj-spec/matrix-prp/issues/146) for the four new recovery-specific `app/scripts/dev-collab` source and test files. Cross-cutting modifications remain with T-001 (core state machine), T-003 (trusted coordinator), T-004 (docs), and T-008 (Git transaction test); these scopes do not widen. T-008 and final T-005 now depend on T-009. CI governance workflow changes remain separate bootstrap work.
+## 尚未完成的真实启用条件
 
-The migration validator rejects historic-task progress changes, unknown/new paths, missing dependencies and a missing T-009. It only inspects proposed JSON: it **does not** authenticate a GitHub App, authorize a state write, verify running CI provenance or accept historical implementation retroactively.
+1. 对 17 个 bootstrap-only 文件完成信任边界审查，特别是 Issue 事件验证、App token 签发、Ruleset 校验、CAS 写入、迁移脚本和 task-scope-policy。
+2. PR #138 仍为 Draft；尚未合并到 main，因此 Issue ingress 尚未在 main 上运行。
+3. prp-collab-automation Environment 的 secret、variables、无审批规则和 main-only custom deployment branch policy 尚未完成真实核验。
+4. 尚未完成真实 issues.opened → App installation token → prp-collab-state CAS → 远端 SHA → 脱敏回执端到端验收。
+5. PR #144 尚未应用，正式状态保持 V0。
+
+旧 prp-collab-controller Environment 和手动协调器保留为 legacy 路径。accept / close 不在 Issue ingress 的允许操作中，仍走独立可信验收流程。
+
+## 不可越过的边界
+
+本审计和文档更新不会自动合并 PR #138/#144，不会执行 V0→V1，不会将任务标记为 DONE，不会合并生产 PR，也不会解除 publication hold。只有在候选代码审查、一次性 Environment 配置和真实 Issue/App 写入验收完成后，才可考虑启用。
