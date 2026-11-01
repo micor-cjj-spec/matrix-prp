@@ -135,6 +135,7 @@ test('isolated Git preview is read only; simulated authorized apply commits once
   const accepted=f.execute(input)
   assert.equal(accepted.status,0,accepted.stderr)
   assert.match(accepted.stdout,/PRP_COLLAB_MIGRATION_APPLIED_SHA=/)
+  assert.match(accepted.stdout,new RegExp(f.state()))
   assert.notEqual(f.state(),before)
   const replay=f.execute()
   assert.notEqual(replay.status,0)
