@@ -98,9 +98,10 @@ test('main required checks must be strict and match the exact six protected cont
   .parameters.required_status_checks.pop()
  assert.ok(evaluateActivationEvidence(y).blockers.includes('MAIN_REQUIRED_CHECKS_NOT_EXACT'))
 })
-test('the Environment App Client ID must equal GitHub App metadata',()=>{
- const x=good();x.expectedClientId='Iv1.different-client-id'
- assert.ok(evaluateActivationEvidence(x).blockers.includes('AUTO_ENV_APP_CLIENT_ID_MISMATCH'))
+test('the Environment App Client ID variable must exist without exposing its value',()=>{
+ const x=good()
+ x.environmentVariables.variables=x.environmentVariables.variables.filter(v=>v.name!=='PRP_COLLAB_APP_CLIENT_ID')
+ assert.ok(evaluateActivationEvidence(x).blockers.includes('AUTO_ENV_APP_CLIENT_ID_MISSING'))
 })
 test('the automation environment must have no reviewers or wait timer',()=>{
  for(const protection of [
