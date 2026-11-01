@@ -64,18 +64,20 @@ V1 生效后，创建新任务分两步，均可由 ChatGPT GitHub 连接自动�
 
 app/scripts/dev-collab/board.mjs 从状态文件生成只读任务看板，展示需求、任务、状态、依赖、worker 和 PR。看板不包含 claim 凭证，也不授权领取、验收、合并或部署。
 
-## 当前验证证据（2026-11-01）
+## 验证证据与真实启用边界
 
-Draft PR #138 当前 head：26310b21d210b340b48819981dff87df2f164d14。
+每次审查都必须读取 PR #138 当前 head 的 GitHub Actions 结果，只能把该精确 SHA 上全部必需检查成功视为候选代码 CI 通过。旧 SHA 的绿色结果不能代替最新 head 的 CI 结果。
 
-当前该精确 HEAD 的 CI、Feature Impact Report、PRP Dev Collaboration Contract 三个工作流均已成功；CI 工作流的九个 Job 全部成功，合计 11/11 检查通过。这证明当前候选代码通过了 GitHub Actions 验证，不代表 Issue 自动触发、Environment 配置或 GitHub App 实际状态写入已经完成。
+CI 通过仅证明自动化测试和静态工作流契约通过，不证明以下事项已经完成：
+- prp-collab-automation Environment 的真实 secret、variables 和 main-only 部署分支配置；
+- GitHub App installation token 的实际签发、单仓库范围和 Contents: write 能力；
+- 专用 App 对 prp-collab-state Ruleset 的真实 bypass 能力；
+- 真实 issues.opened 事件从 ChatGPT 创建 Issue 到状态分支 CAS 写入、远端 SHA 核验和脱敏回执的完整链路。
 
-实时核验的仓库安全配置：
-- 状态分支 Ruleset #26294671 已启用，仅允许专用 Integration App bypass。
-- main Ruleset #24968649 已启用，没有 bypass actors。
-- main 的 app/deploy/publication-hold.json 仍存在，生产发布冻结保持有效。
-- prp-collab-state 当前 SHA 仍为 V0：062036f7021e215ffbfdcbf5689d207a0549b68b。
+正式状态必须以 GitHub 当前分支、Ruleset、Actions 运行和远端状态 SHA 为准。不得用历史测试结果或 Issue 创建成功推断任务状态已更新。
 
+main 的生产发布冻结必须持续有效；协作功能验收不授权生产发布。
+ 
 ## 验证命令
 
 ```bash
