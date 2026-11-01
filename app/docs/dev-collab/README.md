@@ -26,7 +26,7 @@ V0→V1 状态提案：[Draft PR #144](https://github.com/micor-cjj-spec/matrix-
 - handoff、明确授权的 takeover；
 - submit、rework；
 - V1 生效后的 register_task；
-- 用户明确要求时执行固定 V0→V1 的 migrate_v1。
+- 用户明确要求时执行固定 V0→V1 的 migrate_v1；PR #144 必须完成独立审查并退出 Draft，ChatGPT 可在明确迁移授权后将其标记为 Ready for review，但不会合并该 PR。
 
 日常任务操作不需要逐次打开 Actions → Run workflow，也不需要逐次点击 Required reviewers。一个操作请求 Issue 就是该次操作的明确所有者授权；创建 Issue 本身不等于状态写入成功，必须读取工作流回执和最新远端 SHA。
 
@@ -56,7 +56,7 @@ V1 状态生效后，ChatGPT 创建新任务时会自动完成两步：
 2. 一次性配置 prp-collab-automation Environment：不配置 Required reviewers 或 Wait timer；custom deployment branch policy 只允许 main。
 3. 配置 Environment secret PRP_COLLAB_APP_PRIVATE_KEY，以及变量 PRP_COLLAB_APP_CLIENT_ID、PRP_COLLAB_APP_ID=5561446、PRP_COLLAB_RULESET_ID=26294671。
 4. 专用 GitHub App 只安装到 micor-cjj-spec/matrix-prp；每次 token 限定该仓库。
-5. 完成一次真实 issues.opened → App token → 状态分支 CAS → 远端 SHA → 脱敏回执验收。
+5. 先用 Contents:read 执行一次真实只读 probe，确认 Actions、App token 单仓库范围、脱敏回执和状态 SHA 完全未变；随后经单独明确授权，再执行一次低影响 Contents:write 试点，核验非强制 CAS 推送和新远端 SHA。
 
 旧 prp-collab-controller Environment 和手动协调器作为独立旧路径保留，不是日常任务操作入口。accept / close 不在 Issue ingress 的允许操作中，仍走独立可信验收流程。
 
