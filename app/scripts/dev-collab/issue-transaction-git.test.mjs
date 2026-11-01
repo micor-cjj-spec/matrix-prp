@@ -91,7 +91,7 @@ function setup(){
   const issue={number:1000,title:'[TASK]['+manifest.requirement_id+'/'+
    manifest.task_id+'] '+manifest.title,state:'open',
    user:{login:author,id:author===OWNER?101:202},author_association:'OWNER',
-   body:'Task objective and acceptance criteria\\n\\n<!-- PRP_TASK_MANIFEST\\n'+
+   body:'Task objective and acceptance criteria\n\n<!-- PRP_TASK_MANIFEST\n'+
     JSON.stringify(manifest)+'\\n-->'}
   writeFileSync(taskIssuePath,JSON.stringify(issue))
  }
