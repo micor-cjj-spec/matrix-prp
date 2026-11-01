@@ -14,10 +14,20 @@ export function verifyStateBranchRuleset(rule,appId){
   const types=new Set((rule.rules??[]).map(x=>x?.type))
   check([...MANDATORY].every(t=>types.has(t)),'MISSING_REQUIRED_STATE_RULES')
   const bypass=rule.bypass_actors
-  check(Array.isArray(bypass) && bypass.length===1 &&
-    bypass[0].actor_type==='Integration' && bypass[0].actor_id===appId &&
-    bypass[0].bypass_mode==='always','UNSAFE_RULESET_BYPASS')
-  return Object.freeze({allowed:true,rule_id:rule.id,app_id:appId,ref:REF})
+  let bypassActorsVerified=false
+  if(Array.isArray(bypass)){
+    check(bypass.length===1 &&
+      bypass[0].actor_type==='Integration' && bypass[0].actor_id===appId &&
+      bypass[0].bypass_mode==='always','UNSAFE_RULESET_BYPASS')
+    bypassActorsVerified=true
+  }else{
+    // GitHub redacts bypass_actors unless the API caller can write the ruleset.
+    // An installation token for the designated App still exposes this caller-specific
+    // field; require it to prove that THIS App can bypass, without granting admin:write.
+    check(rule.current_user_can_bypass==='always','RULESET_APP_BYPASS_NOT_VERIFIED')
+  }
+  return Object.freeze({allowed:true,rule_id:rule.id,app_id:appId,ref:REF,
+    bypassActorsVerified,appCanBypass:true})
 }
 
 if(process.argv[1] && process.argv[1].endsWith('/state-rule-policy.mjs')){
