@@ -64,7 +64,7 @@ function setup(){
   ' */issues/1000) cat "$PRP_MOCK_TASK_ISSUE" ;;',
   ' */rulesets/26294671) [[ "${GH_TOKEN:-}" == "isolated-test-app-token" ]] || exit 4; cat "$PRP_MOCK_RULESET" ;;',
   ' installation/repositories) [[ "${GH_TOKEN:-}" == "isolated-test-app-token" ]] || exit 4; cat "$PRP_MOCK_APP_REPOS" ;;',
-  ' */branches/main) echo "{\"protected\":true}" ;;',
+  ' */branches/main) echo "{\\"protected\\":true}" ;;',
   ' */branches/prp-collab-state) echo "{\\"protected\\":true}" ;;',
   ' *) echo "UNKNOWN_GH_ROUTE" >&2; exit 3 ;;',
   'esac'
