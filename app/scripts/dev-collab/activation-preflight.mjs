@@ -156,7 +156,7 @@ function run() {
     rulesetId:Number(rulesetId),environment,branchPolicies,environmentSecrets,
     environmentVariables,snapshot,
     headSha,installationRepos,publicationHold})
-  process.stdout.write(JSON.stringify(report,null,2)+'\\n')
+  process.stdout.write(JSON.stringify(report,null,2)+'\n')
   if(report.status!=='PRECONDITIONS_OBSERVED')process.exitCode=2
 }
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
