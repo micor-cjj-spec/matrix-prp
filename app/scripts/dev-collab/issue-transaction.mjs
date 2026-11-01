@@ -85,13 +85,14 @@ export function redactedReceipt(receipt,meta){
  return {request_id:receipt.request_id,action:receipt.type,
   requirement_id:meta.requirement_id,task_id:receipt.task_id,
   version:receipt.version,status:receipt.status,
-  state_sha:meta.state_sha}
+  task_issue_number:receipt.issue_number,state_sha:meta.state_sha}
 }
 function receiptMarkdown(info){
  return ['### PRP collaboration request completed','',
   'Request ID: '+info.request_id,
   'Operation: '+info.action,
   'Task: '+info.requirement_id+'/'+info.task_id,
+  ...(info.task_issue_number?[ 'Task Issue: #'+info.task_issue_number ]:[]),
   'State version: '+info.version,'Remote state SHA: '+info.state_sha,
   '','Result was committed using a non-force Git push.',
   'Public receipt excludes claim credentials.'].join('\n')+'\n'
