@@ -45,6 +45,8 @@ activation-preflight.mjs 检查：
 
 任何 API 不可读、环境不匹配、规则不可见或状态偏移都会返回 NO_GO。检查脚本不会自动修复配置。
 
+运行此脚本必须使用仓库管理员身份，以便读取完整的 Ruleset bypass_actors 列表。运行时的专用 App token 不授予 Administration 权限，GitHub 可能只向它返回 current_user_can_bypass；因此必须在启用前和每次 Ruleset 变更后，通过管理员 preflight 独立确认完整列表恰好只有 App 5561446。不要给协作 App 增加 Administration 权限。
+
 ## 运行方式
 
 在可信管理员工作站使用 GitHub CLI 登录仓库管理员账号，确保本地已取得状态分支 commit 对象：
