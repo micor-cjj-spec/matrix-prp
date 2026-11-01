@@ -85,6 +85,10 @@ test('apply requires a current-head approval from a reviewer independent of the 
   return e
  }
  const missing=ready();fails(missing,'INDEPENDENT_REVIEW_REQUIRED')
+ const incomplete=ready();incomplete.reviews=Array.from({length:100},(_,i)=>({id:i+1,
+  user:{login:'reviewer-'+i,id:1000+i,type:'User'},state:'APPROVED',commit_id:h,
+  submitted_at:'2026-11-01T03:00:00Z'}))
+ fails(incomplete,'REVIEW_PAGINATION_INCOMPLETE')
  const ownerOnly=ready()
  ownerOnly.reviews=[{id:1,user:{login:'micor-cjj-spec',id:123868412,type:'User'},
   state:'APPROVED',commit_id:h,submitted_at:'2026-11-01T03:00:00Z'}]
