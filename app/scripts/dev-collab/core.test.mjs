@@ -15,6 +15,16 @@ const make = () => ({
     { task_id: 'T-003', issue_number: 135, title: 'Coordinator', status: 'READY', depends_on: ['T-001'], allowed_paths: ['app/scripts/dev-collab/'], claim: null }
   ]
 })
+const migrated=()=>{
+  const s=make()
+  s.version=1
+  for(const [number,issue] of [[4,136],[5,137],[6,141],[7,142],[8,143],[9,146]]){
+    s.tasks.push({task_id:'T-'+String(number).padStart(3,'0'),issue_number:issue,
+      title:'Reviewed V1 task '+number,status:'READY',depends_on:[],
+      allowed_paths:[],claim:null})
+  }
+  return s
+}
 const command = (type, task_id, extras = {}) => ({
   requirement_id: requirement, request_id: uuid(), type, task_id, ...extras
 })
@@ -164,33 +174,56 @@ test('accept requires verified exact PR number and head SHA in addition to revie
   assert.equal(done.tasks[0].claim,null)
 })
 
-test('owner registers the next task from a verified Issue with safe non-overlapping module scopes',()=>{
- const state=make();state.version=1
- const cmd=command('register_task','T-004',{
+test('owner registers the next task only after the reviewed V1 seed is present',()=>{
+ const state=migrated()
+ const cmd=command('register_task','T-010',{
   issue_number:138,title:'Add dashboard filtering',
   depends_on:['T-003'],allowed_paths:['app/web/src/','app/backend/src/main/java/']
  })
  const out=applyCommand(state,cmd,actor)
  const created=out.snapshot.tasks.at(-1)
  assert.deepEqual(created,{
-  task_id:'T-004',issue_number:138,title:'Add dashboard filtering',
+  task_id:'T-010',issue_number:138,title:'Add dashboard filtering',
   status:'READY',depends_on:['T-003'],
   allowed_paths:['app/web/src/','app/backend/src/main/java/'],claim:null
  })
  assert.equal(out.snapshot.version,2)
  assert.equal(out.receipt.status,'READY')
  assert.equal(out.receipt.issue_number,138)
- assert.equal(availableTasks(out.snapshot).some(t=>t.task_id==='T-004'),false)
+ assert.equal(availableTasks(out.snapshot).some(t=>t.task_id==='T-010'),false)
+})
+test('V0 state revision increments do not imply that the V1 migration occurred',()=>{
+ const state=make()
+ const claimResult=claim(state,'T-001')
+ assert.equal(claimResult.state.version,1)
+ const attempt=command('register_task','T-004',{
+  issue_number:138,title:'Add dashboard filtering',depends_on:[],
+  allowed_paths:['app/web/src/']})
+ assertCode(()=>applyCommand(claimResult.state,attempt,actor),
+   'TASK_REGISTRATION_REQUIRES_V1')
+ claimResult.state.version=99
+ assertCode(()=>applyCommand(claimResult.state,attempt,actor),
+   'TASK_REGISTRATION_REQUIRES_V1')
+})
+test('V1 seed requires all four reviewed task and Issue identities',()=>{
+ const valid=()=>command('register_task','T-010',{
+  issue_number:138,title:'Add dashboard filtering',depends_on:[],
+  allowed_paths:['app/web/src/']})
+ for(const [id,issue] of [['T-006',141],['T-007',142],['T-008',143],['T-009',146]]){
+  const state=migrated()
+  state.tasks.find(t=>t.task_id===id).issue_number=issue+100
+  assertCode(()=>applyCommand(state,valid(),actor),'TASK_REGISTRATION_REQUIRES_V1')
+ }
 })
 test('task registration rejects pre-migration state, wrong sequence, duplicate Issue and unsafe scope',()=>{
- const state=make()
- const valid=()=>command('register_task','T-004',{
+ const original=make()
+ const valid=()=>command('register_task','T-010',{
   issue_number:138,title:'Add dashboard filtering',depends_on:[],
   allowed_paths:['app/web/src/']
  })
- assertCode(()=>applyCommand(state,valid(),actor),'TASK_REGISTRATION_REQUIRES_V1')
- state.version=1
- assertCode(()=>applyCommand(state,{...valid(),task_id:'T-005'},actor),'TASK_ID_NOT_NEXT')
+ assertCode(()=>applyCommand(original,valid(),actor),'TASK_REGISTRATION_REQUIRES_V1')
+ const state=migrated()
+ assertCode(()=>applyCommand(state,{...valid(),task_id:'T-011'},actor),'TASK_ID_NOT_NEXT')
  assertCode(()=>applyCommand(state,{...valid(),issue_number:133},actor),'TASK_ISSUE_NUMBER')
  assertCode(()=>applyCommand(state,{...valid(),allowed_paths:['.github/workflows/']},actor),'TASK_SCOPE_NOT_ALLOWED')
  assertCode(()=>applyCommand(state,{...valid(),allowed_paths:['app/docs/']},actor),'TASK_SCOPE_NOT_ALLOWED')
@@ -198,8 +231,8 @@ test('task registration rejects pre-migration state, wrong sequence, duplicate I
  assertCode(()=>applyCommand(state,{...valid(),depends_on:['T-001','T-001']},actor),'TASK_DEPENDENCIES')
 })
 test('registered task request is idempotent and cannot change its manifest on replay',()=>{
- const state=make();state.version=1
- const cmd=command('register_task','T-004',{
+ const state=migrated()
+ const cmd=command('register_task','T-010',{
   issue_number:138,title:'Add dashboard filtering',depends_on:[],
   allowed_paths:['app/web/src/']
  })
