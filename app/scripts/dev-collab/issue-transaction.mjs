@@ -47,6 +47,10 @@ export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>
  check(replay||snapshot.version===expected_version,'ISSUE_STALE_VERSION')
  check(actor==='micor-cjj-spec','ISSUE_UNTRUSTED_ACTOR')
  const context={actor,now,recoveryAuthorized:validated.recoveryAuthorized===true}
+ // A recorded request has already passed remote evidence checks at its first
+ // successful state transition. Replay still checks actor and exact fingerprint
+ // in applyCommand, but must not depend on a feature branch remaining at that SHA.
+ if(replay)return applyCommand(snapshot,command,context)
  if(command.type==='register_task')
    check(validated.taskIssueVerified===true,'ISSUE_TASK_NOT_VERIFIED')
  if(['checkpoint','handoff','takeover'].includes(command.type)){
