@@ -94,9 +94,9 @@ function setup({v1=false}={}){
  }))
  const prepare=(payload,author=OWNER)=>{
   const issue={number:999,title:'[PRP-COLLAB-REQUEST]',state:'open',
-   user:{login:author,id:101},author_association:'OWNER',body:JSON.stringify(payload)}
-  const evt={action:'opened',sender:{login:author,id:101,type:'User'},
-   repository:{full_name:REPO,default_branch:'main',owner:{login:OWNER,id:101}},
+   user:{login:author,id:123868412},author_association:'OWNER',body:JSON.stringify(payload)}
+  const evt={action:'opened',sender:{login:author,id:123868412,type:'User'},
+   repository:{full_name:REPO,default_branch:'main',owner:{login:OWNER,id:123868412}},
    issue}
   writeFileSync(eventPath,JSON.stringify(evt));writeFileSync(issuePath,JSON.stringify(issue))
  }
@@ -104,7 +104,7 @@ function setup({v1=false}={}){
  const prepareTaskIssue=(manifest,author=OWNER)=>{
   const issue={number:1000,title:'[TASK]['+manifest.requirement_id+'/'+
    manifest.task_id+'] '+manifest.title,state:'open',
-   user:{login:author,id:author===OWNER?101:202},author_association:'OWNER',
+   user:{login:author,id:author===OWNER?123868412:202},author_association:'OWNER',
    body:'Task objective and acceptance criteria\n\n<!-- PRP_TASK_MANIFEST\n'+
     JSON.stringify(manifest)+'\n-->'}
   writeFileSync(taskIssuePath,JSON.stringify(issue))
