@@ -51,6 +51,8 @@ The state request history is deliberately bounded at 512 entries per requirement
 
 ## Current activation blocker
 
-`prp-collab-state` is currently **unprotected** on GitHub. The candidate write coordinator refuses to run until branch protection is enabled and independently reviewed. The optional read-only board workflow has no write token and does not require activation of the write path. Do not regard feature-branch CI success as permission to merge or enable production release.
+The `prp-collab-state` branch **is protected**: repository Ruleset `26294671` was verified active, with update/deletion/non-fast-forward protections and sole GitHub App id `5561446` bypass. The dedicated App was installed for this repository by its owner. Environment secrets and approvals were configured through the UI but cannot be independently inspected by the current GitHub connector; actual App write actions and reviewer behavior have **not** yet been proved. Never treat feature-branch green CI as permission to merge.
 
-> Security activation change: the write coordinator requires a reviewed dedicated GitHub App, an environment approval and an exact active state-ref ruleset. The default Actions token no longer has contents write. The secrets, GitHub App and branch ruleset have not been provisioned.
+The protected `main` branch contains the authorized publication hold (PR #140, commit `528c54c`); its actual downstream workflow completed with `publish=skipped`. The hold does **not** disable builds. The coordinator and lost-chat recovery implementation are still only in Draft PR #138, and the proposal to change authoritative task state is Draft PR #144. **Do not modify state, merge the Draft PR or deploy without separate approval.**
+
+Lost-chat recovery candidate: [SESSION-RECOVERY.md](./SESSION-RECOVERY.md) and Issue #145. This adds read-only discovery, checkpoints, optional voluntary handoff and explicitly owner-authorized forced takeover with stale-claim fencing; GitHub actor identity is not proof of a unique ChatGPT conversation.
