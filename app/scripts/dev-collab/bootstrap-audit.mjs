@@ -91,6 +91,12 @@ export const SCOPE_MIGRATION_FILES = Object.freeze({
     "app/scripts/dev-collab/integration-ci-boundary.test.mjs",
     "app/scripts/dev-collab/workflow-boundary.test.mjs",
     "app/scripts/dev-collab/workflow-contract.test.mjs"
+  ],
+  "T-009": [
+    "app/scripts/dev-collab/checkpoint-recovery.test.mjs",
+    "app/scripts/dev-collab/recovery-auth.mjs",
+    "app/scripts/dev-collab/recovery.mjs",
+    "app/scripts/dev-collab/recovery.test.mjs"
   ]
 })
 
@@ -107,7 +113,7 @@ export function verifyScopeMigrationProposal(before, after) {
   requireMigration(after.requirement_id===before.requirement_id &&
     after.issue_number===before.issue_number && after.title===before.title &&
     after.status===before.status && after.schema_version===before.schema_version &&
-    after.version===before.version+1 && after.tasks.length===8,'UNEXPECTED_STATE_CHANGE')
+    after.version===before.version+1 && after.tasks.length===9,'UNEXPECTED_STATE_CHANGE')
   requireMigration(exactly(after.processed_requests,before.processed_requests) &&
     before.processed_requests.length===0,'LEDGER_MUST_STAY_EMPTY')
   requireMigration(Number.isFinite(Date.parse(after.updated_at)) &&
@@ -123,13 +129,14 @@ export function verifyScopeMigrationProposal(before, after) {
       requireMigration(exactly(a.allowed_paths,[]) &&
         exactly(a.depends_on,['T-001','T-002','T-003','T-004']) &&
         exactly(b.allowed_paths,['app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md']) &&
-        exactly(b.depends_on,['T-001','T-002','T-003','T-004','T-006','T-007','T-008']),
+        exactly(b.depends_on,['T-001','T-002','T-003','T-004','T-006','T-007','T-008','T-009']),
         'T005_SCOPE_OR_DEPENDENCIES')
     }
   }
-  const expectedIssues={'T-006':141,'T-007':142,'T-008':143}
-  const expectedDeps={'T-006':['T-003'],'T-007':['T-003'],'T-008':['T-003','T-007']}
-  for(let i=5;i<8;i++){
+  const expectedIssues={'T-006':141,'T-007':142,'T-008':143,'T-009':146}
+  const expectedDeps={'T-006':['T-003'],'T-007':['T-003'],'T-008':['T-003','T-007','T-009'],
+    'T-009':['T-003','T-007']}
+  for(let i=5;i<9;i++){
     const task=after.tasks[i],id='T-'+String(i+1).padStart(3,'0')
     requireMigration(task.task_id===id && task.issue_number===expectedIssues[id] &&
       task.status==='READY' && task.claim===null &&
@@ -153,7 +160,7 @@ export function verifyScopeMigrationProposal(before, after) {
     forbidden.some(f=>a===f||(a.endsWith('/')&&f.startsWith(a))))),
     'CI_GOVERNANCE_SCOPE_IN_TASK')
   return Object.freeze({structurally_valid:true,proposed_version:after.version,
-    new_task_ids:['T-006','T-007','T-008'],authoritative_state_unchanged:true,
+    new_task_ids:['T-006','T-007','T-008','T-009'],authoritative_state_unchanged:true,
     ready_for_direct_merge:false})
 }
 

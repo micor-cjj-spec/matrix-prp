@@ -71,9 +71,10 @@ const proposedMigration=()=> {
  const x=baselineMigration()
  x.version=1;x.updated_at='2026-11-01T01:42:57.795Z'
  x.tasks[4].allowed_paths=['app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md']
- x.tasks[4].depends_on.push('T-006','T-007','T-008')
+ x.tasks[4].depends_on.push('T-006','T-007','T-008','T-009')
  for(const [tid,issue,deps] of [
-  ['T-006',141,['T-003']],['T-007',142,['T-003']],['T-008',143,['T-003','T-007']]
+  ['T-006',141,['T-003']],['T-007',142,['T-003']],
+  ['T-008',143,['T-003','T-007','T-009']],['T-009',146,['T-003','T-007']]
  ]){
   x.tasks.push({task_id:tid,issue_number:issue,title:tid,status:'READY',
    depends_on:deps,allowed_paths:[...SCOPE_MIGRATION_FILES[tid]],claim:null})
@@ -86,7 +87,7 @@ test('V0 to V1 scope proposal is structurally safe but cannot authorize applicat
  const result=verifyScopeMigrationProposal(baselineMigration(),proposedMigration())
  assert.equal(result.structurally_valid,true)
  assert.equal(result.ready_for_direct_merge,false)
- assert.deepEqual(result.new_task_ids,['T-006','T-007','T-008'])
+ assert.deepEqual(result.new_task_ids,['T-006','T-007','T-008','T-009'])
 })
 test('state migration cannot retroactively claim or mark a historical task DONE',()=>{
  const s=proposedMigration();s.tasks[0].status='DONE'
@@ -111,4 +112,18 @@ test('migration must be versioned with unchanged request history',()=>{
  assertMigrationFails(baselineMigration(),s,'UNEXPECTED_STATE_CHANGE')
  const t=proposedMigration();t.processed_requests=[{request_id:'bad'}]
  assert.throws(()=>verifyScopeMigrationProposal(baselineMigration(),t))
+})
+
+test('recovery task T-009 remains in exact narrow scope and blocks final acceptance',()=>{
+ const baseline=baselineMigration()
+ const proposed=proposedMigration()
+ assert.equal(verifyScopeMigrationProposal(baseline,proposed).new_task_ids.length,4)
+ const missing=proposedMigration();missing.tasks.pop()
+ assertMigrationFails(baseline,missing,'UNEXPECTED_STATE_CHANGE')
+ const changed=proposedMigration();changed.tasks[8].allowed_paths=['app/scripts/dev-collab/']
+ assertMigrationFails(baseline,changed,'UNAUTHORIZED_NEW_TASK_SCOPE')
+ const deps=proposedMigration();deps.tasks[4].depends_on.pop()
+ assertMigrationFails(baseline,deps,'T005_SCOPE_OR_DEPENDENCIES')
+ const tests=proposedMigration();tests.tasks[7].depends_on.pop()
+ assertMigrationFails(baseline,tests,'UNAUTHORIZED_NEW_TASK_SCOPE')
 })

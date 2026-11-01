@@ -34,3 +34,9 @@ The concrete proposal is [Draft PR #144](https://github.com/micor-cjj-spec/matri
 The scope proposal validator `verifyScopeMigrationProposal` compares old and candidate snapshots, checks exact task scopes and issues, unchanged historic task states, approved dependencies, zero processed requests and the sole sequential T-004/T-005 document-path overlap. Its result is only `structurally_valid`: **it never authorizes the state write or certifies task acceptance**. Three critical CI workflow files remain bootstrap-governance-only and must not enter ordinary task scopes.
 
 PR #144 cannot be merged as an ordinary maintainer PR because the live state branch Ruleset requires the dedicated GitHub App bypass. The coordinator still has no audited `migrate` action; configure and separately approve a protected migration mechanism before considering application. Do not force-push, bypass the Ruleset or mark any task DONE to make the merge possible.
+
+## Issue #145 recovery expansion — candidate T-009 (2026-11-01)
+
+The updated [Draft state PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144) proposes **nine**, not eight, total tasks. It adds [T-009 / Issue #146](https://github.com/micor-cjj-spec/matrix-prp/issues/146) for the four new recovery-specific `app/scripts/dev-collab` source and test files. Cross-cutting modifications remain with T-001 (core state machine), T-003 (trusted coordinator), T-004 (docs), and T-008 (Git transaction test); these scopes do not widen. T-008 and final T-005 now depend on T-009. CI governance workflow changes remain separate bootstrap work.
+
+The migration validator rejects historic-task progress changes, unknown/new paths, missing dependencies and a missing T-009. It only inspects proposed JSON: it **does not** authenticate a GitHub App, authorize a state write, verify running CI provenance or accept historical implementation retroactively.

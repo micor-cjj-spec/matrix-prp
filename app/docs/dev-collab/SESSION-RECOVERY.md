@@ -28,3 +28,10 @@ node app/scripts/dev-collab/recovery.mjs /tmp/prp-state/requirements REQ-2026103
 - 新的 `claim_id` 与单调递增 `generation` 立即使旧领取失效，原任务进度、PR、提交 SHA 和审查状态均保留；任何旧凭证写入均拒绝。原任务仍在 IN_REVIEW 时，交接不代表代码获批，也不会自动合并。
 
 **限制：** 现阶段未验证独立审查者审批和 GitHub App 真实生产式推送；发布冻结已在 main 生效，但不能用它替代授权。断点文字来自操作者，可能陈旧，必须以 Git 远端和 CI 证据为准。禁止因“会话长时间没有动静”自动接管。正式共享 V0 状态不作任何修改。
+
+## Task assignment and non-production release sequencing
+
+- [T-009 / Issue #146](https://github.com/micor-cjj-spec/matrix-prp/issues/146) contains four recovery-specific source/test files.
+- T-001 owns `core.mjs`; T-003 owns the coordinator; T-004 owns this documentation; T-008 owns the real Git transaction stress test.
+- [Draft state scope PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144) proposes the task DAG update. Do not direct-merge it into the protected state branch; only an explicitly reviewed dedicated App migration may apply it.
+- Existing production publication hold in `main` has been verified, but this alone does **not** authorize merging [Draft code PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138) or running write commands.
