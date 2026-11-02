@@ -21,6 +21,7 @@ on:
   pull_request:
     branches:
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
     paths:
       - "app/deploy/mcp-staging/review_production_flyway_history.py"
       - "app/deploy/mcp-staging/production_v24_checksum_query.py"
