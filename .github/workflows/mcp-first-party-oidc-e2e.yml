@@ -14,6 +14,7 @@ on:
   pull_request:
     branches:
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
     paths:
       - "app/backend/src/main/java/com/matrix/prp/mcp/**"
       - "app/backend/src/main/resources/db/migration/V29__mcp_first_party_oidc_link_flows.sql"
