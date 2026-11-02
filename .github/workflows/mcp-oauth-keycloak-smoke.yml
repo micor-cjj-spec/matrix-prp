@@ -1,0 +1,66 @@
+name: MCP OAuth disposable Keycloak smoke
+
+on:
+  push:
+    branches:
+      - feat/prp-mcp-gateway-v1
+    paths:
+      - "app/deploy/mcp-oauth/**"
+      - ".github/workflows/mcp-oauth-keycloak-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-keycloak:
+    name: Ephemeral Keycloak OIDC and resource indicator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build reviewed staging realm with read-only PKCE test client
+        run: |
+          python3 app/deploy/mcp-oauth/build_realm.py \
+            --resource https://prp.staging.example.org/api/mcp \
+            --staging-client-id prp-pkce-probe \
+            --staging-redirect http://127.0.0.1:8765/callback
+      - name: Start real Keycloak, verify import, then delete everything
+        shell: bash
+        run: |
+          set -euo pipefail
+          admin_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::${admin_secret}"
+          cleanup() {
+            # Classify only known exception types. Never print raw server
+            # logs: those may include OAuth request details or callback URLs.
+            if docker logs prp-mcp-keycloak-ci 2>&1 | grep -Fq 'Unrecognized field "token_endpoint_auth_methods_supported"'; then
+              echo 'CIMD_DIAGNOSTIC=KEYCLOAK_UNRECOGNIZED_CHATGPT_METADATA_METHODS_FIELD'
+            fi
+            docker rm -f prp-mcp-keycloak-ci >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run --rm -d \
+            --name prp-mcp-keycloak-ci \
+            -p 127.0.0.1:18080:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=prp-smoke-admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD="${admin_secret}" \
+            -v "${PWD}/app/deploy/mcp-oauth/.generated/realm:/opt/keycloak/data/import:ro" \
+            quay.io/keycloak/keycloak:26.8.0 \
+            start-dev --import-realm --features=cimd,resource-indicators \
+            --hostname=http://127.0.0.1:18080
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/keycloak_ephemeral_smoke.py \
+              --admin-user prp-smoke-admin
+          # Keycloak stays alive here; only this throwaway instance receives
+          # the temporary CIMD policies and ChatGPT public metadata requests.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_chatgpt_cimd_pkce.py
+          # A separate ephemeral RSA keypair and client exercise Signed JWT
+          # token authentication. No real ChatGPT private keys are available.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_static_client_jwt.py
+          # Separate throwaway client and user: real Authorization Code,
+          # signed JWT client auth, offline refresh rotation and revocation.
+          MCP_TEST_ADMIN_PASSWORD="${admin_secret}" \
+            python3 app/deploy/mcp-oauth/ci_jwt_authcode_refresh.py

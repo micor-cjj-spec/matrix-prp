@@ -35,6 +35,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/video/media/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/.well-known/oauth-protected-resource/**").permitAll()
                         .requestMatchers(
                                 "/api/health/**",
                                 "/api/auth/login",

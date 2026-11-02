@@ -38,6 +38,18 @@ export function validateMirror() {
   const policy = JSON.parse(readFileSync(join(root, 'app/deploy/migration-policy.json'), 'utf8'))
   assert.equal(policy.schema_version, 1)
   assert.ok(Array.isArray(policy.rules))
+  // Immutable merged lineage: production V24 is vocal; MCP follows in V25-V27.
+  // Prevent another release-time Flyway version collision from silently passing CI.
+  const requiredLineage = new Map([
+    [24, 'V24__vocal_song_library_and_assignments.sql'],
+    [25, 'V25__mcp_write_drafts.sql'],
+    [26, 'V26__mcp_client_grants.sql'],
+    [27, 'V27__mcp_identity_links.sql'],
+  ])
+  for (const [version, filename] of requiredLineage) {
+    assert.equal(policy.rules.find(rule => rule.version === version)?.file, filename,
+      `Flyway V${version} must preserve the merged production/MCP lineage`)
+  }
   const futureVersions = new Set()
   const future = policy.rules.map(rule => {
     assert.ok(Number.isInteger(rule.version) && rule.version > 21 && rule.version <= 1000)

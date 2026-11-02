@@ -59,6 +59,15 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-anthropic</artifactId>
         </dependency>
+        <!-- Opt-in MCP gateway; disabled by default until authorization tests pass. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-mcp-annotations</artifactId>
+        </dependency>
 		<dependency>
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi-ooxml</artifactId>
@@ -76,6 +85,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
+        <!-- Opt-in MCP OAuth resource server; no change to PRP first-party JWT login. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
 		<dependency>
 			<groupId>com.baomidou</groupId>
 			<artifactId>mybatis-plus-spring-boot3-starter</artifactId>
