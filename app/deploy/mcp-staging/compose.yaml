@@ -1,5 +1,7 @@
-# MCP staging ONLY. All published ports are loopback; no production database mounts.
-# Run with: docker compose --project-name prp-mcp-stage --env-file .env -f compose.yaml up -d --build
+# LEGACY prp-mcp-stage compose (127.0.0.1:18081), NOT the existing prp-mcp-v2 18082 stack.
+# Review-only for the current ChatGPT V2 change: DO NOT run `docker compose up` from this file.
+# Existing V2 has separate operator-owned Compose changes/data; never replace or reset it.
+# All declared ports here are loopback; no production database mounts.
 name: prp-mcp-stage
 services:
   mysql:
