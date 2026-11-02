@@ -12,6 +12,7 @@ on:
   pull_request:
     branches:
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
     paths:
       - ".github/workflows/mcp-full-v24-backup-restore-review.yml"
       - "app/backend/src/test/java/com/matrix/prp/IsolatedV24BackupRestoreMcpV28IT.java"
