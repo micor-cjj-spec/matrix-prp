@@ -14,6 +14,7 @@ on:
   pull_request:
     branches:
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
     paths:
       - "app/backend/src/test/java/com/matrix/prp/ExistingPrpV24ToMcpV28UpgradeIT.java"
       - "app/deploy/mcp-staging/review_production_flyway_history.py"
