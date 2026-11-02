@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - test/mcp-authcode-privatejwt-refresh-20261024
+      - feat/prp-mcp-gateway-v1
     paths:
       - ".github/workflows/mcp-upstream-security-regression.yml"
       - "app/backend/src/main/java/com/matrix/prp/mcp/McpOAuthResourceServerConfig.java"
