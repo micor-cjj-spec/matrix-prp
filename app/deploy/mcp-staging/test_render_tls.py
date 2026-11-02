@@ -26,6 +26,18 @@ class StagingTLSVHostTests(unittest.TestCase):
         self.assertIn("ssl_certificate /etc/letsencrypt/live/prp-test.micor.top/fullchain.pem;", config)
         self.assertIn("ssl_certificate /etc/letsencrypt/live/auth-test.micor.top/fullchain.pem;", config)
 
+    def test_oidc_callback_referrer_is_blocked_at_public_tls_edge(self):
+        # Browser fetches SPA JS/CSS before onMounted() can erase code/state.
+        # Header must be on the public-facing PRP vhost, not only its API.
+        config = render(self.config)
+        prp_vhost, keycloak_vhost = config.split(
+            "# Authorization server is a SEPARATE staging-only Keycloak instance."
+        )
+        self.assertIn('add_header Referrer-Policy "no-referrer" always;', prp_vhost)
+        self.assertIn("location / {", prp_vhost)
+        self.assertIn("proxy_pass http://127.0.0.1:18081;", prp_vhost)
+        self.assertNotIn('add_header Referrer-Policy "no-referrer" always;', keycloak_vhost)
+
     def test_auth_hostname_rejects_nginx_injection(self):
         for auth in ("https://auth-test.micor.top;include evil.conf",
                      "https://auth-test.micor.top:8080",

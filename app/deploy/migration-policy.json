@@ -68,6 +68,15 @@
       "tables": [
         "prp_mcp_pairing_grant_leases"
       ]
+    },
+    {
+      "version": 29,
+      "file": "V29__mcp_first_party_oidc_link_flows.sql",
+      "sha256": "831bea68920072296828a455c1fe7fcd47c163e689b95cf1cf86515eb8e3939b",
+      "mode": "create-empty",
+      "tables": [
+        "prp_mcp_oidc_link_flows"
+      ]
     }
   ]
 }

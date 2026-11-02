@@ -45,6 +45,8 @@ export function validateMirror() {
     [25, 'V25__mcp_write_drafts.sql'],
     [26, 'V26__mcp_client_grants.sql'],
     [27, 'V27__mcp_identity_links.sql'],
+    [28, 'V28__mcp_temporary_client_grant_expiry.sql'],
+    [29, 'V29__mcp_first_party_oidc_link_flows.sql'],
   ])
   for (const [version, filename] of requiredLineage) {
     assert.equal(policy.rules.find(rule => rule.version === version)?.file, filename,

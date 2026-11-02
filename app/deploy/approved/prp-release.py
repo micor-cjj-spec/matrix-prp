@@ -24,7 +24,10 @@ def sql(query,db='matrix_prp'):
  cmd=['docker','exec','-i','matrix-mysql','sh','-c','MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql --default-character-set=utf8mb4 -uroot -N -B '+db]
  return subprocess.check_output(cmd,input=query.encode()).decode().strip()
 def dump(path):
- with path.open('wb') as out:
+ # Sensitive database backups must be private regardless of process umask.
+ # Fail rather than overwrite a historical backup or follow a symlink.
+ flags=os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW
+ with os.fdopen(os.open(path,flags,0o600),'wb') as out:
   run(['docker','exec','matrix-mysql','sh','-c','MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump --default-character-set=utf8mb4 -uroot --single-transaction --routines --triggers --events --no-tablespaces matrix_prp'],stdout=out)
 def restore(path,db):
  with path.open('rb') as inp:

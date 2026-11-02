@@ -12,7 +12,12 @@ RUN test ! -e /repo/app/deploy/mcp-staging/.env
 WORKDIR /repo/app/web
 ENV VITE_APP_BASE=/prp/
 ENV VITE_API_BASE=/api
-RUN npm run build && node scripts/verify-deploy-base.mjs /prp/
+# Non-secret, reviewed exact HTTPS Keycloak authorization endpoint supplied
+# from Compose's validated PRP_STAGE_AUTH_ISSUER. Never runtime-discovered.
+ARG VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT
+ENV VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT=${VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT}
+RUN test -n "${VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT}" \
+    && npm run build && node scripts/verify-deploy-base.mjs /prp/
 
 FROM nginx:1.29-alpine
 COPY app/deploy/mcp-staging/nginx.conf.template /etc/nginx/templates/default.conf.template

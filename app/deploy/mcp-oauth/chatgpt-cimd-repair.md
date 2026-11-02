@@ -312,102 +312,38 @@ The earlier CIMD-specific PKCE policy test is still required **if CIMD
 remains the chosen mechanism**; successful static pre-registration does
 not prove dynamic CIMD interoperability.
 
+## Three-scope exact-client authorization-entry review — 2026-10-27
 
-## Offline refresh resource-indicator negative test — deployment blocker
+[Disposable Keycloak 26.8.0 and 26.8.1 CI](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40446785882)
+**passed both versions** after extending `ci_chatgpt_cimd_pkce.py` to validate
+the actual requested `openid offline_access prp.tasks.read` scope string.
 
-The disposable Keycloak 26.8 authentication test at
-[run 40111110684](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40111110684)
-successfully exercised a synthetic (not ChatGPT) confidential client:
-real login/consent, PKCE S256 authorization-code exchange, signed
-`private_key_jwt`, an RSA-verified JWT with exact PRP MCP URI audience,
-`offline_access` refresh, rotated refresh tokens, replay denial and
-refresh-token revocation. The Keycloak Audience mapper must use
-`included.custom.audience` with the exact MCP HTTPS URI, **not**
-`included.client.audience`, because Keycloak's built-in mapper ignores
-custom audience when a client audience is populated.
+The logs establish the following **independent outcomes** for both builds:
 
-However, an additional fail-closed negative test in
-[run 40111254877](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40111254877)
-proved that a synthetic OAuth client refreshing with an **unapproved**
-`resource` URL received HTTP 200 instead of `invalid_target`. A fixed
-custom audience mapper can still stamp the PRP URI on the new JWT.
-This is an **authorization-server resource-indicator enforcement gap**
-for the tested Keycloak 26.8 configuration. The positive test is not
-an RFC 8707 refresh-grant compliance proof. The negative regression is
-intentionally retained separately in draft PR #113 rather than hidden
-or weakening the client/resource checks. RFC 8707 applies the
-`resource` parameter to all access-token request grant types.
+- **Native dynamic CIMD remains blocked.** Official ChatGPT CIMD includes
+  `token_endpoint_auth_methods_supported`, which the 26.8 parser rejected.
+  Neither version passed the native-CIMD branch. The isolated test never
+  treats this parser failure as client registration acceptance.
+- **Narrow static exact-client alternative reaches authorization entry.**
+  With the disposable dynamic CIMD interception policy disabled, an exact
+  client ID/redirect/JWKS configuration proceeds to the login page for the
+  three-scope S256 request. No user logged in and no authorization code or
+  token was issued; this does **not** verify actual grant contents.
+- The isolated Admin REST readback confirmed the client's permitted optional
+  scopes were **exactly** `prp.tasks.read` and `offline_access`.
+  The `openid` value is the OIDC protocol scope, not a PRP data permission.
+  Task scope remains the only PRP data scope; finance, wellness and all
+  write scopes remain excluded.
+- The same registered client rejected missing and `plain` PKCE requests.
+  The saved client required S256 and its callback was exact.
+- This CI does **not** prove real ChatGPT `private_key_jwt` assertions,
+  login/consent, authorization-code exchange, offline refresh with canonical
+  `resource`, key rotation, real PRP identity linking or tool invocation.
 
-**Do NOT activate offline refresh for real ChatGPT or release MCP** based
-on the positive test alone. Require a distinct authorization-server
-upgrade, compatible provider, or strictly reviewed Keycloak extension
-that enforces the exact resource on refresh grants, and rerun the
-negative test on an isolated restored Realm. Never make PRP accept
-`matrix-prp-mcp-resource` as a substitute for its canonical URL,
-skip refresh resource constraints, or confuse JWT signature/audience
-checks with the authorization-server grant validation.
-
-## Exact ChatGPT static-client scope and audience contract — isolated proof
-
-[Disposable Keycloak 26.8 run #40112710941](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40112710941)
-verified two previously missing requirements in the **exact-client
-pre-registration** fallback fixture (no real ChatGPT private signing key):
-
-- The generated Realm may lack the built-in `offline_access` scope because
-  it imports explicit client scopes. A reviewed administrator must ensure the
-  scope exists, and the exact confidential ChatGPT client must allow **both**
-  `offline_access` and `prp.tasks.read` as optional scopes, not just
-  task-read. The isolated authorization probe sends the exact minimum:
-  `scope=openid offline_access prp.tasks.read`; valid PKCE S256 reaches the
-  login stage, missing/plain PKCE are rejected.
-- For the MCP bearer, the audience mapper must use
-  `included.custom.audience=<exact full HTTPS MCP resource URI>`.
-  `included.client.audience=matrix-prp-mcp-resource` denotes an internal
-  Keycloak client ID instead of the external MCP resource, which can break
-  token validation after refresh. The isolated test reads back the persisted
-  exact-URI mapper and RS256 client JWT settings.
-
-The test configures and checks those properties **only in its disposable
-GitHub Actions Realm**. It does not edit active client registrations, mint
-tokens signed by ChatGPT, perform a real account link, or issue a guarded
-staging release. Retain the existing B2 recovery/Nginx safety gates and
-client-policy change control.
-
-## Live-public metadata scope mismatch — read-only probe, 2026-10-24 18:12 UTC
-
-The external, unauthenticated GitHub Actions runner checked only two exact
-public HTTPS GET endpoints. There were **no OAuth credentials, login, admin
-calls, tokens, data modifications, Nginx changes or Keycloak PUTs**.
-
-- [Read-only probe #40119639867](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/40119639867):
-  the Keycloak OIDC discovery endpoint passed exact issuer, S256 and token
-  endpoint checks.
-- The live public RFC 9728 protected resource at
-  `https://prp-test.micor.top/.well-known/oauth-protected-resource/api/mcp`
-  returned the expected resource and issuer, **but advertises additional
-  write, finance, and wellness scope categories** rather than only
-  `["prp.tasks.read"]`; the probe correctly exited nonzero.
-- This **does not establish those tools can be invoked or any write is enabled**
-  or reveal why the running backend differs from source defaults. It is a
-  public discovery mismatch, **not** production readiness or a reason to
-  widen requested scopes. The running build/env and server receipts are
-  unverified via GitHub.
-
-Reproduce without credentials from a trusted network or isolated CI runner:
-
-```sh
-python3 app/deploy/mcp-oauth/ci_public_readonly_probe.py
-```
-
-This fixed-host, read-only checker permits no redirects or HTTP proxies,
-validates server TLS, bounds JSON and prints only recognized status categories.
-Exit 0 requires **both** strict task-only public scope metadata and expected
-Keycloak OIDC discovery. Any network error is `UNVERIFIED`, not proof the
-server is down. It never verifies actual OAuth tokens, Realm policies,
-the Nginx guarded-install receipt or B2 recovery.
-
-Do **not** attempt a production reload or test Realm change solely to fix
-discovery. After existing independent B2 restore/Nginx/Keycloak approvals
-allow a staged change, repeat the checker, independently verify the MCP
-write switch and PRP owner grant isolation, then perform real authorized
-ChatGPT OAuth and `prp_tasks_list` acceptance. PR #95 remains Draft.
+**Decision:** Do not propose native CIMD as a verified 26.8 integration.
+The exact-client pre-registration fallback is a narrower **review candidate**
+only, not an approved active-Realm change. A separate, versioned operator
+transaction, original Nginx+B2 gates, complete rollback, and independent
+review of the active 13-client Realm are mandatory before any installation.
+No synthetic CI artifact or this document may create the two missing
+`*.safe.json` receipts or trigger a rollout.

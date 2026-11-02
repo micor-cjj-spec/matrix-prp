@@ -57,7 +57,7 @@ requireField(features.length > 0 && features.some(m => m.code === 'dashboard'), 
 const registeredWebRoutes = new Set([...features.map(m => m.webRoute),
   ...domains.filter(m => m.status === 'landing').map(m => m.webRoute)])
 // Shell pages are infrastructure routes, not backend business features.
-const shellRoutes = new Set(['/apps', '/chat', '/me', '/me/settings', '/me/ai-settings', '/me/mcp-clients', '/me/mcp-approve/:draftId', '/me/agent-tasks', '/me/codex-jobs', '/me/guide', '/me/about'])
+const shellRoutes = new Set(['/apps', '/chat', '/me', '/me/settings', '/me/ai-settings', '/me/mcp-clients', '/me/mcp-link/callback', '/me/mcp-approve/:draftId', '/me/agent-tasks', '/me/codex-jobs', '/me/guide', '/me/about'])
 for (const path of webRoutes) {
   if (path !== '/login' && !shellRoutes.has(path)) requireField(registeredWebRoutes.has(path), 'Unregistered Web route: ' + path)
 }

@@ -25,6 +25,9 @@ def render(config):
 server {{
     listen 443 ssl;
     server_name {stage};
+    # The OAuth callback may carry code/state while the SPA loads JS/CSS.
+    # Enforce no Referer before any browser script can scrub the URL.
+    add_header Referrer-Policy "no-referrer" always;
     ssl_certificate /etc/letsencrypt/live/{stage}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/{stage}/privkey.pem;
     server_tokens off;

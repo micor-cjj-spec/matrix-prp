@@ -1,0 +1,111 @@
+name: PRP MCP producer owner read on disposable real MySQL
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/backend/src/test/java/com/matrix/prp/TaskReadProducerDatabaseIT.java"
+      - "app/backend/src/test/java/com/matrix/prp/ProductionInProcessMcpTaskReadDatabaseIT.java"
+      - "app/backend/src/test/java/com/matrix/prp/mcp/McpProductionTaskOnlyGuardTests.java"
+      - "app/backend/src/main/resources/application.yml"
+      - "app/backend/src/test/java/com/matrix/prp/ProducerTaskDelegationMysqlProofIT.java"
+      - "app/backend/src/main/java/com/matrix/prp/tasks/**"
+      - "app/backend/src/main/java/com/matrix/prp/auth/**"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/backend/pom.xml"
+      - ".github/workflows/mcp-producer-task-mysql-it.yml"
+  pull_request:
+    branches:
+      - feat/prp-mcp-gateway-v1
+    paths:
+      - "app/backend/src/test/java/com/matrix/prp/TaskReadProducerDatabaseIT.java"
+      - "app/backend/src/test/java/com/matrix/prp/ProductionInProcessMcpTaskReadDatabaseIT.java"
+      - "app/backend/src/test/java/com/matrix/prp/mcp/McpProductionTaskOnlyGuardTests.java"
+      - "app/backend/src/main/resources/application.yml"
+      - "app/backend/src/test/java/com/matrix/prp/ProducerTaskDelegationMysqlProofIT.java"
+      - "app/backend/src/main/java/com/matrix/prp/tasks/**"
+      - "app/backend/src/main/java/com/matrix/prp/auth/**"
+      - "app/backend/src/main/java/com/matrix/prp/mcp/**"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/backend/pom.xml"
+      - ".github/workflows/mcp-producer-task-mysql-it.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-mysql-owner-separation:
+    name: Fresh MySQL 8.4 with 2 synthetic PRP identities, no producer HTTP
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run fresh isolated MySQL and Java producer task owner test
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != "true" ||
+                "${RUNNER_OS:-}" != "Linux" ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            echo "DISPOSABLE_GITHUB_RUNNER_REQUIRED" >&2
+            exit 2
+          fi
+          umask 077
+          db_container="prp-task-producer-ci-${GITHUB_RUN_ID}"
+          cleanup() {
+            docker rm -f "$db_container" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          export MATRIX_PRP_DB_PASSWORD="$(openssl rand -hex 24)"
+          export MATRIX_PRP_DB_USER="prp_task_ci"
+          db_root="$(openssl rand -hex 24)"
+          export MATRIX_PRP_DB_URL="jdbc:mysql://127.0.0.1:13307/matrix_prp_task_producer_ci?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai"
+          export MATRIX_PRP_JWT_SECRET="$(openssl rand -hex 48)"
+          export MATRIX_PRP_BOOTSTRAP_USERNAME="ci_producer_admin"
+          export MATRIX_PRP_BOOTSTRAP_PASSWORD="$(openssl rand -hex 24)"
+          export MATRIX_PRP_FLYWAY_ENABLED="true"
+          export PRP_CI_DISPOSABLE_DB_ONLY="YES"
+          export MATRIX_PRP_MCP_ENABLED="false"
+          export MATRIX_PRP_MCP_OAUTH_ENABLED="false"
+          export MATRIX_PRP_MCP_WRITE_ENABLED="false"
+          export MATRIX_PRP_AI_SPRING_AI_ENABLED="false"
+          export MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED="false"
+          docker run --rm -d --name "$db_container" \
+            -p 127.0.0.1:13307:3306 \
+            -e MYSQL_ROOT_PASSWORD="$db_root" \
+            -e MYSQL_DATABASE=matrix_prp_task_producer_ci \
+            -e MYSQL_USER="$MATRIX_PRP_DB_USER" \
+            -e MYSQL_PASSWORD="$MATRIX_PRP_DB_PASSWORD" \
+            mysql:8.4 >/dev/null
+          ready=0
+          for i in $(seq 1 60); do
+            if docker exec -e MYSQL_PWD="$MATRIX_PRP_DB_PASSWORD" "$db_container" \
+              mysql --protocol=TCP -h 127.0.0.1 -u "$MATRIX_PRP_DB_USER" \
+              -D matrix_prp_task_producer_ci -Nse 'SELECT 1' >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$ready" != 1 ]]; then
+            echo "CI_PRODUCER_REAL_MYSQL_NOT_READY" >&2
+            exit 1
+          fi
+          echo "CI_PRODUCER_REAL_MYSQL_NEW_EMPTY_DB_READY=YES"
+          cd app/backend
+          chmod +x mvnw
+          ./mvnw -B -ntp -Dtest=TaskReadProducerDatabaseIT,ProducerTaskDelegationMysqlProofIT,ProductionInProcessMcpTaskReadDatabaseIT,McpProductionTaskOnlyGuardTests,McpOAuthToolManifestTests,McpOAuthAdvertisedScopesTests test
+          echo "CI_ONLY_MYSQL_TWO_SYNTHETIC_OWNERS_NO_PRODUCTION_PRP=YES"
+          echo "DISPOSABLE_DATABASE_CONCURRENT_JTI_AND_REVOKE_EPOCH_PROOF=YES"
+          echo "SAME_APP_SAME_DATABASE_MCP_READ_OPTION_REVIEW_ONLY=YES"
+          echo "NO_PRODUCER_ENDPOINT_NO_LIVE_DATA_NO_KEYCLOAK_NO_DEPLOYMENT=YES"
