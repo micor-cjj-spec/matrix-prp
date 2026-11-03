@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.security.core.Authentication;
 
 /**
@@ -19,6 +20,13 @@ import org.springframework.security.core.Authentication;
 @ConditionalOnProperty(prefix = "matrix-prp.mcp.oauth", name = "enabled", havingValue = "true")
 public class McpOAuthTransportConfiguration {
     public static final String VERIFIED_AUTH = "prp.mcp.verifiedAuthentication";
+
+    @Bean(destroyMethod = "")
+    @Primary
+    io.modelcontextprotocol.spec.McpStatelessServerTransport legacyDiscoveryTransport(
+            WebMvcStatelessServerTransport oauthMcpTransport) {
+        return new McpLegacyDiscoveryTransport(oauthMcpTransport);
+    }
 
     @Bean
     WebMvcStatelessServerTransport oauthMcpTransport(

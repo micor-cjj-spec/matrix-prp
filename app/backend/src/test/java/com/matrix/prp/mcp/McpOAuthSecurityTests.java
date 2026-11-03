@@ -41,6 +41,50 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "spring.ai.mcp.server.enabled=true"
 })
 class McpOAuthSecurityTests {
+    @Test
+    void unsupportedModernDiscoveryReturnsMethodNotFoundWithMatchingRequestId() throws Exception {
+        when(identityLinks.resolveUserId("https://issuer.example.test", "external-provider-subject"))
+            .thenReturn(OptionalLong.of(1L));
+        when(clientGrants.grantedScopes(1L, "test-client")).thenReturn(Set.of("prp.tasks.read"));
+        when(oauthDecoder.decode("discovery-fixture")).thenReturn(jwt("discovery-fixture", "prp.tasks.read", 1L));
+        var result = mvc.perform(mcp("discovery-fixture", """
+            {"jsonrpc":"2.0","id":"openai-mcp-discover","method":"server/discover","params":{
+              "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",
+              "io.modelcontextprotocol/clientInfo":{"name":"prp-discovery-test","version":"1.0"},
+              "io.modelcontextprotocol/clientCapabilities":{}}}}
+            """)).andReturn();
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        var body = new com.fasterxml.jackson.databind.ObjectMapper()
+            .readTree(result.getResponse().getContentAsString());
+        assertThat(body.path("id").asText()).as("Discovery JSON-RPC response: %s", body)
+            .isEqualTo("openai-mcp-discover");
+        assertThat(body.path("error").path("code").asInt()).as("Discovery JSON-RPC response: %s", body)
+            .isEqualTo(-32601);
+        assertThat(body.has("result")).isFalse();
+        // A client must still be able to perform the legacy handshake and list tools.
+        mvc.perform(mcp("discovery-fixture", """
+            {"jsonrpc":"2.0","id":2,"method":"initialize","params":{
+              "protocolVersion":"2025-06-18","capabilities":{},
+              "clientInfo":{"name":"prp-discovery-test","version":"1.0"}}}
+            """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(2))
+            .andExpect(jsonPath("$.result.capabilities.tools").exists());
+        mvc.perform(mcp("discovery-fixture", "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.result.tools[?(@.name == 'prp_tasks_list')]").isNotEmpty());
+    }
+
+    @Test
+    void discoveryFallbackDoesNotBypassAuthenticationOrIdentityBinding() throws Exception {
+        String request = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"server/discover\"}";
+        mvc.perform(post("/api/mcp").contentType(MediaType.APPLICATION_JSON).content(request))
+            .andExpect(status().isUnauthorized());
+        when(oauthDecoder.decode("unlinked-discovery"))
+            .thenReturn(jwt("unlinked-discovery", "prp.tasks.read", 999999L));
+        mvc.perform(mcp("unlinked-discovery", request)).andExpect(status().isUnauthorized());
+    }
+
     @Autowired MockMvc mvc;
     @Autowired UserStore users;
     @Autowired JwtService prpJwt;

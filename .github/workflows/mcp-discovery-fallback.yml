@@ -1,0 +1,27 @@
+name: MCP discovery legacy fallback
+on:
+  push:
+    branches: [fix/mcp-discovery-fallback-20261103]
+  pull_request:
+    branches: [feat/prp-mcp-gateway-v1]
+permissions:
+  contents: read
+jobs:
+  mcp-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run MCP security, identity, scope, discovery and draft tests
+        working-directory: app/backend
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp '-Dtest=Mcp*Tests' test
