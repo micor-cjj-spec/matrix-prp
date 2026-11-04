@@ -223,6 +223,32 @@ def parse_callback(url, state):
     return query["code"][0]
 
 
+def legacy_discovery_probe(opener, token):
+    """Exercise HTTP era detection without logging credentials or response bodies."""
+    probe_id = "openai-mcp-discover"
+    body = {"jsonrpc": "2.0", "id": probe_id, "method": "server/discover",
+            "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}}
+    req = Request(RESOURCE, data=json.dumps(body).encode(), method="POST", headers={
+        "Authorization": "Bearer " + token,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2026-07-28", "Mcp-Method": "server/discover",
+    })
+    try:
+        response = opener.open(req, timeout=30)
+    except HTTPError as error:
+        response = error
+    with response:
+        raw = response.read(16_385)
+        if response.code != 400 or len(raw) > 16_384:
+            raise RuntimeError("Legacy discovery HTTP fallback signal invalid")
+        payload = json.loads(raw)
+        if (payload.get("jsonrpc") != "2.0" or payload.get("id") != probe_id
+                or payload.get("error", {}).get("code") != -32601 or "result" in payload):
+            raise RuntimeError("Legacy discovery JSON-RPC fallback signal invalid")
+    print("PASS E2E: signed OAuth modern discovery probe rejected with HTTP 400 / -32601.")
+
+
 def jsonrpc(opener, token, id, method, params=None):
     body = {"jsonrpc": "2.0", "id": id, "method": method}
     if params is not None:
@@ -307,6 +333,7 @@ def main():
         raise RuntimeError("One-time identity ticket replay was not rejected")
     print("PASS E2E: owner password reauthentication, client grant, one-time account link + replay block.")
 
+    legacy_discovery_probe(opener, bearer)
     init = jsonrpc(opener, bearer, 2, "initialize", {
         "protocolVersion": PROTOCOL, "capabilities": {},
         "clientInfo": {"name": "ci-keycloak-pkce", "version": "1.0"}

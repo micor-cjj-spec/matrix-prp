@@ -25,3 +25,21 @@ jobs:
         run: |
           chmod +x mvnw
           ./mvnw -B -ntp '-Dtest=Mcp*Tests' test
+  mcp-real-pkce:
+    needs: mcp-security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Verify real signed OAuth discovery fallback, legacy handshake, read and revoke
+        env:
+          MCP_E2E_CRUD: 'false'
+        run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh

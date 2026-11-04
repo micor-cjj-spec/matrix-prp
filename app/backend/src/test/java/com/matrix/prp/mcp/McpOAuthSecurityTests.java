@@ -52,8 +52,9 @@ class McpOAuthSecurityTests {
               "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",
               "io.modelcontextprotocol/clientInfo":{"name":"prp-discovery-test","version":"1.0"},
               "io.modelcontextprotocol/clientCapabilities":{}}}}
-            """)).andReturn();
-        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+            """).header("MCP-Protocol-Version", "2026-07-28")
+                .header("Mcp-Method", "server/discover")).andReturn();
+        assertThat(result.getResponse().getStatus()).isEqualTo(400);
         var body = new com.fasterxml.jackson.databind.ObjectMapper()
             .readTree(result.getResponse().getContentAsString());
         assertThat(body.path("id").asText()).as("Discovery JSON-RPC response: %s", body)
@@ -70,7 +71,10 @@ class McpOAuthSecurityTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").value(2))
             .andExpect(jsonPath("$.result.capabilities.tools").exists());
-        mvc.perform(mcp("discovery-fixture", "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}"))
+        mvc.perform(mcp("discovery-fixture", """
+            {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{
+              "_meta":{"prp.mcp.legacyDiscoveryProbe":true}}}
+            """).header("prp.mcp.legacyDiscoveryProbe", "true"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.result.tools[?(@.name == 'prp_tasks_list')]").isNotEmpty());
     }

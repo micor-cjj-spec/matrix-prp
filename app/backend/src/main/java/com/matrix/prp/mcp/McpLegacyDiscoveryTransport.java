@@ -4,6 +4,7 @@ import io.modelcontextprotocol.server.McpStatelessServerHandler;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpStatelessServerTransport;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import reactor.core.publisher.Mono;
 
 /**
@@ -27,6 +28,8 @@ final class McpLegacyDiscoveryTransport implements McpStatelessServerTransport {
                     io.modelcontextprotocol.common.McpTransportContext context,
                     McpSchema.JSONRPCRequest request) {
                 if ("server/discover".equals(request.method())) {
+                    Object marker = context.get(McpOAuthTransportConfiguration.LEGACY_DISCOVERY_PROBE);
+                    if (marker instanceof AtomicBoolean probe) probe.set(true);
                     return Mono.just(new McpSchema.JSONRPCResponse("2.0", request.id(), null,
                         new McpSchema.JSONRPCResponse.JSONRPCError(-32601, "Method not found", null)));
                 }
