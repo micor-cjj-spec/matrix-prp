@@ -4,6 +4,7 @@ import com.matrix.prp.auth.model.UserAccount;
 import com.matrix.prp.auth.repository.UserStore;
 import com.matrix.prp.finance.model.CreateFinanceTransactionRequest;
 import com.matrix.prp.mcp.McpDraftService;
+import com.matrix.prp.wellness.WellnessService;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import java.math.BigDecimal;
 import java.util.List;
@@ -40,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 })
 class McpDatabaseIT {
     @Autowired McpDraftService drafts;
+    @Autowired WellnessService wellness;
     @Autowired UserStore users;
     @Autowired PasswordEncoder encoder;
     @Autowired JdbcTemplate jdbc;
@@ -162,6 +164,53 @@ class McpDatabaseIT {
             "SELECT COUNT(*) FROM prp_finance_transactions WHERE user_id=? AND merchant=?",
             Integer.class, stranger.id(), unique)).isZero();
         assertThat(drafts.review(draft.draftId()).status()).isEqualTo("CONSUMED");
+    }
+
+    @Test
+    void approvedMealPersistsRealStructuredCaloriesExactlyOnceAndRejectsSecondLunch() {
+        String password = "mcp-meal-it-password-2026";
+        UserAccount owner = createUser(password), stranger = createUser("stranger-" + password);
+        var date = java.time.LocalDate.of(2026, 11, 4);
+        var meal = new McpDraftService.MealDraft(date, "LUNCH", "User-reviewed estimated kcal",
+            List.of(new WellnessService.AiMealItem(null, "synthetic chicken leg",
+                new BigDecimal("180"), new BigDecimal("360.00")),
+                new WellnessService.AiMealItem(null, "synthetic wontons",
+                    new BigDecimal("200"), new BigDecimal("260.00"))));
+        as(owner);
+        assertThat(wellness.daily(date).mealCount()).isZero();
+        var preview = drafts.prepare(McpDraftService.Kind.MEAL, meal);
+        assertThat(preview.kind()).isEqualTo("MEAL");
+        assertThatThrownBy(() -> drafts.confirm(preview.draftId()))
+            .isInstanceOf(ResponseStatusException.class);
+        assertThat(wellness.daily(date).mealCount()).isZero();
+        as(stranger);
+        assertThatThrownBy(() -> drafts.approve(preview.draftId(), password))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND));
+        assertThat(wellness.daily(date).mealCount()).isZero();
+        as(owner);
+        assertThat(drafts.approve(preview.draftId(), password).status()).isEqualTo("APPROVED");
+        var first = drafts.confirm(preview.draftId());
+        assertThat(first.kind()).isEqualTo("MEAL");
+        assertThat(first.saved().path("items").size()).isEqualTo(2);
+        assertThat(drafts.confirm(preview.draftId()).alreadySaved()).isTrue();
+        var summary = wellness.daily(date);
+        assertThat(summary.mealCount()).isEqualTo(1);
+        assertThat(summary.calories()).isEqualByComparingTo("620.00");
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM prp_wellness_meals WHERE user_id=? AND meal_date=? AND meal_type=?",
+            Integer.class, owner.id(), date, "LUNCH")).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM prp_wellness_meal_items WHERE meal_id=?", Integer.class,
+            first.saved().path("id").asLong())).isEqualTo(2);
+
+        // A second already-approved draft may not silently create or duplicate this lunch.
+        var duplicate = drafts.prepare(McpDraftService.Kind.MEAL, meal);
+        drafts.approve(duplicate.draftId(), password);
+        assertThatThrownBy(() -> drafts.confirm(duplicate.draftId()))
+            .isInstanceOf(ResponseStatusException.class);
+        assertThat(wellness.daily(date).mealCount()).isEqualTo(1);
     }
 
     @Test
