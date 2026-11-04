@@ -107,14 +107,9 @@ public class McpToolConfiguration {
                     }
                     return spec.callHandler().apply(transport, request);
                 } catch (McpScopeGuard.MissingScope missing) {
-                    // Re-check owner consent; a missing PRP grant must never be
-                    // represented as permission that OAuth alone can supply.
-                    if (auth.getDetails() instanceof McpScopeGuard.VerifiedClient verified
-                            && grants.grantedScopes(CurrentUser.id(), verified.clientId())
-                                .contains(missing.requiredScope())) {
-                        return insufficientScope(metadataUri, missing.requiredScope());
-                    }
-                    return denied();
+                    // MissingScope is emitted only for a token-scope deficit
+                    // against the immutable, server-verified owner-consent snapshot.
+                    return insufficientScope(metadataUri, missing.requiredScope());
                 } catch (ResponseStatusException rejected) {
                     return denied();
                 } finally {
@@ -135,8 +130,11 @@ public class McpToolConfiguration {
 
     private static void requireCurrentScope(McpScopeGuard scopeGuard, McpClientGrantService grants,
                                            Authentication auth, String scope) {
-        if (!(auth.getDetails() instanceof McpScopeGuard.VerifiedClient verified)
-                || !grants.grantedScopes(CurrentUser.id(), verified.clientId()).contains(scope)) {
+        // Preserve the existing per-request read-consent contract. Writes also
+        // re-check consent immediately before invocation, including confirmation.
+        if (scope.startsWith("prp.write.")
+                && (!(auth.getDetails() instanceof McpScopeGuard.VerifiedClient verified)
+                    || !grants.grantedScopes(CurrentUser.id(), verified.clientId()).contains(scope))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PRP owner grant does not permit this operation");
         }
         scopeGuard.require(scope);

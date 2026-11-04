@@ -14,7 +14,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class McpScopeGuard {
     private final boolean oauthEnabled;
     private java.util.Set<Long> expandedUsers = java.util.Set.of();
-    record VerifiedClient(String clientId) {}
+    record VerifiedClient(String clientId, java.util.Set<String> grantedScopes) {
+        VerifiedClient { grantedScopes = java.util.Set.copyOf(grantedScopes); }
+    }
     /** Typed internally; only the transport decides whether OAuth can satisfy it. */
     static final class MissingScope extends ResponseStatusException {
         private final String requiredScope;
@@ -61,7 +63,11 @@ public class McpScopeGuard {
         }
         if (auth == null || auth.getAuthorities().stream()
             .noneMatch(authority -> ("SCOPE_" + scope).equals(authority.getAuthority()))) {
-            throw new MissingScope(scope);
+            if (auth != null && auth.getDetails() instanceof VerifiedClient verified
+                    && verified.grantedScopes().contains(scope)) {
+                throw new MissingScope(scope);
+            }
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "MCP scope required: " + scope);
         }
     }
 }

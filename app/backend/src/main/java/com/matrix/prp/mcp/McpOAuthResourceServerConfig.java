@@ -158,7 +158,7 @@ public class McpOAuthResourceServerConfig {
                     var verifiedAuth = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
                         account.profile(), null, authorities);
                     // ProviderManager erases credentials. Carry only the verified, non-secret client identity.
-                    verifiedAuth.setDetails(new McpScopeGuard.VerifiedClient(clientId));
+                    verifiedAuth.setDetails(new McpScopeGuard.VerifiedClient(clientId, granted));
                     return verifiedAuth;
                 })))
             .addFilterAfter(new McpVerifiedPrincipalCaptureFilter(), BearerTokenAuthenticationFilter.class)
