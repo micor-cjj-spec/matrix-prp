@@ -63,10 +63,10 @@ class McpExpandedCapabilitiesTests {
   mvc.perform(get("/.well-known/oauth-protected-resource/api/mcp")).andExpect(status().isOk())
    .andExpect(jsonPath("$.scopes_supported.length()").value(8));
  }
- @Test void allElevenExistingToolsAreDiscoverable() throws Exception {
+ @Test void allTwelveExistingToolsAreDiscoverable() throws Exception {
   var r=request("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}");
   assertThat(r.getResponse().getStatus()).isEqualTo(200);
-  assertThat(r.getResponse().getContentAsString()).contains("prp_prepare_task","prp_prepare_task_update","prp_prepare_task_delete","prp_prepare_finance","prp_prepare_record","prp_confirm_draft","prp_wellness_daily");
+  assertThat(r.getResponse().getContentAsString()).contains("prp_prepare_task","prp_prepare_task_update","prp_prepare_task_delete","prp_prepare_finance","prp_prepare_record","prp_prepare_meal","prp_confirm_draft","prp_wellness_daily");
   verifyNoInteractions(jdbc);
  }
  @Test void whitespaceScopesPassRealSecurityChainAndDraftRemainsOwnerBound() throws Exception {
