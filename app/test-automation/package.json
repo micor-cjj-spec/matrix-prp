@@ -1,0 +1,14 @@
+{
+  "name": "matrix-prp-test-automation",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test:unit": "vitest run --config vitest.config.mts",
+    "test:e2e": "playwright test --config playwright.config.mts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "vitest": "3.2.4"
+  }
+}
