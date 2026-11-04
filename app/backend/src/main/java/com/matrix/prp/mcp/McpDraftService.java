@@ -12,6 +12,7 @@ import com.matrix.prp.records.model.CreateRecordRequest;
 import com.matrix.prp.records.service.RecordService;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.service.TaskService;
+import com.matrix.prp.wellness.WellnessService;
 import jakarta.validation.Validator;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -34,7 +35,10 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @ConditionalOnProperty(prefix = "matrix-prp.mcp", name = "enabled", havingValue = "true")
 public class McpDraftService {
-    public enum Kind { TASK, FINANCE, RECORD, TASK_UPDATE, TASK_DELETE }
+    public enum Kind { TASK, FINANCE, RECORD, MEAL, TASK_UPDATE, TASK_DELETE }
+    /** Explicit structured food snapshots: no prose parsing or nutrition inference at commit time. */
+    public record MealDraft(java.time.LocalDate mealDate, String mealType, String note,
+                            List<WellnessService.AiMealItem> items) {}
     public record TaskChange(long taskId, com.matrix.prp.tasks.model.TaskItem before,
                              String revision, CreateTaskRequest after, String status) {}
     public record Preview(String draftId, String kind, JsonNode values, String expiresAt,
@@ -51,6 +55,7 @@ public class McpDraftService {
     private final TaskService tasks;
     private final FinanceService finance;
     private final RecordService records;
+    private final WellnessService wellness;
     private final boolean writeEnabled;
     private final String approvalBase;
     private final UserStore users;
@@ -58,7 +63,7 @@ public class McpDraftService {
 
     public McpDraftService(JdbcTemplate db, ObjectMapper json, Validator validator,
                            TaskService tasks, FinanceService finance, RecordService records,
-                           UserStore users, PasswordEncoder passwords,
+                           WellnessService wellness, UserStore users, PasswordEncoder passwords,
                            @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled,
                            @Value("${matrix-prp.mcp.oauth.resource:}") String resource) {
         this.db = db;
@@ -67,6 +72,7 @@ public class McpDraftService {
         this.tasks = tasks;
         this.finance = finance;
         this.records = records;
+        this.wellness = wellness;
         this.writeEnabled = writeEnabled;
         this.approvalBase = approvalBase(resource);
         this.users = users;
@@ -235,6 +241,7 @@ public class McpDraftService {
                 case TASK -> json.readValue(row.payload(), CreateTaskRequest.class);
                 case FINANCE -> json.readValue(row.payload(), CreateFinanceTransactionRequest.class);
                 case RECORD -> json.readValue(row.payload(), CreateRecordRequest.class);
+                case MEAL -> json.readValue(row.payload(), MealDraft.class);
                 case TASK_UPDATE, TASK_DELETE -> json.readValue(row.payload(), TaskChange.class);
             };
             validate(request);
@@ -242,6 +249,10 @@ public class McpDraftService {
                 case TASK -> tasks.create((CreateTaskRequest) request);
                 case FINANCE -> finance.createTransaction((CreateFinanceTransactionRequest) request);
                 case RECORD -> records.create((CreateRecordRequest) request);
+                case MEAL -> {
+                    var meal = (MealDraft) request;
+                    yield wellness.addAiMeal(meal.mealDate(), meal.mealType(), meal.note(), meal.items(), draftId);
+                }
                 case TASK_UPDATE -> applyTaskChange((TaskChange) request, false);
                 case TASK_DELETE -> applyTaskChange((TaskChange) request, true);
             };
@@ -286,6 +297,39 @@ public class McpDraftService {
                 f.amount().compareTo(new java.math.BigDecimal("100000000")) > 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid amount");
             }
+        } else if (request instanceof MealDraft meal) {
+            if (meal.mealDate() == null || meal.mealType() == null ||
+                !List.of("BREAKFAST", "LUNCH", "DINNER", "SNACK").contains(meal.mealType()) ||
+                meal.items() == null || meal.items().isEmpty() || meal.items().size() > 30 ||
+                meal.note() != null && meal.note().length() > 500)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid structured meal");
+            java.math.BigDecimal total = java.math.BigDecimal.ZERO;
+            for (var item : meal.items()) {
+                if (item == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing food");
+                if (item.foodId() != null) {
+                    // A catalog item's nutrition is resolved from the owner's accessible food table.
+                    // Do not accept model-supplied overrides to catalog calories or names.
+                    if (item.foodId() <= 0 || item.name() != null || item.calories() != null ||
+                        item.grams() == null || item.grams().compareTo(new java.math.BigDecimal("0.1")) < 0 ||
+                        item.grams().compareTo(new java.math.BigDecimal("3000")) > 0)
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid catalog food");
+                } else {
+                    // User-approved per-serving estimate. Never create a catalog food from it.
+                    if (item.name() == null || item.name().isBlank() || item.name().length() > 120 ||
+                        item.calories() == null || item.calories().scale() > 2 ||
+                        item.calories().signum() <= 0 ||
+                        item.calories().compareTo(new java.math.BigDecimal("20000")) > 0 ||
+                        item.grams() != null && (item.grams().signum() < 0 ||
+                            item.grams().compareTo(new java.math.BigDecimal("3000")) > 0))
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid estimated food");
+                    total = total.add(item.calories());
+                }
+            }
+            if (total.compareTo(new java.math.BigDecimal("20000")) > 0)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Meal energy exceeds safety limit");
+            // Revalidate the actual owner-visible catalog and meal contract both before
+            // draft creation and before confirmed persistence. Never trust stored JSON alone.
+            wellness.validateMcpMealInput(meal.mealDate(), meal.mealType(), meal.note(), meal.items());
         } else if (request instanceof CreateRecordRequest r) {
             length(r.moduleCode(), 1, 40); length(r.title(), 1, 160);
             length(r.content(), 0, 10000);
