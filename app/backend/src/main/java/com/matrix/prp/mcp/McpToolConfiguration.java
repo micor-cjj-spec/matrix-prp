@@ -2,6 +2,11 @@ package com.matrix.prp.mcp;
 
 import com.matrix.prp.auth.model.UserProfile;
 import io.modelcontextprotocol.server.McpStatelessServerFeatures;
+import io.modelcontextprotocol.spec.McpSchema;
+import com.matrix.prp.auth.security.CurrentUser;
+import java.util.LinkedHashMap;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,7 +54,8 @@ public class McpToolConfiguration {
     }
     @Bean
     public List<McpStatelessServerFeatures.SyncToolSpecification> prpMcpSpecifications(
-            PrpMcpTools tools, @Value("${matrix-prp.mcp.oauth.enabled:false}") boolean oauthEnabled,
+            PrpMcpTools tools, McpScopeGuard scopeGuard, org.springframework.beans.factory.ObjectProvider<McpClientGrantService> grantProvider, McpDraftService drafts,
+            @Value("${matrix-prp.mcp.oauth.resource:}") String resource, @Value("${matrix-prp.mcp.oauth.enabled:false}") boolean oauthEnabled,
             @Value("${matrix-prp.mcp.oauth.advertised-scopes:prp.tasks.read}") String advertisedScopes,
             @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled) {
         var definitions = new SyncStatelessMcpToolProvider(List.of(tools)).getToolSpecifications();
@@ -64,11 +70,14 @@ public class McpToolConfiguration {
             throw new IllegalStateException("PRP MCP tool allowlist mismatch; refusing to start");
         }
         if (!oauthEnabled) return List.copyOf(definitions); // isolated old test path only
+        McpClientGrantService grants = grantProvider.getObject();
         Set<String> exposed = exposedNames(advertisedScopes, writeEnabled);
+        String metadataUri = McpOAuthMetadataController.metadataUrl(
+            McpOAuthResourceServerConfig.strictHttps(resource, "MCP OAuth resource"));
         return definitions.stream()
             .filter(spec -> exposed.contains(spec.tool().name()))
             .map(spec -> new McpStatelessServerFeatures.SyncToolSpecification(
-            spec.tool(),
+            withOAuthScheme(spec.tool(), REQUIRED_SCOPE.get(spec.tool().name())),
             (transport, request) -> {
                 Object candidate = transport.get(McpOAuthTransportConfiguration.VERIFIED_AUTH);
                 if (!(candidate instanceof Authentication auth)
@@ -82,11 +91,71 @@ public class McpToolConfiguration {
                 perCallContext.setAuthentication(auth);
                 SecurityContextHolder.setContext(perCallContext);
                 try {
+                    requireCurrentScope(scopeGuard, grants, auth, REQUIRED_SCOPE.get(spec.tool().name()));
+                    // Confirmation also requires the approved draft's operation scope.
+                    // Check outside the SDK reflection adapter so its generic error
+                    // conversion cannot discard the OAuth challenge metadata.
+                    if ("prp_confirm_draft".equals(spec.tool().name()) && request.arguments() != null
+                            && request.arguments().get("draftId") instanceof String draftId) {
+                        var review = drafts.review(draftId);
+                        String operationScope = switch (review.kind()) {
+                            case "TASK_UPDATE" -> "prp.write.update";
+                            case "TASK_DELETE" -> "prp.write.delete";
+                            default -> "prp.write.create";
+                        };
+                        requireCurrentScope(scopeGuard, grants, auth, operationScope);
+                    }
                     return spec.callHandler().apply(transport, request);
+                } catch (McpScopeGuard.MissingScope missing) {
+                    // Re-check owner consent; a missing PRP grant must never be
+                    // represented as permission that OAuth alone can supply.
+                    if (auth.getDetails() instanceof McpScopeGuard.VerifiedClient verified
+                            && grants.grantedScopes(CurrentUser.id(), verified.clientId())
+                                .contains(missing.requiredScope())) {
+                        return insufficientScope(metadataUri, missing.requiredScope());
+                    }
+                    return denied();
+                } catch (ResponseStatusException rejected) {
+                    return denied();
                 } finally {
                     SecurityContextHolder.setContext(oldContext);
                 }
             }
         )).toList();
     }
+    private static McpSchema.Tool withOAuthScheme(McpSchema.Tool tool, String requiredScope) {
+        var meta = new LinkedHashMap<String, Object>();
+        if (tool.meta() != null) meta.putAll(tool.meta());
+        // SDK 0.18 has no top-level securitySchemes field. This is the official
+        // compatibility location read by ChatGPT; preserve every existing field.
+        meta.put("securitySchemes", List.of(Map.of("type", "oauth2", "scopes", List.of(requiredScope))));
+        return new McpSchema.Tool(tool.name(), tool.title(), tool.description(), tool.inputSchema(),
+            tool.outputSchema(), tool.annotations(), Map.copyOf(meta));
+    }
+
+    private static void requireCurrentScope(McpScopeGuard scopeGuard, McpClientGrantService grants,
+                                           Authentication auth, String scope) {
+        if (!(auth.getDetails() instanceof McpScopeGuard.VerifiedClient verified)
+                || !grants.grantedScopes(CurrentUser.id(), verified.clientId()).contains(scope)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PRP owner grant does not permit this operation");
+        }
+        scopeGuard.require(scope);
+    }
+
+    private static McpSchema.CallToolResult insufficientScope(String metadataUri, String scope) {
+        String challenge = "Bearer resource_metadata=\"" + metadataUri
+            + "\", error=\"insufficient_scope\", error_description=\"Additional PRP permission is required\", scope=\""
+            + scope + "\"";
+        return McpSchema.CallToolResult.builder().isError(true)
+            .addTextContent("Additional OAuth permission is required: " + scope)
+            .meta(Map.of("mcp/www_authenticate", List.of(challenge))).build();
+    }
+
+    private static McpSchema.CallToolResult denied() {
+        return McpSchema.CallToolResult.builder().isError(true)
+            .addTextContent("PRP authorization or draft validation failed").build();
+    }
+
 }
+
+

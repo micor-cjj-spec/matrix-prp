@@ -15,6 +15,15 @@ public class McpScopeGuard {
     private final boolean oauthEnabled;
     private java.util.Set<Long> expandedUsers = java.util.Set.of();
     record VerifiedClient(String clientId) {}
+    /** Typed internally; only the transport decides whether OAuth can satisfy it. */
+    static final class MissingScope extends ResponseStatusException {
+        private final String requiredScope;
+        MissingScope(String scope) {
+            super(HttpStatus.FORBIDDEN, "MCP scope required: " + scope);
+            this.requiredScope = scope;
+        }
+        String requiredScope() { return requiredScope; }
+    }
     private String expandedClient = "https://chatgpt.com/oauth/client.json";
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -52,7 +61,7 @@ public class McpScopeGuard {
         }
         if (auth == null || auth.getAuthorities().stream()
             .noneMatch(authority -> ("SCOPE_" + scope).equals(authority.getAuthority()))) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "MCP scope required: " + scope);
+            throw new MissingScope(scope);
         }
     }
 }
