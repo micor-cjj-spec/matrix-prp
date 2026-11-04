@@ -3,7 +3,7 @@ import { apiClient, type ApiResponse } from './client'
 export type McpDraftStatus = 'PENDING' | 'APPROVED' | 'CONSUMED' | 'REJECTED'
 export interface McpDraftReview {
   draftId: string
-  kind: 'TASK' | 'FINANCE' | 'RECORD'
+  kind: 'TASK' | 'TASK_UPDATE' | 'TASK_DELETE' | 'FINANCE' | 'RECORD' | 'MEAL'
   values: Record<string, unknown>
   status: McpDraftStatus
   expiresAt: string
