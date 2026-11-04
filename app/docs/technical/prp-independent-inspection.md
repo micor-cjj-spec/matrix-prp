@@ -62,6 +62,45 @@ global `Match` rules or existing `authorized_keys` are requested here.
    `SSH_POLICY_PROOF_UNAVAILABLE` attestation; don't treat the inspector as
    an attestation replacement.
 
+## Stage 0.5 — Existing installation inventory (read only)
+
+Before proposing any new SSH user, sudoers entry, or GitHub Secret,
+an authorized administrator can use their **existing** SSH account to make
+the following bounded, no-sudo, no-change inventory on the PRP host.
+These checks print only `PRESENT`/`ABSENT`, never passwords, keys,
+file contents, command-line arguments, hostnames, or user records.
+
+```sh
+if getent passwd prp-inspect >/dev/null; then
+  echo 'inspect_account=PRESENT'
+else
+  echo 'inspect_account=ABSENT'
+fi
+for item in /usr/local/bin/prp-inspect-gateway \
+            /usr/local/sbin/prp-inspect-report \
+            /etc/sudoers.d/prp-inspect; do
+  case "$item" in
+    /usr/local/bin/prp-inspect-gateway) label=inspect_gateway ;;
+    /usr/local/sbin/prp-inspect-report) label=inspect_report ;;
+    /etc/sudoers.d/prp-inspect) label=inspect_sudo_policy ;;
+  esac
+  if test -e "$item"; then echo "$label=PRESENT"; else echo "$label=ABSENT"; fi
+done
+```
+
+A `PRESENT` result is not proof that permissions, hashes, forced-command SSH,
+the effective sudoers policy, host-key pinning, or production SSH policy baseline
+are correct. It never authorizes running the installer or copying deployment
+credentials. If all components are absent, stop and plan the independently
+reviewed Stage 1 bootstrap; do not change anything merely to make an Actions
+diagnostic green.
+
+The companion GitHub workflow is intentionally `main`-only and protected
+by the separate `production-inspect` environment. Before storing any new
+inspection secret, configure available human review and branch restrictions
+on that environment, and separately reconcile potential global SSH-policy
+attestor changes as described below.
+
 ## Stage 1 — Administrator-only bootstrap (NOT run by CI)
 
 Use an independently reviewed checkout pinned to the approved PR commit.

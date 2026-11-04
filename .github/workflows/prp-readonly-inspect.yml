@@ -18,19 +18,21 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Configure separate read-only identity
+      - name: Verify separate read-only identity and pinned SSH host (no network)
         env:
-          INSPECT_KEY: ${{ secrets.PRP_INSPECT_SSH_KEY }}
-          INSPECT_KNOWN_HOSTS: ${{ secrets.PRP_INSPECT_KNOWN_HOSTS }}
+          PRP_INSPECT_SSH_KEY: ${{ secrets.PRP_INSPECT_SSH_KEY }}
+          PRP_INSPECT_KNOWN_HOSTS: ${{ secrets.PRP_INSPECT_KNOWN_HOSTS }}
+          PRP_INSPECT_HOST: ${{ secrets.PRP_INSPECT_HOST }}
         shell: bash
         run: |
           set -euo pipefail
           umask 077
-          mkdir -p "$HOME/.ssh"
-          printf '%s\n' "$INSPECT_KEY" > "$HOME/.ssh/prp_inspect"
-          printf '%s\n' "$INSPECT_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          test -s "$HOME/.ssh/prp_inspect"
-          test -s "$HOME/.ssh/known_hosts"
+          # The old printf + test -s accepted empty Secrets as newline-only files.
+          # Emit only fixed failure codes. Do not print credentials or hostnames.
+          python3 app/deploy/inspect_ssh_preflight.py \
+            --identity "$RUNNER_TEMP/prp-inspection-ssh/id" \
+            --known-hosts "$RUNNER_TEMP/prp-inspection-ssh/known_hosts" \
+            --summary "$GITHUB_STEP_SUMMARY"
       - name: Request fixed read-only report
         env:
           INSPECT_HOST: ${{ secrets.PRP_INSPECT_HOST }}
@@ -39,16 +41,30 @@ jobs:
           set -euo pipefail
           umask 077
           # Untrusted raw SSH stdout/stderr must NEVER reach logs, summary or artifacts.
-          if (ulimit -f 16; timeout 30s ssh -i "$HOME/.ssh/prp_inspect" \
+          if (ulimit -f 16; timeout 30s ssh -F /dev/null -i "$RUNNER_TEMP/prp-inspection-ssh/id" \
               -T -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o UserKnownHostsFile="$RUNNER_TEMP/prp-inspection-ssh/known_hosts" \
+              -o GlobalKnownHostsFile=/dev/null \
               -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
               -o ConnectionAttempts=1 -o ForwardAgent=no \
               "prp-inspect@$INSPECT_HOST" report \
               > "$RUNNER_TEMP/prp-inspection-untrusted.json" 2>/dev/null); then
-            :
+            if test -s "$RUNNER_TEMP/prp-inspection-untrusted.json"; then
+              outcome=SSH_REPORT_RECEIVED_UNVALIDATED
+            else
+              outcome=SSH_EMPTY_RESPONSE
+            fi
           else
+            rc=$?
+            case "$rc" in
+              124) outcome=SSH_TIMEOUT_UNVERIFIED ;;
+              255) outcome=SSH_TRANSPORT_OR_AUTH_UNVERIFIED ;;
+              *) outcome=SSH_COMMAND_REJECTED_OR_UNVERIFIED ;;
+            esac
             : > "$RUNNER_TEMP/prp-inspection-untrusted.json"
           fi
+          # Publish only fixed classifications; no SSH stderr, stdout or host.
+          printf 'Read-only SSH request: `%s`\n' "$outcome" >> "$GITHUB_STEP_SUMMARY"
       - name: Strictly validate and publish sanitized metadata
         if: always()
         shell: bash
@@ -71,5 +87,6 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -f -- "$HOME/.ssh/prp_inspect" "$HOME/.ssh/known_hosts" \
+          rm -f -- "$RUNNER_TEMP/prp-inspection-ssh/id" \
+            "$RUNNER_TEMP/prp-inspection-ssh/known_hosts" \
             "$RUNNER_TEMP/prp-inspection-untrusted.json"
