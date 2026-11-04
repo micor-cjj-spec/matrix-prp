@@ -21,6 +21,12 @@
     "backend-tests",
     "web-build",
     "db-migration-integration",
-    "mcp-write-proxy-regression"
+    "mcp-write-proxy-regression",
+    "keycloak-oauth-ephemeral",
+    "nginx-oauth-ephemeral",
+    "mcp-staging-compose",
+    "mcp-staging-runtime",
+    "mcp-staging-tls",
+    "mcp-real-pkce-e2e"
   ]
 }

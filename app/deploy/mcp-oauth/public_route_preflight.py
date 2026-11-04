@@ -59,7 +59,7 @@ def inspect(resource, issuer, fetch):
     if metadata.get("bearer_methods_supported") != ["header"]:
         raise ValueError("Bearer scheme is not an HTTP header")
     if metadata.get("scopes_supported") != ["prp.tasks.read"]:
-        raise ValueError("Task-only advertised scopes required before ChatGPT linking")
+        raise ValueError("Task-only OAuth discovery must remain task-read-only before ChatGPT linking")
 
     status, headers, _ = fetch(expected, "POST",
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",

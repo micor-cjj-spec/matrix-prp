@@ -524,14 +524,15 @@ def main():
     if EXACT_CHATGPT_CI:
         print("CI_EXACT_CHATGPT_ID_TO_FIRST_PARTY_LINKED_PRP_TASK_TOOL=PASS")
         print("ACTUAL_OPENAI_PRIVATE_KEY_JWT_VERIFIED=NO")
+    # Mutations require a still-active owner link; destructive unlink/revoke negatives run afterwards.
+    if os.environ.get('MCP_E2E_CRUD') == 'true':
+        import ci_crud_flow
+        ci_crud_flow.run(sys.modules[__name__], opener, prp_jwt, prp_password, user_password)
     if os.environ.get("MCP_E2E_FIRST_PARTY") == "true":
         ci_first_party_link_e2e.verify_unlink_invalidates_pending(
             sys.modules[__name__], opener, prp_jwt, bearer, prp_password)
         ci_first_party_link_e2e.verify_concurrent_flow_limit(
             sys.modules[__name__], prp_jwt, prp_password)
-    if os.environ.get('MCP_E2E_CRUD') == 'true':
-        import ci_crud_flow
-        ci_crud_flow.run(sys.modules[__name__], opener, prp_jwt, prp_password, user_password)
     revoke = json_response(request(opener, "https://prp-e2e.localhost/api/mcp/clients/revoke",
         bearer=prp_jwt, data={"clientId": CLIENT}), "PRP client revocation")
     after = jsonrpc(opener, bearer, 6, "tools/list", {})

@@ -27,6 +27,7 @@ class MainlineMcpCITests(unittest.TestCase):
                 self.assertNotRegex(workflow, r'(?m)^\s*environment:')
         for job in contract['required_local_jobs']:
             self.assertIn(job, bodies)
+            self.assertNotRegex(bodies[job], r'(?m)^    if:')
 
     def test_application_publication_remains_held(self):
         path = ROOT/'app/deploy/release_control.py'
