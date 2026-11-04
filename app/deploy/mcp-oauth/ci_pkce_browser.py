@@ -368,9 +368,12 @@ def verify_exact_client_rejects_broad_scopes(opener):
             or os.environ.get("MCP_E2E_FIRST_PARTY") != "true"
             or ISSUER != "https://auth-e2e.localhost/realms/prp-mcp"):
         raise RuntimeError("SCOPE_NEGATIVE_DISPOSABLE_CI_ONLY")
-    forbidden_scopes = ["prp.finance.read", "prp.wellness.read"]
+    forbidden_scopes = ["prp.finance.read"]
     if os.environ.get('MCP_E2E_CRUD') != 'true':
-        forbidden_scopes.append('prp.write.create')
+        # The regular exact-client test is deliberately task-read-only.
+        forbidden_scopes.extend(["prp.wellness.read", "prp.write.create"])
+    # The disposable CRUD+meal fixture explicitly grants wellness read.
+    # Keep finance.read unassigned and rejected in both variants.
     for forbidden in forbidden_scopes:
         verifier = secrets.token_urlsafe(48)
         challenge = base64.urlsafe_b64encode(
