@@ -28,10 +28,10 @@ class McpIncrementalOAuthTests extends McpExpandedCapabilitiesTests {
             Map.entry("prp_tasks_list","prp.tasks.read"), Map.entry("prp_task_get","prp.tasks.read"),
             Map.entry("prp_finance_month","prp.finance.read"), Map.entry("prp_wellness_daily","prp.wellness.read"),
             Map.entry("prp_prepare_task","prp.write.create"), Map.entry("prp_prepare_finance","prp.write.create"),
-            Map.entry("prp_prepare_record","prp.write.create"), Map.entry("prp_prepare_task_update","prp.write.update"),
+            Map.entry("prp_prepare_record","prp.write.create"), Map.entry("prp_prepare_meal","prp.write.create"), Map.entry("prp_prepare_task_update","prp.write.update"),
             Map.entry("prp_prepare_task_delete","prp.write.delete"), Map.entry("prp_draft_status","prp.write.status"),
             Map.entry("prp_confirm_draft","prp.write.confirm"));
-        assertThat(tools.size()).isEqualTo(11);
+        assertThat(tools.size()).isEqualTo(12);
         for (JsonNode tool : tools) {
             String name=tool.path("name").asText(); JsonNode schemes=tool.path("_meta").path("securitySchemes");
             assertThat(schemes.size()).isEqualTo(1);
