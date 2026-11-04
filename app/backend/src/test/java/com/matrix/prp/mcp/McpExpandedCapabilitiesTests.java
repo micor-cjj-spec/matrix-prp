@@ -87,7 +87,10 @@ class McpExpandedCapabilitiesTests {
   var response=request(requestBody);
   assertThat(response.getResponse().getStatus()).isEqualTo(200);
   assertThat(response.getResponse().getContentAsString())
-      .contains("draftId", "MEAL", "360").doesNotContain("\\"isError\\":true");
+      .contains("draftId", "MEAL", "360");
+  assertThat(new com.fasterxml.jackson.databind.ObjectMapper()
+      .readTree(response.getResponse().getContentAsString())
+      .path("result").path("isError").asBoolean()).isFalse();
   verify(wellness).validateMcpMealInput(eq(java.time.LocalDate.of(2026,11,4)),
       eq("LUNCH"), eq("owner-reviewed estimates"), anyList());
   verify(jdbc).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
