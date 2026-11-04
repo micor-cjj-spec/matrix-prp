@@ -75,6 +75,38 @@ class McpExpandedCapabilitiesTests {
   assertThat(r.getResponse().getContentAsString()).contains("draftId","Synthetic expanded draft").doesNotContain("\"isError\":true");
   verify(jdbc).update(startsWith("INSERT INTO prp_mcp_write_drafts"),any(),eq(2L),eq("TASK"),any(),any());
  }
+ @Test void realMcpTransportDecodesStructuredMealItemsAndOnlyPreparesDraft() throws Exception {
+  when(jdbc.queryForObject(anyString(),eq(Integer.class),eq(2L))).thenReturn(0);
+  String requestBody = """
+    {"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"prp_prepare_meal",
+    "arguments":{"mealDate":"2026-11-04","mealType":"LUNCH",
+    "items":[{"foodId":null,"name":"synthetic chicken","grams":180,"calories":360.00},
+             {"foodId":null,"name":"synthetic wontons","grams":200,"calories":260.00}],
+    "note":"owner-reviewed estimates"}}}
+    """;
+  var response=request(requestBody);
+  assertThat(response.getResponse().getStatus()).isEqualTo(200);
+  assertThat(response.getResponse().getContentAsString())
+      .contains("draftId", "MEAL", "360").doesNotContain("\\"isError\\":true");
+  verify(wellness).validateMcpMealInput(eq(java.time.LocalDate.of(2026,11,4)),
+      eq("LUNCH"), eq("owner-reviewed estimates"), anyList());
+  verify(jdbc).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
+      any(),eq(2L),eq("MEAL"),any(),any());
+  verify(wellness,never()).addAiMeal(any(),any(),any(),any(),any());
+ }
+ @Test void realMcpTransportRejectsMealMissingCalorieEstimate() throws Exception {
+  String requestBody = """
+    {"jsonrpc":"2.0","id":44,"method":"tools/call","params":{"name":"prp_prepare_meal",
+    "arguments":{"mealDate":"2026-11-04","mealType":"LUNCH",
+    "items":[{"foodId":null,"name":"synthetic chicken","grams":180}]}}}
+    """;
+  var response=request(requestBody);
+  assertThat(response.getResponse().getStatus()).isEqualTo(200);
+  assertThat(response.getResponse().getContentAsString()).contains("isError");
+  verify(jdbc,never()).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
+      any(),any(),any(),any(),any());
+  verify(wellness,never()).addAiMeal(any(),any(),any(),any(),any());
+ }
  @Test void anotherAccountIsDeniedEvenWithAllSignedScopesAndGrant() throws Exception {
   identity(1,CLIENT,SCOPES);request(prepare());verifyNoInteractions(jdbc);
  }
