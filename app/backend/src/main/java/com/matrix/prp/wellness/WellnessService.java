@@ -328,6 +328,11 @@ public class WellnessService {
      * Custom entries are intentionally never inserted into prp_wellness_foods. */
     public record AiMealItem(Long foodId, String name, BigDecimal grams, BigDecimal calories) {}
 
+    /** Read-only validation for MCP drafts; checks catalog visibility under CurrentUser. */
+    public void validateMcpMealInput(LocalDate date, String type, String note, List<AiMealItem> items) {
+        validateAiMealInput(date, type, note, items);
+    }
+
     private void validateAiMealInput(LocalDate date,String type,String note,List<AiMealItem> items) {
         if(date==null || !Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) ||
             items==null || items.isEmpty() || items.size()>30 ||

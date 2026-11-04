@@ -31,8 +31,10 @@ class McpOAuthToolManifestTests {
         assertThat(McpToolConfiguration.exposedNames(
             "prp.tasks.read,prp.write.create", true))
             .containsExactlyInAnyOrder("prp_tasks_list", "prp_task_get",
-                "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record")
+                "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record", "prp_prepare_meal")
             .doesNotContain("prp_confirm_draft", "prp_finance_month");
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read", false))
+            .doesNotContain("prp_prepare_meal");
         assertThat(McpToolConfiguration.exposedNames("prp.write.confirm", true))
             .containsExactly("prp_confirm_draft");
     }

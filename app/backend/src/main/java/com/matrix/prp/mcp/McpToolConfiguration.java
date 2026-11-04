@@ -38,6 +38,7 @@ public class McpToolConfiguration {
         Map.entry("prp_prepare_task", "prp.write.create"),
         Map.entry("prp_prepare_finance", "prp.write.create"),
         Map.entry("prp_prepare_record", "prp.write.create"),
+        Map.entry("prp_prepare_meal", "prp.write.create"),
         Map.entry("prp_prepare_task_update", "prp.write.update"),
         Map.entry("prp_prepare_task_delete", "prp.write.delete"),
         Map.entry("prp_draft_status", "prp.write.status"),
@@ -61,6 +62,7 @@ public class McpToolConfiguration {
         var definitions = new SyncStatelessMcpToolProvider(List.of(tools)).getToolSpecifications();
         var expected = java.util.Set.of("prp_tasks_list", "prp_task_get", "prp_finance_month",
             "prp_wellness_daily", "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record",
+            "prp_prepare_meal",
             "prp_draft_status", "prp_confirm_draft", "prp_prepare_task_update", "prp_prepare_task_delete");
         var actual = definitions.stream().map(spec -> spec.tool().name()).collect(java.util.stream.Collectors.toSet());
         if (!REQUIRED_SCOPE.keySet().equals(expected)) {

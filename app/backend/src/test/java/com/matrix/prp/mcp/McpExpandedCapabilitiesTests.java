@@ -63,10 +63,10 @@ class McpExpandedCapabilitiesTests {
   mvc.perform(get("/.well-known/oauth-protected-resource/api/mcp")).andExpect(status().isOk())
    .andExpect(jsonPath("$.scopes_supported.length()").value(8));
  }
- @Test void allElevenExistingToolsAreDiscoverable() throws Exception {
+ @Test void allTwelveExistingToolsAreDiscoverable() throws Exception {
   var r=request("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}");
   assertThat(r.getResponse().getStatus()).isEqualTo(200);
-  assertThat(r.getResponse().getContentAsString()).contains("prp_prepare_task","prp_prepare_task_update","prp_prepare_task_delete","prp_prepare_finance","prp_prepare_record","prp_confirm_draft","prp_wellness_daily");
+  assertThat(r.getResponse().getContentAsString()).contains("prp_prepare_task","prp_prepare_task_update","prp_prepare_task_delete","prp_prepare_finance","prp_prepare_record","prp_prepare_meal","prp_confirm_draft","prp_wellness_daily");
   verifyNoInteractions(jdbc);
  }
  @Test void whitespaceScopesPassRealSecurityChainAndDraftRemainsOwnerBound() throws Exception {
@@ -74,6 +74,44 @@ class McpExpandedCapabilitiesTests {
   var r=request(prepare());assertThat(r.getResponse().getStatus()).isEqualTo(200);
   assertThat(r.getResponse().getContentAsString()).contains("draftId","Synthetic expanded draft").doesNotContain("\"isError\":true");
   verify(jdbc).update(startsWith("INSERT INTO prp_mcp_write_drafts"),any(),eq(2L),eq("TASK"),any(),any());
+ }
+ @Test void realMcpTransportDecodesStructuredMealItemsAndOnlyPreparesDraft() throws Exception {
+  when(jdbc.queryForObject(anyString(),eq(Integer.class),eq(2L))).thenReturn(0);
+  String requestBody = """
+    {"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"prp_prepare_meal",
+    "arguments":{"mealDate":"2026-11-04","mealType":"LUNCH",
+    "items":[{"foodId":null,"name":"synthetic chicken","grams":180,"calories":360.00},
+             {"foodId":null,"name":"synthetic wontons","grams":200,"calories":260.00}],
+    "note":"owner-reviewed estimates"}}}
+    """;
+  var response=request(requestBody);
+  assertThat(response.getResponse().getStatus()).isEqualTo(200);
+  var mapper=new com.fasterxml.jackson.databind.ObjectMapper();
+  var rpc=mapper.readTree(response.getResponse().getContentAsString());
+  assertThat(rpc.path("result").path("isError").asBoolean()).isFalse();
+  var proposal=mapper.readTree(rpc.path("result").path("content").get(0).path("text").asText());
+  assertThat(proposal.path("draftId").asText()).isNotBlank();
+  assertThat(proposal.path("kind").asText()).isEqualTo("MEAL");
+  assertThat(proposal.path("values").path("items").get(0).path("calories").decimalValue())
+      .isEqualByComparingTo("360.00");
+  verify(wellness).validateMcpMealInput(eq(java.time.LocalDate.of(2026,11,4)),
+      eq("LUNCH"), eq("owner-reviewed estimates"), anyList());
+  verify(jdbc).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
+      any(),eq(2L),eq("MEAL"),any(),any());
+  verify(wellness,never()).addAiMeal(any(),any(),any(),any(),any());
+ }
+ @Test void realMcpTransportRejectsMealMissingCalorieEstimate() throws Exception {
+  String requestBody = """
+    {"jsonrpc":"2.0","id":44,"method":"tools/call","params":{"name":"prp_prepare_meal",
+    "arguments":{"mealDate":"2026-11-04","mealType":"LUNCH",
+    "items":[{"foodId":null,"name":"synthetic chicken","grams":180}]}}}
+    """;
+  var response=request(requestBody);
+  assertThat(response.getResponse().getStatus()).isEqualTo(200);
+  assertThat(response.getResponse().getContentAsString()).contains("isError");
+  verify(jdbc,never()).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
+      any(),any(),any(),any(),any());
+  verify(wellness,never()).addAiMeal(any(),any(),any(),any(),any());
  }
  @Test void anotherAccountIsDeniedEvenWithAllSignedScopesAndGrant() throws Exception {
   identity(1,CLIENT,SCOPES);request(prepare());verifyNoInteractions(jdbc);

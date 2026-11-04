@@ -1,8 +1,10 @@
 """Synthetic CRUD acceptance, called only inside the disposable CI PKCE runner."""
 import json
 import os
+from datetime import date
+from decimal import Decimal
 
-SCOPES = ['prp.tasks.read', 'prp.write.create', 'prp.write.status',
+SCOPES = ['prp.tasks.read', 'prp.wellness.read', 'prp.write.create', 'prp.write.status',
           'prp.write.confirm', 'prp.write.update', 'prp.write.delete']
 
 
@@ -69,7 +71,47 @@ def run(flow, opener, prp_jwt, password, login_password):
     if call('prp_confirm_draft',{'draftId':removed['draftId']})['alreadySaved'] is not True:
         raise RuntimeError('CRUD deletion replay was not idempotent')
     call('prp_task_get',{'taskId':task_id},denied=True)
+    # Dedicated structured meal E2E. Synthetic owner and disposable database only:
+    # a generic RECORD is deliberately NOT used for nutritional statistics.
+    meal_date = date.today().isoformat()
+    meal_input = {'mealDate': meal_date, 'mealType': 'LUNCH',
+        'note': 'CI-only estimates; unknown macros must remain null',
+        'items': [
+            {'foodId': None, 'name': 'CI synthetic chicken', 'grams': 180, 'calories': 360.00},
+            {'foodId': None, 'name': 'CI synthetic wontons', 'grams': 200, 'calories': 260.00}
+        ]}
+    call('prp_prepare_meal', {'mealDate': meal_date, 'mealType': 'LUNCH',
+        'items': [{'foodId': None, 'name': 'Missing calories', 'grams': 180}]}, denied=True)
+    before = call('prp_wellness_daily', {'date': meal_date})
+    if before['mealCount'] != 0 or before['calories'] is not None:
+        raise RuntimeError('MEAL_CI_EXPECTED_EMPTY_DISPOSABLE_DAY')
+    proposal = call('prp_prepare_meal', meal_input)
+    if proposal['kind'] != 'MEAL' or len(proposal['values']['items']) != 2:
+        raise RuntimeError('MEAL_CI_TYPED_DRAFT_MISMATCH')
+    call('prp_confirm_draft', {'draftId': proposal['draftId']}, denied=True)
+    if call('prp_wellness_daily', {'date': meal_date})['mealCount'] != 0:
+        raise RuntimeError('MEAL_CI_PREAPPROVAL_BUSINESS_WRITE')
+    approve(proposal)
+    saved_meal = call('prp_confirm_draft', {'draftId': proposal['draftId']})
+    if saved_meal['kind'] != 'MEAL' or len(saved_meal['saved']['items']) != 2:
+        raise RuntimeError('MEAL_CI_SAVED_ITEMS_MISMATCH')
+    replay = call('prp_confirm_draft', {'draftId': proposal['draftId']})
+    if replay['alreadySaved'] is not True or replay['saved']['id'] != saved_meal['saved']['id']:
+        raise RuntimeError('MEAL_CI_NOT_IDEMPOTENT')
+    daily = call('prp_wellness_daily', {'date': meal_date})
+    if (daily['mealCount'] != 1 or Decimal(str(daily['calories'])) != Decimal('620.00')
+            or daily.get('proteinG') is not None or daily.get('carbsG') is not None
+            or daily.get('fatG') is not None):
+        raise RuntimeError('MEAL_CI_DAILY_STRUCTURED_TOTAL_MISMATCH')
+    duplicate = call('prp_prepare_meal', meal_input)
+    approve(duplicate)
+    call('prp_confirm_draft', {'draftId': duplicate['draftId']}, denied=True)
+    if call('prp_wellness_daily', {'date': meal_date})['mealCount'] != 1:
+        raise RuntimeError('MEAL_CI_DUPLICATE_LUNCH_WRITTEN')
+    print('PASS E2E MEAL: real OAuth, typed draft, owner approval, 620 kcal daily, replay and duplicate denial.')
+
     flow.json_response(flow.request(opener,base+'/api/mcp/clients',bearer=prp_jwt,
         data={'clientId':flow.CLIENT,'scopes':['prp.tasks.read'],'password':password}), 'Reduce synthetic client scopes')
     call('prp_prepare_task',{'moduleCode':'work','title':'Must be denied'},denied=True)
+    call('prp_prepare_meal', meal_input, denied=True)
     print('PASS E2E CRUD: real OAuth task create/read/update/delete, owner approval, replay and scope reduction.')

@@ -9,6 +9,7 @@ import com.matrix.prp.finance.service.FinanceService;
 import com.matrix.prp.records.service.RecordService;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.service.TaskService;
+import com.matrix.prp.wellness.WellnessService;
 import jakarta.validation.Validation;
 import java.math.BigDecimal;
 import java.util.List;
@@ -154,6 +155,7 @@ class McpGatewayTests {
     private final TaskService tasks = mock(TaskService.class);
     private final FinanceService finance = mock(FinanceService.class);
     private final RecordService records = mock(RecordService.class);
+    private final WellnessService wellness = mock(WellnessService.class);
     private final UserStore users = mock(UserStore.class);
     private final PasswordEncoder passwords = mock(PasswordEncoder.class);
     private final ObjectMapper json = new ObjectMapper().findAndRegisterModules();
@@ -171,7 +173,7 @@ class McpGatewayTests {
 
     private McpDraftService drafts(boolean enabled) {
         return new McpDraftService(db, json,
-            Validation.buildDefaultValidatorFactory().getValidator(), tasks, finance, records, users, passwords, enabled, "https://prp-test.micor.top/api/mcp");
+            Validation.buildDefaultValidatorFactory().getValidator(), tasks, finance, records, wellness, users, passwords, enabled, "https://prp-test.micor.top/api/mcp");
     }
 
     @Test
@@ -203,6 +205,38 @@ class McpGatewayTests {
                 "transport", "cash", null, null, null)))
             .isInstanceOf(ResponseStatusException.class);
         verifyNoInteractions(db, finance);
+    }
+
+    @Test
+    void structuredMealRejectsMissingCaloriesAndCatalogOverridesBeforeAnyWrite() {
+        var badEstimate = new McpDraftService.MealDraft(java.time.LocalDate.of(2026, 11, 4),
+            "LUNCH", "MCP estimated lunch", List.of(
+                new WellnessService.AiMealItem(null, "鸡腿", new BigDecimal("180"), null)));
+        assertThatThrownBy(() -> drafts(true).prepare(McpDraftService.Kind.MEAL, badEstimate))
+            .isInstanceOf(ResponseStatusException.class);
+        var forgedCatalog = new McpDraftService.MealDraft(java.time.LocalDate.of(2026, 11, 4),
+            "LUNCH", null, List.of(new WellnessService.AiMealItem(9L, "fake food",
+                new BigDecimal("180"), new BigDecimal("450"))));
+        assertThatThrownBy(() -> drafts(true).prepare(McpDraftService.Kind.MEAL, forgedCatalog))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(db, wellness);
+    }
+
+    @Test
+    void structuredMealPreparesOnlyAnOwnerBoundDraftNotBusinessFood() {
+        when(db.queryForObject(any(String.class), eq(Integer.class), eq(501L))).thenReturn(0);
+        var meal = new McpDraftService.MealDraft(java.time.LocalDate.of(2026, 11, 4),
+            "LUNCH", "Calories are estimates", List.of(new WellnessService.AiMealItem(null,
+                "鸡腿", new BigDecimal("180"), new BigDecimal("360.00"))));
+        var preview = drafts(true).prepare(McpDraftService.Kind.MEAL, meal);
+        assertThat(preview.kind()).isEqualTo("MEAL");
+        assertThat(preview.values().path("items").get(0).path("calories").decimalValue())
+            .isEqualByComparingTo("360.00");
+        verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
+            any(), eq(501L), eq("MEAL"), any(), any());
+        verify(wellness).validateMcpMealInput(eq(meal.mealDate()), eq("LUNCH"),
+            eq("Calories are estimates"), eq(meal.items()));
+        verify(wellness, never()).addAiMeal(any(), any(), any(), any(), any());
     }
 
     @Test
