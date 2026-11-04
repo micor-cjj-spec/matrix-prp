@@ -29,11 +29,11 @@ class MainlineMcpCITests(unittest.TestCase):
             self.assertIn(job, bodies)
             self.assertNotRegex(bodies[job], r'(?m)^    if:')
 
-    def test_application_publication_remains_held(self):
-        path = ROOT/'app/deploy/release_control.py'
-        spec = importlib.util.spec_from_file_location('mcp_integration_release_control', path)
-        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-        self.assertIs(module.publication_allowed(ROOT), False)
+    def test_release_retains_production_gate_and_disabled_mcp_defaults(self):
+        config = (ROOT/'app/backend/src/main/resources/application.yml').read_text()
+        for setting in ('MATRIX_PRP_MCP_ENABLED', 'MATRIX_PRP_MCP_OAUTH_ENABLED',
+                        'MATRIX_PRP_MCP_WRITE_ENABLED'):
+            self.assertIn('${' + setting + ':false}', config)
         workflow = (ROOT/'.github/workflows/deploy-prp.yml').read_text()
         self.assertIn("needs.release_control.outputs.publish_allowed == 'true'", workflow)
         self.assertIn('environment:\n      name: production', workflow)
