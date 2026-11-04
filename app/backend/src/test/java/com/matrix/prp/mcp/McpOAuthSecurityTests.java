@@ -110,7 +110,7 @@ class McpOAuthSecurityTests {
         assertThat(list.getResponse().getContentAsString())
             .contains("prp_tasks_list", "prp_task_get")
             .doesNotContain("prp_finance_month", "prp_wellness_daily",
-                "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record",
+                "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record", "prp_prepare_meal",
                 "prp_prepare_task_update", "prp_prepare_task_delete",
                 "prp_draft_status", "prp_confirm_draft");
 
