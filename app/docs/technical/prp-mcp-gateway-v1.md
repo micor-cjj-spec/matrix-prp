@@ -8,7 +8,7 @@ It reuses owner-scoped PRP services instead of granting the model SQL access or 
 - `prp_tasks_list` — maximum 20 authenticated-user tasks.
 - `prp_finance_month` — summary and maximum 10 transactions for an authenticated user's selected month.
 - `prp_wellness_daily` — authenticated-user daily wellness data.
-- `prp_prepare_task`, `prp_prepare_finance`, `prp_prepare_record` — save an immutable 15-minute draft, **not** business data.
+- `prp_prepare_task`, `prp_prepare_finance`, `prp_prepare_record`, `prp_prepare_meal` — save an immutable 15-minute draft, **not** business data. `prp_prepare_meal` takes explicit structured food snapshots and is the only MCP create draft that writes wellness meals/calories after approval.
 - `prp_draft_status` — owner-scoped read of current status.
 - `prp_confirm_draft` — only works **after** the PRP site verifies the account password and marks this exact draft `APPROVED`; locks the draft, writes one business record and returns the same saved result on replay. No model-supplied approval flag, delete or update tools.
 
