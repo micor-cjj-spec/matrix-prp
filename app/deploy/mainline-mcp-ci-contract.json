@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "required_reusable_jobs": {
+    "mcp-integrated-oauth-keycloak": "mcp-oauth-keycloak-smoke.yml",
+    "mcp-integrated-draft-write-e2e": "mcp-disposable-draft-write-e2e.yml",
+    "mcp-integrated-first-party-oidc": "mcp-first-party-oidc-e2e.yml",
+    "mcp-integrated-browser-chromium": "mcp-first-party-chromium-e2e.yml",
+    "mcp-integrated-exact-chatgpt-client": "mcp-exact-chatgpt-prp-task-e2e.yml",
+    "mcp-integrated-flyway-v28-v29": "mcp-flyway-v28-v29.yml",
+    "mcp-integrated-v28-restore-v29": "mcp-v28-backup-restore-v29-review.yml",
+    "mcp-integrated-v24-backup-restore": "mcp-full-v24-backup-restore-review.yml",
+    "mcp-integrated-populated-v24-upgrade": "mcp-populated-v24-upgrade-review.yml",
+    "mcp-integrated-legacy-baseline-upgrade": "mcp-legacy-v7-baseline-upgrade-review.yml",
+    "mcp-integrated-upstream-security": "mcp-upstream-security-regression.yml",
+    "mcp-integrated-runtime-oci": "mcp-reviewed-oci-images.yml",
+    "mcp-integrated-first-party-nginx": "mcp-first-party-nginx-route-review.yml",
+    "mcp-integrated-owner-mysql": "mcp-producer-task-mysql-it.yml",
+    "mcp-integrated-flyway-review-contract": "mcp-production-flyway-readonly-review.yml"
+  },
+  "required_local_jobs": [
+    "backend-tests",
+    "web-build",
+    "db-migration-integration",
+    "mcp-write-proxy-regression"
+  ]
+}

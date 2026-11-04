@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
 import { ensureAdminAccess } from './adminAccess'
+import { safeUnauthenticatedRedirect } from './safeUnauthenticatedRedirect'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -109,6 +110,26 @@ const router = createRouter({
       meta: { requiresAuth: true, title: '我的' },
     },
     {
+      path: '/me/mcp-clients',
+      name: 'mcp-client-grants',
+      component: () => import('@/views/McpClientsView.vue'),
+      meta: { requiresAuth: true, title: 'MCP 客户端授权' },
+    },
+    {
+      path: '/me/mcp-link/callback',
+      name: 'mcp-first-party-link-callback',
+      component: () => import('@/views/McpOidcCallbackView.vue'),
+      // Callback must NOT be redirected to login while it carries OAuth code
+      // or state. The component scrubs URL immediately, then checks PRP auth.
+      meta: { title: 'Keycloak 账号绑定回调' },
+    },
+    {
+      path: '/me/mcp-approve/:draftId',
+      name: 'mcp-draft-approval',
+      component: () => import('@/views/McpApprovalView.vue'),
+      meta: { requiresAuth: true, title: '确认 MCP 数据写入' },
+    },
+    {
       path: '/me/ai-settings',
       name: 'my-ai-settings',
       component: () => import('@/views/AiSettingsView.vue'),
@@ -158,12 +179,12 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+    return { name: 'login', query: { redirect: safeUnauthenticatedRedirect(to) } }
   }
   if (to.meta.adminOnly) {
     const access = await ensureAdminAccess(authStore)
     if (access === 'unauthenticated') {
-      return { name: 'login', query: { redirect: to.fullPath } }
+      return { name: 'login', query: { redirect: safeUnauthenticatedRedirect(to) } }
     }
     if (access === 'forbidden') return { name: 'me' }
     // On a temporary outage, do not mistake a missing profile for a non-admin.

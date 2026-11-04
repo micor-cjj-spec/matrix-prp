@@ -1,0 +1,16 @@
+# Build exclusively from the selected PR review source. NEVER mount a production JAR.
+FROM maven:3.9.11-eclipse-temurin-21 AS build
+WORKDIR /build
+COPY app/backend/pom.xml ./pom.xml
+COPY app/backend/src ./src
+RUN mvn -B -ntp -DskipTests package
+
+FROM eclipse-temurin:21-jre
+RUN groupadd --system prp && useradd --system --gid prp --home-dir /opt/prp prp \
+    && mkdir -p /opt/prp /data/video /data/vocal \
+    && chown -R prp:prp /opt/prp /data
+USER prp
+WORKDIR /opt/prp
+COPY --from=build --chown=prp:prp /build/target/matrix-prp-backend-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=65", "-jar", "/opt/prp/app.jar"]

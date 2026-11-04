@@ -1,0 +1,44 @@
+name: PRP MCP incremental OAuth isolation
+
+on:
+  push:
+    branches: [fix/mcp-incremental-oauth-20261104]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-backend-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run backend unit and OAuth transport regression tests
+        working-directory: app/backend
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp test
+      - name: Publish counts only; no tokens, test payloads or deployment access
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, os, xml.etree.ElementTree as ET
+          totals = dict(tests=0, failures=0, errors=0, skipped=0)
+          for path in glob.glob('app/backend/target/surefire-reports/TEST-*.xml'):
+              suite = ET.parse(path).getroot()
+              for key in totals:
+                  totals[key] += int(suite.attrib.get(key, 0))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('Commit: ' + os.environ['GITHUB_SHA'] + '\n\n')
+              output.write('\n'.join(f'{key}: {value}' for key, value in totals.items()))
+          PY

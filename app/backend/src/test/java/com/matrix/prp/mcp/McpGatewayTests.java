@@ -1,0 +1,308 @@
+package com.matrix.prp.mcp;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.matrix.prp.auth.model.UserProfile;
+import com.matrix.prp.auth.model.UserAccount;
+import com.matrix.prp.auth.repository.UserStore;
+import com.matrix.prp.finance.model.CreateFinanceTransactionRequest;
+import com.matrix.prp.finance.service.FinanceService;
+import com.matrix.prp.records.service.RecordService;
+import com.matrix.prp.tasks.model.CreateTaskRequest;
+import com.matrix.prp.tasks.service.TaskService;
+import jakarta.validation.Validation;
+import java.math.BigDecimal;
+import java.util.List;
+import java.time.LocalDateTime;
+import java.sql.Timestamp;
+import java.sql.ResultSet;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.server.ResponseStatusException;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.*;
+
+class McpGatewayTests {
+    @Test
+    void revokedOperationScopeCannotConfirmAnAlreadyApprovedDraft() {
+        var approvals = mock(McpDraftService.class);
+        when(approvals.review(CHANGE_ID)).thenReturn(new McpDraftService.Review(
+            CHANGE_ID, "TASK_DELETE", json.createObjectNode(), "APPROVED", "future"));
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+            new UserProfile(501L, "mcp-user", "MCP"), null,
+            List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.confirm"))));
+        var tools = new PrpMcpTools(tasks, finance, null, approvals, new McpScopeGuard(true));
+        assertThatThrownBy(() -> tools.confirmDraft(CHANGE_ID)).isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+        verify(approvals, never()).confirm(anyString());
+    }
+
+    @Test
+    void createPermissionDoesNotAuthorizeAnUpdateDraft() {
+        var approvals = mock(McpDraftService.class);
+        when(approvals.review(CHANGE_ID)).thenReturn(new McpDraftService.Review(
+            CHANGE_ID, "TASK_UPDATE", json.createObjectNode(), "APPROVED", "future"));
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+            new UserProfile(501L, "mcp-user", "MCP"), null,
+            List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.confirm"),
+                new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.create"))));
+        var tools = new PrpMcpTools(tasks, finance, null, approvals, new McpScopeGuard(true));
+        assertThatThrownBy(() -> tools.confirmDraft(CHANGE_ID)).isInstanceOf(ResponseStatusException.class);
+        verify(approvals, never()).confirm(anyString());
+    }
+    private static final String CHANGE_ID = "41abc027-d67e-4bdf-8985-e3ec97d23204";
+
+    private com.matrix.prp.tasks.model.TaskItem ownedTask(String title) {
+        return new com.matrix.prp.tasks.model.TaskItem(77L, "work", title, "", "low", "todo", null,
+            java.time.OffsetDateTime.parse("2026-10-23T08:00:00+08:00"), null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void storedTaskChange(String kind, McpDraftService.TaskChange change, String status) throws Exception {
+        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,expires_at"),
+            any(RowMapper.class), eq(CHANGE_ID), eq(501L))).thenAnswer(invocation -> {
+                RowMapper<Object> mapper = invocation.getArgument(1);
+                ResultSet rs = mock(ResultSet.class);
+                when(rs.getString("kind")).thenReturn(kind);
+                when(rs.getString("payload_json")).thenReturn(json.writeValueAsString(change));
+                when(rs.getString("result_json")).thenReturn("{\"deleted\":true}");
+                when(rs.getString("status")).thenReturn(status);
+                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                return List.of(mapper.mapRow(rs, 0));
+            });
+        when(db.query(startsWith("SELECT updated_at"), any(RowMapper.class), eq(77L), eq(501L)))
+            .thenReturn(List.of("revision"));
+        when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status='CONSUMED'"),
+            any(), any(), any())).thenReturn(1);
+    }
+
+    @Test void approvedDeleteRejectsChangedValues() throws Exception {
+        storedTaskChange("TASK_DELETE", new McpDraftService.TaskChange(77L, ownedTask("Approved"), "revision", null, null), "APPROVED");
+        when(tasks.get(77L)).thenReturn(ownedTask("Changed"));
+        assertThatThrownBy(() -> drafts(true).confirm(CHANGE_ID)).isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        verify(tasks, never()).delete(anyLong());
+    }
+
+    @Test void approvedDeleteRejectsChangedRevision() throws Exception {
+        storedTaskChange("TASK_DELETE", new McpDraftService.TaskChange(77L, ownedTask("Approved"), "old-revision", null, null), "APPROVED");
+        assertThatThrownBy(() -> drafts(true).confirm(CHANGE_ID)).isInstanceOf(ResponseStatusException.class);
+        verify(tasks, never()).delete(anyLong());
+    }
+
+    @Test void approvedDeleteConsumesExactOwnedTask() throws Exception {
+        var task = ownedTask("Approved");
+        storedTaskChange("TASK_DELETE", new McpDraftService.TaskChange(77L, task, "revision", null, null), "APPROVED");
+        when(tasks.get(77L)).thenReturn(task);
+        var result = drafts(true).confirm(CHANGE_ID);
+        assertThat(result.saved().path("deleted").asBoolean()).isTrue();
+        verify(tasks).delete(77L);
+    }
+
+    @Test void consumedDeletionDoesNotDeleteAgain() throws Exception {
+        storedTaskChange("TASK_DELETE", new McpDraftService.TaskChange(77L, ownedTask("Approved"), "revision", null, null), "CONSUMED");
+        assertThat(drafts(true).confirm(CHANGE_ID).alreadySaved()).isTrue();
+        verifyNoInteractions(tasks);
+    }
+
+    @Test void approvedUpdateAppliesReviewedValuesAndStatus() throws Exception {
+        var before = ownedTask("Approved");
+        var after = new CreateTaskRequest("work", "Reviewed replacement", "", "high", null);
+        storedTaskChange("TASK_UPDATE", new McpDraftService.TaskChange(77L, before, "revision", after, "done"), "APPROVED");
+        when(tasks.get(77L)).thenReturn(before);
+        when(tasks.updateStatus(77L, "done")).thenReturn(ownedTask("Reviewed replacement"));
+        drafts(true).confirm(CHANGE_ID);
+        verify(tasks).update(77L, after);
+        verify(tasks).updateStatus(77L, "done");
+        verify(tasks, never()).delete(anyLong());
+    }
+    @Test
+    void taskMutationGateRejectsBeforeTargetLookup() {
+        assertThatThrownBy(() -> drafts(false).prepareTaskChange(77L, null, null, true))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(db, tasks);
+    }
+
+    @Test
+    void inaccessibleTaskCannotBecomeADeletionDraft() {
+        assertThatThrownBy(() -> drafts(true).prepareTaskChange(77L, null, null, true))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND));
+        verifyNoInteractions(tasks);
+    }
+
+    @Test
+    void invalidReplacementCannotBecomeUpdateDraft() {
+        assertThatThrownBy(() -> drafts(true).prepareTaskChange(77L, null, null, false))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST));
+        verifyNoInteractions(db, tasks);
+    }
+    private final JdbcTemplate db = mock(JdbcTemplate.class);
+    private final TaskService tasks = mock(TaskService.class);
+    private final FinanceService finance = mock(FinanceService.class);
+    private final RecordService records = mock(RecordService.class);
+    private final UserStore users = mock(UserStore.class);
+    private final PasswordEncoder passwords = mock(PasswordEncoder.class);
+    private final ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+
+    @BeforeEach
+    void authenticated() {
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(new UserProfile(501L, "mcp-user", "MCP"), null, List.of()));
+    }
+
+    @AfterEach
+    void clearSecurity() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private McpDraftService drafts(boolean enabled) {
+        return new McpDraftService(db, json,
+            Validation.buildDefaultValidatorFactory().getValidator(), tasks, finance, records, users, passwords, enabled, "https://prp-test.micor.top/api/mcp");
+    }
+
+    @Test
+    void defaultWriteGateBlocksAllBusinessWrites() {
+        var service = drafts(false);
+        assertThatThrownBy(() -> service.prepare(McpDraftService.Kind.TASK,
+            new CreateTaskRequest("work", "Safe title", "", "low", null)))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN));
+        verifyNoInteractions(db, tasks, finance, records);
+    }
+
+    @Test
+    void missingPrincipalFailsClosedBeforeDatabaseAccess() {
+        SecurityContextHolder.clearContext();
+        assertThatThrownBy(() -> drafts(true).prepare(McpDraftService.Kind.TASK,
+            new CreateTaskRequest("work", "Safe title", "", "low", null)))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED));
+        verifyNoInteractions(db, tasks, finance, records);
+    }
+
+    @Test
+    void financeCannotPrepareNegativeAmount() {
+        assertThatThrownBy(() -> drafts(true).prepare(McpDraftService.Kind.FINANCE,
+            new CreateFinanceTransactionRequest("expense", new BigDecimal("-12.00"),
+                "transport", "cash", null, null, null)))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(db, finance);
+    }
+
+    @Test
+    void preparePersistsOwnerNotClientSelectedUserId() {
+        when(db.queryForObject(any(String.class), eq(Integer.class), eq(501L))).thenReturn(0);
+        var preview = drafts(true).prepare(McpDraftService.Kind.TASK,
+            new CreateTaskRequest("work", "Review API contract", "", "high", null));
+        assertThat(preview.kind()).isEqualTo("TASK");
+        assertThat(preview.instruction()).contains("https://prp-test.micor.top/prp/me/mcp-approve/" + preview.draftId())
+            .contains("never in chat");
+        assertThat(preview.values().get("title").asText()).isEqualTo("Review API contract");
+        verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
+            any(), eq(501L), eq("TASK"), any(), any());
+        verifyNoInteractions(tasks, finance, records);
+    }
+
+    @Test
+    void approvalRequiresSeparateHumanPasswordAndDoesNotWriteBusinessData() {
+        assertThatThrownBy(() -> drafts(true).approve(
+            "41abc027-d67e-4bdf-8985-e3ec97d23204", ""))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(db, tasks, finance, records);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void invalidPasswordConsumesAnAttemptWithoutCreatingBusinessData() throws Exception {
+        String id = "41abc027-d67e-4bdf-8985-e3ec97d23204";
+        when(db.query(startsWith("SELECT status,approval_failures"), any(RowMapper.class), eq(id), eq(501L)))
+            .thenAnswer(invocation -> {
+                RowMapper<Object> mapper = invocation.getArgument(1);
+                ResultSet rs = mock(ResultSet.class);
+                when(rs.getString("status")).thenReturn("PENDING");
+                when(rs.getInt("approval_failures")).thenReturn(0);
+                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                return List.of(mapper.mapRow(rs, 0));
+            });
+        when(users.findById(501L)).thenReturn(java.util.Optional.of(
+            new UserAccount(501L, "mcp-user", "MCP", "hashed-password", false, true)));
+        when(passwords.matches(eq("wrong"), eq("hashed-password"))).thenReturn(false);
+
+        var outcome = drafts(true).approve(id, "wrong");
+        assertThat(outcome.status()).isEqualTo("INVALID_PASSWORD");
+        assertThat(outcome.remainingAttempts()).isEqualTo(4);
+        verify(db).update(startsWith("UPDATE prp_mcp_write_drafts SET approval_failures="),
+            eq(1), eq("PENDING"), eq(id), eq(501L));
+        verifyNoInteractions(tasks, finance, records);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void validPasswordApprovesButDoesNotSaveBusinessRecord() throws Exception {
+        String id = "41abc027-d67e-4bdf-8985-e3ec97d23204";
+        when(db.query(startsWith("SELECT status,approval_failures"), any(RowMapper.class), eq(id), eq(501L)))
+            .thenAnswer(invocation -> {
+                RowMapper<Object> mapper = invocation.getArgument(1);
+                ResultSet rs = mock(ResultSet.class);
+                when(rs.getString("status")).thenReturn("PENDING");
+                when(rs.getInt("approval_failures")).thenReturn(0);
+                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                return List.of(mapper.mapRow(rs, 0));
+            });
+        when(users.findById(501L)).thenReturn(java.util.Optional.of(
+            new UserAccount(501L, "mcp-user", "MCP", "hashed-password", false, true)));
+        when(passwords.matches("correct", "hashed-password")).thenReturn(true);
+
+        var outcome = drafts(true).approve(id, "correct");
+        assertThat(outcome.status()).isEqualTo("APPROVED");
+        verify(db).update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED'"),
+            eq(id), eq(501L));
+        verifyNoInteractions(tasks, finance, records);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void pendingDraftCannotConfirmWithoutServerSideApproval() throws Exception {
+        String id = "41abc027-d67e-4bdf-8985-e3ec97d23204";
+        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,expires_at"),
+            any(RowMapper.class), eq(id), eq(501L))).thenAnswer(invocation -> {
+                RowMapper<Object> mapper = invocation.getArgument(1);
+                ResultSet rs = mock(ResultSet.class);
+                when(rs.getString("kind")).thenReturn("TASK");
+                when(rs.getString("payload_json")).thenReturn("{}");
+                when(rs.getString("result_json")).thenReturn(null);
+                when(rs.getString("status")).thenReturn("PENDING");
+                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                return List.of(mapper.mapRow(rs, 0));
+            });
+
+        assertThatThrownBy(() -> drafts(true).confirm(id))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT));
+        verifyNoInteractions(tasks, finance, records);
+    }
+
+    @Test
+    void confirmOfUnknownDraftNeverWritesBusinessData() {
+        assertThatThrownBy(() -> drafts(true).confirm("41abc027-d67e-4bdf-8985-e3ec97d23204"))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(tasks, finance, records);
+    }
+}

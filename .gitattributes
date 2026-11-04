@@ -2,3 +2,6 @@
 
 # Audited byte-for-byte controller fixture must have the same digest on all hosts.
 app/deploy/approved/prp-release.py text eol=lf
+
+# Uninstalled backup-permission proposal; audit-only, not a live controller.
+app/deploy/candidates/private_backup_controller.py text eol=lf

@@ -1,0 +1,35 @@
+name: PRP staging OAuth metadata GET-only review
+run-name: PRP staging GET-only review · ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/mcp-oauth/public_get_only_diagnostic.py"
+      - "app/deploy/mcp-oauth/test_public_get_only_diagnostic.py"
+      - ".github/workflows/mcp-public-get-only-review.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prp-oauth-get-only-review
+  cancel-in-progress: false
+
+jobs:
+  public-metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify no unapproved methods, hosts, redirects or auth claims
+        working-directory: app/deploy/mcp-oauth
+        run: python3 -m unittest -v test_public_get_only_diagnostic.py
+      - name: Fetch exactly three HTTPS staging metadata URLs with GET only
+        working-directory: app/deploy/mcp-oauth
+        run: python3 -B public_get_only_diagnostic.py
