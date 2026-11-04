@@ -133,6 +133,17 @@ public class PrpMcpTools {
             new CreateFinanceTransactionRequest(type, value, category, account, merchant, note, optionalDate(date)));
     }
 
+    @McpTool(name = "prp_prepare_meal", description = "Prepare a real structured breakfast, lunch, dinner or snack for the authenticated PRP owner. Does not save food or calories until the owner approves in PRP and calls prp_confirm_draft. Manually entered calories are per-eating-event estimates, not catalog reference values.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = false, idempotentHint = false, openWorldHint = false))
+    public McpDraftService.Preview prepareMeal(
+            @McpToolParam(description = "Meal date in yyyy-MM-dd", required = true) String mealDate,
+            @McpToolParam(description = "Meal type: BREAKFAST, LUNCH, DINNER or SNACK", required = true) String mealType,
+            @McpToolParam(description = "One to 30 structured meal items. For estimated foods supply {foodId:null,name,grams,calories} with positive per-serving kcal; grams may be null when unknown. For catalog foods use {foodId,grams} without name or calories. Do not fabricate a foodId or silently distribute whole-meal calorie estimates across items.", required = true) List<WellnessService.AiMealItem> items,
+            @McpToolParam(description = "Optional meal note, including that calories are estimated", required = false) String note) {
+        scopes.require("prp.write.create");
+        return drafts.prepare(McpDraftService.Kind.MEAL,
+            new McpDraftService.MealDraft(localDate(mealDate), mealType, note, items));
+    }
+
     @McpTool(name = "prp_prepare_record", description = "Prepare a personal PRP work, life, or learning record; no business record is written until confirmed.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = false, idempotentHint = false, openWorldHint = false))
     public McpDraftService.Preview prepareRecord(
             @McpToolParam(description = "PRP module code", required = true) String moduleCode,
