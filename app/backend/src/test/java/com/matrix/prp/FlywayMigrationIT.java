@@ -166,6 +166,16 @@ class FlywayMigrationIT {
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='prp_wellness_meal_items' AND column_name IN ('protein_g','carbs_g','fat_g') AND is_nullable='YES'")).isEqualTo(3);
 
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='prp_finance_transfers'")).isEqualTo(1);
+        // Regression for the collision between production vocal V24 and initial MCP staging V24.
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1 AND "
+                + "((version='24' AND script='V24__vocal_song_library_and_assignments.sql') OR "
+                + "(version='25' AND script='V25__mcp_write_drafts.sql') OR "
+                + "(version='26' AND script='V26__mcp_client_grants.sql') OR "
+                + "(version='27' AND script='V27__mcp_identity_links.sql'))")).isEqualTo(4);
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() "
+                + "AND table_name IN ('prp_vocal_songs','prp_vocal_song_sections','prp_vocal_lessons',"
+                + "'prp_vocal_assignments','prp_vocal_take_links','prp_mcp_write_drafts',"
+                + "'prp_mcp_client_grants','prp_mcp_identity_links','prp_mcp_link_tickets')")).isEqualTo(9);
         insertSentinel(url, "flyway_fresh_ci");
         long before = count(url, "SELECT COUNT(*) FROM prp_tasks WHERE title='MIGRATION_SENTINEL'");
         assertThat(migration.migrate().migrationsExecuted).isZero();

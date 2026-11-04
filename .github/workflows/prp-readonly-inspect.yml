@@ -22,15 +22,28 @@ jobs:
         env:
           INSPECT_KEY: ${{ secrets.PRP_INSPECT_SSH_KEY }}
           INSPECT_KNOWN_HOSTS: ${{ secrets.PRP_INSPECT_KNOWN_HOSTS }}
+          INSPECT_HOST: ${{ secrets.PRP_INSPECT_HOST }}
         shell: bash
         run: |
           set -euo pipefail
           umask 077
+          # Prevent empty GitHub secrets from becoming nonempty one-byte
+          # files due to printf's newline. No SSH may run after failure.
+          python3 app/deploy/preflight_readonly_inspection_env.py
           mkdir -p "$HOME/.ssh"
-          printf '%s\n' "$INSPECT_KEY" > "$HOME/.ssh/prp_inspect"
-          printf '%s\n' "$INSPECT_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          test -s "$HOME/.ssh/prp_inspect"
-          test -s "$HOME/.ssh/known_hosts"
+          printf '%s' "$INSPECT_KEY" > "$HOME/.ssh/prp_inspect"
+          printf '%s' "$INSPECT_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/prp_inspect" "$HOME/.ssh/known_hosts"
+          # Validate key usability and pin for the exact configured host,
+          # offline and without exposing either key or known_hosts content.
+          ssh-keygen -y -P '' -f "$HOME/.ssh/prp_inspect" > /dev/null 2>&1 || {
+            echo 'PRP_INSPECTION_SSH_PRIVATE_KEY_INVALID' >&2
+            exit 2
+          }
+          ssh-keygen -F "$INSPECT_HOST" -f "$HOME/.ssh/known_hosts" > /dev/null 2>&1 || {
+            echo 'PRP_INSPECTION_PINNED_HOST_KEY_MISSING' >&2
+            exit 2
+          }
       - name: Request fixed read-only report
         env:
           INSPECT_HOST: ${{ secrets.PRP_INSPECT_HOST }}

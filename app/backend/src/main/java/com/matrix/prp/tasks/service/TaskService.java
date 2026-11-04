@@ -25,6 +25,12 @@ public class TaskService {
         return taskRepository.list();
     }
 
+    public TaskItem get(long id) {
+        if (id <= 0) throw new org.springframework.web.server.ResponseStatusException(
+            org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid task ID");
+        return taskRepository.get(id);
+    }
+
     public List<TaskItem> list(TaskFilter filter) {
         return taskRepository.list(filter);
     }

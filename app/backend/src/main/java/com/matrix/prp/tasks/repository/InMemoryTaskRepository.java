@@ -24,6 +24,11 @@ public class InMemoryTaskRepository implements TaskRepository {
     private final Map<Long,Long> owners = new ConcurrentHashMap<>();
 
     @Override
+    public TaskItem get(long id) {
+        return findById(id);
+    }
+
+    @Override
     public List<TaskItem> list() {
         return list(new TaskFilter(null, null, null, null));
     }

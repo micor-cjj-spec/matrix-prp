@@ -1,0 +1,99 @@
+# REVIEW-ONLY isolated fresh-MySQL candidate for Draft PR #113.
+# NOT installed or launched by CI. Not the live V2 or legacy staging Compose.
+# Deliberately requires --profile newdb-review for every service.
+# Do not use this artifact as G0/B2 approval or a production deployment manifest.
+# No host deployment command: requires independent G0/B2 release and backup approval.
+name: prp-mcp-newdb-review
+services:
+  mysql:
+    profiles: ["newdb-review"]
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${PRP_STAGE_DB_ROOT_PASSWORD:?staging root password required}
+      MYSQL_DATABASE: matrix_prp_mcp_newdb_review
+      MYSQL_USER: prp_newdb
+      MYSQL_PASSWORD: ${PRP_STAGE_DB_PASSWORD:?staging app password required}
+    volumes:
+      - newdb_mysql:/var/lib/mysql
+    networks: [newdb_private]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  backend:
+    profiles: ["newdb-review"]
+    build:
+      context: ../../..
+      dockerfile: app/deploy/mcp-staging/Dockerfile.backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MATRIX_PRP_DB_URL: jdbc:mysql://mysql:3306/matrix_prp_mcp_newdb_review?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      MATRIX_PRP_DB_USER: prp_newdb
+      MATRIX_PRP_DB_PASSWORD: ${PRP_STAGE_DB_PASSWORD:?}
+      MATRIX_PRP_JWT_SECRET: ${PRP_STAGE_JWT_SECRET:?}
+      MATRIX_PRP_BOOTSTRAP_USERNAME: ${PRP_STAGE_ADMIN_USERNAME:?}
+      MATRIX_PRP_BOOTSTRAP_PASSWORD: ${PRP_STAGE_ADMIN_PASSWORD:?}
+      MATRIX_PRP_FLYWAY_ENABLED: "true"
+      MATRIX_PRP_MCP_ENABLED: "false"
+      MATRIX_PRP_MCP_OAUTH_ENABLED: "false"
+      MATRIX_PRP_MCP_WRITE_ENABLED: "false"
+      MATRIX_PRP_MCP_ALLOWED_ORIGINS: ${PRP_STAGE_PUBLIC_URL:?}
+      MATRIX_PRP_MCP_OAUTH_ISSUER: ${PRP_STAGE_AUTH_ISSUER:?}
+      MATRIX_PRP_MCP_OAUTH_JWK_SET_URI: ${PRP_STAGE_AUTH_JWKS_URI:?}
+      MATRIX_PRP_MCP_OAUTH_RESOURCE: ${PRP_STAGE_MCP_RESOURCE:?}
+      # Explicit opt-in after independently reviewed Keycloak public client,
+      # browser callback routes, and real subject agreement. Defaults OFF.
+      MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_ENABLED: "false"
+      MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_CLIENT_ID: ${PRP_STAGE_FIRST_PARTY_CLIENT_ID:-}
+      MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_REDIRECT_URI: ${PRP_STAGE_FIRST_PARTY_REDIRECT_URI:-}
+      MATRIX_PRP_AI_SPRING_AI_ENABLED: "false"
+      MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED: "false"
+      MATRIX_PRP_VIDEO_ROOT: /data/video
+      MATRIX_PRP_VOCAL_ROOT: /data/vocal
+    volumes:
+      - newdb_video:/data/video
+      - newdb_vocal:/data/vocal
+    networks: [newdb_private, newdb_egress]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+
+  gateway:
+    profiles: ["newdb-review"]
+    build:
+      context: ../../..
+      dockerfile: app/deploy/mcp-staging/Dockerfile.web
+      args:
+        # Build-time public endpoint, pinned to the reviewed staging issuer.
+        # A Vue build must never accept arbitrary server-returned OAuth URLs.
+        VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT: ${PRP_STAGE_AUTH_ISSUER:?}/protocol/openid-connect/auth
+    restart: unless-stopped
+    depends_on: [backend]
+    environment:
+      PRP_STAGE_HOST: ${PRP_STAGE_PUBLIC_HOST:?}
+    ports:
+      - "127.0.0.1:18083:8080"
+    networks: [newdb_private, newdb_egress]
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  newdb_private:
+    driver: bridge
+    internal: true
+  # Backend must verify HTTPS JWKS from the external Keycloak issuer.
+  newdb_egress:
+    driver: bridge
+
+volumes:
+  newdb_mysql:
+  newdb_video:
+  newdb_vocal:
