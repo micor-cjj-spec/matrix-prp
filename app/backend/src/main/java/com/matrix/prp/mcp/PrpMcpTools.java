@@ -43,7 +43,7 @@ public class PrpMcpTools {
         this.scopes = scopes;
     }
 
-    @McpTool(name = "prp_tasks_list", description = "Read up to 20 tasks of the authenticated PRP user. Never reads other accounts.")
+    @McpTool(name = "prp_tasks_list", description = "Read up to 20 tasks of the authenticated PRP user. Never reads other accounts.", annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false))
     public Object listTasks(
             @McpToolParam(description = "Optional task status (todo, in_progress, done, canceled)", required = false)
             String status) {
@@ -54,14 +54,14 @@ public class PrpMcpTools {
         return tasks.listLimited(new TaskFilter(status, null, null, null), 20);
     }
 
-    @McpTool(name = "prp_task_get", description = "Read one task by its exact ID belonging to the authenticated PRP user. Missing and other-user tasks are both unavailable.")
+    @McpTool(name = "prp_task_get", description = "Read one task by its exact ID belonging to the authenticated PRP user. Missing and other-user tasks are both unavailable.", annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false))
     public Object getTask(
             @McpToolParam(description = "Exact positive task ID returned by PRP", required = true) long taskId) {
         scopes.require("prp.tasks.read");
         return tasks.get(taskId);
     }
 
-    @McpTool(name = "prp_finance_month", description = "Read monthly summary and up to 10 transactions belonging to the authenticated PRP user.")
+    @McpTool(name = "prp_finance_month", description = "Read monthly summary and up to 10 transactions belonging to the authenticated PRP user.", annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false))
     public Object financeMonth(
             @McpToolParam(description = "Month in yyyy-MM; optional, defaults to the current month", required = false)
             String month) {
@@ -72,7 +72,7 @@ public class PrpMcpTools {
             "transactions", finance.listTransactionsLimited(filter, 10));
     }
 
-    @McpTool(name = "prp_wellness_daily", description = "Read the authenticated PRP user's wellness daily record; never read another user's data.")
+    @McpTool(name = "prp_wellness_daily", description = "Read the authenticated PRP user's wellness daily record; never read another user's data.", annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false))
     public Object wellnessDaily(
             @McpToolParam(description = "Date yyyy-MM-dd; optional, defaults to today", required = false)
             String date) {
@@ -80,7 +80,7 @@ public class PrpMcpTools {
         return wellness.daily(date == null || date.isBlank() ? LocalDate.now() : localDate(date));
     }
 
-    @McpTool(name = "prp_prepare_task", description = "Prepare a task creation draft only; does not create a task. Show exact fields to the user before confirmation.")
+    @McpTool(name = "prp_prepare_task", description = "Prepare a task creation draft only; does not create a task. Show exact fields to the user before confirmation.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = false, idempotentHint = false, openWorldHint = false))
     public McpDraftService.Preview prepareTask(
             @McpToolParam(description = "PRP module code, e.g. work, life, learning", required = true) String moduleCode,
             @McpToolParam(description = "Task title", required = true) String title,
@@ -92,7 +92,7 @@ public class PrpMcpTools {
             new CreateTaskRequest(moduleCode, title, description, priority, optionalDate(dueDate)));
     }
 
-    @McpTool(name = "prp_prepare_task_update", description = "Prepare an update to one owned task. Shows before and after values. Requires separate owner approval in PRP; never updates immediately.")
+    @McpTool(name = "prp_prepare_task_update", description = "Prepare an update to one owned task. Shows before and after values. Requires separate owner approval in PRP; never updates immediately.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = true, idempotentHint = false, openWorldHint = false))
     public McpDraftService.Preview prepareTaskUpdate(
             @McpToolParam(description = "Exact owned task ID", required = true) long taskId,
             @McpToolParam(description = "Replacement module code", required = true) String moduleCode,
@@ -106,14 +106,14 @@ public class PrpMcpTools {
             new CreateTaskRequest(moduleCode, title, description, priority, optionalDate(dueDate)), status, false);
     }
 
-    @McpTool(name = "prp_prepare_task_delete", description = "Prepare deletion of one owned task. Does not delete until the owner separately approves in PRP and confirms the draft. Changed records are rejected.")
+    @McpTool(name = "prp_prepare_task_delete", description = "Prepare deletion of one owned task. Does not delete until the owner separately approves in PRP and confirms the draft. Changed records are rejected.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = true, idempotentHint = false, openWorldHint = false))
     public McpDraftService.Preview prepareTaskDelete(
             @McpToolParam(description = "Exact owned task ID", required = true) long taskId) {
         scopes.require("prp.write.delete");
         return drafts.prepareTaskChange(taskId, null, null, true);
     }
 
-    @McpTool(name = "prp_prepare_finance", description = "Prepare a new income or expense draft only. Amount is decimal CNY; does not book any transaction until confirmed.")
+    @McpTool(name = "prp_prepare_finance", description = "Prepare a new income or expense draft only. Amount is decimal CNY; does not book any transaction until confirmed.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = false, idempotentHint = false, openWorldHint = false))
     public McpDraftService.Preview prepareFinance(
             @McpToolParam(description = "income or expense", required = true) String type,
             @McpToolParam(description = "Positive decimal amount, e.g. 23.50", required = true) String amount,
@@ -133,7 +133,7 @@ public class PrpMcpTools {
             new CreateFinanceTransactionRequest(type, value, category, account, merchant, note, optionalDate(date)));
     }
 
-    @McpTool(name = "prp_prepare_record", description = "Prepare a personal PRP work, life, or learning record; no business record is written until confirmed.")
+    @McpTool(name = "prp_prepare_record", description = "Prepare a personal PRP work, life, or learning record; no business record is written until confirmed.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = false, idempotentHint = false, openWorldHint = false))
     public McpDraftService.Preview prepareRecord(
             @McpToolParam(description = "PRP module code", required = true) String moduleCode,
             @McpToolParam(description = "Record title", required = true) String title,
@@ -145,7 +145,7 @@ public class PrpMcpTools {
     }
 
     @McpTool(name = "prp_draft_status",
-             description = "Check the authenticated user's MCP draft status. Approval is possible only by opening PRP and reentering the account password.")
+             description = "Check the authenticated user's MCP draft status. Approval is possible only by opening PRP and reentering the account password.", annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false))
     public McpDraftService.Review draftStatus(
             @McpToolParam(description = "Exact draftId returned by prp_prepare_*", required = true) String draftId) {
         scopes.require("prp.write.status");
@@ -153,7 +153,7 @@ public class PrpMcpTools {
     }
 
     @McpTool(name = "prp_confirm_draft",
-             description = "Commit exactly one already APPROVED draft. The user must first open the PRP approval page and reenter their account password. Cannot approve a draft from an MCP tool call. Replays return the saved record.")
+             description = "Commit exactly one already APPROVED draft. The user must first open the PRP approval page and reenter their account password. Cannot approve a draft from an MCP tool call. Replays return the saved record.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = true, idempotentHint = true, openWorldHint = false))
     public McpDraftService.Result confirmDraft(
             @McpToolParam(description = "Exact draftId returned by prp_prepare_*", required = true) String draftId) {
         scopes.require("prp.write.confirm");

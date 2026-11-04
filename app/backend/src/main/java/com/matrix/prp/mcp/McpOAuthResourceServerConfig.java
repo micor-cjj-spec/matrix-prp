@@ -116,7 +116,8 @@ public class McpOAuthResourceServerConfig {
     @Bean
     @Order(1)
     SecurityFilterChain mcpOAuthFilterChain(HttpSecurity http, JwtDecoder mcpJwtDecoder, UserStore users,
-                                              McpClientGrantService grants, McpIdentityLinkService links)
+                                              McpClientGrantService grants, McpIdentityLinkService links,
+                                              org.springframework.beans.factory.ObjectProvider<io.modelcontextprotocol.server.McpStatelessSyncServer> mcpServer)
         throws Exception {
         var metadataUri = McpOAuthMetadataController.metadataUrl(resource);
         return http.securityMatcher("/api/mcp")
@@ -154,10 +155,19 @@ public class McpOAuthResourceServerConfig {
                     var authorities = scopes.stream().filter(granted::contains)
                         .map(scope -> new SimpleGrantedAuthority("SCOPE_" + scope))
                         .collect(Collectors.toList());
-                    return new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
-                        account.profile(), token, authorities);
+                    var verifiedAuth = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        account.profile(), null, authorities);
+                    // ProviderManager erases credentials. Carry only the verified, non-secret client identity.
+                    verifiedAuth.setDetails(new McpScopeGuard.VerifiedClient(clientId));
+                    return verifiedAuth;
                 })))
             .addFilterAfter(new McpVerifiedPrincipalCaptureFilter(), BearerTokenAuthenticationFilter.class)
+            .addFilterAfter(new McpDiscoveryCompatibilityFilter(() -> {
+                var server = mcpServer.getObject();
+                return java.util.Map.<String, Object>of(
+                    "capabilities", server.getServerCapabilities(),
+                    "_meta", java.util.Map.of("io.modelcontextprotocol/serverInfo", server.getServerInfo()));
+            }, metadataUri), org.springframework.security.web.access.intercept.AuthorizationFilter.class)
             .build();
     }
 }
