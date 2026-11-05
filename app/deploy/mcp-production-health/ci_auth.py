@@ -148,10 +148,19 @@ def main():
             python_base=json.loads(command(['docker','image','inspect','python:3.12-slim']))[0]['RepoDigests'][0]
             command(['docker','build','--build-arg','PYTHON_BASE='+python_base,'-t','prp-health-egress-candidate:ci','-f',str(ROOT/'Dockerfile.egress'),str(ROOT)],timeout=120)
             command(['docker','run','-d','--name','prp-health-auth-egress-ci','--memory','64m','--pids-limit','32','--cap-drop','ALL','--security-opt','no-new-privileges','--read-only','-p','127.0.0.1:13128:3128','-v',str(state)+':/state','prp-health-egress-candidate:ci'])
+            # Docker's published TCP port can accept before the application is listening.
+            # Wait for a bounded, actual fixed denial response; a TCP connect is not readiness.
+            broker_ready=False
             for _ in range(20):
                 try:
-                    with socket.create_connection(('127.0.0.1',13128),1):break
-                except OSError:time.sleep(0.5)
+                    with socket.create_connection(('127.0.0.1',13128),1) as ready_socket:
+                        ready_socket.settimeout(1)
+                        ready_socket.sendall(b'CONNECT readiness.invalid:443 HTTP/1.1\r\nHost: readiness.invalid:443\r\n\r\n')
+                        broker_ready=ready_socket.recv(200).split(b'\r\n',1)[0]==b'HTTP/1.1 403 Forbidden'
+                    if broker_ready:break
+                except OSError:pass
+                time.sleep(0.5)
+            check('egress_application_ready',broker_ready)
             official_jwks=egress_probe(13128,check)
             start_pg('prp-health-auth-pg-ci',15432)
             role=command(['docker','exec','prp-health-auth-pg-ci','psql','-U','prp_auth_bootstrap','-d','prp_health_auth','-At','-c',"SELECT NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication FROM pg_roles WHERE rolname='prp_health_auth'"]).decode().strip()
