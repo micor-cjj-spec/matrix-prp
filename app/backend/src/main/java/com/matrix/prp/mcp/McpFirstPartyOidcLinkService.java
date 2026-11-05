@@ -54,6 +54,10 @@ import org.springframework.web.util.UriComponentsBuilder;
 @ConditionalOnProperty(prefix = "matrix-prp.mcp.oauth.first-party-link",
                        name = "enabled", havingValue = "true")
 public class McpFirstPartyOidcLinkService {
+    private boolean hasLinkConsent(long owner) {
+        var consent=grants.grantedScopes(owner, CHATGPT_CLIENT_ID);
+        return consent.contains("prp.tasks.read") || consent.contains("prp.wellness.read");
+    }
     public record Begin(String authorizeUrl) {}
     public record Finish(String issuer, boolean newlyLinked) {}
     private record Pending(long owner, String verifier, String nonce) {}
@@ -161,7 +165,7 @@ public class McpFirstPartyOidcLinkService {
     @Transactional
     public Begin begin(String password) {
         long owner = CurrentUser.id();
-        if (!grants.grantedScopes(owner, CHATGPT_CLIENT_ID).contains("prp.tasks.read"))
+        if (!hasLinkConsent(owner))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                 "Authorize ChatGPT task reading in PRP before linking");
         UserAccount account = users.findById(owner).orElse(null);
@@ -252,8 +256,8 @@ public class McpFirstPartyOidcLinkService {
         if (consumed != 1)
             throw new ResponseStatusException(HttpStatus.CONFLICT, "OIDC state already consumed");
         Pending pending = flows.getFirst();
-        if (!grants.grantedScopes(owner, CHATGPT_CLIENT_ID).contains("prp.tasks.read"))
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ChatGPT task consent revoked");
+        if (!hasLinkConsent(owner))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ChatGPT read consent revoked");
 
         var form = new LinkedMultiValueMap<String, String>();
         form.add("grant_type", "authorization_code");

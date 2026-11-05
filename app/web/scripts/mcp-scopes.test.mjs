@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { mcpScopes } from '../src/api/mcpScopes.ts'
+import { mcpScopes, advertisedMcpScopes, defaultMcpReadScopes } from '../src/api/mcpScopes.ts'
 
 test('owner grant UI matches backend supported scopes', () => {
  const java = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/mcp/McpOAuthMetadataController.java', import.meta.url), 'utf8')
@@ -17,5 +17,9 @@ test('owner grant UI matches backend supported scopes', () => {
 })
 test('write scopes are not selected by default', () => {
  const view = readFileSync(new URL('../src/views/McpClientsView.vue', import.meta.url), 'utf8')
- assert.match(view, /const scopes = ref<string\[\]>\(\['prp\.tasks\.read'\]\)/)
+ assert.match(view, /const scopes = ref<string\[\]>\(\[\]\)/)
+ assert.deepEqual(defaultMcpReadScopes(advertisedMcpScopes(['prp.wellness.read','prp.wellness.write.create'])), ['prp.wellness.read'])
+ assert.throws(() => advertisedMcpScopes(['prp.wellness.read','unknown']))
+ assert.throws(() => advertisedMcpScopes(['prp.wellness.read','prp.wellness.read']))
+ assert.deepEqual(defaultMcpReadScopes([]), [])
 })

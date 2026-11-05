@@ -41,7 +41,15 @@ public class McpToolConfiguration {
         Map.entry("prp_prepare_task_update", "prp.write.update"),
         Map.entry("prp_prepare_task_delete", "prp.write.delete"),
         Map.entry("prp_draft_status", "prp.write.status"),
-        Map.entry("prp_confirm_draft", "prp.write.confirm")
+        Map.entry("prp_confirm_draft", "prp.write.confirm"),
+        Map.entry("prp_wellness_list", "prp.wellness.read"),
+        Map.entry("prp_wellness_get", "prp.wellness.read"),
+        Map.entry("prp_wellness_foods", "prp.wellness.read"),
+        Map.entry("prp_prepare_wellness_create", "prp.wellness.write.create"),
+        Map.entry("prp_prepare_wellness_update", "prp.wellness.write.update"),
+        Map.entry("prp_prepare_wellness_delete", "prp.wellness.write.delete"),
+        Map.entry("prp_wellness_draft_status", "prp.wellness.write.status"),
+        Map.entry("prp_confirm_wellness_draft", "prp.wellness.write.confirm")
     );
 
     static Set<String> exposedNames(String configured, boolean writeEnabled) {
@@ -61,7 +69,10 @@ public class McpToolConfiguration {
         var definitions = new SyncStatelessMcpToolProvider(List.of(tools)).getToolSpecifications();
         var expected = java.util.Set.of("prp_tasks_list", "prp_task_get", "prp_finance_month",
             "prp_wellness_daily", "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record",
-            "prp_draft_status", "prp_confirm_draft", "prp_prepare_task_update", "prp_prepare_task_delete");
+            "prp_draft_status", "prp_confirm_draft", "prp_prepare_task_update", "prp_prepare_task_delete",
+            "prp_wellness_list", "prp_wellness_get", "prp_wellness_foods",
+            "prp_prepare_wellness_create", "prp_prepare_wellness_update", "prp_prepare_wellness_delete",
+            "prp_wellness_draft_status", "prp_confirm_wellness_draft");
         var actual = definitions.stream().map(spec -> spec.tool().name()).collect(java.util.stream.Collectors.toSet());
         if (!REQUIRED_SCOPE.keySet().equals(expected)) {
             throw new IllegalStateException("PRP MCP scope-to-tool registry mismatch");
@@ -95,14 +106,12 @@ public class McpToolConfiguration {
                     // Confirmation also requires the approved draft's operation scope.
                     // Check outside the SDK reflection adapter so its generic error
                     // conversion cannot discard the OAuth challenge metadata.
-                    if ("prp_confirm_draft".equals(spec.tool().name()) && request.arguments() != null
+                    if (("prp_confirm_draft".equals(spec.tool().name()) || "prp_confirm_wellness_draft".equals(spec.tool().name())) && request.arguments() != null
                             && request.arguments().get("draftId") instanceof String draftId) {
                         var review = drafts.review(draftId);
-                        String operationScope = switch (review.kind()) {
-                            case "TASK_UPDATE" -> "prp.write.update";
-                            case "TASK_DELETE" -> "prp.write.delete";
-                            default -> "prp.write.create";
-                        };
+                        if ("prp_confirm_wellness_draft".equals(spec.tool().name()) && !review.kind().startsWith("WELLNESS_"))
+                            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Health draft not found");
+                        String operationScope = McpDraftService.operationScope(review.kind());
                         requireCurrentScope(scopeGuard, grants, auth, operationScope);
                     }
                     return spec.callHandler().apply(transport, request);

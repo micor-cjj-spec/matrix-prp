@@ -79,7 +79,7 @@ jobs:
           MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED: "false"
         run: |
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=McpClientGrantDatabaseIT,McpOAuthJwtValidationTests test
+          ./mvnw -B -ntp -Dtest=McpClientGrantDatabaseIT,McpOAuthJwtValidationTests,McpWellnessDatabaseIT test
           echo 'CI_SERVER_SIDE_LEASE_EXPIRY=PASS'
           echo 'CI_MCP_MIXED_AUDIENCE_TOKEN_DENIED=PASS'
           echo 'LIVE_OAUTH_AND_PRODUCTION_DB_TESTED=NO'
