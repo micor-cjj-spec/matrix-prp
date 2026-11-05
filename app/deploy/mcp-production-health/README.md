@@ -34,9 +34,12 @@ First-party identity linking uses a separate exact callback and public S256 clie
   and final image digests must be measured/reviewed before installation; tags in
   build defaults are not installation approval.
 - Candidate Compose's auth network is internal; only a separately audited exact
-  chatgpt.com CONNECT egress service may leave it. The egress image and TLS/DNS/
-  SSRF/redirect/key-rotation tests are outstanding until separately evidenced.
-  Never run this candidate with an arbitrary proxy image or broaden egress.
+  chatgpt.com CONNECT egress service may leave it. The candidate includes bounded
+  public-DNS/IP-pinned/exact-SNI tunneling and live official metadata/JWKS tests.
+  CI must also prove the actual JVM key-fetch path with the native exact signature
+  rejection; generic invalid_client/key-load failures do not satisfy that proof.
+  This does not prove real ChatGPT signatures or future key rotation. Never run
+  this candidate with an arbitrary proxy image or broaden egress.
 - Its only published backend is loopback 18084; PostgreSQL and management ports
   are not published. Secret env files stay root-private 0600; do not print rendered
   Compose or environment values. Docker PostgreSQL non-root volume permissions

@@ -56,4 +56,14 @@ class EgressBoundaryTests(unittest.TestCase):
             self.assertFalse(is_public_address(address), address)
         self.assertTrue(is_public_address('1.1.1.1'))
 
+class NativeJwksProofTests(unittest.TestCase):
+    def test_exact_signature_failure_requires_a_real_fetch(self):
+        from egress_check import native_signature_denial
+        body={'error':'invalid_client','error_description':'Client authentication with signed JWT failed: Signature on JWT token failed validation'}
+        self.assertTrue(native_signature_denial(400,body,True))
+        self.assertFalse(native_signature_denial(400,body,False))
+        self.assertFalse(native_signature_denial(401,body,True))
+        for text in ('Unable to load public key','invalid signature','SSL certificate failure',''):
+            self.assertFalse(native_signature_denial(400,{'error':'invalid_client','error_description':text},True))
+
 if __name__=='__main__':unittest.main()

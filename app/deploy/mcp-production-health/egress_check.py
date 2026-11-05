@@ -41,3 +41,10 @@ def probe(port,check):
         except (OSError,ssl.SSLError):refused=True
         check('egress_wrong_sni_refused',refused)
     return k
+
+
+def native_signature_denial(status,body,fetched):
+    # Exact 26.8.1 JWTClientAuthenticator response after verifySignature throws.
+    # A key-load error, generic invalid_client or mere HTTP failure is not proof.
+    return (status==400 and fetched and body.get('error')=='invalid_client' and
+            body.get('error_description')=='Client authentication with signed JWT failed: Signature on JWT token failed validation')

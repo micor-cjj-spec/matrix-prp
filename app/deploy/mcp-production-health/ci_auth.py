@@ -26,7 +26,7 @@ from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProces
 from build_realm import build
 from contract import *
 from render_auth_nginx import render
-from egress_check import probe as egress_probe
+from egress_check import probe as egress_probe, native_signature_denial
 
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT.parent/'mcp-oauth'))
@@ -204,9 +204,8 @@ def main():
                 'signature_validation_marker':'signature validation' in description,'public_fetch_occurred':after_count>before_count,
                 'key_load_marker':'key' in description and ('load' in description or 'obtain' in description),
                 'tls_marker':any(x in description for x in ('ssl','tls','certificate'))}),flush=True)
-            check('keycloak_jvm_official_jwks_tls_and_invalid_signature_denial',probe_status==401
-                and probe_body.get('error')=='invalid_client' and 'signature' in description
-                and 'not validated' in description and after_count>before_count)
+            check('keycloak_jvm_official_jwks_tls_and_invalid_signature_denial',
+                native_signature_denial(probe_status,probe_body,after_count>before_count))
             # Only this ephemeral instance uses the synthetic signer. Production import/image unchanged.
             c['attributes']['use.jwks.url']='false';c['attributes'].pop('jwks.url');c['attributes']['jwt.credential.certificate']=certificate
             s,_=admin(prefix+'/clients/'+c['id'],token=access,data=c,method='PUT');check('explicit_ci_signer_substitution',s==204)
