@@ -49,4 +49,11 @@ class ProductionHealthCandidateTests(unittest.TestCase):
             with self.assertRaises(ValueError):render(**changes)
 
 
+class EgressBoundaryTests(unittest.TestCase):
+    def test_private_reserved_and_mapped_addresses_are_denied(self):
+        from egress_proxy import is_public_address
+        for address in ('127.0.0.1','10.0.0.1','169.254.169.254','192.168.1.1','0.0.0.0','224.0.0.1','::1','fe80::1','fc00::1','::ffff:127.0.0.1'):
+            self.assertFalse(is_public_address(address), address)
+        self.assertTrue(is_public_address('1.1.1.1'))
+
 if __name__=='__main__':unittest.main()

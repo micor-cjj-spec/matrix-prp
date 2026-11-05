@@ -19,6 +19,7 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/prp_health_auth
       KC_DB_USERNAME: prp_health_auth
+      KC_LOG_LEVEL: error
       KC_PROXY_TRUSTED_ADDRESSES: ${PRP_HEALTH_PROXY_TRUSTED_ADDRESSES:?Review exact Docker bridge gateway before installation}
       HTTPS_PROXY: http://egress:3128
       NO_PROXY: localhost,127.0.0.1,postgres

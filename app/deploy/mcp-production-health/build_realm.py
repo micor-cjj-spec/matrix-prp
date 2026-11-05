@@ -40,6 +40,7 @@ def build():
     disabled = [{'clientId': c, 'protocol': 'openid-connect', 'enabled': False}
         for c in ('account', 'account-console', 'admin-cli', 'broker', 'realm-management', 'security-admin-console')]
     return {'realm': REALM, 'enabled': True, 'sslRequired': 'all',
+        'eventsEnabled': False, 'adminEventsEnabled': False, 'eventsListeners': [],
         'registrationAllowed': False, 'resetPasswordAllowed': False,
         'loginWithEmailAllowed': False, 'duplicateEmailsAllowed': False,
         'bruteForceProtected': True, 'permanentLockout': False, 'failureFactor': 5,

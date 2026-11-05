@@ -62,3 +62,10 @@ backup into a second temporary PostgreSQL instance, restored user login, client
 authentication and signing with the ORIGINAL JWKS. This is synthetic OAuth-state
 restoration only, not a fresh production V29 MySQL recovery proof. No backup is
 uploaded. A trusted Docker gateway address must be reviewed before Compose can start.
+
+The first-party client retains the exact existing frontend label `prp-first-party-link`,
+but belongs to the independent production Realm, issuer, callback and signing keys.
+The CI flow verifies its actual PKCE code exchange and signed ID-token nonce/audience,
+then compares its subject with the confidential ChatGPT client. The official production
+frontend build explicitly pins the new issuer endpoint and inspects built assets;
+this does not enable MCP or create any user grant by itself.

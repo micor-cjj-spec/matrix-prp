@@ -78,9 +78,12 @@ jobs:
         run: node --test app/scripts/codex-worker-contract.test.mjs
       - name: Verify /prp/ production path build
         working-directory: app/web
+        env:
+          VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT: https://auth.micor.top/realms/prp-mcp-prod/protocol/openid-connect/auth
         run: |
           VITE_APP_BASE=/prp/ npm run build
           node scripts/verify-deploy-base.mjs /prp/
+          node scripts/verify-production-mcp-binding.mjs
 
   mobile-build:
     runs-on: ubuntu-latest

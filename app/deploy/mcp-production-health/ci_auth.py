@@ -7,6 +7,7 @@ Never calls a real ChatGPT callback or a production MCP/database.
 """
 import base64
 import hashlib
+import hmac
 import http.client
 from http.cookiejar import CookieJar
 import json
@@ -25,6 +26,7 @@ from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProces
 from build_realm import build
 from contract import *
 from render_auth_nginx import render
+from egress_check import probe as egress_probe
 
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT.parent/'mcp-oauth'))
@@ -87,6 +89,20 @@ def verify(tokens,jwks):
     check('signed_health_scope_subject_and_exact_audience',set(c['scope'].split())==set(SCOPES) and aud==[RESOURCE] and bool(c['sub']))
     return c['sub']
 
+def verify_first_party_id_token(raw,jwks,nonce):
+    parts=raw.split('.')
+    if len(parts)!=3:raise RuntimeError('ID_TOKEN_COMPACT_FORMAT')
+    header=json.loads(_b64url(parts[0]));claims=json.loads(_b64url(parts[1]))
+    keys=[k for k in jwks['keys'] if k.get('kid')==header.get('kid') and k.get('kty')=='RSA']
+    if header.get('alg')!='RS256' or len(keys)!=1:raise RuntimeError('ID_TOKEN_SIGNER')
+    k=keys[0];n=int.from_bytes(_b64url(k['n']),'big');e=int.from_bytes(_b64url(k['e']),'big');size=(n.bit_length()+7)//8
+    signature=_b64url(parts[2]);prefix=bytes.fromhex('3031300d060960864801650304020105000420');digest=hashlib.sha256((parts[0]+'.'+parts[1]).encode()).digest()
+    expected=b'\x00\x01'+b'\xff'*(size-3-len(prefix)-32)+b'\x00'+prefix+digest
+    if n.bit_length()<2048 or len(signature)!=size or not hmac.compare_digest(pow(int.from_bytes(signature,'big'),e,n).to_bytes(size,'big'),expected):raise RuntimeError('ID_TOKEN_SIGNATURE')
+    aud=claims.get('aud');aud=[aud] if isinstance(aud,str) else aud
+    if claims.get('iss')!=ISSUER or aud!=[FIRST_PARTY] or claims.get('nonce')!=nonce or claims.get('exp',0)<=time.time() or not claims.get('sub'):raise RuntimeError('ID_TOKEN_CLAIMS')
+    return claims['sub']
+
 def negative_authorization(opener,**changes):
     p={'client_id':CLIENT,'response_type':'code','redirect_uri':REDIRECT,'scope':' '.join(SCOPES),
        'resource':RESOURCE,'code_challenge_method':'S256','code_challenge':'A'*43,'state':secrets.token_urlsafe(24)}
@@ -108,7 +124,7 @@ def main():
         # A first import contains no synthetic identities/keys. All substitutions below use CI admin only.
         admin_password=secrets.token_urlsafe(36);db_password=secrets.token_urlsafe(36);bootstrap_password=secrets.token_urlsafe(36)
         for value in (admin_password,db_password,bootstrap_password):print('::add-mask::'+value,flush=True)
-        env=root/'keycloak.env';env.write_text('KC_DB=postgres\nKC_DB_URL=jdbc:postgresql://127.0.0.1:15432/prp_health_auth\nKC_DB_USERNAME=prp_health_auth\nKC_DB_PASSWORD='+db_password+'\nKC_BOOTSTRAP_ADMIN_USERNAME=ci-health-admin\nKC_BOOTSTRAP_ADMIN_PASSWORD='+admin_password+'\n');env.chmod(0o600)
+        env=root/'keycloak.env';env.write_text('HTTPS_PROXY=http://127.0.0.1:13128\nNO_PROXY=localhost,127.0.0.1\nKC_DB=postgres\nKC_DB_URL=jdbc:postgresql://127.0.0.1:15432/prp_health_auth\nKC_DB_USERNAME=prp_health_auth\nKC_DB_PASSWORD='+db_password+'\nKC_BOOTSTRAP_ADMIN_USERNAME=ci-health-admin\nKC_BOOTSTRAP_ADMIN_PASSWORD='+admin_password+'\n');env.chmod(0o600)
         pg=root/'postgres.env';pg.write_text('POSTGRES_DB=postgres\nPOSTGRES_USER=prp_auth_bootstrap\nPOSTGRES_PASSWORD='+bootstrap_password+'\nPRP_HEALTH_DB_PASSWORD='+db_password+'\n');pg.chmod(0o600)
         cert=root/'ci-tls.pem';tlskey=root/'ci-tls.key'
         openssl('req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',tlskey,'-out',cert,'-subj','/CN=auth.micor.top','-addext','subjectAltName=DNS:auth.micor.top')
@@ -127,6 +143,16 @@ def main():
                     if p.returncode==0:return
                     time.sleep(1)
                 raise RuntimeError('POSTGRES_STARTUP_TIMEOUT')
+            state=root/'egress-state';state.mkdir();state.chmod(0o777)
+            command(['docker','pull','python:3.12-slim'],timeout=120)
+            python_base=json.loads(command(['docker','image','inspect','python:3.12-slim']))[0]['RepoDigests'][0]
+            command(['docker','build','--build-arg','PYTHON_BASE='+python_base,'-t','prp-health-egress-candidate:ci','-f',str(ROOT/'Dockerfile.egress'),str(ROOT)],timeout=120)
+            command(['docker','run','-d','--name','prp-health-auth-egress-ci','--memory','64m','--pids-limit','32','--cap-drop','ALL','--security-opt','no-new-privileges','--read-only','-p','127.0.0.1:13128:3128','-v',str(state)+':/state','prp-health-egress-candidate:ci'])
+            for _ in range(20):
+                try:
+                    with socket.create_connection(('127.0.0.1',13128),1):break
+                except OSError:time.sleep(0.5)
+            official_jwks=egress_probe(13128,check)
             start_pg('prp-health-auth-pg-ci',15432)
             role=command(['docker','exec','prp-health-auth-pg-ci','psql','-U','prp_auth_bootstrap','-d','prp_health_auth','-At','-c',"SELECT NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication FROM pg_roles WHERE rolname='prp_health_auth'"]).decode().strip()
             check('application_database_role_least_privilege',role=='t')
@@ -147,11 +173,42 @@ def main():
             s,c=admin(prefix+'/clients/'+c['id'],token=access);check('registered_client_readback',s==200)
             check('production_registration_uses_official_jwks',c['attributes']['jwks.url']==JWKS and c['clientAuthenticatorType']=='client-jwt' and c['redirectUris']==[REDIRECT] and set(c['optionalClientScopes'])==set(SCOPES))
             key,certificate=create_keypair(root)
+            # Exercise the actual Keycloak JVM HTTP/JWK path before any test credential substitution.
+            # A synthetic signature with a real public kid MUST be refused after fetching real keys.
+            before_count=json.loads((state/'counters.safe.json').read_text()).get('allowed_connect',0)
+            stamp=int(time.time());kid=official_jwks['keys'][0]['kid']
+            b64=lambda v:base64.urlsafe_b64encode(v).decode().rstrip('=')
+            payload='.'.join(b64(json.dumps(v,separators=(',',':')).encode()) for v in [
+                {'alg':'RS256','typ':'JWT','kid':kid},
+                {'iss':CLIENT,'sub':CLIENT,'aud':TOKEN,'iat':stamp,'nbf':stamp-2,'exp':stamp+60,'jti':secrets.token_urlsafe(24)}])
+            forged=payload+'.'+b64(openssl('dgst','-sha256','-sign',key,input_data=payload.encode()))
+            probe_data={'grant_type':'authorization_code','client_id':CLIENT,'client_assertion_type':ASSERTION_TYPE,
+                'client_assertion':forged,'code':'ci-not-a-code','code_verifier':'A'*43,'redirect_uri':REDIRECT,'resource':RESOURCE}
+            try:
+                probe_response=op.open(Request(TOKEN,data=urlencode(probe_data).encode(),headers={'Content-Type':'application/x-www-form-urlencoded'}),timeout=15)
+            except HTTPError as e:probe_response=e
+            with probe_response:probe_status=probe_response.status;probe_body=json.loads(probe_response.read(16385))
+            description=probe_body.get('error_description','').lower()
+            after_count=json.loads((state/'counters.safe.json').read_text()).get('allowed_connect',0)
+            check('keycloak_jvm_official_jwks_tls_and_invalid_signature_denial',probe_status==401
+                and probe_body.get('error')=='invalid_client' and 'signature' in description
+                and 'not validated' in description and after_count>before_count)
             # Only this ephemeral instance uses the synthetic signer. Production import/image unchanged.
             c['attributes']['use.jwks.url']='false';c['attributes'].pop('jwks.url');c['attributes']['jwt.credential.certificate']=certificate
             s,_=admin(prefix+'/clients/'+c['id'],token=access,data=c,method='PUT');check('explicit_ci_signer_substitution',s==204)
             password=secrets.token_urlsafe(24);print('::add-mask::'+password,flush=True)
             s,_=admin(prefix+'/users',token=access,data={'username':'synthetic-health-user','enabled':True,'emailVerified':True,'email':'health-ci@example.invalid','firstName':'Synthetic','lastName':'Health','requiredActions':[],'credentials':[{'type':'password','value':password,'temporary':False}]},method='POST');check('synthetic_user_only',s==201)
+            # Same exact first-party ID/callback contract as PRP's pinned frontend.
+            first_verifier=secrets.token_urlsafe(48);first_nonce=secrets.token_urlsafe(32)
+            first_params={'client_id':FIRST_PARTY,'response_type':'code','redirect_uri':FIRST_REDIRECT,'scope':'openid','state':secrets.token_urlsafe(32),'nonce':first_nonce,'code_challenge_method':'S256','code_challenge':base64.urlsafe_b64encode(hashlib.sha256(first_verifier.encode()).digest()).decode().rstrip('=')}
+            first_op=public_opener(cert);flow.CLIENT=FIRST_PARTY;flow.CALLBACK=FIRST_REDIRECT
+            try:
+                first_code,_=flow.code_pkce(first_op,'synthetic-health-user',password,authorization_url=ISSUER+'/protocol/openid-connect/auth?'+urlencode(first_params))
+                first_result=flow.json_response(flow.request(first_op,TOKEN,data={'grant_type':'authorization_code','client_id':FIRST_PARTY,'redirect_uri':FIRST_REDIRECT,'code':first_code,'code_verifier':first_verifier},form=True),'First-party exchange')
+                first_jwks=flow.json_response(flow.request(first_op,ISSUER+'/protocol/openid-connect/certs'),'First-party JWKS')
+                first_subject=verify_first_party_id_token(first_result['id_token'],first_jwks,first_nonce)
+                check('first_party_pkce_signed_id_token_nonce_and_callback',bool(first_subject))
+            finally:flow.CLIENT=CLIENT;flow.CALLBACK=REDIRECT
             for name,changes in [('task_scope',{'scope':'prp.tasks.read'}),('finance_scope',{'scope':'prp.finance.read'}),('generic_write',{'scope':'prp.write.create'}),('offline_scope',{'scope':'offline_access'}),('wrong_redirect',{'redirect_uri':REDIRECT+'/'}),('wrong_resource',{'resource':'https://prp-test.micor.top/api/mcp'}),('plain_pkce',{'code_challenge_method':'plain'}),('wrong_client',{'client_id':'https://chatgpt.com/oauth/not-approved.json'})]:
                 check('authorization_denies_'+name,negative_authorization(public_opener(cert),**changes))
             for path in ['/admin/','/realms/master/.well-known/openid-configuration','/realms/'+REALM+'/clients-registrations/openid-connect','/health']:
@@ -163,6 +220,7 @@ def main():
             code,verifier=flow.code_pkce(op,'synthetic-health-user',password,' '.join(SCOPES))
             s,t=token(op,key,code=code,verifier=verifier);check('private_jwt_pkce_code_exchange',s==200)
             jwks=flow.json_response(flow.request(op,ISSUER+'/protocol/openid-connect/certs'),'JWKS');subject=verify(t,jwks)
+            check('first_party_and_chatgpt_subject_contract_matches',subject==first_subject)
             s,_=token(op,key,code=code,verifier=verifier);check('authorization_code_replay_refused',s in (400,401))
             # Native code replay may invalidate the session. Do not reuse its refresh family.
             code,verifier=flow.code_pkce(public_opener(cert),'synthetic-health-user',password,' '.join(SCOPES))
@@ -193,11 +251,11 @@ def main():
             s,restored=token(restored_op,key,code=code,verifier=verifier);check('restored_user_login_and_client_auth',s==200)
             check('restored_subject_and_original_signing_keys_preserved',verify(restored,jwks)==subject)
             image=json.loads(command(['docker','image','inspect','prp-health-auth-candidate:ci']))[0]
-            result={'checks':RESULTS,'passed':len(RESULTS),'failed':0,'image_id':image['Id'],'keycloak_base_digest':base,'policy_jar_sha256':hashlib.sha256((ROOT/'auth-policy/target/prp-production-health-policy.jar').read_bytes()).hexdigest(),'issuer':ISSUER,'resource':RESOURCE,'registration':'exact-pre-registered-not-dynamic-CIMD','actual_chatgpt_signature_verified':False,'official_jvm_jwks_fetch_verified':False,'production_changed':False}
+            result={'checks':RESULTS,'passed':len(RESULTS),'failed':0,'image_id':image['Id'],'keycloak_base_digest':base,'policy_jar_sha256':hashlib.sha256((ROOT/'auth-policy/target/prp-production-health-policy.jar').read_bytes()).hexdigest(),'issuer':ISSUER,'resource':RESOURCE,'registration':'exact-pre-registered-not-dynamic-CIMD','actual_chatgpt_signature_verified':False,'official_jvm_jwks_fetch_verified':True,'egress_image_id':json.loads(command(['docker','image','inspect','prp-health-egress-candidate:ci']))[0]['Id'],'python_base_digest':python_base,'production_changed':False}
             out=ROOT/'auth-candidate-result.safe.json';out.write_text(json.dumps(result,indent=2));print('HEALTH_AUTH_CANDIDATE_SUCCESS checks='+str(len(RESULTS)),flush=True)
         finally:
             if nginx:nginx.terminate();nginx.wait(timeout=10)
-            for name in ['prp-health-auth-kc-ci','prp-health-auth-pg-ci','prp-health-auth-pg-restore-ci']:
+            for name in ['prp-health-auth-kc-ci','prp-health-auth-pg-ci','prp-health-auth-pg-restore-ci','prp-health-auth-egress-ci']:
                 subprocess.run(['docker','rm','-f',name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
 
 if __name__=='__main__':
