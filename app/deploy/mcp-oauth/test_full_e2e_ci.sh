@@ -112,7 +112,7 @@ for name in ['prp.write.update','prp.write.delete']:
     scope=copy.deepcopy(prototype);scope['name']=name;scope['description']='Synthetic CI '+name
     scope['attributes']['consent.screen.text']=name;realm['clientScopes'].append(scope)
 client=next(c for c in realm['clients'] if c['clientId']=='prp-pkce-probe')
-client['optionalClientScopes']=['prp.tasks.read','prp.write.create','prp.write.status','prp.write.confirm','prp.write.update','prp.write.delete']
+client['optionalClientScopes']=['prp.tasks.read','prp.wellness.read','prp.write.create','prp.write.status','prp.write.confirm','prp.write.update','prp.write.delete']
 with open(p,'w') as f:json.dump(realm,f)
 PY
 fi
@@ -323,7 +323,7 @@ export MATRIX_PRP_MCP_WRITE_ENABLED="false"
 if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
   # Only disposable CI can advertise write tools; production remains default OFF.
   export MATRIX_PRP_MCP_WRITE_ENABLED="true"
-  export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="prp.tasks.read,prp.write.create,prp.write.status,prp.write.confirm,prp.write.update,prp.write.delete"
+  export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="prp.tasks.read,prp.wellness.read,prp.write.create,prp.write.status,prp.write.confirm,prp.write.update,prp.write.delete"
 fi
 export MATRIX_PRP_MCP_ALLOWED_ORIGINS="https://prp-e2e.localhost"
 export MATRIX_PRP_MCP_OAUTH_ISSUER="https://auth-e2e.localhost/realms/prp-mcp"
