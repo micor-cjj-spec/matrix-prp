@@ -276,7 +276,8 @@ public class McpDraftService {
                 case WELLNESS_UPDATE -> health().apply((McpWellnessSupport.Change) request, draftId, false, false);
                 case WELLNESS_DELETE -> health().apply((McpWellnessSupport.Change) request, draftId, false, true);
             };
-            saved = json.valueToTree(result);
+            // Normalize persisted and first-response decimal nodes through the same codec.
+            saved = json.readTree(json.writeValueAsString(result));
             if (db.update("UPDATE prp_mcp_write_drafts SET status='CONSUMED', result_json=?, consumed_at=CURRENT_TIMESTAMP " +
                     "WHERE id=? AND user_id=? AND status='APPROVED'",
                     json.writeValueAsString(saved), draftId, owner) != 1) {

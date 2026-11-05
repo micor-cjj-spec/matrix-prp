@@ -96,6 +96,24 @@ class McpWellnessOAuthTests {
         assertThat(rpc("tools/call","prp_prepare_wellness_create",exercise()).getResponse().getStatus()).isEqualTo(401);
         verifyNoInteractions(db,wellness);
     }
+    @Test void consentRemovedAfterAuthenticationStillBlocksTheWrite() throws Exception {
+        when(grants.grantedScopes(2,CLIENT)).thenReturn(HEALTH,Set.of());
+        var r=rpc("tools/call","prp_prepare_wellness_create",exercise());
+        assertThat(r.getResponse().getContentAsString()).contains("\"isError\":true");
+        verifyNoInteractions(db,wellness);
+    }
+    @Test @SuppressWarnings("unchecked") void confirmationRequiresTheHealthOperationScopeAndCannotConfirmATask() throws Exception {
+        String id="41abc027-d67e-4bdf-8985-e3ec97d23204";
+        identity(2,CLIENT,"prp.wellness.read prp.wellness.write.confirm prp.wellness.write.create");
+        when(db.query(startsWith("SELECT kind,payload_json,status"),any(org.springframework.jdbc.core.RowMapper.class),eq(id),eq(2L)))
+            .thenReturn(List.of(new McpDraftService.Review(id,"WELLNESS_DELETE",json.createObjectNode(),"APPROVED","2099-01-01T00:00:00")));
+        var result=rpc("tools/call","prp_confirm_wellness_draft",Map.of("draftId",id));
+        assertThat(result.getResponse().getContentAsString()).contains("insufficient_scope","prp.wellness.write.delete");
+        when(db.query(startsWith("SELECT kind,payload_json,status"),any(org.springframework.jdbc.core.RowMapper.class),eq(id),eq(2L)))
+            .thenReturn(List.of(new McpDraftService.Review(id,"TASK_DELETE",json.createObjectNode(),"APPROVED","2099-01-01T00:00:00")));
+        assertThat(rpc("tools/call","prp_confirm_wellness_draft",Map.of("draftId",id)).getResponse().getContentAsString()).contains("\"isError\":true");
+        verify(db,never()).update(startsWith("UPDATE prp_mcp_write_drafts SET status='CONSUMED'"),any(),any(),any());
+    }
     @Test void wrongClientOrAccountCannotUseTheNewScopes() throws Exception {
         identity(2,"not-chatgpt",String.join(" ",HEALTH));rpc("tools/call","prp_prepare_wellness_create",exercise());
         identity(3,CLIENT,String.join(" ",HEALTH));rpc("tools/call","prp_prepare_wellness_create",exercise());

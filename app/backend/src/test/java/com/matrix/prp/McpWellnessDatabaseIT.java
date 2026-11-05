@@ -88,7 +88,7 @@ class McpWellnessDatabaseIT {
         assertThat(drafts.review(fresh.draftId()).status()).isEqualTo("APPROVED");
     }
     @Test void foodOwnershipAndNutritionSnapshotAreRecheckedBeforeCommit() {
-        var food=wellness.addFood(new FoodInput("Synthetic food","",new BigDecimal("100"),BigDecimal.ZERO,BigDecimal.ZERO,BigDecimal.ZERO,"CI"));
+        var food=wellness.addFood(new FoodInput("Synthetic food","raw",new BigDecimal("100"),BigDecimal.ZERO,BigDecimal.ZERO,BigDecimal.ZERO,"CI"));
         var input=new McpWellnessSupport.Input(new McpWellnessSupport.Meal(LocalDate.now(),"DINNER","CI",List.of(new WellnessService.AiMealItem(food.id(),null,new BigDecimal("100"),null))),null,null);
         as(other);assertThatThrownBy(()->drafts.prepareWellness("meal",0,input,McpDraftService.Kind.WELLNESS_CREATE)).isInstanceOf(ResponseStatusException.class);
         as(owner);var draft=drafts.prepareWellness("meal",0,input,McpDraftService.Kind.WELLNESS_CREATE);drafts.approve(draft.draftId(),password);
@@ -107,5 +107,24 @@ class McpWellnessDatabaseIT {
             assertThatThrownBy(()->drafts.confirm(draft.draftId())).isInstanceOf(ResponseStatusException.class);
         }
         assertThat(wellness.metrics(1)).isEmpty();
+    }
+    @Test void concurrentHealthConfirmationsCreateExactlyOneRecord() throws Exception {
+        var draft=drafts.prepareWellness("metric",0,input("metric","70"),McpDraftService.Kind.WELLNESS_CREATE);
+        drafts.approve(draft.draftId(),password);
+        var start=new java.util.concurrent.CountDownLatch(1);
+        try(var pool=java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<McpDraftService.Result> action=()->{
+                as(owner);
+                try {
+                    if(!start.await(5,java.util.concurrent.TimeUnit.SECONDS)) throw new IllegalStateException("Start timeout");
+                    return drafts.confirm(draft.draftId());
+                } finally { SecurityContextHolder.clearContext(); }
+            };
+            var first=pool.submit(action);var second=pool.submit(action);start.countDown();
+            var a=first.get(20,java.util.concurrent.TimeUnit.SECONDS);
+            var b=second.get(20,java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(a.saved()).isEqualTo(b.saved());assertThat(a.alreadySaved()!=b.alreadySaved()).isTrue();
+        }
+        assertThat(wellness.metrics(1)).hasSize(1);
     }
 }

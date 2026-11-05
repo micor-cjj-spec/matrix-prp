@@ -141,7 +141,7 @@ public class McpToolConfiguration {
                                            Authentication auth, String scope) {
         // Preserve the existing per-request read-consent contract. Writes also
         // re-check consent immediately before invocation, including confirmation.
-        if (scope.startsWith("prp.write.")
+        if ((scope.startsWith("prp.write.") || scope.startsWith("prp.wellness.write."))
                 && (!(auth.getDetails() instanceof McpScopeGuard.VerifiedClient verified)
                     || !grants.grantedScopes(CurrentUser.id(), verified.clientId()).contains(scope))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PRP owner grant does not permit this operation");

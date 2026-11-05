@@ -122,7 +122,8 @@ public class McpWellnessSupport {
     public void validateChange(Change change,boolean create,boolean delete) {
         if(change==null) throw bad("Wellness change required");
         table(change.entity());
-        if(create ? change.recordId()!=0 || change.before()!=null : change.recordId()<=0 || change.before()==null)
+        boolean hasBefore=change.before()!=null && !change.before().isNull();
+        if(create ? change.recordId()!=0 || hasBefore : change.recordId()<=0 || !hasBefore)
             throw bad("Invalid wellness operation target");
         if(delete ? change.after()!=null : change.after()==null) throw bad("Invalid replacement fields");
         if(!delete) validate(change.entity(),change.after());
