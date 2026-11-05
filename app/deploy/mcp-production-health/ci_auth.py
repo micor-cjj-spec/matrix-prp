@@ -199,6 +199,11 @@ def main():
             with probe_response:probe_status=probe_response.status;probe_body=json.loads(probe_response.read(16385))
             description=probe_body.get('error_description','').lower()
             after_count=json.loads((state/'counters.safe.json').read_text()).get('allowed_connect',0)
+            print('JVM_JWKS_PROBE_SAFE '+json.dumps({'http_status':probe_status,'invalid_client':probe_body.get('error')=='invalid_client',
+                'signature_marker':'signature' in description,'not_validated_marker':'not validated' in description,
+                'signature_validation_marker':'signature validation' in description,'public_fetch_occurred':after_count>before_count,
+                'key_load_marker':'key' in description and ('load' in description or 'obtain' in description),
+                'tls_marker':any(x in description for x in ('ssl','tls','certificate'))}),flush=True)
             check('keycloak_jvm_official_jwks_tls_and_invalid_signature_denial',probe_status==401
                 and probe_body.get('error')=='invalid_client' and 'signature' in description
                 and 'not validated' in description and after_count>before_count)
