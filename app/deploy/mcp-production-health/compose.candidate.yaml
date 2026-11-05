@@ -3,6 +3,7 @@ name: prp-health-auth-production
 services:
   postgres:
     image: ${PRP_HEALTH_POSTGRES_IMAGE:?Pin reviewed PostgreSQL repository digest}
+    pull_policy: never
     env_file: [./private/postgres.env]
     user: ${PRP_HEALTH_POSTGRES_UID_GID:?Use measured non-root UID and GID from pinned PostgreSQL image}
     volumes: ["auth_postgres:/var/lib/postgresql/data", "./init-auth-db.sh:/docker-entrypoint-initdb.d/10-health.sh:ro"]
@@ -14,6 +15,7 @@ services:
     restart: unless-stopped
   keycloak:
     image: ${PRP_HEALTH_AUTH_IMAGE:?Pin reviewed production auth candidate image}
+    pull_policy: never
     env_file: [./private/keycloak.env]
     environment:
       KC_DB: postgres
@@ -37,6 +39,7 @@ services:
     restart: unless-stopped
   egress:
     image: ${PRP_HEALTH_EGRESS_IMAGE:?Pin reviewed fixed-destination egress image}
+    pull_policy: never
     networks: [auth_private, auth_egress]
     mem_limit: 64m
     pids_limit: 32

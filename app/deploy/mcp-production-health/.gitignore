@@ -4,3 +4,6 @@ realm/
 auth-policy/target/
 __pycache__/
 auth-candidate-result.safe.json
+
+tested-auth-images.tar*
+tested-auth-images.manifest.safe.json

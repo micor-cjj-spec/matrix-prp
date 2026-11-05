@@ -29,6 +29,8 @@ jobs:
           sudo apt-get install -y nginx
       - name: Real local Keycloak, PostgreSQL, TLS and signed health code/refresh tests
         run: python3 app/deploy/mcp-production-health/ci_auth.py
+      - name: Export only the successfully tested image layers
+        run: python3 app/deploy/mcp-production-health/export_candidate_images.py
       - name: Preserve candidate evidence, no credentials or databases
         uses: actions/upload-artifact@v4
         with:
@@ -36,5 +38,13 @@ jobs:
           path: |
             app/deploy/mcp-production-health/auth-candidate-result.safe.json
             app/deploy/mcp-production-health/auth-policy/target/prp-production-health-policy.jar
+            app/deploy/mcp-production-health/tested-auth-images.manifest.safe.json
+          if-no-files-found: error
+          retention-days: 3
+      - name: Preserve installable tested images, no running container state
+        uses: actions/upload-artifact@v4
+        with:
+          name: prp-production-health-runtime-OCI-CANDIDATE
+          path: app/deploy/mcp-production-health/tested-auth-images.tar.gz
           if-no-files-found: error
           retention-days: 3

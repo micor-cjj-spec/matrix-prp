@@ -5,3 +5,6 @@ realm/
 auth-candidate-result.safe.json
 *.pem
 *.key
+
+tested-auth-images.tar*
+tested-auth-images.manifest.safe.json

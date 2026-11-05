@@ -81,4 +81,22 @@ class RuntimeConfigurationTests(unittest.TestCase):
         for owner in (None,False,0,-1,'1'):
             with self.assertRaises(ValueError):runtime_config(owner)
 
+class ExportBoundaryTests(unittest.TestCase):
+    def test_export_refuses_non_disposable_execution(self):
+        import os
+        from unittest.mock import patch
+        import export_candidate_images as export
+        with patch.dict(os.environ,{'GITHUB_ACTIONS':'false'},clear=True):
+            with self.assertRaisesRegex(RuntimeError,'DISPOSABLE_EXPORT_ONLY'):export.main()
+    def test_export_refuses_missing_combined_acceptance_before_docker(self):
+        import os,pathlib,tempfile
+        from unittest.mock import patch
+        import export_candidate_images as export
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder)
+            (root/'auth-candidate-result.safe.json').write_text('{"failed":1,"passed":0}')
+            with patch.dict(os.environ,{'GITHUB_ACTIONS':'true','RUNNER_OS':'Linux','RUNNER_TEMP':folder},clear=True),patch.object(export,'ROOT',root),patch.object(export,'run') as docker:
+                with self.assertRaisesRegex(RuntimeError,'COMBINED_ACCEPTANCE_REQUIRED'):export.main()
+                docker.assert_not_called()
+
 if __name__=='__main__':unittest.main()

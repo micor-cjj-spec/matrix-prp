@@ -81,3 +81,11 @@ OAuth identity/grant through SQL. A CI-only hosts file and Java trustStore map t
 production-shaped HTTPS identities to loopback fixture TLS. No such hosts/CA
 substitution belongs in the production image/configuration. Actual ChatGPT
 signatures and real browser interaction remain separate human acceptance gates.
+
+After the combined test succeeds, CI exports only the three tested immutable
+IMAGE layers (auth/egress/PostgreSQL), never docker commit/export of a runtime
+container. A separate OCI artifact has a SHA256 manifest tied to source head,
+checkout, run, attempt, tested image IDs and provider JAR. The candidate Compose
+uses pull_policy=never: installation must first verify and load that exact reviewed
+archive. It cannot silently pull another image for the same tag. Real PostgreSQL
+data, passwords, test CA/keys and live Realm state are excluded from image export.
