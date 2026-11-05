@@ -77,8 +77,8 @@ jobs:
     timeout-minutes: 28
     env:
       MCP_E2E_CRUD: "true"
-      MCP_E2E_FIRST_PARTY: "false"
-      MCP_E2E_EXACT_CHATGPT: "false"
+      MCP_E2E_FIRST_PARTY: "true"
+      MCP_E2E_EXACT_CHATGPT: "true"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
