@@ -1,0 +1,47 @@
+name: V2 meal candidate isolated validation
+
+on:
+  push:
+    branches:
+      - fix/mcp-meal-v2-stage-candidate-20261105
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: V2 backend compile and unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Test exact V2 candidate sources
+        working-directory: app/backend
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp test
+  web:
+    name: V2 approval UI full build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: Install exact locked dependencies
+        working-directory: app/web
+        run: npm ci --no-audit --no-fund
+      - name: Verify approval UI and build
+        working-directory: app/web
+        env:
+          VITE_APP_BASE: /prp/
+        run: npm run build
