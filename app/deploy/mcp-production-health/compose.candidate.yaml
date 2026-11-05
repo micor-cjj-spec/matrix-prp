@@ -1,0 +1,48 @@
+# REVIEW-ONLY: no tool or workflow runs this against the production host.
+name: prp-health-auth-production
+services:
+  postgres:
+    image: ${PRP_HEALTH_POSTGRES_IMAGE:?Pin reviewed PostgreSQL repository digest}
+    env_file: [./private/postgres.env]
+    volumes: [auth_postgres:/var/lib/postgresql/data]
+    networks: [auth_private]
+    mem_limit: 256m
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  keycloak:
+    image: ${PRP_HEALTH_AUTH_IMAGE:?Pin reviewed production auth candidate image}
+    env_file: [./private/keycloak.env]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/prp_health_auth
+      KC_DB_USERNAME: prp_health_auth
+      HTTPS_PROXY: http://egress:3128
+      NO_PROXY: localhost,127.0.0.1,postgres
+      KC_SPI_CONNECTIONS_HTTP_CLIENT__DEFAULT__ALLOW_REDIRECTS: "false"
+      KC_SPI_CONNECTIONS_HTTP_CLIENT__DEFAULT__ESTABLISH_CONNECTION_TIMEOUT_MILLIS: "3000"
+      KC_SPI_CONNECTIONS_HTTP_CLIENT__DEFAULT__SOCKET_TIMEOUT_MILLIS: "5000"
+    command: [start, --optimized, --import-realm, --http-enabled=true, --hostname=https://auth.micor.top, --proxy-headers=xforwarded]
+    ports: ["127.0.0.1:18084:8080"]
+    volumes: ["./realm:/opt/keycloak/data/import:ro"]
+    networks: [auth_private]
+    mem_limit: 1g
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  egress:
+    image: ${PRP_HEALTH_EGRESS_IMAGE:?Pin reviewed fixed-destination egress image}
+    networks: [auth_private, auth_egress]
+    mem_limit: 64m
+    pids_limit: 32
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    restart: unless-stopped
+networks:
+  auth_private: {internal: true}
+  auth_egress: {}
+volumes:
+  auth_postgres: {}

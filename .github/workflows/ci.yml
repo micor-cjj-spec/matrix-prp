@@ -440,3 +440,8 @@ jobs:
           python3 app/deploy/mcp-staging/ci_write_proxy_regression.py
       - name: Verify main CI cannot silently omit integration suites
         run: python3 -m unittest discover -s app/deploy -p test_mainline_mcp_ci.py -v
+
+  mcp-production-health-auth:
+    uses: ./.github/workflows/mcp-production-health-auth.yml
+    permissions:
+      contents: read
