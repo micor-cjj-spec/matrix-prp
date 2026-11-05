@@ -45,3 +45,28 @@ jobs:
         env:
           VITE_APP_BASE: /prp/
         run: npm run build
+  oci_review:
+    name: Review final V2 OCI images without host deployment
+    needs: [backend, web]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate strict CI-only review scripts
+        run: |
+          bash -n app/deploy/mcp-staging/ci_verify_container_images.sh
+          bash -n app/deploy/mcp-staging/ci_export_review_oci_images.sh
+      - name: Build and inspect disposable V2 runtime image candidates
+        run: bash app/deploy/mcp-staging/ci_verify_container_images.sh
+      - name: Export immutable OCI review images, not a release
+        run: bash app/deploy/mcp-staging/ci_export_review_oci_images.sh
+      - name: Upload short-lived review bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prp-v2-meal-oci-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/prp-reviewed-oci-images/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
