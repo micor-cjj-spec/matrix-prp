@@ -27,6 +27,7 @@ from build_realm import build
 from contract import *
 from render_auth_nginx import render
 from egress_check import probe as egress_probe, native_signature_denial
+from ci_health_backend import Backend, exercise as exercise_backend
 
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT.parent/'mcp-oauth'))
@@ -66,8 +67,9 @@ def public_opener(cafile):
     context=ssl.create_default_context(cafile=str(cafile))
     class LocalTLS(http.client.HTTPSConnection):
         def connect(self):
-            if self.host!='auth.micor.top':raise RuntimeError('NONLOCAL_TARGET_REFUSED')
-            self.sock=context.wrap_socket(socket.create_connection(('127.0.0.1',18446),self.timeout),server_hostname=self.host)
+            if self.host not in ('auth.micor.top','micor.top'):raise RuntimeError('NONLOCAL_TARGET_REFUSED')
+            port=18446 if self.host=='auth.micor.top' else 18447
+            self.sock=context.wrap_socket(socket.create_connection(('127.0.0.1',port),self.timeout),server_hostname=self.host)
     class LocalHandler(HTTPSHandler):
         def https_open(self,req):return self.do_open(LocalTLS,req,context=context)
     return build_opener(ProxyHandler({}),LocalHandler(context=context),HTTPCookieProcessor(CookieJar()),flow.SafeRedirect())
@@ -127,10 +129,12 @@ def main():
         env=root/'keycloak.env';env.write_text('HTTPS_PROXY=http://127.0.0.1:13128\nNO_PROXY=localhost,127.0.0.1\nKC_DB=postgres\nKC_DB_URL=jdbc:postgresql://127.0.0.1:15432/prp_health_auth\nKC_DB_USERNAME=prp_health_auth\nKC_DB_PASSWORD='+db_password+'\nKC_BOOTSTRAP_ADMIN_USERNAME=ci-health-admin\nKC_BOOTSTRAP_ADMIN_PASSWORD='+admin_password+'\n');env.chmod(0o600)
         pg=root/'postgres.env';pg.write_text('POSTGRES_DB=postgres\nPOSTGRES_USER=prp_auth_bootstrap\nPOSTGRES_PASSWORD='+bootstrap_password+'\nPRP_HEALTH_DB_PASSWORD='+db_password+'\n');pg.chmod(0o600)
         cert=root/'ci-tls.pem';tlskey=root/'ci-tls.key'
-        openssl('req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',tlskey,'-out',cert,'-subj','/CN=auth.micor.top','-addext','subjectAltName=DNS:auth.micor.top')
+        openssl('req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',tlskey,'-out',cert,'-subj','/CN=auth.micor.top','-addext','subjectAltName=DNS:auth.micor.top,DNS:micor.top')
         tlskey.chmod(0o600)
-        conf=root/'nginx.conf';conf.write_text('pid '+str(root/'nginx.pid')+';\nerror_log stderr emerg;\nevents {}\nhttp {\n'+render(port=18446,upstream=18080,cert=str(cert),key=str(tlskey))+'}\n')
-        nginx=None
+        auth_vhost=render(port=18446,upstream=18080,cert=str(cert),key=str(tlskey)).replace(' listen 18446 ssl;', ' listen 127.0.0.1:18446 ssl;\n listen 127.0.0.1:443 ssl;')
+        backend_vhost='server { listen 127.0.0.1:18447 ssl; listen 127.0.0.2:443 ssl; server_name micor.top; ssl_certificate '+str(cert)+'; ssl_certificate_key '+str(tlskey)+'; access_log off; error_log stderr emerg; client_max_body_size 32k; location / { proxy_pass http://127.0.0.1:18110; proxy_set_header Host micor.top; proxy_set_header X-Forwarded-Proto https; proxy_set_header X-Forwarded-Host micor.top; proxy_set_header X-Forwarded-Port 443; proxy_set_header X-Forwarded-For $remote_addr; proxy_set_header Forwarded ""; proxy_buffer_size 16k; proxy_buffers 4 16k; } }\n'
+        conf=root/'nginx.conf';conf.write_text('pid '+str(root/'nginx.pid')+';\nerror_log stderr emerg;\nevents {}\nhttp {\n'+auth_vhost+backend_vhost+'}\n')
+        nginx=None;backend=None
         try:
             command(['docker','pull','postgres:17.6-alpine'],timeout=120)
             uid=command(['docker','run','--rm','postgres:17.6-alpine','id','-u','postgres']).decode().strip()
@@ -169,8 +173,8 @@ def main():
             base=json.loads(command(['docker','image','inspect','quay.io/keycloak/keycloak:26.8.1']))[0]['RepoDigests'][0]
             command(['docker','build','--build-arg','KEYCLOAK_BASE='+base,'-t','prp-health-auth-candidate:ci','-f',str(ROOT/'Dockerfile.auth'),str(ROOT)],timeout=180)
             command(['docker','run','-d','--name','prp-health-auth-kc-ci','--network','host','--memory','1g','--cap-drop','ALL','--security-opt','no-new-privileges','--env-file',str(env),'-v',str(realm)+':/opt/keycloak/data/import:ro','prp-health-auth-candidate:ci','start','--optimized','--import-realm','--http-enabled=true','--http-port=18080','--hostname=https://auth.micor.top','--proxy-headers=xforwarded','--proxy-trusted-addresses=127.0.0.1'])
-            command(['nginx','-t','-p',str(root),' -c'.strip(),str(conf)])
-            nginx=subprocess.Popen(['nginx','-p',str(root),'-c',str(conf),'-g','daemon off;'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            command(['sudo','-n','nginx','-t','-p',str(root),' -c'.strip(),str(conf)])
+            nginx=subprocess.Popen(['sudo','-n','nginx','-p',str(root),'-c',str(conf),'-g','daemon off;'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             op=public_opener(cert)
             flow.wait_ready(op,ISSUER+'/.well-known/openid-configuration',max_seconds=150)
             meta=flow.json_response(flow.request(op,ISSUER+'/.well-known/openid-configuration'),'Health discovery')
@@ -250,6 +254,10 @@ def main():
             s,_,_=flow.request(op,ISSUER+'/protocol/openid-connect/revoke',data={'client_id':CLIENT,'client_assertion_type':ASSERTION_TYPE,'client_assertion':assertion(key,aud=TOKEN,issuer=CLIENT,subject=CLIENT),'token':fresh['refresh_token'],'token_type_hint':'refresh_token'},form=True)
             check('refresh_revocation',s==200)
             s,_=token(op,key,refresh=fresh['refresh_token']);check('revoked_refresh_refused',s in (400,401))
+            backend=Backend(root,cert,command,check,flow)
+            backend.start()
+            combined=exercise_backend(backend,public_opener,cert,key,password,token,flow,check)
+            backend.stop()
             # Real logical backup/restore on a second ephemeral PostgreSQL instance.
             backup=command(['docker','exec','prp-health-auth-pg-ci','pg_dump','-U','prp_auth_bootstrap','-Fc','prp_health_auth'])
             backup_path=root/'oauth-private.dump';backup_path.write_bytes(backup);backup_path.chmod(0o600)
@@ -264,10 +272,13 @@ def main():
             s,restored=token(restored_op,key,code=code,verifier=verifier);check('restored_user_login_and_client_auth',s==200)
             check('restored_subject_and_original_signing_keys_preserved',verify(restored,jwks)==subject)
             image=json.loads(command(['docker','image','inspect','prp-health-auth-candidate:ci']))[0]
-            result={'checks':RESULTS,'passed':len(RESULTS),'failed':0,'image_id':image['Id'],'keycloak_base_digest':base,'policy_jar_sha256':hashlib.sha256((ROOT/'auth-policy/target/prp-production-health-policy.jar').read_bytes()).hexdigest(),'issuer':ISSUER,'resource':RESOURCE,'registration':'exact-pre-registered-not-dynamic-CIMD','actual_chatgpt_signature_verified':False,'official_jvm_jwks_fetch_verified':True,'egress_image_id':json.loads(command(['docker','image','inspect','prp-health-egress-candidate:ci']))[0]['Id'],'python_base_digest':python_base,'production_changed':False}
+            result={'checks':RESULTS,'passed':len(RESULTS),'failed':0,'image_id':image['Id'],'keycloak_base_digest':base,'policy_jar_sha256':hashlib.sha256((ROOT/'auth-policy/target/prp-production-health-policy.jar').read_bytes()).hexdigest(),'issuer':ISSUER,'resource':RESOURCE,'registration':'exact-pre-registered-not-dynamic-CIMD','actual_chatgpt_signature_verified':False,'official_jvm_jwks_fetch_verified':True,'egress_image_id':json.loads(command(['docker','image','inspect','prp-health-egress-candidate:ci']))[0]['Id'],'python_base_digest':python_base,'production_changed':False,'combined_health_backend':combined}
             out=ROOT/'auth-candidate-result.safe.json';out.write_text(json.dumps(result,indent=2));print('HEALTH_AUTH_CANDIDATE_SUCCESS checks='+str(len(RESULTS)),flush=True)
         finally:
-            if nginx:nginx.terminate();nginx.wait(timeout=10)
+            if backend:backend.stop()
+            if nginx:
+                if nginx.poll() is None:command(['sudo','-n','nginx','-p',str(root),'-c',str(conf),'-s','quit'])
+                nginx.wait(timeout=10)
             for name in ['prp-health-auth-kc-ci','prp-health-auth-pg-ci','prp-health-auth-pg-restore-ci','prp-health-auth-egress-ci']:
                 subprocess.run(['docker','rm','-f',name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
 

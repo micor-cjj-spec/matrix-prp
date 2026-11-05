@@ -66,4 +66,19 @@ class NativeJwksProofTests(unittest.TestCase):
         for text in ('Unable to load public key','invalid signature','SSL certificate failure',''):
             self.assertFalse(native_signature_denial(400,{'error':'invalid_client','error_description':text},True))
 
+class RuntimeConfigurationTests(unittest.TestCase):
+    def test_sdk_and_business_guard_are_enabled_together_without_migration(self):
+        from runtime_config import runtime_config
+        c=runtime_config(1)
+        self.assertTrue(c['spring']['ai']['mcp']['server']['enabled'])
+        self.assertFalse(c['spring']['flyway']['enabled'])
+        self.assertTrue(c['matrix-prp']['mcp']['production-wellness-only'])
+        self.assertEqual(c['matrix-prp']['mcp']['oauth']['first-party-link']['client-id'],FIRST_PARTY)
+        self.assertEqual(c['matrix-prp']['mcp']['expanded-user-ids'],'1')
+        self.assertNotIn('datasource',c['spring'])
+    def test_owner_requires_explicit_independently_verified_positive_id(self):
+        from runtime_config import runtime_config
+        for owner in (None,False,0,-1,'1'):
+            with self.assertRaises(ValueError):runtime_config(owner)
+
 if __name__=='__main__':unittest.main()

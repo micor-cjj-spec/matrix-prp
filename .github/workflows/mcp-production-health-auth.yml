@@ -21,6 +21,8 @@ jobs:
         run: |
           python3 -m unittest discover -s app/deploy/mcp-production-health -p 'test_contract.py' -v
           mvn -B -ntp -f app/deploy/mcp-production-health/auth-policy/pom.xml verify
+      - name: Build real health backend for disposable integration only
+        run: mvn -B -ntp -f app/backend/pom.xml -DskipTests package
       - name: Install disposable runner Nginx only
         run: |
           sudo apt-get update -qq

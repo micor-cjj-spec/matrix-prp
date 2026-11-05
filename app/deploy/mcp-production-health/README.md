@@ -72,3 +72,12 @@ The CI flow verifies its actual PKCE code exchange and signed ID-token nonce/aud
 then compares its subject with the confidential ChatGPT client. The official production
 frontend build explicitly pins the new issuer endpoint and inspects built assets;
 this does not enable MCP or create any user grant by itself.
+
+The combined disposable job builds the real backend, migrates only a new CI MySQL
+schema, then restarts with the same production-health runtime factory and Flyway
+OFF. Both PRP users are synthetic non-admins. It uses native first-party /start
+and /finish, owner password approval and MCP JWT verification; it never seeds an
+OAuth identity/grant through SQL. A CI-only hosts file and Java trustStore map the
+production-shaped HTTPS identities to loopback fixture TLS. No such hosts/CA
+substitution belongs in the production image/configuration. Actual ChatGPT
+signatures and real browser interaction remain separate human acceptance gates.
