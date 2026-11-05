@@ -181,6 +181,12 @@ candidate["attributes"].pop("jwks.url")
 candidate["attributes"]["jwt.credential.certificate"] = pathlib.Path(sys.argv[2]).read_text().strip()
 candidate["attributes"]["token.endpoint.auth.signing.alg"] = "RS256"
 candidate["name"] = "Synthetic CI ONLY — not OpenAI credential"
+if __import__('os').environ.get('MCP_E2E_CRUD') == 'true':
+    # Only this disposable exact-ID client may request the reviewed write scopes.
+    # Never broaden the checked-in read-only registration proposal or live Realm.
+    candidate['optionalClientScopes'] = [
+        'prp.tasks.read', 'prp.wellness.read', 'prp.write.create', 'prp.write.status',
+        'prp.write.confirm', 'prp.write.update', 'prp.write.delete']
 realm["clients"].append(candidate)
 path.write_text(json.dumps(realm), encoding="utf-8")
 print("CI_EXACT_CHATGPT_CLIENT_ID_SAME_REALM_REGISTERED_WITH_SYNTHETIC_TEST_KEY=YES")
@@ -324,6 +330,12 @@ if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
   # Only disposable CI can advertise write tools; production remains default OFF.
   export MATRIX_PRP_MCP_WRITE_ENABLED="true"
   export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="prp.tasks.read,prp.wellness.read,prp.write.create,prp.write.status,prp.write.confirm,prp.write.update,prp.write.delete"
+  # The freshly created disposable schema bootstraps exactly owner ID 1.
+  # Keep the real application's exact-client and account allowlist checks.
+  [[ "${MCP_E2E_EXACT_CHATGPT:-false}" == "true" ]] || {
+    echo "CRUD fixture requires the exact-client synthetic signing flow" >&2; exit 2;
+  }
+  export MATRIX_PRP_MCP_EXPANDED_USER_IDS="1"
 fi
 export MATRIX_PRP_MCP_ALLOWED_ORIGINS="https://prp-e2e.localhost"
 export MATRIX_PRP_MCP_OAUTH_ISSUER="https://auth-e2e.localhost/realms/prp-mcp"

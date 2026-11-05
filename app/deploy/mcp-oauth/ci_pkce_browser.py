@@ -368,7 +368,13 @@ def verify_exact_client_rejects_broad_scopes(opener):
             or os.environ.get("MCP_E2E_FIRST_PARTY") != "true"
             or ISSUER != "https://auth-e2e.localhost/realms/prp-mcp"):
         raise RuntimeError("SCOPE_NEGATIVE_DISPOSABLE_CI_ONLY")
-    for forbidden in ("prp.finance.read", "prp.wellness.read", "prp.write.create"):
+    forbidden_scopes = ["prp.finance.read"]
+    if os.environ.get('MCP_E2E_CRUD') != 'true':
+        # The regular exact-client test is deliberately task-read-only.
+        forbidden_scopes.extend(["prp.wellness.read", "prp.write.create"])
+    # The disposable CRUD+meal fixture explicitly grants wellness read.
+    # Keep finance.read unassigned and rejected in both variants.
+    for forbidden in forbidden_scopes:
         verifier = secrets.token_urlsafe(48)
         challenge = base64.urlsafe_b64encode(
             hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -394,7 +400,7 @@ def verify_exact_client_rejects_broad_scopes(opener):
             )
         if not rejected:
             raise RuntimeError("EXACT_CHATGPT_UNWANTED_SCOPE_NOT_REJECTED")
-    print("CI_EXACT_CHATGPT_CLIENT_FORBIDDEN_FINANCE_WELLNESS_WRITE_SCOPES=REJECTED")
+    print("CI_EXACT_CHATGPT_CLIENT_UNASSIGNED_SCOPES=REJECTED")
 
 
 def main():
@@ -521,14 +527,15 @@ def main():
     if EXACT_CHATGPT_CI:
         print("CI_EXACT_CHATGPT_ID_TO_FIRST_PARTY_LINKED_PRP_TASK_TOOL=PASS")
         print("ACTUAL_OPENAI_PRIVATE_KEY_JWT_VERIFIED=NO")
+    # Mutations require a still-active owner link; destructive unlink/revoke negatives run afterwards.
+    if os.environ.get('MCP_E2E_CRUD') == 'true':
+        import ci_crud_flow
+        ci_crud_flow.run(sys.modules[__name__], opener, prp_jwt, prp_password, user_password)
     if os.environ.get("MCP_E2E_FIRST_PARTY") == "true":
         ci_first_party_link_e2e.verify_unlink_invalidates_pending(
             sys.modules[__name__], opener, prp_jwt, bearer, prp_password)
         ci_first_party_link_e2e.verify_concurrent_flow_limit(
             sys.modules[__name__], prp_jwt, prp_password)
-    if os.environ.get('MCP_E2E_CRUD') == 'true':
-        import ci_crud_flow
-        ci_crud_flow.run(sys.modules[__name__], opener, prp_jwt, prp_password, user_password)
     revoke = json_response(request(opener, "https://prp-e2e.localhost/api/mcp/clients/revoke",
         bearer=prp_jwt, data={"clientId": CLIENT}), "PRP client revocation")
     after = jsonrpc(opener, bearer, 6, "tools/list", {})
