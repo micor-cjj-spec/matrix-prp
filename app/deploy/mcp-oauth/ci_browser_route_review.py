@@ -17,6 +17,7 @@ if str(STAGING) not in sys.path:
 from approval_routes_pending import READONLY_LINK_EXACT, READONLY_LINK_REGEX  # noqa: E402
 
 PRP_ORIGIN = "https://prp-e2e.localhost"
+PRM_PATH = "/.well-known/oauth-protected-resource/api/mcp"
 
 
 def classify(method, url):
@@ -29,6 +30,10 @@ def classify(method, url):
     # Do not normalize path aliases or decoded percent encodings in test.
     if "%" in path or "\\" in path or "//" in path:
         return False
+    # The existing public MCP metadata route is separate from first-party link APIs.
+    # New grant UI fetches only this exact, query-free public GET.
+    if path == PRM_PATH:
+        return method == "GET" and not parsed.query and not parsed.fragment
     if method in READONLY_LINK_EXACT.get(path, "").split():
         return True
     return any(method in verbs.split() and re.fullmatch(pattern, path)
@@ -39,6 +44,8 @@ def path_class(method, url):
     """Only bounded diagnostic categories, no untrusted path or query emitted."""
     parsed = urlsplit(url)
     p = parsed.path
+    if p == PRM_PATH:
+        return "PUBLIC_PRM"
     if p.startswith("/api/"):
         if p.startswith("/api/mcp/identity/oidc/"):
             return "API_OIDC"

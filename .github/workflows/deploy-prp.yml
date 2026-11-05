@@ -126,10 +126,12 @@ jobs:
         working-directory: app/web
         env:
           VITE_APP_BASE: /prp/
+          VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT: https://auth.micor.top/realms/prp-mcp-prod/protocol/openid-connect/auth
         run: |
           npm ci --no-audit --no-fund
           npm run build
           node scripts/verify-deploy-base.mjs /prp/
+          node scripts/verify-production-mcp-binding.mjs
       - name: Package release
         env:
           RELEASE_ID: r${{ github.run_id }}-${{ github.run_attempt }}

@@ -34,7 +34,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @ConditionalOnProperty(prefix = "matrix-prp.mcp", name = "enabled", havingValue = "true")
 public class McpDraftService {
-    public enum Kind { TASK, FINANCE, RECORD, TASK_UPDATE, TASK_DELETE }
+    public enum Kind { TASK, FINANCE, RECORD, TASK_UPDATE, TASK_DELETE, WELLNESS_CREATE, WELLNESS_UPDATE, WELLNESS_DELETE }
     public record TaskChange(long taskId, com.matrix.prp.tasks.model.TaskItem before,
                              String revision, CreateTaskRequest after, String status) {}
     public record Preview(String draftId, String kind, JsonNode values, String expiresAt,
@@ -44,6 +44,33 @@ public class McpDraftService {
     public record Approval(String status, int remainingAttempts) {}
     private record Stored(String kind, String payload, String result, String status,
                           LocalDateTime expiresAt) {}
+
+    private McpWellnessSupport wellnessSupport;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureWellnessSupport(McpWellnessSupport support) { this.wellnessSupport=support; }
+    private McpWellnessSupport health() {
+        if (wellnessSupport==null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Wellness tools unavailable");
+        return wellnessSupport;
+    }
+    @Transactional
+    public Preview prepareWellness(String entity, long id, McpWellnessSupport.Input input, Kind kind) {
+        requireWrite();
+        if (kind!=Kind.WELLNESS_CREATE && kind!=Kind.WELLNESS_UPDATE && kind!=Kind.WELLNESS_DELETE)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid health operation");
+        if (kind==Kind.WELLNESS_CREATE ? id!=0 : id<=0)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid health target");
+        return prepare(kind, health().capture(entity,id,input,kind==Kind.WELLNESS_DELETE));
+    }
+    static String operationScope(String kind) {
+        return switch (Kind.valueOf(kind)) {
+            case TASK_UPDATE -> "prp.write.update";
+            case TASK_DELETE -> "prp.write.delete";
+            case WELLNESS_CREATE -> "prp.wellness.write.create";
+            case WELLNESS_UPDATE -> "prp.wellness.write.update";
+            case WELLNESS_DELETE -> "prp.wellness.write.delete";
+            default -> "prp.write.create";
+        };
+    }
 
     private final JdbcTemplate db;
     private final ObjectMapper json;
@@ -142,7 +169,7 @@ public class McpDraftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft");
         }
         return new Preview(id, kind.name(), json.valueToTree(request), expiry.toString(),
-            "Open " + approvalBase + "me/mcp-approve/" + id + " in your own browser, review and enter your PRP password there, never in chat. Only then may the MCP client call prp_confirm_draft.");
+            "Open " + approvalBase + "me/mcp-approve/" + id + " in your own browser, review and enter your PRP password there, never in chat. Only then may the MCP client call " + (kind.name().startsWith("WELLNESS_") ? "prp_confirm_wellness_draft" : "prp_confirm_draft") + ".");
     }
 
     /** The human reviews the exact owner-bound data through PRP, never through a model-controlled approval flag. */
@@ -236,6 +263,7 @@ public class McpDraftService {
                 case FINANCE -> json.readValue(row.payload(), CreateFinanceTransactionRequest.class);
                 case RECORD -> json.readValue(row.payload(), CreateRecordRequest.class);
                 case TASK_UPDATE, TASK_DELETE -> json.readValue(row.payload(), TaskChange.class);
+                case WELLNESS_CREATE, WELLNESS_UPDATE, WELLNESS_DELETE -> json.readValue(row.payload(), McpWellnessSupport.Change.class);
             };
             validate(request);
             Object result = switch (Kind.valueOf(row.kind())) {
@@ -244,8 +272,12 @@ public class McpDraftService {
                 case RECORD -> records.create((CreateRecordRequest) request);
                 case TASK_UPDATE -> applyTaskChange((TaskChange) request, false);
                 case TASK_DELETE -> applyTaskChange((TaskChange) request, true);
+                case WELLNESS_CREATE -> health().apply((McpWellnessSupport.Change) request, draftId, true, false);
+                case WELLNESS_UPDATE -> health().apply((McpWellnessSupport.Change) request, draftId, false, false);
+                case WELLNESS_DELETE -> health().apply((McpWellnessSupport.Change) request, draftId, false, true);
             };
-            saved = json.valueToTree(result);
+            // Normalize persisted and first-response decimal nodes through the same codec.
+            saved = json.readTree(json.writeValueAsString(result));
             if (db.update("UPDATE prp_mcp_write_drafts SET status='CONSUMED', result_json=?, consumed_at=CURRENT_TIMESTAMP " +
                     "WHERE id=? AND user_id=? AND status='APPROVED'",
                     json.writeValueAsString(saved), draftId, owner) != 1) {
@@ -269,7 +301,9 @@ public class McpDraftService {
         if (!validator.validate(request).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid business fields");
         }
-        if (request instanceof TaskChange change) {
+        if (request instanceof McpWellnessSupport.Change change) {
+            health().validateChange(change, change.recordId()==0, change.after()==null);
+        } else if (request instanceof TaskChange change) {
             if (change.taskId() <= 0 || change.before() == null || change.before().id() != change.taskId()
                 || change.revision() == null || change.revision().isBlank())
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid task change");

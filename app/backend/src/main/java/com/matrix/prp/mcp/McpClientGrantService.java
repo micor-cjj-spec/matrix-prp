@@ -26,6 +26,9 @@ import org.springframework.web.server.ResponseStatusException;
 @ConditionalOnProperty(prefix = "matrix-prp.mcp.oauth", name = "enabled", havingValue = "true")
 public class McpClientGrantService {
     public record Grant(String clientId, List<String> scopes, String status) {}
+    private boolean wellnessOnly;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureWellnessOnly(@org.springframework.beans.factory.annotation.Value("${matrix-prp.mcp.production-wellness-only:false}") boolean enabled) { wellnessOnly=enabled; }
     private final JdbcTemplate db;
     private final UserStore users;
     private final PasswordEncoder encoder;
@@ -69,6 +72,8 @@ public class McpClientGrantService {
         long owner = CurrentUser.id();
         String id = client(clientId);
         Set<String> approved = scopes(requested);
+        if (wellnessOnly && !McpProductionWellnessGuard.SCOPES.containsAll(approved))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Only health scopes are enabled");
         UserAccount account = users.findById(owner).orElse(null);
         if (account == null || !account.enabled()) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         limiter.assertAllowed("mcp-client-grant", account.username());
@@ -103,6 +108,7 @@ public class McpClientGrantService {
     /** A server-enforced 10-minute task-read lease for first-party browser pairing only. */
     @Transactional
     public Grant authorizeTemporaryPairing(String clientId, String password) {
+        if (wellnessOnly) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Use first-party health identity binding");
         long owner = CurrentUser.id();
         String id = client(clientId);
         UserAccount account = users.findById(owner).orElse(null);

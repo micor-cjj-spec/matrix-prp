@@ -85,6 +85,13 @@ class McpFirstPartyOidcLinkTests {
     }
 
     @Test
+    void healthOnlyConsentCanBeginBindingWithoutTaskGrant() {
+        authorizedOwner();
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.wellness.read"));
+        assertThat(service.begin("correct-password").authorizeUrl()).contains("code_challenge_method=S256");
+    }
+
+    @Test
     void mustBeSeparateFromChatgptAndUseExactHttpsCallbackAndIssuerJwks() {
         assertThatThrownBy(() -> service(false, ISSUER,
             ISSUER + "/protocol/openid-connect/certs", RESOURCE, FIRST_PARTY, CALLBACK))

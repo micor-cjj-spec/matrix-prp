@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 import java.util.OptionalLong;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -151,9 +152,10 @@ public class McpIdentityLinkService {
         UserAccount account = users.findById(owner).orElse(null);
         if (account == null || !account.enabled())
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PRP owner unavailable");
-        if (!grants.grantedScopes(owner, intendedClientId).contains("prp.tasks.read"))
+        Set<String> consent = grants.grantedScopes(owner, intendedClientId);
+        if (!consent.contains("prp.tasks.read") && !consent.contains("prp.wellness.read"))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                "ChatGPT task permission not approved");
+                "ChatGPT read permission not approved");
         List<Long> existingOwner = db.query(
             "SELECT user_id FROM prp_mcp_identity_links WHERE issuer=? AND subject=? FOR UPDATE",
             (rs, i) -> rs.getLong(1), issuer, subject);

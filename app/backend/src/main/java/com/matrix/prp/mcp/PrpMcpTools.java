@@ -159,11 +159,89 @@ public class PrpMcpTools {
         scopes.require("prp.write.confirm");
         // Recheck the operation permission at execution time, including after revocation.
         var review = drafts.review(draftId);
-        switch (review.kind()) {
-            case "TASK_UPDATE" -> scopes.require("prp.write.update");
-            case "TASK_DELETE" -> scopes.require("prp.write.delete");
-            default -> scopes.require("prp.write.create");
-        }
+        scopes.require(McpDraftService.operationScope(review.kind()));
+        return drafts.confirm(draftId);
+    }
+
+    @McpTool(name="prp_wellness_list", description="Read at most 50 of your own meal, exercise or metric records. Meals/exercise use one exact date; metric uses 1-90 days. Never reads another user.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object wellnessList(
+            @McpToolParam(description="meal, exercise or metric",required=true) String entity,
+            @McpToolParam(description="yyyy-MM-dd, defaults to today for meal/exercise",required=false) String date,
+            @McpToolParam(description="Metric history days 1-90, defaults 30",required=false) Integer days) {
+        scopes.require("prp.wellness.read");
+        McpWellnessSupport.table(entity);
+        if(days!=null && (days<1 || days>90)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Days must be 1-90");
+        LocalDate d=date==null || date.isBlank()?LocalDate.now():localDate(date);
+        return switch(entity) {
+            case "meal" -> wellness.meals(d).stream().limit(50).toList();
+            case "exercise" -> wellness.exercises(d).stream().limit(50).toList();
+            default -> wellness.metrics(days==null?30:days).stream().limit(50).toList();
+        };
+    }
+
+    @McpTool(name="prp_wellness_get", description="Read one exact owned meal, exercise or metric record. Unknown and other-user IDs are unavailable.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object wellnessGet(
+            @McpToolParam(description="meal, exercise or metric",required=true) String entity,
+            @McpToolParam(description="Positive owned record ID",required=true) long recordId) {
+        scopes.require("prp.wellness.read");
+        McpWellnessSupport.table(entity);
+        if(recordId<=0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Positive record ID required");
+        return switch(entity) {
+            case "meal" -> wellness.ownedMeal(recordId);
+            case "exercise" -> wellness.ownedExercise(recordId);
+            default -> wellness.ownedMetric(recordId);
+        };
+    }
+
+    @McpTool(name="prp_wellness_foods", description="Search public reference foods and your own private foods, up to 30 results. Read only; never edits the public catalog or calls external APIs.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object wellnessFoods(@McpToolParam(description="Food name, 1-100 characters",required=true) String query) {
+        scopes.require("prp.wellness.read");
+        if(query==null || query.isBlank() || query.length()>100) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Food query required");
+        return wellness.foods(query.trim()).stream().limit(30).toList();
+    }
+
+    @McpTool(name="prp_prepare_wellness_create", description="Prepare a structured meal, exercise or metric CREATE draft, not a personal note. Input must contain exactly one matching meal/exercise/metric object. Catalog meal items use foodId+grams only; estimates use name+explicit event calories and no foodId (macros unknown). Nothing is saved as a health record before separate owner password approval and confirm.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=false,idempotentHint=false,openWorldHint=false))
+    public McpDraftService.Preview prepareWellnessCreate(
+            @McpToolParam(description="meal, exercise or metric",required=true) String entity,
+            @McpToolParam(description="Exactly one matching typed health object; no user ID",required=true) McpWellnessSupport.Input input) {
+        scopes.require("prp.wellness.write.create");
+        return drafts.prepareWellness(entity,0,input,McpDraftService.Kind.WELLNESS_CREATE);
+    }
+
+    @McpTool(name="prp_prepare_wellness_update", description="Prepare full replacement of one owned meal/exercise/metric. Preview includes before and after. Changed records or catalog nutrition invalidate confirmation. Requires PRP password approval; never updates directly.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=false,openWorldHint=false))
+    public McpDraftService.Preview prepareWellnessUpdate(
+            @McpToolParam(description="meal, exercise or metric",required=true) String entity,
+            @McpToolParam(description="Positive owned record ID",required=true) long recordId,
+            @McpToolParam(description="Full replacement; exactly one matching health object",required=true) McpWellnessSupport.Input input) {
+        scopes.require("prp.wellness.write.update");
+        return drafts.prepareWellness(entity,recordId,input,McpDraftService.Kind.WELLNESS_UPDATE);
+    }
+
+    @McpTool(name="prp_prepare_wellness_delete", description="Prepare deletion of one exact owned health record. No deletion occurs until owner approval in PRP and separate confirmation. Any changed record is rejected.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=false,openWorldHint=false))
+    public McpDraftService.Preview prepareWellnessDelete(
+            @McpToolParam(description="meal, exercise or metric",required=true) String entity,
+            @McpToolParam(description="Positive owned record ID",required=true) long recordId) {
+        scopes.require("prp.wellness.write.delete");
+        return drafts.prepareWellness(entity,recordId,null,McpDraftService.Kind.WELLNESS_DELETE);
+    }
+
+    private McpDraftService.Review healthReview(String draftId) {
+        var review=drafts.review(draftId);
+        if(!review.kind().startsWith("WELLNESS_")) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Health draft not found");
+        return review;
+    }
+
+    @McpTool(name="prp_wellness_draft_status", description="Read your own structured health draft status and preview. Cannot approve a draft; approval requires the PRP browser and password.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public McpDraftService.Review wellnessDraftStatus(@McpToolParam(description="Exact health draft UUID",required=true) String draftId) {
+        scopes.require("prp.wellness.write.status");
+        return healthReview(draftId);
+    }
+
+    @McpTool(name="prp_confirm_wellness_draft", description="Commit only an already owner-password-APPROVED health draft, exactly once. Requires its create/update/delete scope too. Never approves, changes another module, or accepts a user ID. Replays return the existing result.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=true,openWorldHint=false))
+    public McpDraftService.Result confirmWellnessDraft(@McpToolParam(description="Exact health draft UUID",required=true) String draftId) {
+        scopes.require("prp.wellness.write.confirm");
+        var review=healthReview(draftId);
+        scopes.require(McpDraftService.operationScope(review.kind()));
         return drafts.confirm(draftId);
     }
 

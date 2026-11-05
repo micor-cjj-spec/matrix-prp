@@ -20,7 +20,7 @@ class McpOAuthToolManifestTests {
             "prp.tasks.read,prp.finance.read", false))
             .containsExactlyInAnyOrder("prp_tasks_list", "prp_task_get", "prp_finance_month");
         assertThat(McpToolConfiguration.exposedNames("prp.wellness.read", false))
-            .containsExactly("prp_wellness_daily");
+            .containsExactlyInAnyOrder("prp_wellness_daily", "prp_wellness_list", "prp_wellness_get", "prp_wellness_foods");
     }
 
     @Test

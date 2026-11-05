@@ -15,7 +15,8 @@
     "mcp-integrated-runtime-oci": "mcp-reviewed-oci-images.yml",
     "mcp-integrated-first-party-nginx": "mcp-first-party-nginx-route-review.yml",
     "mcp-integrated-owner-mysql": "mcp-producer-task-mysql-it.yml",
-    "mcp-integrated-flyway-review-contract": "mcp-production-flyway-readonly-review.yml"
+    "mcp-integrated-flyway-review-contract": "mcp-production-flyway-readonly-review.yml",
+    "mcp-production-health-auth": "mcp-production-health-auth.yml"
   },
   "required_local_jobs": [
     "backend-tests",

@@ -1,0 +1,2 @@
+io.micor.prp.health.HealthDiscoveryFactory
+io.micor.prp.health.HealthOAuthDiscoveryFactory

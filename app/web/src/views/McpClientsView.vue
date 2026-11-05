@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { advertisedMcpScopes, defaultMcpReadScopes } from '@/api/mcpScopes'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { apiUrl } from '@/api/client'
@@ -52,7 +53,21 @@ const ticket = ref<McpLinkTicket | null>(null)
 const pairing = ref(false)
 const pairError = ref('')
 const clientId = ref('')
-const scopes = ref<string[]>(['prp.tasks.read'])
+const scopes = ref<string[]>([])
+const availableScopes = ref<ReturnType<typeof advertisedMcpScopes>>([])
+async function loadScopeDiscovery() {
+  try {
+    const r = await fetch('/.well-known/oauth-protected-resource/api/mcp', { cache: 'no-store', credentials: 'omit', redirect: 'error' })
+    if (!r.ok || !r.headers.get('Content-Type')?.includes('application/json')) throw new Error('Discovery unavailable')
+    const metadata = await r.json()
+    if (metadata.resource !== window.location.origin + '/api/mcp') throw new Error('Resource mismatch')
+    availableScopes.value = advertisedMcpScopes(metadata.scopes_supported)
+    scopes.value = defaultMcpReadScopes(availableScopes.value)
+  } catch {
+    availableScopes.value = []; scopes.value = []
+    error.value = '无法取得当前环境的权限清单；已禁止新增授权，请联系管理员。'
+  }
+}
 const password = ref('')
 const loading = ref(true)
 const busy = ref(false)
@@ -91,7 +106,7 @@ async function beginOidcLink() {
     window.location.assign(reviewedUrl)
   } catch {
     firstPartyPassword.value = ''
-    firstPartyError.value = '无法启动 Keycloak 绑定：请先批准 ChatGPT 的读取任务权限，核对 PRP 密码，并确认第一方 OAuth 功能已启用。'
+    firstPartyError.value = '无法启动 Keycloak 绑定：请先批准 ChatGPT 的本环境读取权限，核对 PRP 密码，并确认第一方 OAuth 功能已启用。'
     firstPartyBusy.value = false
   }
 }
@@ -282,7 +297,7 @@ async function revoke(client: McpClientGrant) {
   finally { busy.value = false }
 }
 onMounted(() => {
-  void refresh()
+  void refresh().then(loadScopeDiscovery)
   void refreshIdentities()
   if (hasOAuthCallback(window.location.href)) void finishBrowserPairing()
   else void inspectUnfinishedBrowserPairing()
@@ -307,7 +322,7 @@ onMounted(() => {
           </el-form-item>
           <el-form-item label="允许的权限">
             <el-checkbox-group v-model="scopes">
-              <div v-for="scope in mcpScopes" :key="scope.value" class="scope-option">
+              <div v-for="scope in availableScopes" :key="scope.value" class="scope-option">
                 <el-checkbox :value="scope.value" :label="scope.label" />
               </div>
             </el-checkbox-group>

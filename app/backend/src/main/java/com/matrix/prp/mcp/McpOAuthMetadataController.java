@@ -20,7 +20,9 @@ import org.springframework.http.HttpStatus;
 public class McpOAuthMetadataController {
     public static final List<String> SCOPES = List.of(
         "prp.tasks.read", "prp.finance.read", "prp.wellness.read",
-        "prp.write.create", "prp.write.status", "prp.write.confirm", "prp.write.update", "prp.write.delete");
+        "prp.write.create", "prp.write.status", "prp.write.confirm", "prp.write.update", "prp.write.delete",
+        "prp.wellness.write.create", "prp.wellness.write.update", "prp.wellness.write.delete",
+        "prp.wellness.write.status", "prp.wellness.write.confirm");
 
     private final String resource;
     private final String issuer;
@@ -48,7 +50,7 @@ public class McpOAuthMetadataController {
             if (!SCOPES.contains(scope) || !scopes.add(scope)) {
                 throw new IllegalArgumentException("Unknown, empty or duplicate MCP advertised scope");
             }
-            if (scope.startsWith("prp.write.") && !writeEnabled) {
+            if ((scope.startsWith("prp.write.") || scope.startsWith("prp.wellness.write.")) && !writeEnabled) {
                 throw new IllegalArgumentException("Cannot advertise MCP writes while writes are disabled");
             }
         }
