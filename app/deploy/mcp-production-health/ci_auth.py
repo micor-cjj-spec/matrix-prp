@@ -106,21 +106,30 @@ def main():
         root=Path(folder);root.chmod(0o700)
         realm=root/'realm';realm.mkdir();(realm/'health.json').write_text(json.dumps(build()))
         # A first import contains no synthetic identities/keys. All substitutions below use CI admin only.
-        admin_password=secrets.token_urlsafe(36);db_password=secrets.token_urlsafe(36)
-        for value in (admin_password,db_password):print('::add-mask::'+value,flush=True)
+        admin_password=secrets.token_urlsafe(36);db_password=secrets.token_urlsafe(36);bootstrap_password=secrets.token_urlsafe(36)
+        for value in (admin_password,db_password,bootstrap_password):print('::add-mask::'+value,flush=True)
         env=root/'keycloak.env';env.write_text('KC_DB=postgres\nKC_DB_URL=jdbc:postgresql://127.0.0.1:15432/prp_health_auth\nKC_DB_USERNAME=prp_health_auth\nKC_DB_PASSWORD='+db_password+'\nKC_BOOTSTRAP_ADMIN_USERNAME=ci-health-admin\nKC_BOOTSTRAP_ADMIN_PASSWORD='+admin_password+'\n');env.chmod(0o600)
-        pg=root/'postgres.env';pg.write_text('POSTGRES_DB=prp_health_auth\nPOSTGRES_USER=prp_health_auth\nPOSTGRES_PASSWORD='+db_password+'\n');pg.chmod(0o600)
+        pg=root/'postgres.env';pg.write_text('POSTGRES_DB=postgres\nPOSTGRES_USER=prp_auth_bootstrap\nPOSTGRES_PASSWORD='+bootstrap_password+'\nPRP_HEALTH_DB_PASSWORD='+db_password+'\n');pg.chmod(0o600)
         cert=root/'ci-tls.pem';tlskey=root/'ci-tls.key'
         openssl('req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',tlskey,'-out',cert,'-subj','/CN=auth.micor.top','-addext','subjectAltName=DNS:auth.micor.top')
         tlskey.chmod(0o600)
         conf=root/'nginx.conf';conf.write_text('pid '+str(root/'nginx.pid')+';\nerror_log stderr emerg;\nevents {}\nhttp {\n'+render(port=18446,upstream=18080,cert=str(cert),key=str(tlskey))+'}\n')
         nginx=None
         try:
-            command(['docker','run','-d','--name','prp-health-auth-pg-ci','--memory','256m','-p','127.0.0.1:15432:5432','--env-file',str(pg),'--tmpfs','/var/lib/postgresql/data','postgres:17.6-alpine'])
-            for _ in range(40):
-                p=subprocess.run(['docker','exec','prp-health-auth-pg-ci','pg_isready','-U','prp_health_auth'],capture_output=True,timeout=3)
-                if p.returncode==0:break
-                time.sleep(1)
+            command(['docker','pull','postgres:17.6-alpine'],timeout=120)
+            uid=command(['docker','run','--rm','postgres:17.6-alpine','id','-u','postgres']).decode().strip()
+            gid=command(['docker','run','--rm','postgres:17.6-alpine','id','-g','postgres']).decode().strip()
+            check('postgres_nonroot_identity_measured',uid.isdigit() and gid.isdigit() and uid!='0')
+            def start_pg(name,port):
+                command(['docker','run','-d','--name',name,'--memory','256m','--user',uid+':'+gid,'--cap-drop','ALL','--security-opt','no-new-privileges','-p','127.0.0.1:'+str(port)+':5432','--env-file',str(pg),'-v',str(ROOT/'init-auth-db.sh')+':/docker-entrypoint-initdb.d/10-health.sh:ro','--tmpfs','/var/lib/postgresql/data:uid='+uid+',gid='+gid+',mode=0700','postgres:17.6-alpine'])
+                for _ in range(40):
+                    p=subprocess.run(['docker','exec',name,'pg_isready','-h','127.0.0.1','-U','prp_auth_bootstrap'],capture_output=True,timeout=3)
+                    if p.returncode==0:return
+                    time.sleep(1)
+                raise RuntimeError('POSTGRES_STARTUP_TIMEOUT')
+            start_pg('prp-health-auth-pg-ci',15432)
+            role=command(['docker','exec','prp-health-auth-pg-ci','psql','-U','prp_auth_bootstrap','-d','prp_health_auth','-At','-c',"SELECT NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication FROM pg_roles WHERE rolname='prp_health_auth'"]).decode().strip()
+            check('application_database_role_least_privilege',role=='t')
             command(['docker','pull','quay.io/keycloak/keycloak:26.8.1'],timeout=120)
             base=json.loads(command(['docker','image','inspect','quay.io/keycloak/keycloak:26.8.1']))[0]['RepoDigests'][0]
             command(['docker','build','--build-arg','KEYCLOAK_BASE='+base,'-t','prp-health-auth-candidate:ci','-f',str(ROOT/'Dockerfile.auth'),str(ROOT)],timeout=180)
@@ -142,7 +151,7 @@ def main():
             c['attributes']['use.jwks.url']='false';c['attributes'].pop('jwks.url');c['attributes']['jwt.credential.certificate']=certificate
             s,_=admin(prefix+'/clients/'+c['id'],token=access,data=c,method='PUT');check('explicit_ci_signer_substitution',s==204)
             password=secrets.token_urlsafe(24);print('::add-mask::'+password,flush=True)
-            s,_=admin(prefix+'/users',token=access,data={'username':'synthetic-health-user','enabled':True,'credentials':[{'type':'password','value':password,'temporary':False}]},method='POST');check('synthetic_user_only',s==201)
+            s,_=admin(prefix+'/users',token=access,data={'username':'synthetic-health-user','enabled':True,'emailVerified':True,'email':'health-ci@example.invalid','firstName':'Synthetic','lastName':'Health','requiredActions':[],'credentials':[{'type':'password','value':password,'temporary':False}]},method='POST');check('synthetic_user_only',s==201)
             for name,changes in [('task_scope',{'scope':'prp.tasks.read'}),('finance_scope',{'scope':'prp.finance.read'}),('generic_write',{'scope':'prp.write.create'}),('offline_scope',{'scope':'offline_access'}),('wrong_redirect',{'redirect_uri':REDIRECT+'/'}),('wrong_resource',{'resource':'https://prp-test.micor.top/api/mcp'}),('plain_pkce',{'code_challenge_method':'plain'}),('wrong_client',{'client_id':'https://chatgpt.com/oauth/not-approved.json'})]:
                 check('authorization_denies_'+name,negative_authorization(public_opener(cert),**changes))
             for path in ['/admin/','/realms/master/.well-known/openid-configuration','/realms/'+REALM+'/clients-registrations/openid-connect','/health']:
@@ -170,12 +179,25 @@ def main():
             s,_,_=flow.request(op,ISSUER+'/protocol/openid-connect/revoke',data={'client_id':CLIENT,'client_assertion_type':ASSERTION_TYPE,'client_assertion':assertion(key,aud=TOKEN,issuer=CLIENT,subject=CLIENT),'token':fresh['refresh_token'],'token_type_hint':'refresh_token'},form=True)
             check('refresh_revocation',s==200)
             s,_=token(op,key,refresh=fresh['refresh_token']);check('revoked_refresh_refused',s in (400,401))
+            # Real logical backup/restore on a second ephemeral PostgreSQL instance.
+            backup=command(['docker','exec','prp-health-auth-pg-ci','pg_dump','-U','prp_auth_bootstrap','-Fc','prp_health_auth'])
+            backup_path=root/'oauth-private.dump';backup_path.write_bytes(backup);backup_path.chmod(0o600)
+            start_pg('prp-health-auth-pg-restore-ci',15433)
+            command(['docker','exec','-i','prp-health-auth-pg-restore-ci','pg_restore','-U','prp_auth_bootstrap','-d','prp_health_auth','--exit-on-error'],input=backup)
+            check('separate_postgres_restore_completed',len(backup)>10000)
+            command(['docker','rm','-f','prp-health-auth-kc-ci'])
+            restored_env=root/'keycloak-restore.env';restored_env.write_text(env.read_text().replace(':15432/',':15433/'));restored_env.chmod(0o600)
+            command(['docker','run','-d','--name','prp-health-auth-kc-ci','--network','host','--memory','1g','--cap-drop','ALL','--security-opt','no-new-privileges','--env-file',str(restored_env),'prp-health-auth-candidate:ci','start','--optimized','--http-enabled=true','--http-port=18080','--hostname=https://auth.micor.top','--proxy-headers=xforwarded','--proxy-trusted-addresses=127.0.0.1'])
+            restored_op=public_opener(cert);flow.wait_ready(restored_op,ISSUER+'/.well-known/openid-configuration',max_seconds=150)
+            code,verifier=flow.code_pkce(restored_op,'synthetic-health-user',password,' '.join(SCOPES))
+            s,restored=token(restored_op,key,code=code,verifier=verifier);check('restored_user_login_and_client_auth',s==200)
+            check('restored_subject_and_original_signing_keys_preserved',verify(restored,jwks)==subject)
             image=json.loads(command(['docker','image','inspect','prp-health-auth-candidate:ci']))[0]
             result={'checks':RESULTS,'passed':len(RESULTS),'failed':0,'image_id':image['Id'],'keycloak_base_digest':base,'policy_jar_sha256':hashlib.sha256((ROOT/'auth-policy/target/prp-production-health-policy.jar').read_bytes()).hexdigest(),'issuer':ISSUER,'resource':RESOURCE,'registration':'exact-pre-registered-not-dynamic-CIMD','actual_chatgpt_signature_verified':False,'official_jvm_jwks_fetch_verified':False,'production_changed':False}
             out=ROOT/'auth-candidate-result.safe.json';out.write_text(json.dumps(result,indent=2));print('HEALTH_AUTH_CANDIDATE_SUCCESS checks='+str(len(RESULTS)),flush=True)
         finally:
             if nginx:nginx.terminate();nginx.wait(timeout=10)
-            for name in ['prp-health-auth-kc-ci','prp-health-auth-pg-ci']:
+            for name in ['prp-health-auth-kc-ci','prp-health-auth-pg-ci','prp-health-auth-pg-restore-ci']:
                 subprocess.run(['docker','rm','-f',name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
 
 if __name__=='__main__':
@@ -183,5 +205,7 @@ if __name__=='__main__':
     except Exception as e:
         # Raw exception text can include an authorization URL or child-process arguments.
         safe=str(e)
+        if 'kc-update-profile' in safe or 'update-user-profile' in safe:safe='REQUIRED_USER_PROFILE_ACTION'
+        elif 'OAuth post-login page did not reach callback' in safe:safe='POST_LOGIN_DID_NOT_COMPLETE'
         if not safe or len(safe)>110 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in safe):safe=type(e).__name__
         print('FAIL HEALTH_AUTH '+safe,flush=True);raise SystemExit(1) from None

@@ -4,7 +4,8 @@ services:
   postgres:
     image: ${PRP_HEALTH_POSTGRES_IMAGE:?Pin reviewed PostgreSQL repository digest}
     env_file: [./private/postgres.env]
-    volumes: [auth_postgres:/var/lib/postgresql/data]
+    user: ${PRP_HEALTH_POSTGRES_UID_GID:?Use measured non-root UID and GID from pinned PostgreSQL image}
+    volumes: ["auth_postgres:/var/lib/postgresql/data", "./init-auth-db.sh:/docker-entrypoint-initdb.d/10-health.sh:ro"]
     networks: [auth_private]
     mem_limit: 256m
     pids_limit: 128
@@ -18,6 +19,7 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/prp_health_auth
       KC_DB_USERNAME: prp_health_auth
+      KC_PROXY_TRUSTED_ADDRESSES: ${PRP_HEALTH_PROXY_TRUSTED_ADDRESSES:?Review exact Docker bridge gateway before installation}
       HTTPS_PROXY: http://egress:3128
       NO_PROXY: localhost,127.0.0.1,postgres
       KC_SPI_CONNECTIONS_HTTP_CLIENT__DEFAULT__ALLOW_REDIRECTS: "false"

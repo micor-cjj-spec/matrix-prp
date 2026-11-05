@@ -54,3 +54,11 @@ See `app/docs/technical/production-health-mcp-preparation.md` for data/tool boun
 Production enabling requires exact file diffs/hashes, resource budget, verified
 images, restoration, current baseline, one controlled Nginx reload/rollback plan,
 and explicit approval of that concrete installation. Nothing here starts services.
+
+The database application role is explicitly NOSUPERUSER/NOCREATEDB/NOCREATEROLE/
+NOREPLICATION. Bootstrap credentials remain separate. The isolated job measures the
+non-root PostgreSQL UID/GID, starts it without capabilities, and exercises a logical
+backup into a second temporary PostgreSQL instance, restored user login, client
+authentication and signing with the ORIGINAL JWKS. This is synthetic OAuth-state
+restoration only, not a fresh production V29 MySQL recovery proof. No backup is
+uploaded. A trusted Docker gateway address must be reviewed before Compose can start.
