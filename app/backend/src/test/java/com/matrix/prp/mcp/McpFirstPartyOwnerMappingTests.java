@@ -139,4 +139,39 @@ class McpFirstPartyOwnerMappingTests {
         assertThat(links.linkFirstPartyOwner(7L, ISSUER, SUBJECT, CHATGPT)).isFalse();
         verify(db, never()).update(anyString(), any(Object[].class));
     }
+    @Test
+    void healthReadConsentCanBindWithoutTaskPermission() {
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.wellness.read"));
+        when(db.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                      any(), any())).thenReturn(List.of());
+        assertThat(links.linkFirstPartyOwner(7L, ISSUER, SUBJECT, CHATGPT)).isTrue();
+        verify(db).update(startsWith("INSERT INTO prp_mcp_identity_links"),
+            eq(ISSUER), eq(SUBJECT), eq(7L));
+    }
+
+    @Test
+    void healthWritesFinanceOrRevokedConsentCannotBootstrapIdentity() {
+        for (Set<String> consent : List.of(Set.of("prp.wellness.write.create"),
+                Set.of("prp.finance.read"), Set.<String>of())) {
+            when(grants.grantedScopes(7L, CHATGPT)).thenReturn(consent);
+            assertThatThrownBy(() -> links.linkFirstPartyOwner(7L, ISSUER, SUBJECT, CHATGPT))
+                .isInstanceOf(ResponseStatusException.class);
+        }
+        verifyNoInteractions(db);
+    }
+
+    @Test
+    void healthReadCannotReassignAnotherOwnersVerifiedSubject() {
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.wellness.read"));
+        when(db.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                      any(), any())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            return sql.contains("WHERE issuer=? AND subject=?") ? List.of(99L) : List.of();
+        });
+        assertThatThrownBy(() -> links.linkFirstPartyOwner(7L, ISSUER, SUBJECT, CHATGPT))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("linked to another PRP account");
+        verify(db, never()).update(anyString(), any(Object[].class));
+    }
+
 }

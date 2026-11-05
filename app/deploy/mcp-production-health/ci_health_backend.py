@@ -1,5 +1,5 @@
 """Disposable real MySQL + Java + native Keycloak health E2E; no mocks or live users."""
-import datetime,hashlib,json,os,pathlib,secrets,subprocess,time
+import datetime,hashlib,json,os,pathlib,re,secrets,subprocess,time
 from urllib.parse import parse_qs,urlsplit
 from contract import *
 from runtime_config import runtime_config
@@ -66,11 +66,12 @@ class Backend:
   # Only this new CI schema is migrated. Guarded production-shaped runtime is then restarted with Flyway OFF.
   self.start_java({'spring':{'flyway':{'enabled':True},'ai':{'mcp':{'server':{'enabled':False}}}},'matrix-prp':{'mcp':{'enabled':False}}})
   self.check('real_health_mysql_v29_migrated',self.sql('SELECT version,success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;')=='29\t1')
+  migration_history=self.sql('SELECT installed_rank,version,checksum,success FROM flyway_schema_history ORDER BY installed_rank;')
   self.stop_java()
   self.sql("UPDATE prp_users SET is_admin=0 WHERE username='ci_health_owner'; INSERT INTO prp_users(username,display_name,password_hash,is_admin,enabled) SELECT 'ci_health_other','Synthetic other',password_hash,0,1 FROM prp_users WHERE username='ci_health_owner';")
   owner=int(self.sql("SELECT id FROM prp_users WHERE username='ci_health_owner';"));self.check('real_health_owner_is_normal_synthetic',self.sql("SELECT is_admin FROM prp_users WHERE id="+str(owner))=='0')
   self.start_java(runtime_config(owner));self.owner=owner
-  self.check('real_health_production_guard_runtime_flyway_off',True)
+  self.check('real_health_production_guard_runtime_flyway_off',runtime_config(owner)['spring']['flyway']['enabled'] is False and self.sql('SELECT installed_rank,version,checksum,success FROM flyway_schema_history ORDER BY installed_rank;')==migration_history)
 
 
 def exercise(app,opener_factory,cert,key,keycloak_password,exchange,flow,check):
@@ -78,7 +79,12 @@ def exercise(app,opener_factory,cert,key,keycloak_password,exchange,flow,check):
  base='https://micor.top';op=opener_factory(cert)
  def api(path,bearer=None,data=None):return flow.request(op,base+path,bearer=bearer,data=data)
  def success(path,bearer=None,data=None):
-  r=api(path,bearer,data);check('real_health_api_'+str(len(checks)),r[0]==200);checks.append(path)
+  r=api(path,bearer,data)
+  if r[0]!=200:
+   try:category=json.loads(r[2]).get('code')
+   except Exception:category=None
+   print('HEALTH_API_FAILURE_SAFE '+json.dumps({'step':len(checks),'status':r[0],'code':category if isinstance(category,str) and re.fullmatch('[A-Z_0-9]{1,40}',category) else 'UNKNOWN'}),flush=True)
+  check('real_health_api_'+str(len(checks)),r[0]==200);checks.append(path)
   return json.loads(r[2])['data']
  checks=[]
  login=success('/api/auth/login',data={'username':'ci_health_owner','password':app.password});session=login['token']
