@@ -70,3 +70,35 @@ jobs:
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
+  meal_e2e:
+    name: V2 disposable Keycloak OAuth structured meal acceptance
+    needs: [backend, web]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    env:
+      MCP_E2E_CRUD: "true"
+      MCP_E2E_FIRST_PARTY: "false"
+      MCP_E2E_EXACT_CHATGPT: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Validate disposable-only E2E scripts and migration policy
+        run: |
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = Linux
+          bash -n app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          python3 -m py_compile app/deploy/mcp-oauth/ci_pkce_browser.py app/deploy/mcp-oauth/ci_crud_flow.py
+          node app/scripts/verify-db-migrations.mjs
+      - name: Exercise actual OAuth owner-approval and structured calorie persistence on disposable database
+        run: |
+          bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          echo "V2_DISPOSABLE_STRUCTURED_MEAL_E2E=PASS"
+          echo "REAL_V2_HOST_AND_KEYCLOAK_UNTOUCHED=YES"
+          echo "G0_B2_DEPLOYMENT_PERMITTED=NO"
