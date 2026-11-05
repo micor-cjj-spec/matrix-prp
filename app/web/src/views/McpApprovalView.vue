@@ -12,7 +12,7 @@ const password = ref('')
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
-const kindText: Record<string, string> = { TASK: '新建任务', TASK_UPDATE: '修改任务', TASK_DELETE: '删除任务', FINANCE: '新增财务流水', RECORD: '新建个人记录' }
+const kindText: Record<string, string> = { TASK: '新建任务', TASK_UPDATE: '修改任务', TASK_DELETE: '删除任务', FINANCE: '新增财务流水', RECORD: '新建个人记录', MEAL: '新增餐食记录' }
 const statusText: Record<string, string> = { PENDING: '待本人确认', APPROVED: '本人已批准，等待 MCP 客户端保存', CONSUMED: '已保存', REJECTED: '已拒绝' }
 
 async function load() {
@@ -80,6 +80,9 @@ onMounted(load)
         </template>
         <p class="review-sub">草稿 ID：{{ draft.draftId }}</p>
         <p class="review-sub">截至 {{ draft.expiresAt }} 前必须批准并保存，逾期无效。</p>
+        <el-alert v-if="draft.kind === 'MEAL'" type="info" :closable="false" show-icon
+          title="请核对餐食日期、餐次、每项食物及热量估算。批准并确认入库后才会计入健康中心统计。"
+          style="margin:12px 0" />
         <pre class="review-json">{{ JSON.stringify(draft.values, null, 2) }}</pre>
         <template v-if="draft.status === 'PENDING'">
           <el-form @submit.prevent="approve">
