@@ -7,6 +7,14 @@ from ci_browser_route_review import Audit, classify, path_class, require_review_
 
 
 class BrowserRouteReviewTests(unittest.TestCase):
+    def test_exact_public_prm_get_not_a_well_known_prefix_allowance(self):
+        url="https://prp-e2e.localhost/.well-known/oauth-protected-resource/api/mcp"
+        self.assertIs(classify("GET",url),True)
+        self.assertEqual(path_class("GET",url),"PUBLIC_PRM")
+        for method,path in [("POST",url),("HEAD",url),("GET",url+"/other"),
+                            ("GET",url+"?token=PRIVATE"),("GET",url.replace("/api/mcp","/api/%6dcp")),
+                            ("GET",url.replace("oauth-protected-resource","openid-configuration"))]:
+            self.assertIs(classify(method,path),False)
     def test_callback_query_never_collected_and_exact_callback_allowed(self):
         audit = Audit()
         audit.record("GET", "https://prp-e2e.localhost/prp/me/mcp-link/callback"

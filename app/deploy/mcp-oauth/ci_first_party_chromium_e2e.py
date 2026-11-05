@@ -63,6 +63,12 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
             stage = "OPEN_PRP_MCP_GRANTS"
             page.goto(PRP + "/prp/me/mcp-clients",
                       wait_until="domcontentloaded", timeout=30000)
+            stage = "EXACT_RESOURCE_SCOPE_DISCOVERY"
+            page.locator(".scope-option").filter(has_text="读取任务").wait_for(
+                state="visible", timeout=20000)
+            if (page.locator(".scope-option").count() != 1
+                    or not page.locator('.scope-option input[type="checkbox"]').is_checked()):
+                raise RuntimeError("BROWSER_SCOPE_DISCOVERY_OR_READ_DEFAULT_INVALID")
             panel = page.locator(".el-card").filter(
                 has=page.get_by_text("推荐：在 PRP 中通过 Keycloak 安全绑定账号"))
             panel.locator('input[type="password"]').fill(prp_password, timeout=20000)
