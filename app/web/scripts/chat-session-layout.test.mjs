@@ -350,3 +350,15 @@ test('AI and manual meal editors support thirty items and pending card additions
   assert.match(dialog, /meal\.items\.length < 30/)
   assert.match(wellness, /draftItems\.value\.length > 30/)
 })
+
+
+test('MCP approval supports typed MEAL drafts and cautions before nutrition write', () => {
+  const api = readFileSync(new URL('../src/api/mcpApproval.ts', import.meta.url), 'utf8')
+  const page = readFileSync(new URL('../src/views/McpApprovalView.vue', import.meta.url), 'utf8')
+  assert.match(api, /kind:.*'MEAL'/)
+  assert.match(page, /MEAL: '新增餐食记录'/)
+  assert.match(page, /draft\.kind === 'MEAL'/)
+  assert.match(page, /确认入库后才会计入健康中心统计/)
+  assert.match(page, /readMcpDraft\(draftId\.value\)/)
+  assert.match(page, /approveMcpDraft\(draftId\.value, password\.value\)/)
+})
