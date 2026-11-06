@@ -12,7 +12,7 @@ public final class HealthScopeCimdProvider extends PersistentClientIdMetadataDoc
   if(!"prp-mcp-prod".equals(session.getContext().getRealm().getName()) || !"https://chatgpt.com/oauth/client.json".equals(id))throw new IllegalStateException("UNREVIEWED_CLIENT");
   ClientModel existing=session.getContext().getRealm().getClientByClientId(id);
   if(existing!=null && existing.getAttribute(CIMD_CACHE_EXPIRY_TIME_IN_SEC)==null){
-   if(existing.isPublicClient() || !"client-jwt".equals(existing.getClientAuthenticatorType()) || !existing.isStandardFlowEnabled() || existing.isDirectAccessGrantsEnabled() || existing.isServiceAccountsEnabled() || existing.isFullScopeAllowed() || !java.util.Set.of("https://chatgpt.com/connector_platform_oauth_redirect").equals(existing.getRedirectUris()))throw new IllegalStateException("UNREVIEWED_EXISTING_CLIENT");
+   if(existing.isPublicClient() || existing.isImplicitFlowEnabled() || !"S256".equals(existing.getAttribute("pkce.code.challenge.method")) || !"true".equals(existing.getAttribute("use.jwks.url")) || !"https://chatgpt.com/oauth/jwks.json".equals(existing.getAttribute("jwks.url")) || !"client-jwt".equals(existing.getClientAuthenticatorType()) || !existing.isStandardFlowEnabled() || existing.isDirectAccessGrantsEnabled() || existing.isServiceAccountsEnabled() || existing.isFullScopeAllowed() || !java.util.Set.of("https://chatgpt.com/connector_platform_oauth_redirect").equals(existing.getRedirectUris()))throw new IllegalStateException("UNREVIEWED_EXISTING_CLIENT");
    // Native UPDATE preserves the client UUID and its user consent references.
    // It must still fetch and validate the exact signed-client metadata.
    return AbstractClientIdMetadataDocumentExecutor.FetchOperation.UPDATE;

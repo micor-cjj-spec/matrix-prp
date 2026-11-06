@@ -26,7 +26,7 @@ class HealthScopeCimdProviderTest {
  @Test void adoptsReviewedPreRegisteredClientByUpdateOnly(){
   KeycloakSession s=mock(KeycloakSession.class);KeycloakContext ctx=mock(KeycloakContext.class);RealmModel realm=mock(RealmModel.class);ClientModel client=mock(ClientModel.class);
   when(s.getContext()).thenReturn(ctx);when(ctx.getRealm()).thenReturn(realm);when(realm.getName()).thenReturn("prp-mcp-prod");when(realm.getClientByClientId("https://chatgpt.com/oauth/client.json")).thenReturn(client);
-  when(client.getClientAuthenticatorType()).thenReturn("client-jwt");when(client.isStandardFlowEnabled()).thenReturn(true);when(client.getRedirectUris()).thenReturn(Set.of("https://chatgpt.com/connector_platform_oauth_redirect"));
+  when(client.getAttribute("pkce.code.challenge.method")).thenReturn("S256");when(client.getAttribute("use.jwks.url")).thenReturn("true");when(client.getAttribute("jwks.url")).thenReturn("https://chatgpt.com/oauth/jwks.json");when(client.getClientAuthenticatorType()).thenReturn("client-jwt");when(client.isStandardFlowEnabled()).thenReturn(true);when(client.getRedirectUris()).thenReturn(Set.of("https://chatgpt.com/connector_platform_oauth_redirect"));
   var provider=new HealthScopeCimdProvider(s);
   assertEquals(org.keycloak.protocol.oauth2.cimd.clientpolicy.executor.AbstractClientIdMetadataDocumentExecutor.FetchOperation.UPDATE,provider.determineFetchOperation("https://chatgpt.com/oauth/client.json"));
   verify(client,never()).setClientId(anyString());
