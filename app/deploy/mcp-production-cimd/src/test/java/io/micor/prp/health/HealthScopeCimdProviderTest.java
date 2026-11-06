@@ -23,4 +23,13 @@ class HealthScopeCimdProviderTest {
  @Test void authenticationDowngradeIsRefused(){for(String method:List.of("none","client-secret")){var c=client();c.setClientAuthenticatorType(method);assertThrows(IllegalStateException.class,()->provider("prp-mcp-prod").augmentClientMetadata(c));}var c=client();c.setPublicClient(true);assertThrows(IllegalStateException.class,()->provider("prp-mcp-prod").augmentClientMetadata(c));}
  @Test void preservesReviewedRefreshAndJwksSettings(){var c=client();c.getAttributes().put("use.refresh.tokens","true");c.getAttributes().put("jwks.url","https://chatgpt.com/oauth/jwks.json");provider("prp-mcp-prod").augmentClientMetadata(c);assertEquals("true",c.getAttributes().get("use.refresh.tokens"));assertEquals("https://chatgpt.com/oauth/jwks.json",c.getAttributes().get("jwks.url"));}
  @Test void actualNormalizerRegressionCases() throws Exception {MetadataRulesTest.main(new String[0]);}
+ @Test void adoptsReviewedPreRegisteredClientByUpdateOnly(){
+  KeycloakSession s=mock(KeycloakSession.class);KeycloakContext ctx=mock(KeycloakContext.class);RealmModel realm=mock(RealmModel.class);ClientModel client=mock(ClientModel.class);
+  when(s.getContext()).thenReturn(ctx);when(ctx.getRealm()).thenReturn(realm);when(realm.getName()).thenReturn("prp-mcp-prod");when(realm.getClientByClientId("https://chatgpt.com/oauth/client.json")).thenReturn(client);
+  when(client.getClientAuthenticatorType()).thenReturn("client-jwt");when(client.isStandardFlowEnabled()).thenReturn(true);when(client.getRedirectUris()).thenReturn(Set.of("https://chatgpt.com/connector_platform_oauth_redirect"));
+  var provider=new HealthScopeCimdProvider(s);
+  assertEquals(org.keycloak.protocol.oauth2.cimd.clientpolicy.executor.AbstractClientIdMetadataDocumentExecutor.FetchOperation.UPDATE,provider.determineFetchOperation("https://chatgpt.com/oauth/client.json"));
+  verify(client,never()).setClientId(anyString());
+  when(client.isPublicClient()).thenReturn(true);assertThrows(IllegalStateException.class,()->provider.determineFetchOperation("https://chatgpt.com/oauth/client.json"));
+ }
 }
