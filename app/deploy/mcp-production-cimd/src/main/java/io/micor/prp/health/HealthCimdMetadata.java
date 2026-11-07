@@ -43,12 +43,16 @@ public class HealthCimdMetadata extends ClientIdMetadataDocumentExecutor {
    require("https://persistent.oaistatic.com/sonic/misc/openai-logo.png".equals(n.path("logo_uri").asText()),"LOGO_URI");
    require(!n.has("tos_uri")&&!n.has("policy_uri"),"UNREVIEWED_URI");
    require(n.path("redirect_uris").isArray()&&n.path("redirect_uris").size()==1&&REDIRECT.equals(n.path("redirect_uris").get(0).asText()),"METADATA_REDIRECT");
-   require("private_key_jwt".equals(n.path("token_endpoint_auth_method").asText()),"METHOD");
+   // RP Metadata Choices may omit the singular method. Reject conflicting explicit values.
+   if(n.has("token_endpoint_auth_method"))
+    require(n.get("token_endpoint_auth_method").isTextual() && "private_key_jwt".equals(n.get("token_endpoint_auth_method").asText()),"METHOD");
    JsonNode choices=n.get("token_endpoint_auth_methods_supported");
    require(choices!=null&&choices.isArray()&&choices.size()>0&&choices.size()<=2,"CHOICES");
    Set<String> methods=new HashSet<>();
    for(JsonNode x:choices){require(x.isTextual()&&Set.of("none","private_key_jwt").contains(x.asText())&&methods.add(x.asText()),"CHOICES");}
    require(methods.contains("private_key_jwt"),"CHOICES");
+   // Materialize the selected method before Keycloak\'s strict native DTO parse.
+   n.put("token_endpoint_auth_method","private_key_jwt");
    require(JWKS.equals(n.path("jwks_uri").asText())&&!n.has("jwks"),"JWKS_URL");
    // Preflight the SAME pinned JWKS source. Native client-jwt verification still runs.
    JsonNode keys=JsonSerialization.mapper.reader().with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION).readTree(jwks).path("keys");
