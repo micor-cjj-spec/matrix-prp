@@ -185,6 +185,14 @@ def main():
             c=next(c for c in clients if c['clientId']==CLIENT)
             s,c=admin(prefix+'/clients/'+c['id'],token=access);check('registered_client_readback',s==200)
             check('production_registration_uses_official_jwks',c['attributes']['jwks.url']==JWKS and c['clientAuthenticatorType']=='client-jwt' and c['redirectUris']==[REDIRECT] and set(c['optionalClientScopes'])==set(SCOPES))
+            # Disposable CI realm only. Store JWT client failure events so a patched
+            # Keycloak can be compared against the pinned 26.8.1 baseline.
+            s,event_config=admin(prefix+'/events/config',token=access)
+            check('ci_error_event_config_readable',s==200 and isinstance(event_config,dict))
+            diag_config=dict(event_config)
+            diag_config.update(eventsEnabled=True,enabledEventTypes=['CODE_TO_TOKEN_ERROR','CLIENT_LOGIN_ERROR'],eventsExpiration=900)
+            s,_=admin(prefix+'/events/config',token=access,data=diag_config,method='PUT')
+            check('ci_jwt_error_event_storage_enabled',s==204)
             key,certificate=create_keypair(root)
             # Exercise the actual Keycloak JVM HTTP/JWK path before any test credential substitution.
             # A synthetic signature with a real public kid MUST be refused after fetching real keys.
@@ -210,6 +218,25 @@ def main():
                 'tls_marker':any(x in description for x in ('ssl','tls','certificate'))}),flush=True)
             check('keycloak_jvm_official_jwks_tls_and_invalid_signature_denial',
                 native_signature_denial(probe_status,probe_body,after_count>before_count))
+            # Confirm the same rejected synthetic JWT has a persisted event. Never
+            # print its raw details, client id, user id, tokens or the assertion.
+            bad_events=[]
+            for _ in range(12):
+                s,events=admin(prefix+'/events?max=25',token=access)
+                if s!=200 or not isinstance(events,list):raise RuntimeError('CI_EVENT_QUERY_FAILED')
+                bad_events=[e for e in events if e.get('type') in ('CODE_TO_TOKEN_ERROR','CLIENT_LOGIN_ERROR')
+                    and e.get('error')=='invalid_client_credentials']
+                if bad_events:break
+                time.sleep(0.25)
+            detail_present=any(isinstance(e.get('details'),dict) and
+                bool(e['details'].get('authentication_error_detail')) for e in bad_events)
+            print('JWT_CLIENT_EVENT_SAFE '+json.dumps({'event_observed':bool(bad_events),
+                'authentication_error_detail_present':detail_present}),flush=True)
+            check('ci_invalid_client_credentials_event_persisted',bool(bad_events))
+            # A patched Keycloak must expose the failure detail. The 26.8.1
+            # baseline is not expected to pass this optional diagnostic gate.
+            if os.environ.get('PRP_REQUIRE_JWT_AUTH_DETAIL')=='1':
+                check('patched_keycloak_jwt_failure_detail',detail_present)
             # Only this ephemeral instance uses the synthetic signer. Production import/image unchanged.
             c['attributes']['use.jwks.url']='false';c['attributes'].pop('jwks.url');c['attributes']['jwt.credential.certificate']=certificate
             s,_=admin(prefix+'/clients/'+c['id'],token=access,data=c,method='PUT');check('explicit_ci_signer_substitution',s==204)
