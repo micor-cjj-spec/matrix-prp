@@ -79,11 +79,11 @@ jobs:
           done
           test "$READY" = true
           echo "SYNTHETIC_POSTGRES_READY=PASS"
+          # No parent /opt/keycloak/data tmpfs: --import-realm requires its bind-mounted subdirectory.
+          # The clone container is deleted before saving image LAYERS, never live state.
           docker run -d --name "$KC" --network "$NET" --memory 1400m \
             --pids-limit 256 --cap-drop ALL --security-opt no-new-privileges \
             -p 127.0.0.1:18881:8080 \
-            # Do not overlay the parent /opt/keycloak/data path with tmpfs:
-            # Keycloak's --import-realm needs /opt/keycloak/data/import to exist.
             -v "$RUNNER_TEMP/synthetic-cimd-realm:/opt/keycloak/data/import:ro" \
             -e KC_DB=postgres -e KC_DB_URL=jdbc:postgresql://pgclone:5432/prp_auth \
             -e KC_DB_USERNAME=prp_auth -e KC_DB_PASSWORD="$PW" \
