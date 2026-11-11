@@ -41,8 +41,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           NAME="prp-cimd-runtime-${VERSION//./-}"
+          NET="prp-cimd-net-${VERSION//./-}"
+          BROKER="prp-cimd-egress-${VERSION//./-}"
           finish() {
-            docker rm -f "$NAME" >/dev/null 2>&1 || true
+            docker rm -f "$NAME" "$BROKER" >/dev/null 2>&1 || true
+            docker network rm "$NET" >/dev/null 2>&1 || true
           }
           trap finish EXIT
           export PRP_CIMD_CLONE_NAME="$NAME"
@@ -63,7 +66,23 @@ jobs:
           BASE_DIGEST="$(docker image inspect "quay.io/keycloak/keycloak:$VERSION" --format '{{index .RepoDigests 0}}')"
           test -n "$BASE_DIGEST"
           docker build --build-arg BASE="$BASE_DIGEST" --tag "prp-cimd-test:$VERSION" --file "$RUNNER_TEMP/Dockerfile.cimd" app/deploy
-          docker run -d --name "$NAME" --memory 1400m --pids-limit 256 --cap-drop ALL \
+          # Use the same source-audited exact-chatgpt.com CONNECT broker as
+          # the production-health candidate, without any published proxy port.
+          # Keycloak and broker share a disposable Docker-only DNS network.
+          docker pull python:3.12-slim
+          docker build --tag "prp-cimd-egress-test:$VERSION" \
+            --file app/deploy/mcp-production-health/Dockerfile.egress \
+            app/deploy/mcp-production-health
+          docker network create "$NET" >/dev/null
+          STATE="$RUNNER_TEMP/prp-cimd-egress-state"
+          mkdir -p "$STATE"
+          chmod 777 "$STATE"
+          docker run -d --name "$BROKER" --network "$NET" --network-alias egress \
+            --memory 128m --pids-limit 32 --cap-drop ALL --security-opt no-new-privileges \
+            --read-only -v "$STATE:/state" "prp-cimd-egress-test:$VERSION" >/dev/null
+          export PRP_CIMD_EGRESS_COUNTERS="$STATE/counters.safe.json"
+          docker run -d --name "$NAME" --network "$NET" --memory 1400m \
+            --pids-limit 256 --cap-drop ALL \
             --security-opt no-new-privileges -p 127.0.0.1:18880:8080 \
             --tmpfs /opt/keycloak/data:rw,size=384m,uid=1000,gid=0,mode=0700 \
             -v "$RUNNER_TEMP/prp-cimd-realm:/opt/keycloak/data/import:ro" \
