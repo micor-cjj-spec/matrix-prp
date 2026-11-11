@@ -7,6 +7,7 @@ fixed non-secret booleans/status categories. No raw HTTP response logging.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -148,6 +149,23 @@ def main():
         }
         print("CIMD_POLICY_PUT_HTTP_STATUS=" + str(code), flush=True)
         print("CIMD_POLICY_PUT_SAFE_CATEGORIES=" + json.dumps(categories, sort_keys=True), flush=True)
+        # Clone-only logs: collect fixed diagnostic class names, NEVER raw lines,
+        # request bodies, environment, URLs, bearer tokens or stack text.
+        proc = subprocess.run(["docker", "logs", "--since", "2m", NAME],
+                              capture_output=True, text=True, timeout=10, check=False)
+        logs = (proc.stdout + proc.stderr)[-100000:]
+        flags = {
+            "NullPointerException": "NullPointerException" in logs,
+            "ClassCastException": "ClassCastException" in logs,
+            "IllegalArgumentException": "IllegalArgumentException" in logs,
+            "IllegalStateException": "IllegalStateException" in logs,
+            "NoClassDefFoundError": "NoClassDefFoundError" in logs,
+            "ProviderException": "ProviderException" in logs,
+            "ClientPolicyException": "ClientPolicyException" in logs
+        }
+        frames = sorted(set(re.findall(r"at (io\\.micor\\.prp\\.health\\.[A-Za-z0-9_.$]+)", logs)))
+        print("CLONE_POLICY_ERROR_FLAGS=" + json.dumps(flags, sort_keys=True), flush=True)
+        print("CLONE_POLICY_OWN_CLASSES=" + json.dumps(frames[:8]), flush=True)
     check("native_cimd_executor_accepted_by_keycloak", code in (200, 204))
     code, updated = query(prefix + "/client-policies/profiles", token=access)
     selected = [p for p in updated.get("profiles", []) if p.get("name") == CLIENT_POLICY] if isinstance(updated, dict) else []
