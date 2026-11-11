@@ -16,7 +16,7 @@ import time
 from urllib.error import HTTPError, URLError
 from http.client import HTTPException
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, ProxyHandler, HTTPRedirectHandler
 
 LOCAL = "http://127.0.0.1:18880"
 REALM = "prp-mcp-prod"
@@ -245,7 +245,6 @@ def main():
           and set(adopted.get("optionalClientScopes") or []) ==
               set(original.get("optionalClientScopes") or []))
     print("PUBLIC_CIMD_METADATA_FETCH_VERIFIED=True", flush=True)
-    print("ACTUAL_CHATGPT_ASSERTION_VERIFIED=False", flush=True)
     print("NATIVE_CIMD_RUNTIME_SUCCESS checks=" + str(len(PASS)), flush=True)
     print("PRODUCTION_CHANGED=False", flush=True)
     print("ACTUAL_CHATGPT_ASSERTION_VERIFIED=False", flush=True)
