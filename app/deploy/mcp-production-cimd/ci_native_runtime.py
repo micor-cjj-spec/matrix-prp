@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 from urllib.error import HTTPError, URLError
+from http.client import HTTPException
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -72,7 +73,9 @@ def main():
             if code == 200 and isinstance(doc, dict):
                 ready = True
                 break
-        except (URLError, TimeoutError, json.JSONDecodeError):
+        except (OSError, HTTPException, TimeoutError, json.JSONDecodeError):
+            # Docker's published port can accept early while Keycloak is still
+            # loading providers/database; a reset is not a Realm failure.
             pass
         time.sleep(2)
     check("keycloak_real_process_started", ready)
