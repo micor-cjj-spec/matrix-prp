@@ -119,6 +119,13 @@ def negative_authorization(opener,**changes):
 def main():
     if os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_OS')!='Linux' or not os.environ.get('RUNNER_TEMP'):
         raise RuntimeError('DISPOSABLE_GITHUB_RUNNER_REQUIRED')
+    # Compatibility CI may exercise an official patch release, but must never
+    # select an arbitrary image or change the established 26.8.1 baseline.
+    kc_version=os.environ.get('PRP_CI_KEYCLOAK_VERSION','26.8.1')
+    if kc_version not in ('26.8.1','26.8.2'):
+        raise RuntimeError('UNREVIEWED_CI_KEYCLOAK_VERSION')
+    kc_base_image='quay.io/keycloak/keycloak:'+kc_version
+    print('CI_KEYCLOAK_VERSION='+kc_version,flush=True)
     flow.ISSUER=ISSUER;flow.RESOURCE=RESOURCE;flow.CLIENT=CLIENT;flow.CALLBACK=REDIRECT
     with tempfile.TemporaryDirectory(prefix='prp-health-auth-',dir=os.environ['RUNNER_TEMP']) as folder:
         root=Path(folder);root.chmod(0o700)
@@ -169,8 +176,8 @@ def main():
             start_pg('prp-health-auth-pg-ci',15432)
             role=command(['docker','exec','prp-health-auth-pg-ci','psql','-U','prp_auth_bootstrap','-d','prp_health_auth','-At','-c',"SELECT NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication FROM pg_roles WHERE rolname='prp_health_auth'"]).decode().strip()
             check('application_database_role_least_privilege',role=='t')
-            command(['docker','pull','quay.io/keycloak/keycloak:26.8.1'],timeout=120)
-            base=json.loads(command(['docker','image','inspect','quay.io/keycloak/keycloak:26.8.1']))[0]['RepoDigests'][0]
+            command(['docker','pull',kc_base_image],timeout=120)
+            base=json.loads(command(['docker','image','inspect',kc_base_image]))[0]['RepoDigests'][0]
             command(['docker','build','--build-arg','KEYCLOAK_BASE='+base,'-t','prp-health-auth-candidate:ci','-f',str(ROOT/'Dockerfile.auth'),str(ROOT)],timeout=180)
             command(['docker','run','-d','--name','prp-health-auth-kc-ci','--network','host','--memory','1g','--cap-drop','ALL','--security-opt','no-new-privileges','--env-file',str(env),'-v',str(realm)+':/opt/keycloak/data/import:ro','prp-health-auth-candidate:ci','start','--optimized','--import-realm','--http-enabled=true','--http-port=18080','--hostname=https://auth.micor.top','--proxy-headers=xforwarded','--proxy-trusted-addresses=127.0.0.1'])
             command(['sudo','-n','nginx','-t','-p',str(root),' -c'.strip(),str(conf)])
@@ -299,7 +306,7 @@ def main():
             s,restored=token(restored_op,key,code=code,verifier=verifier);check('restored_user_login_and_client_auth',s==200)
             check('restored_subject_and_original_signing_keys_preserved',verify(restored,jwks)==subject)
             image=json.loads(command(['docker','image','inspect','prp-health-auth-candidate:ci']))[0]
-            result={'checks':RESULTS,'passed':len(RESULTS),'failed':0,'image_id':image['Id'],'keycloak_base_digest':base,'policy_jar_sha256':hashlib.sha256((ROOT/'auth-policy/target/prp-production-health-policy.jar').read_bytes()).hexdigest(),'issuer':ISSUER,'resource':RESOURCE,'registration':'exact-pre-registered-not-dynamic-CIMD','actual_chatgpt_signature_verified':False,'official_jvm_jwks_fetch_verified':True,'egress_image_id':json.loads(command(['docker','image','inspect','prp-health-egress-candidate:ci']))[0]['Id'],'python_base_digest':python_base,'production_changed':False,'combined_health_backend':combined,'postgres_image_id':json.loads(command(['docker','image','inspect','postgres:17.6-alpine']))[0]['Id'],'postgres_image_digest':json.loads(command(['docker','image','inspect','postgres:17.6-alpine']))[0]['RepoDigests'][0],'postgres_uid_gid':uid+':'+gid}
+            result={'checks':RESULTS,'passed':len(RESULTS),'failed':0,'keycloak_version':kc_version,'image_id':image['Id'],'keycloak_base_digest':base,'policy_jar_sha256':hashlib.sha256((ROOT/'auth-policy/target/prp-production-health-policy.jar').read_bytes()).hexdigest(),'issuer':ISSUER,'resource':RESOURCE,'registration':'exact-pre-registered-not-dynamic-CIMD','actual_chatgpt_signature_verified':False,'official_jvm_jwks_fetch_verified':True,'egress_image_id':json.loads(command(['docker','image','inspect','prp-health-egress-candidate:ci']))[0]['Id'],'python_base_digest':python_base,'production_changed':False,'combined_health_backend':combined,'postgres_image_id':json.loads(command(['docker','image','inspect','postgres:17.6-alpine']))[0]['Id'],'postgres_image_digest':json.loads(command(['docker','image','inspect','postgres:17.6-alpine']))[0]['RepoDigests'][0],'postgres_uid_gid':uid+':'+gid}
             out=ROOT/'auth-candidate-result.safe.json';out.write_text(json.dumps(result,indent=2));print('HEALTH_AUTH_CANDIDATE_SUCCESS checks='+str(len(RESULTS)),flush=True)
         finally:
             if backend:backend.stop()
