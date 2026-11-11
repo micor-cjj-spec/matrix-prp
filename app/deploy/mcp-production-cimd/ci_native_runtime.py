@@ -7,6 +7,8 @@ fixed non-secret booleans/status categories. No raw HTTP response logging.
 """
 import json
 import os
+import secrets
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -186,10 +188,67 @@ def main():
           code == 200 and after.get("id") == cid and after.get("clientId") == CLIENT
           and after.get("clientAuthenticatorType") == original.get("clientAuthenticatorType")
           and after.get("attributes") == original.get("attributes"))
+    # Execute a real pre-authorization request with the exact URL client_id.
+    # It must trigger the Keycloak JVM's native CIMD policy and the custom
+    # metadata/JWKS HTTPS fetch through the fixed-destination CONNECT broker.
+    # No login and no signed assertion are sent by this probe.
+    counters = Path(os.environ["PRP_CIMD_EGRESS_COUNTERS"])
+    def allowed_connect_count():
+        try:
+            return int(json.loads(counters.read_text()).get("allowed_connect", 0))
+        except (OSError, ValueError, TypeError):
+            return 0
+    before = allowed_connect_count()
+    params = {
+        "client_id": CLIENT,
+        "redirect_uri": "https://chatgpt.com/connector_platform_oauth_redirect",
+        "response_type": "code",
+        "scope": "prp.wellness.read",
+        "resource": "https://micor.top/api/mcp",
+        "code_challenge_method": "S256",
+        "code_challenge": "A" * 43,
+        "state": secrets.token_urlsafe(20)
+    }
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    client = build_opener(ProxyHandler({}), NoRedirect())
+    req = Request(LOCAL + "/realms/" + REALM + "/protocol/openid-connect/auth?" +
+                  urlencode(params), headers={
+                      "Host": "auth.micor.top",
+                      "X-Forwarded-Host": "auth.micor.top",
+                      "X-Forwarded-Proto": "https",
+                      "X-Forwarded-Port": "443"
+                  })
+    try:
+        response = client.open(req, timeout=22)
+    except HTTPError as exc:
+        response = exc
+    with response:
+        auth_status = response.status
+        response.read(16384)  # Never print a response body, URL, or redirect.
+    after_fetch = allowed_connect_count()
+    print("NATIVE_CIMD_AUTHORIZATION_HTTP_STATUS=" + str(auth_status), flush=True)
+    print("NATIVE_CIMD_PUBLIC_TLS_CONNECTIONS=" + str(after_fetch - before), flush=True)
+    check("keycloak_jvm_real_cimd_public_fetch", after_fetch - before >= 2)
+    check("real_cimd_authorization_reaches_login", auth_status in (200, 302, 303))
+    code, adopted = query(prefix + "/clients/" + cid, token=access)
+    required_attrs = ("use.jwks.url", "jwks.url", "pkce.code.challenge.method", "token.endpoint.auth.signing.alg")
+    check("cimd_existing_client_id_preserved", code == 200 and adopted.get("id") == cid)
+    check("cimd_existing_client_auth_config_preserved",
+          code == 200 and adopted.get("clientAuthenticatorType") == "client-jwt"
+          and adopted.get("publicClient") is False and
+          all((adopted.get("attributes") or {}).get(a) == attr.get(a)
+              for a in required_attrs))
+    check("cimd_health_scopes_not_broadened",
+          set(adopted.get("defaultClientScopes") or []) == {"basic"}
+          and set(adopted.get("optionalClientScopes") or []) ==
+              set(original.get("optionalClientScopes") or []))
+    print("PUBLIC_CIMD_METADATA_FETCH_VERIFIED=True", flush=True)
+    print("ACTUAL_CHATGPT_ASSERTION_VERIFIED=False", flush=True)
     print("NATIVE_CIMD_RUNTIME_SUCCESS checks=" + str(len(PASS)), flush=True)
     print("PRODUCTION_CHANGED=False", flush=True)
     print("ACTUAL_CHATGPT_ASSERTION_VERIFIED=False", flush=True)
-    print("PUBLIC_CIMD_METADATA_FETCH_VERIFIED=False", flush=True)
     print("PRODUCTION_REALM_RESTORE_VERIFIED_BY_THIS_RUN=False", flush=True)
 
 if __name__ == "__main__":
