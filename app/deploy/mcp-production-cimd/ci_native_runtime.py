@@ -134,7 +134,20 @@ def main():
         "cimd-resource-indicator-allow-list": '["https://micor.top/api/mcp"]'
     }
     p["executors"] = [{"executor": CIMD_EXECUTOR, "configuration": config}] + executors
-    code, _ = query(prefix + "/client-policies/profiles", method="PUT", token=access, body=profiles)
+    # GET can include Keycloak-managed read-only globalProfiles. PUT accepts
+    # only the Realm-owned profiles; never replay server-owned global profiles.
+    code, rejected = query(prefix + "/client-policies/profiles", method="PUT",
+                           token=access, body={"profiles": entries})
+    if code not in (200, 204):
+        detail = json.dumps(rejected).lower() if rejected is not None else ""
+        categories = {
+            "INVALID_EXECUTOR": any(x in detail for x in ("unknown executor", "invalid executor", "unsupported executor")),
+            "INVALID_CONFIGURATION": any(x in detail for x in ("configuration", "invalid property", "validation")),
+            "GLOBAL_PROFILE": "global" in detail,
+            "BAD_REQUEST": code == 400
+        }
+        print("CIMD_POLICY_PUT_HTTP_STATUS=" + str(code), flush=True)
+        print("CIMD_POLICY_PUT_SAFE_CATEGORIES=" + json.dumps(categories, sort_keys=True), flush=True)
     check("native_cimd_executor_accepted_by_keycloak", code in (200, 204))
     code, updated = query(prefix + "/client-policies/profiles", token=access)
     selected = [p for p in updated.get("profiles", []) if p.get("name") == CLIENT_POLICY] if isinstance(updated, dict) else []
