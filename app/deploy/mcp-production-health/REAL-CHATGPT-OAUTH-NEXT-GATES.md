@@ -21,7 +21,14 @@ CI container must NEVER be deployed to production.
   authenticator JWKS usage or the signature of the actual ChatGPT assertion.
   Docker logs at `KC_LOG_LEVEL=error` provided no useful reason.
 - CI isolated Keycloak 26.8.1 and official 26.8.2 each passed **184**
-  synthetic integration checks. Official upstream diagnostic backport
+  synthetic integration checks in the earlier baseline; a new matrix adds
+  single-issuer-audience positive and two-audience rejection tests.
+  **Important version attribution:** the JWT client assertion single-audience
+  restriction was introduced in **Keycloak 26.2.0** (see the official upgrade
+  guide's *Migrating to 26.2.0* section), and therefore applies to our live
+  **26.8.1**, not only to 26.8.2. A real ChatGPT assertion's audience shape
+  remains unknown: no assertion was captured or inspected. This is a candidate
+  category for the unexplained invalid_client_credentials event, not a diagnosis. Official upstream diagnostic backport
   `0b48783ead3b9ad8cb72428c1263c649ad43633a` was verified in an
   isolated runtime to persist `authentication_error_detail` for synthetic
   invalid JWT input. The backport is *observability only*, not a client-auth fix.
