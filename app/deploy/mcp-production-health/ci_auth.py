@@ -268,6 +268,18 @@ def main():
             s,t=token(op,key,code=code,verifier='wrong-verifier');check('wrong_pkce_refused',s in (400,401))
             code,verifier=flow.code_pkce(op,'synthetic-health-user',password,' '.join(SCOPES))
             s,t=token(op,key,code=code,verifier=verifier,client_assertion=assertion(key,aud=TOKEN,issuer=CLIENT,subject=CLIENT,replace_signature=True));check('wrong_signature_refused',s in (400,401))
+            # Keycloak 26.2+ rejects multiple distinct audiences in an otherwise
+            # correctly signed private_key_jwt. This is a potential *real* client
+            # compatibility dimension, not proof of what OpenAI actually sends.
+            code,verifier=flow.code_pkce(op,'synthetic-health-user',password,' '.join(SCOPES))
+            s,_=token(op,key,code=code,verifier=verifier,
+                client_assertion=assertion(key,aud=[TOKEN,ISSUER],issuer=CLIENT,subject=CLIENT))
+            check('multiple_client_assertion_audiences_refused',s in (400,401))
+            # An issuer URL as a single aud value is recommended by Keycloak.
+            code,verifier=flow.code_pkce(op,'synthetic-health-user',password,' '.join(SCOPES))
+            s,_=token(op,key,code=code,verifier=verifier,
+                client_assertion=assertion(key,aud=ISSUER,issuer=CLIENT,subject=CLIENT))
+            check('single_issuer_client_assertion_audience_accepted',s==200)
             code,verifier=flow.code_pkce(op,'synthetic-health-user',password,' '.join(SCOPES))
             s,t=token(op,key,code=code,verifier=verifier);check('private_jwt_pkce_code_exchange',s==200)
             jwks=flow.json_response(flow.request(op,ISSUER+'/protocol/openid-connect/certs'),'JWKS');subject=verify(t,jwks)
