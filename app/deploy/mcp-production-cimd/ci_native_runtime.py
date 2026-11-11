@@ -163,9 +163,18 @@ def main():
             "ProviderException": "ProviderException" in logs,
             "ClientPolicyException": "ClientPolicyException" in logs
         }
-        frames = sorted(set(re.findall(r"at (io\\.micor\\.prp\\.health\\.[A-Za-z0-9_.$]+)", logs)))
+        frames = sorted(set(re.findall(r"at ((?:io|org)\\.keycloak\\.[A-Za-z0-9_.$]+|io\\.micor\\.prp\\.health\\.[A-Za-z0-9_.$]+)", logs)))
         print("CLONE_POLICY_ERROR_FLAGS=" + json.dumps(flags, sort_keys=True), flush=True)
-        print("CLONE_POLICY_OWN_CLASSES=" + json.dumps(frames[:8]), flush=True)
+        print("CLONE_POLICY_STACK_CLASSES=" + json.dumps(frames[:12]), flush=True)
+        # Error messages are read only from our CI-created disposable Realm.
+        # Emit a bounded, letter-only classifier: never dump log lines or data.
+        reasons = []
+        for line in logs.splitlines():
+            if "java.lang.IllegalArgumentException:" in line:
+                tail = line.split("java.lang.IllegalArgumentException:", 1)[1][:120]
+                safe = re.sub(r"[^A-Za-z _.-]", "_", tail).strip()
+                reasons.append(safe)
+        print("CLONE_IAE_REASONS=" + json.dumps(list(dict.fromkeys(reasons))[:3]), flush=True)
     check("native_cimd_executor_accepted_by_keycloak", code in (200, 204))
     code, updated = query(prefix + "/client-policies/profiles", token=access)
     selected = [p for p in updated.get("profiles", []) if p.get("name") == CLIENT_POLICY] if isinstance(updated, dict) else []
