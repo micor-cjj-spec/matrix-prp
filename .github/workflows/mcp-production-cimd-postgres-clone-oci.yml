@@ -45,7 +45,18 @@ jobs:
           echo "::add-mask::$ADMIN_PW"
           OUT="$RUNNER_TEMP/cimd-clone-oci"
           mkdir -p "$OUT" "$RUNNER_TEMP/synthetic-cimd-realm"
-          python3 app/deploy/mcp-production-health/build_realm.py --output "$RUNNER_TEMP/synthetic-cimd-realm/realm.json"
+          python3 app/deploy/mcp-production-health/build_realm.py --output "$RUNNER_TEMP/synthetic-cimd-realm/prp-mcp-prod-realm.json"
+          # The synthetic Realm has no users/credentials; 0700/0600 from
+          # umask 077 blocks Keycloak's container UID 1000 from listing it.
+          # Grant read/execute ONLY to this disposable synthetic import mount.
+          chmod 0755 "$RUNNER_TEMP/synthetic-cimd-realm"
+          chmod 0644 "$RUNNER_TEMP/synthetic-cimd-realm/prp-mcp-prod-realm.json"
+          # Fail fast if Keycloak's actual non-root UID cannot access the mount.
+          docker run --rm --user 1000:0 \
+            -v "$RUNNER_TEMP/synthetic-cimd-realm:/opt/keycloak/data/import:ro" \
+            --entrypoint /bin/sh quay.io/keycloak/keycloak:26.8.1 \
+            -c 'test -r /opt/keycloak/data/import/prp-mcp-prod-realm.json && test -x /opt/keycloak/data/import'
+          echo "SYNTHETIC_REALM_IMPORT_READABLE_AS_KEYCLOAK_UID=PASS"
           docker pull quay.io/keycloak/keycloak:26.8.1
           KC_BASE="$(docker image inspect quay.io/keycloak/keycloak:26.8.1 --format '{{index .RepoDigests 0}}')"
           test -n "$KC_BASE"
