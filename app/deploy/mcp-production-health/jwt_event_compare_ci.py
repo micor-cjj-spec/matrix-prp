@@ -90,7 +90,9 @@ def probe(image, label, realm_file, admin_password):
                                 "/.well-known/openid-configuration")
                 if status == 200:
                     break
-            except (URLError, TimeoutError):
+            except (OSError, TimeoutError):
+                # Startup may briefly accept TCP and reset it during Quarkus
+                # augmentation; that is not an OAuth diagnostic failure.
                 pass
             time.sleep(1)
         else:
@@ -181,7 +183,7 @@ def patched_image(temp):
     run(["jar", "uf", str(overlay), "-C", str(classes), "."])
     dockerfile = temp / "Dockerfile"
     dockerfile.write_text(
-        "ARG KC_BASE\nFROM $KC_BASE\n"
+        "ARG KC_BASE=quay.io/keycloak/keycloak:26.8.1\nFROM $KC_BASE\n"
         "COPY --chown=1000:0 patched-services.jar "
         "/opt/keycloak/lib/lib/main/" + KC_JAR + "\n"
         "RUN /opt/keycloak/bin/kc.sh build --db=dev-file\n"
@@ -231,7 +233,9 @@ def main():
                 }
             }]
         }))
-        realm.chmod(0o600)
+        # The realm contains public synthetic client settings only. Make
+        # the bind-mounted file readable by Keycloak's unprivileged UID.
+        realm.chmod(0o644)
         overlay_tag = patched_image(temp)
         base_result = probe(KC_IMAGE, "baseline", realm, password)
         fixed_result = probe(overlay_tag, "patched", realm, password)
