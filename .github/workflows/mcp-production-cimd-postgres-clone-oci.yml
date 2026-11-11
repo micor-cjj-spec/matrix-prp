@@ -147,6 +147,17 @@ jobs:
                   "ERROR_LOG":any("ERROR" in line for line in raw.splitlines()),
               }
               print("CLONE_KC_LOG_CATEGORIES=" + json.dumps(categories,sort_keys=True))
+              # This runner contains only disposable, synthetic bootstrap data.
+              # Print a bounded, letter-only classification of log failures,
+              # never original messages, URLs, tokens, passwords or stack traces.
+              import re
+              failures=[]
+              for line in raw.splitlines():
+                  if any(mark in line for mark in ("ERROR", "Caused by:", "Exception:")):
+                      tail=line.split("ERROR",1)[-1] if "ERROR" in line else line
+                      safe=re.sub(r"[^A-Za-z _.-]", "_",tail).strip()[:200]
+                      failures.append(safe)
+              print("CLONE_KC_REDACTED_FAILURE_HINTS=" + json.dumps(failures[:7]))
               raise SystemExit(1)
           PY
           REALM_COUNT="$(docker exec "$PG" psql -U prp_auth -d prp_auth -At -c "SELECT count(*) FROM realm WHERE name='prp-mcp-prod'")"
