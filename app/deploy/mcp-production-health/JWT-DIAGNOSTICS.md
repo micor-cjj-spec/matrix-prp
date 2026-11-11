@@ -67,6 +67,24 @@ The first attempt failed due to a transient container-start socket reset.
 The retry tolerance and public **synthetic** Realm import permissions were
 corrected; the subsequent test passed.
 
+## Test 3: official Keycloak 26.8.2 compatibility (no diagnostic backport)
+
+The dedicated workflow `.github/workflows/keycloak-health-2682-compat.yml`
+compiles the existing PRP health policy against Keycloak **26.8.2** APIs,
+then uses official `quay.io/keycloak/keycloak:26.8.2` as the base for the
+**same full disposable OAuth/MCP test harness**. It exercises synthetic
+`private_key_jwt`, official JWKS JVM retrieval, PKCE, exact resource and
+health scopes, refresh, a real disposable PRP backend and ephemeral
+PostgreSQL restore. The harness now accepts only reviewed CI versions
+`26.8.1` (default) and `26.8.2`, records the tested version and
+never affects the pinned production baseline.
+
+Keycloak 26.8.2 was released **November 5, 2026**. The event diagnostic
+backport merged into `release/26.8` **November 10, 2026**, so 26.8.2
+**must not be treated as containing the event-detail fix**. Passing this
+CI is compatibility evidence for a possible separately approved security
+update, not approval to deploy and not proof of real ChatGPT authentication.
+
 ## Non-goals / production gates
 
 This reconstructed temporary CI image is **not a Keycloak official release**
