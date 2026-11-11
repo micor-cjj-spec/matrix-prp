@@ -21,6 +21,10 @@ jobs:
           cache-dependency-path: app/deploy/mcp-production-cimd/pom.xml
       - name: Compile native CIMD and test scope persistence and metadata refusals
         run: mvn -B -ntp -f app/deploy/mcp-production-cimd/pom.xml verify
+      - name: Validate current public ChatGPT CIMD and JWKS against the real strict normalizer
+        env:
+          PRP_PUBLIC_CHATGPT_METADATA_PROBE: '1'
+        run: mvn -B -ntp -f app/deploy/mcp-production-cimd/pom.xml -Dtest=RealChatGPTMetadataTest test
       - name: Preserve original production health policy contracts
         run: |
           python3 -m unittest discover -s app/deploy/mcp-production-health -p 'test_contract.py' -v
