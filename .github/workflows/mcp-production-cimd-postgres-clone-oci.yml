@@ -82,7 +82,8 @@ jobs:
           docker run -d --name "$KC" --network "$NET" --memory 1400m \
             --pids-limit 256 --cap-drop ALL --security-opt no-new-privileges \
             -p 127.0.0.1:18881:8080 \
-            --tmpfs "/opt/keycloak/data:rw,size=256m,uid=1000,gid=0,mode=0700" \
+            # Do not overlay the parent /opt/keycloak/data path with tmpfs:
+            # Keycloak's --import-realm needs /opt/keycloak/data/import to exist.
             -v "$RUNNER_TEMP/synthetic-cimd-realm:/opt/keycloak/data/import:ro" \
             -e KC_DB=postgres -e KC_DB_URL=jdbc:postgresql://pgclone:5432/prp_auth \
             -e KC_DB_USERNAME=prp_auth -e KC_DB_PASSWORD="$PW" \
