@@ -129,10 +129,10 @@ def main():
     # clients. This tests Keycloak's *real* provider registration/validation.
     config = {
         "cimd-allow-http-scheme": "false",
-        "cimd-allow-permitted-domains": '["chatgpt.com","persistent.oaistatic.com"]',
+        "cimd-allow-permitted-domains": ["chatgpt.com", "persistent.oaistatic.com"],
         "cimd-restrict-same-domain": "false",
         "only-allow-confidential-client": "true",
-        "cimd-resource-indicator-allow-list": '["https://micor.top/api/mcp"]'
+        "cimd-resource-indicator-allow-list": ["https://micor.top/api/mcp"]
     }
     p["executors"] = [{"executor": CIMD_EXECUTOR, "configuration": config}] + executors
     # GET can include Keycloak-managed read-only globalProfiles. PUT accepts
