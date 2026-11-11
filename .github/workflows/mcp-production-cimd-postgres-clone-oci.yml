@@ -92,28 +92,61 @@ jobs:
             --http-enabled=true --hostname=https://auth.micor.top \
             --proxy-headers=xforwarded >/dev/null
           python3 - <<'PY'
-          import json, time, urllib.request, urllib.error, http.client
+          import json, time, urllib.request, urllib.error, http.client, subprocess
           endpoint="http://127.0.0.1:18881/realms/prp-mcp-prod/.well-known/openid-configuration"
           success=False
-          for _ in range(100):
+          statuses=set()
+          mismatch_flags=set()
+          for _ in range(65):
               try:
                   req=urllib.request.Request(endpoint,headers={
                       "Host":"auth.micor.top",
                       "X-Forwarded-Proto":"https",
                       "X-Forwarded-Host":"auth.micor.top"})
                   with urllib.request.urlopen(req,timeout=4) as resp:
+                      statuses.add(resp.status)
                       data=json.load(resp)
-                  success=(data.get("issuer")=="https://auth.micor.top/realms/prp-mcp-prod"
-                           and data.get("client_id_metadata_document_supported") is True
-                           and "private_key_jwt" in data.get("token_endpoint_auth_methods_supported",[])
-                           and "S256" in data.get("code_challenge_methods_supported",[]))
+                  mismatch_flags={k for k,b in {
+                      "issuer":data.get("issuer")=="https://auth.micor.top/realms/prp-mcp-prod",
+                      "cimd":data.get("client_id_metadata_document_supported") is True,
+                      "jwt":"private_key_jwt" in data.get("token_endpoint_auth_methods_supported",[]),
+                      "pkce":"S256" in data.get("code_challenge_methods_supported",[])
+                  }.items() if not b}
+                  success=not mismatch_flags
                   if success:
                       break
-              except (OSError, ValueError, http.client.HTTPException, urllib.error.URLError):
+              except urllib.error.HTTPError as e:
+                  statuses.add(e.code)
+              except (OSError, ValueError, http.client.HTTPException):
                   pass
+              state=subprocess.run(["docker","inspect","-f","{{.State.Running}}","prp-cimd-kc-pg-ci"],
+                                   capture_output=True,text=True,timeout=5)
+              if state.returncode==0 and state.stdout.strip()=="false":
+                  break
               time.sleep(2)
           print("POSTGRES_OPTIMIZED_KEYCLOAK_SMOKE=" + ("PASS" if success else "FAIL"))
           if not success:
+              state=subprocess.run(["docker","inspect","-f","{{.State.ExitCode}} {{.State.OOMKilled}} {{.State.Running}}",
+                                   "prp-cimd-kc-pg-ci"],capture_output=True,text=True,timeout=5)
+              parts=state.stdout.strip().split()
+              print("CLONE_KC_EXIT_CODE=" + (parts[0] if len(parts)==3 else "UNKNOWN"))
+              print("CLONE_KC_OOM_KILLED=" + (parts[1] if len(parts)==3 else "UNKNOWN"))
+              print("CLONE_KC_RUNNING=" + (parts[2] if len(parts)==3 else "UNKNOWN"))
+              print("CLONE_DISCOVERY_HTTP_STATUSES=" + json.dumps(sorted(statuses)))
+              print("CLONE_DISCOVERY_MISMATCH_FIELDS=" + json.dumps(sorted(mismatch_flags)))
+              logs=subprocess.run(["docker","logs","--tail","250","prp-cimd-kc-pg-ci"],
+                                  capture_output=True,text=True,timeout=10)
+              raw=logs.stdout + logs.stderr
+              categories={
+                  "DB_CONNECTION":any(t in raw for t in ("PSQLException","Connection refused","Unable to connect to database")),
+                  "DB_SCHEMA":any(t in raw for t in ("Liquibase","migration failed","database schema")),
+                  "REALM_IMPORT":any(t in raw for t in ("Importing realm","Failed to import realm")),
+                  "JAVA_MEMORY":any(t in raw for t in ("OutOfMemoryError","Cannot allocate memory")),
+                  "PROVIDER_LOAD":any(t in raw for t in ("NoClassDefFoundError","ServiceConfigurationError","Failed to load provider")),
+                  "HOSTNAME":any(t in raw for t in ("hostname","Hostname v2","proxy-headers")),
+                  "ERROR_LOG":any("ERROR" in line for line in raw.splitlines()),
+              }
+              print("CLONE_KC_LOG_CATEGORIES=" + json.dumps(categories,sort_keys=True))
               raise SystemExit(1)
           PY
           REALM_COUNT="$(docker exec "$PG" psql -U prp_auth -d prp_auth -At -c "SELECT count(*) FROM realm WHERE name='prp-mcp-prod'")"
