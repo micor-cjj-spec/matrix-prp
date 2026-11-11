@@ -59,8 +59,10 @@ jobs:
           DOCKERFILE
           docker build --build-arg BASE="$KC_BASE" --tag prp-cimd-pg-clone:26.8.1 --file "$RUNNER_TEMP/Dockerfile.cimd-pg" app/deploy
           # Bounded image-inspection on runner; never expose secrets/config values.
-          docker run --rm --entrypoint /opt/keycloak/bin/kc.sh prp-cimd-pg-clone:26.8.1 show-config \
-            | grep -E -q '^\s*kc\.features\s*=.*cimd'
+          CONFIG_VIEW="$RUNNER_TEMP/prp-cimd-show-config.txt"
+          docker run --rm --entrypoint /opt/keycloak/bin/kc.sh prp-cimd-pg-clone:26.8.1 show-config > "$CONFIG_VIEW"
+          grep -E -q '^\\s*kc\\.features\\s*=.*cimd' "$CONFIG_VIEW"
+          rm -f -- "$CONFIG_VIEW"
           echo "CIMD_PG_IMAGE_FEATURES=PASS"
           docker pull postgres:17.6-alpine
           P_UID="$(docker run --rm postgres:17.6-alpine id -u postgres)"
