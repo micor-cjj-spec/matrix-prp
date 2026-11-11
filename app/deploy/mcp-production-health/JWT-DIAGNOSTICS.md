@@ -85,6 +85,29 @@ backport merged into `release/26.8` **November 10, 2026**, so 26.8.2
 CI is compatibility evidence for a possible separately approved security
 update, not approval to deploy and not proof of real ChatGPT authentication.
 
+### Keycloak 26.8.2 migration-specific risks
+
+The [official 26.8.2 upgrading guide](https://www.keycloak.org/docs/26.8.2/upgrading/)
+lists behavior changes that require explicit production review:
+
+- Mutating protocol mappers through Admin REST now requires realm-management
+  permissions. PRP does not depend on delegated mapper writes during normal
+  OAuth, but administrative automation must be checked.
+- Existing realms acquire additional DCR registration policies that restrict
+  default-role changes and `fullScopeAllowed`. PRP's production ChatGPT
+  client is intentionally **pre-registered**, and its Realm's DCR is blocked,
+  so do not remove these new safeguards to make a token exchange succeed.
+- The new registration policy provider is unknown to older 26.8.x nodes;
+  Keycloak explicitly **does not support rolling upgrades** for this change.
+  Although PRP currently operates one production instance, both the
+  auth-database/Realm migration and complete recovery must be rehearsed.
+
+The upgrade's separate security fixes provide a reason for prompt review,
+but `26.8.2` does not contain the November 10 JWT error-detail backport.
+No production downgrade/rollback against a migrated database is allowed
+without validating the exact restored database state. A working
+Compose/image comparison alone is insufficient rollback proof.
+
 ## Non-goals / production gates
 
 This reconstructed temporary CI image is **not a Keycloak official release**
