@@ -117,7 +117,17 @@ def exercise(app,opener_factory,cert,key,keycloak_password,exchange,flow,check):
   if result.get('structuredContent') is not None:return result['structuredContent']
   return json.loads(''.join(x.get('text','') for x in result.get('content',[]) if x.get('type')=='text'))
  status,manifest=rpc(bearer,'tools/list',{});tools=manifest.get('result',{}).get('tools',[])
- check('real_health_signed_token_discovers_exactly_nine',status==200 and len(tools)==9 and all('wellness' in x['name'] for x in tools))
+ model_names={x['name'] for x in tools if x['name']!='prp_chatgpt_wellness_approval'}
+ expected={'prp_wellness_daily','prp_wellness_list','prp_wellness_get','prp_wellness_foods',
+           'prp_prepare_wellness_create','prp_prepare_wellness_update','prp_prepare_wellness_delete',
+           'prp_wellness_draft_status','prp_confirm_wellness_draft'}
+ app_only=next((x for x in tools if x['name']=='prp_chatgpt_wellness_approval'),None)
+ check('real_health_signed_token_discovers_nine_plus_app_only',status==200 and len(tools)==10 and model_names==expected)
+ check('real_health_app_only_approval_visibility',
+       bool(app_only) and app_only.get('_meta',{}).get('ui',{}).get('visibility')==['app'])
+ create_tool=next((x for x in tools if x['name']=='prp_prepare_wellness_create'),None)
+ check('real_health_create_tool_embedded_ui',
+       bool(create_tool) and create_tool.get('_meta',{}).get('ui',{}).get('resourceUri')=='ui://prp/wellness-approval')
  check('real_health_manifest_exact_oauth_scopes',all(x.get('_meta',{}).get('securitySchemes',[{}])[0].get('scopes',[None])[0] in SCOPES for x in tools))
  before=app.sql('SELECT COUNT(*) FROM prp_mcp_write_drafts;')
  today=datetime.date.today().isoformat()
@@ -141,7 +151,11 @@ def exercise(app,opener_factory,cert,key,keycloak_password,exchange,flow,check):
   return {'metric':{'measuredOn':today,'weightKg':71 if after else 70,'bodyFatPct':20,'waistCm':80}}
  for entity in ('meal','exercise','metric'):
   draft=tool('prp_prepare_wellness_create',{'entity':entity,'input':create_input(entity)})
-  check('real_health_approval_url_exact_origin',(base+'/prp/me/mcp-approve/'+draft['draftId']) in draft['instruction'])
+  if entity=='meal':
+   check('real_health_meal_inline_approval_instruction','embedded ChatGPT' in draft['instruction'])
+  else:
+   check('real_health_nonmeal_password_approval_instruction',(base+'/prp/me/mcp-approve/'+draft['draftId']) in draft['instruction'])
+   tool('prp_chatgpt_wellness_approval',{'draftId':draft['draftId'],'decision':'approve'},denied=True)
   tool('prp_confirm_wellness_draft',{'draftId':draft['draftId']},denied=True)
   approve(draft);saved=tool('prp_confirm_wellness_draft',{'draftId':draft['draftId']});record_id=saved['saved']['id']
   check('real_health_create_replay_exactly_once',tool('prp_confirm_wellness_draft',{'draftId':draft['draftId']})['alreadySaved'] is True)
