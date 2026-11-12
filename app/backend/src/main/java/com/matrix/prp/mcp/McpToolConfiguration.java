@@ -49,7 +49,8 @@ public class McpToolConfiguration {
         Map.entry("prp_prepare_wellness_update", "prp.wellness.write.update"),
         Map.entry("prp_prepare_wellness_delete", "prp.wellness.write.delete"),
         Map.entry("prp_wellness_draft_status", "prp.wellness.write.status"),
-        Map.entry("prp_confirm_wellness_draft", "prp.wellness.write.confirm")
+        Map.entry("prp_confirm_wellness_draft", "prp.wellness.write.confirm"),
+        Map.entry("prp_chatgpt_wellness_approval", "prp.wellness.write.confirm")
     );
 
     static Set<String> exposedNames(String configured, boolean writeEnabled) {
@@ -65,14 +66,15 @@ public class McpToolConfiguration {
             PrpMcpTools tools, McpScopeGuard scopeGuard, org.springframework.beans.factory.ObjectProvider<McpClientGrantService> grantProvider, McpDraftService drafts,
             @Value("${matrix-prp.mcp.oauth.resource:}") String resource, @Value("${matrix-prp.mcp.oauth.enabled:false}") boolean oauthEnabled,
             @Value("${matrix-prp.mcp.oauth.advertised-scopes:prp.tasks.read}") String advertisedScopes,
-            @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled) {
+            @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled,
+            @Value("${matrix-prp.mcp.chatgpt-health-approval-ui-enabled:false}") boolean chatgptApprovalUiEnabled) {
         var definitions = new SyncStatelessMcpToolProvider(List.of(tools)).getToolSpecifications();
         var expected = java.util.Set.of("prp_tasks_list", "prp_task_get", "prp_finance_month",
             "prp_wellness_daily", "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record",
             "prp_draft_status", "prp_confirm_draft", "prp_prepare_task_update", "prp_prepare_task_delete",
             "prp_wellness_list", "prp_wellness_get", "prp_wellness_foods",
             "prp_prepare_wellness_create", "prp_prepare_wellness_update", "prp_prepare_wellness_delete",
-            "prp_wellness_draft_status", "prp_confirm_wellness_draft");
+            "prp_wellness_draft_status", "prp_confirm_wellness_draft", "prp_chatgpt_wellness_approval");
         var actual = definitions.stream().map(spec -> spec.tool().name()).collect(java.util.stream.Collectors.toSet());
         if (!REQUIRED_SCOPE.keySet().equals(expected)) {
             throw new IllegalStateException("PRP MCP scope-to-tool registry mismatch");
@@ -80,15 +82,21 @@ public class McpToolConfiguration {
         if (definitions.size() != expected.size() || !actual.equals(expected)) {
             throw new IllegalStateException("PRP MCP tool allowlist mismatch; refusing to start");
         }
-        if (!oauthEnabled) return List.copyOf(definitions); // isolated old test path only
+        if (!oauthEnabled) return definitions.stream()
+            .filter(spec -> !"prp_chatgpt_wellness_approval".equals(spec.tool().name()))
+            .toList(); // isolated old test path only; no app-only approval
         McpClientGrantService grants = grantProvider.getObject();
         Set<String> exposed = exposedNames(advertisedScopes, writeEnabled);
         String metadataUri = McpOAuthMetadataController.metadataUrl(
             McpOAuthResourceServerConfig.strictHttps(resource, "MCP OAuth resource"));
         return definitions.stream()
-            .filter(spec -> exposed.contains(spec.tool().name()))
+            .filter(spec -> exposed.contains(spec.tool().name()) ||
+                (chatgptApprovalUiEnabled && writeEnabled &&
+                 "prp_chatgpt_wellness_approval".equals(spec.tool().name()) &&
+                 Set.copyOf(McpOAuthMetadataController.parseAdvertisedScopes(advertisedScopes,writeEnabled))
+                     .containsAll(Set.of("prp.wellness.write.confirm","prp.wellness.write.create"))))
             .map(spec -> new McpStatelessServerFeatures.SyncToolSpecification(
-            withOAuthScheme(spec.tool(), REQUIRED_SCOPE.get(spec.tool().name())),
+            withOAuthScheme(spec.tool(), REQUIRED_SCOPE.get(spec.tool().name()), chatgptApprovalUiEnabled),
             (transport, request) -> {
                 Object candidate = transport.get(McpOAuthTransportConfiguration.VERIFIED_AUTH);
                 if (!(candidate instanceof Authentication auth)
@@ -103,6 +111,10 @@ public class McpToolConfiguration {
                 SecurityContextHolder.setContext(perCallContext);
                 try {
                     requireCurrentScope(scopeGuard, grants, auth, REQUIRED_SCOPE.get(spec.tool().name()));
+                    if ("prp_chatgpt_wellness_approval".equals(spec.tool().name())) {
+                        requireCurrentScope(scopeGuard, grants, auth, "prp.wellness.write.create");
+                        requireCurrentScope(scopeGuard, grants, auth, "prp.wellness.write.confirm");
+                    }
                     // Confirmation also requires the approved draft's operation scope.
                     // Check outside the SDK reflection adapter so its generic error
                     // conversion cannot discard the OAuth challenge metadata.
@@ -127,12 +139,20 @@ public class McpToolConfiguration {
             }
         )).toList();
     }
-    private static McpSchema.Tool withOAuthScheme(McpSchema.Tool tool, String requiredScope) {
+    private static McpSchema.Tool withOAuthScheme(McpSchema.Tool tool, String requiredScope,
+                                                   boolean appApprovalEnabled) {
         var meta = new LinkedHashMap<String, Object>();
         if (tool.meta() != null) meta.putAll(tool.meta());
         // SDK 0.18 has no top-level securitySchemes field. This is the official
         // compatibility location read by ChatGPT; preserve every existing field.
         meta.put("securitySchemes", List.of(Map.of("type", "oauth2", "scopes", List.of(requiredScope))));
+        if (appApprovalEnabled && Set.of("prp_prepare_wellness_create",
+                "prp_wellness_draft_status").contains(tool.name())) {
+            meta.put("ui", Map.of("resourceUri", McpWellnessApprovalUiConfiguration.RESOURCE_URI));
+        }
+        if ("prp_chatgpt_wellness_approval".equals(tool.name())) {
+            meta.put("ui", Map.of("visibility", List.of("app")));
+        }
         return new McpSchema.Tool(tool.name(), tool.title(), tool.description(), tool.inputSchema(),
             tool.outputSchema(), tool.annotations(), Map.copyOf(meta));
     }
