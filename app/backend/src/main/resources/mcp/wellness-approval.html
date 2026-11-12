@@ -154,12 +154,18 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   });
   // MCP Apps bridge initialization; UI never fetches the backend directly,
   // and never receives or stores OAuth credentials.
-  send('initialize', {
-    protocolVersion: '2025-06-18',
-    capabilities: {},
-    clientInfo: {name:'prp-wellness-approval-card', version:'0.1.0'}
-  }).then(() => {
-    window.parent.postMessage({jsonrpc:'2.0',method:'notifications/initialized'},'*');
+  send('ui/initialize', {
+    protocolVersion: '2026-01-26',
+    appCapabilities: {},
+    appInfo: {name:'prp-wellness-approval-card', version:'0.1.0'}
+  }).then(response => {
+    if (!response?.result?.protocolVersion) {
+      show('ChatGPT MCP Apps 初始化响应无效，未写入任何数据。');
+      return;
+    }
+    window.parent.postMessage({
+      jsonrpc:'2.0', method:'ui/notifications/initialized', params:{}
+    }, '*');
   }).catch(() => show('ChatGPT 未启用 MCP Apps UI 能力，未写入任何数据。'));
   if (window.openai?.toolOutput) render(window.openai.toolOutput);
 })();
