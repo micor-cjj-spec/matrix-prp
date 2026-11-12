@@ -61,6 +61,18 @@ public class McpDraftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid health target");
         return prepare(kind, health().capture(entity,id,input,kind==Kind.WELLNESS_DELETE));
     }
+    /**
+     * Tool argument object is a flexible JSON map to avoid SDK-generated
+     * required fields for mutually exclusive wellness alternatives. Recreate
+     * the validated domain input before preparing the immutable draft.
+     */
+    @Transactional
+    public Preview prepareWellnessFromMcp(String entity, long id, java.util.Map<String, Object> raw, Kind kind) {
+        if (kind != Kind.WELLNESS_CREATE && kind != Kind.WELLNESS_UPDATE)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid wellness operation");
+        return prepareWellness(entity, id, health().fromMcpInput(entity, raw), kind);
+    }
+
     static String operationScope(String kind) {
         return switch (Kind.valueOf(kind)) {
             case TASK_UPDATE -> "prp.write.update";
@@ -82,6 +94,12 @@ public class McpDraftService {
     private final String approvalBase;
     private final UserStore users;
     private final PasswordEncoder passwords;
+
+    // OFF by default. Requires ChatGPT's native per-action approval policy.
+    // OAuth client identity, owner binding, scopes, draft locks and expiry
+    // remain mandatory even when this opt-in is activated.
+    @Value("${matrix-prp.mcp.chatgpt-health-confirm-enabled:false}")
+    private boolean chatgptHealthConfirmEnabled;
 
     public McpDraftService(JdbcTemplate db, ObjectMapper json, Validator validator,
                            TaskService tasks, FinanceService finance, RecordService records,
@@ -168,8 +186,20 @@ public class McpDraftService {
         } catch (JsonProcessingException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft");
         }
-        return new Preview(id, kind.name(), json.valueToTree(request), expiry.toString(),
-            "Open " + approvalBase + "me/mcp-approve/" + id + " in your own browser, review and enter your PRP password there, never in chat. Only then may the MCP client call " + (kind.name().startsWith("WELLNESS_") ? "prp_confirm_wellness_draft" : "prp_confirm_draft") + ".");
+        String instruction;
+        if (chatApprovalEligible(chatgptHealthConfirmEnabled, kind.name(), "PENDING",
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication())) {
+            instruction = "Show this immutable draft in ChatGPT and obtain the user's explicit "
+                + "ChatGPT write-action approval before calling prp_confirm_wellness_draft. "
+                + "Set this app's permissions to Always ask before changes; do not open PRP or "
+                + "request a password in chat. If the host does not request confirmation, stop.";
+        } else {
+            instruction = "Open " + approvalBase + "me/mcp-approve/" + id
+                + " in your own browser, review and enter your PRP password there, never in chat. "
+                + "Only then may the MCP client call "
+                + (kind.name().startsWith("WELLNESS_") ? "prp_confirm_wellness_draft" : "prp_confirm_draft") + ".";
+        }
+        return new Preview(id, kind.name(), json.valueToTree(request), expiry.toString(), instruction);
     }
 
     /** The human reviews the exact owner-bound data through PRP, never through a model-controlled approval flag. */
@@ -234,6 +264,26 @@ public class McpDraftService {
         }
     }
 
+    /**
+     * ChatGPT-native confirmation can be used only for a new wellness record
+     * when an explicit, default-off server flag is enabled. All task/finance,
+     * update and delete drafts still require the PRP owner password approval.
+     * Tool approval prompts are managed by the ChatGPT host; they are not
+     * cryptographic proofs, so do not claim the server can verify a UI click.
+     */
+    static boolean chatApprovalEligible(boolean enabled, String kind, String status,
+                                        org.springframework.security.core.Authentication auth) {
+        if (!enabled || !"WELLNESS_CREATE".equals(kind) || !"PENDING".equals(status)
+                || auth == null || !auth.isAuthenticated()
+                || !(auth.getDetails() instanceof McpScopeGuard.VerifiedClient client)
+                || !"https://chatgpt.com/oauth/client.json".equals(client.clientId())) {
+            return false;
+        }
+        return java.util.Set.of("SCOPE_prp.wellness.write.confirm", "SCOPE_prp.wellness.write.create")
+            .stream().allMatch(scope -> auth.getAuthorities().stream()
+                .anyMatch(authority -> scope.equals(authority.getAuthority())));
+    }
+
     @Transactional
     public Result confirm(String draftId) {
         requireWrite();
@@ -253,7 +303,11 @@ public class McpDraftService {
         if ("CONSUMED".equals(row.status())) {
             return new Result(draftId, row.kind(), readJson(row.result()), true);
         }
-        if (!"APPROVED".equals(row.status()) || !row.expiresAt().isAfter(LocalDateTime.now())) {
+        boolean chatPending = chatApprovalEligible(chatgptHealthConfirmEnabled,
+            row.kind(), row.status(),
+            org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication());
+        if ((!"APPROVED".equals(row.status()) && !chatPending)
+                || !row.expiresAt().isAfter(LocalDateTime.now())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "MCP draft expired or invalid");
         }
         JsonNode saved;
@@ -279,8 +333,8 @@ public class McpDraftService {
             // Normalize persisted and first-response decimal nodes through the same codec.
             saved = json.readTree(json.writeValueAsString(result));
             if (db.update("UPDATE prp_mcp_write_drafts SET status='CONSUMED', result_json=?, consumed_at=CURRENT_TIMESTAMP " +
-                    "WHERE id=? AND user_id=? AND status='APPROVED'",
-                    json.writeValueAsString(saved), draftId, owner) != 1) {
+                    "WHERE id=? AND user_id=? AND status=?",
+                    json.writeValueAsString(saved), draftId, owner, chatPending ? "PENDING" : "APPROVED") != 1) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "MCP draft already consumed");
             }
         } catch (JsonProcessingException ex) {
