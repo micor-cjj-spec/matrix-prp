@@ -1,0 +1,56 @@
+name: JWT client error detail upstream comparison (disposable only)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/keycloak-jwt-event-comparison.yml'
+      - 'app/deploy/mcp-production-health/jwt_event_compare_ci.py'
+
+permissions:
+  contents: read
+
+jobs:
+  keycloak-jwt-event-comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PRP_DISPOSABLE_JWT_DIAG: '1'
+    steps:
+      - name: Checkout PRP diagnostics only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Get official Keycloak 26.8.1 source as baseline (three files)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: keycloak/keycloak
+          ref: '26.8.1'
+          path: upstream-base
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            services/src/main/java/org/keycloak/authentication/AuthenticationProcessor.java
+            services/src/main/java/org/keycloak/authentication/ClientAuthenticationFlow.java
+            services/src/main/java/org/keycloak/authentication/authenticators/client/AbstractJWTClientValidator.java
+      - name: Get official fixed commit (pinned; parent for minimal patch)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: keycloak/keycloak
+          ref: '0b48783ead3b9ad8cb72428c1263c649ad43633a'
+          fetch-depth: 2
+          path: upstream-fixed
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            services/src/main/java/org/keycloak/authentication/AuthenticationProcessor.java
+            services/src/main/java/org/keycloak/authentication/ClientAuthenticationFlow.java
+            services/src/main/java/org/keycloak/authentication/authenticators/client/AbstractJWTClientValidator.java
+      - name: Install exact CI Java toolchain
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/deploy/mcp-production-health/auth-policy/pom.xml
+      - name: Original vs official-patch event test (no production assets)
+        run: python3 app/deploy/mcp-production-health/jwt_event_compare_ci.py

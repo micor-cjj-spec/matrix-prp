@@ -1,0 +1,58 @@
+name: PRP health OAuth - Keycloak 26.8.2 isolated compatibility
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/deploy/mcp-production-health/ci_auth.py'
+      - '.github/workflows/keycloak-health-2682-compat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keycloak-2682-compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PRP_CI_KEYCLOAK_VERSION: '26.8.2'
+    steps:
+      - name: Checkout PRP candidate from the current isolated branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Use Java 21 for Keycloak-compatible auth policy
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: |
+            app/deploy/mcp-production-health/auth-policy/pom.xml
+            app/backend/pom.xml
+      - name: Test production authorization policy against 26.8.2 APIs
+        run: mvn -B -ntp -f app/deploy/mcp-production-health/auth-policy/pom.xml -Dkeycloak.version=26.8.2 verify
+      - name: Build real disposable PRP health backend
+        run: mvn -B -ntp -f app/backend/pom.xml -DskipTests package
+      - name: Install runner-only Nginx
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y nginx
+      - name: Exercise exact OAuth/JWKS/synthetic signed flow on official 26.8.2
+        run: python3 app/deploy/mcp-production-health/ci_auth.py
+      - name: Report only non-secret compatibility fields
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('app/deploy/mcp-production-health/auth-candidate-result.safe.json')
+          data=json.loads(p.read_text())
+          if data.get('keycloak_version')!='26.8.2' or data.get('failed')!=0:
+              raise SystemExit('OFFICIAL_KEYCLOAK_2682_REGRESSION_FAILED')
+          print('KEYCLOAK_COMPAT_VERSION=',data['keycloak_version'])
+          print('COMPAT_CHECKS=',data['passed'])
+          print('OFFICIAL_JVM_JWKS_FETCH=',data.get('official_jvm_jwks_fetch_verified'))
+          print('ACTUAL_CHATGPT_SIGNATURE_VERIFIED=',data.get('actual_chatgpt_signature_verified'))
+          print('PRODUCTION_CHANGED=',data.get('production_changed'))
+          PY
