@@ -305,10 +305,14 @@ public class McpDraftService {
         if (!chatApprovalEligible(chatgptApprovalUiEnabled, row.kind(), row.status(), auth)
                 || !row.expiresAt().isAfter(LocalDateTime.now()))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ChatGPT UI approval not permitted");
-        String status = "approve".equals(decision) ? "APPROVED" : "REJECTED";
-        if (db.update(
-            "UPDATE prp_mcp_write_drafts SET status=? WHERE id=? AND user_id=? AND status='PENDING'",
-            status, draftId, owner) != 1)
+        boolean approved = "approve".equals(decision);
+        String status = approved ? "APPROVED" : "REJECTED";
+        String sql = approved
+            ? "UPDATE prp_mcp_write_drafts SET status='APPROVED',approved_at=CURRENT_TIMESTAMP " +
+                "WHERE id=? AND user_id=? AND status='PENDING'"
+            : "UPDATE prp_mcp_write_drafts SET status='REJECTED' " +
+                "WHERE id=? AND user_id=? AND status='PENDING'";
+        if (db.update(sql, draftId, owner) != 1)
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Draft approval raced");
         return new Approval(status, 0);
     }
