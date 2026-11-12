@@ -116,7 +116,7 @@ class McpWellnessOAuthTests {
                 "items", List.of(Map.of("name", "Two eggs", "grams", 100, "calories", 144)))));
         var result = rpc("tools/call", "prp_prepare_wellness_create", breakfast);
         assertThat(result.getResponse().getContentAsString())
-            .contains("draftId", "WELLNESS_CREATE", "\\\"isError\\\":false");
+            .contains("draftId", "WELLNESS_CREATE", "\"isError\":false");
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
             any(), eq(2L), eq("WELLNESS_CREATE"), any(), any());
         verifyNoInteractions(wellness);
@@ -138,7 +138,7 @@ class McpWellnessOAuthTests {
                 "items", List.of(Map.of("foodId", 2, "grams", 100)))));
         var result = rpc("tools/call", "prp_prepare_wellness_create", breakfast);
         assertThat(result.getResponse().getContentAsString())
-            .contains("draftId", "WELLNESS_CREATE", "\\\"isError\\\":false");
+            .contains("draftId", "WELLNESS_CREATE", "\"isError\":false");
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
             any(), eq(2L), eq("WELLNESS_CREATE"), any(), any());
         verify(wellness).accessibleFood(2L);
