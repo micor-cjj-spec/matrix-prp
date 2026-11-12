@@ -91,6 +91,59 @@ class McpWellnessOAuthTests {
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),any(),eq(2L),eq("WELLNESS_CREATE"),any(),any());
         verifyNoInteractions(wellness);
     }
+    @Test void nestedMealInputSchemaNoLongerRequiresMutuallyExclusiveFields() throws Exception {
+        var r = rpc("tools/list", null, Map.of());
+        var tools = json.readTree(r.getResponse().getContentAsString())
+            .path("result").path("tools");
+        com.fasterxml.jackson.databind.JsonNode create = null;
+        for (var tool : tools) {
+            if ("prp_prepare_wellness_create".equals(tool.path("name").asText())) create = tool;
+        }
+        assertThat(create).isNotNull();
+        var input = create.path("inputSchema").path("properties").path("input");
+        // The server validates the exact item union after JSON -> typed decoding.
+        // The MCP client must NOT be forced to submit incompatible null fields.
+        assertThat(input.toString()).doesNotContain("\\"required\\":[\\"exercise\\",\\"meal\\",\\"metric\\"]");
+        assertThat(input.toString()).doesNotContain("\\"required\\":[\\"calories\\",\\"foodId\\",\\"grams\\",\\"name\\"]");
+    }
+
+    @Test void estimatedEggBreakfastPreparesWithoutFabricatedCatalogId() throws Exception {
+        when(db.queryForObject(anyString(), eq(Integer.class), eq(2L))).thenReturn(0);
+        var breakfast = Map.<String,Object>of(
+            "entity", "meal",
+            "input", Map.of("meal", Map.of(
+                "mealDate", "2026-11-12", "mealType", "BREAKFAST",
+                "items", List.of(Map.of("name", "Two eggs", "grams", 100, "calories", 144)))));
+        var result = rpc("tools/call", "prp_prepare_wellness_create", breakfast);
+        assertThat(result.getResponse().getContentAsString())
+            .contains("draftId", "WELLNESS_CREATE").doesNotContain("\\"isError\\":true");
+        verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
+            any(), eq(2L), eq("WELLNESS_CREATE"), any(), any());
+        verifyNoInteractions(wellness);
+    }
+
+    @Test void catalogEggBreakfastPreparesWithOnlyFoodIdAndGrams() throws Exception {
+        when(db.queryForObject(anyString(), eq(Integer.class), eq(2L))).thenReturn(0);
+        when(db.query(startsWith("SELECT id FROM prp_wellness_foods"),
+            any(org.springframework.jdbc.core.RowMapper.class), eq(2L), eq(2L)))
+            .thenReturn(List.of(2L));
+        when(wellness.accessibleFood(2L)).thenReturn(new com.matrix.prp.wellness.WellnessModels.Food(
+            2L, "鸡蛋", "cooked", new java.math.BigDecimal("144"),
+            new java.math.BigDecimal("13.30"), new java.math.BigDecimal("2.80"),
+            new java.math.BigDecimal("8.80"), "reference", false));
+        var breakfast = Map.<String,Object>of(
+            "entity", "meal",
+            "input", Map.of("meal", Map.of(
+                "mealDate", "2026-11-12", "mealType", "BREAKFAST",
+                "items", List.of(Map.of("foodId", 2, "grams", 100)))));
+        var result = rpc("tools/call", "prp_prepare_wellness_create", breakfast);
+        assertThat(result.getResponse().getContentAsString())
+            .contains("draftId", "WELLNESS_CREATE").doesNotContain("\\"isError\\":true");
+        verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
+            any(), eq(2L), eq("WELLNESS_CREATE"), any(), any());
+        verify(wellness).accessibleFood(2L);
+    }
+
     @Test void revokedConsentRejectsTheUnexpiredToken() throws Exception {
         when(grants.grantedScopes(2,CLIENT)).thenReturn(Set.of());
         assertThat(rpc("tools/call","prp_prepare_wellness_create",exercise()).getResponse().getStatus()).isEqualTo(401);
