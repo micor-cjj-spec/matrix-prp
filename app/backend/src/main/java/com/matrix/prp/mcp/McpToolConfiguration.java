@@ -151,6 +151,8 @@ public class McpToolConfiguration {
         if (appApprovalEnabled && Set.of("prp_prepare_wellness_create",
                 "prp_wellness_draft_status").contains(tool.name())) {
             meta.put("ui", Map.of("resourceUri", McpWellnessApprovalUiConfiguration.RESOURCE_URI));
+            // ChatGPT compatibility alias; keep the portable MCP Apps field above.
+            meta.put("openai/outputTemplate", McpWellnessApprovalUiConfiguration.RESOURCE_URI);
         }
         if ("prp_chatgpt_wellness_approval".equals(tool.name())) {
             meta.put("ui", Map.of("visibility", List.of("app")));

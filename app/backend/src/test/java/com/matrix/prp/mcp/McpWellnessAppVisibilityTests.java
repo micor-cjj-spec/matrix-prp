@@ -35,6 +35,8 @@ class McpWellnessAppVisibilityTests {
         assertThat(tools).hasSize(9);
         assertThat(tools.stream().map(x -> x.tool().name()))
             .doesNotContain("prp_chatgpt_wellness_approval");
+        assertThat(tools.stream().map(x -> x.tool()))
+            .allSatisfy(t -> assertThat(t.meta()).doesNotContainKey("openai/outputTemplate"));
     }
 
     @Test void appOnlyApprovalIsHiddenFromModelWhenUiEnabled() {
@@ -54,6 +56,15 @@ class McpWellnessAppVisibilityTests {
             .findFirst().orElseThrow();
         assertThat(((Map<?,?>)create.meta().get("ui")).get("resourceUri"))
             .isEqualTo(McpWellnessApprovalUiConfiguration.RESOURCE_URI);
+        assertThat(create.meta().get("openai/outputTemplate"))
+            .isEqualTo(McpWellnessApprovalUiConfiguration.RESOURCE_URI);
+        var draftStatus = tools.stream()
+            .map(McpStatelessServerFeatures.SyncToolSpecification::tool)
+            .filter(t -> "prp_wellness_draft_status".equals(t.name()))
+            .findFirst().orElseThrow();
+        assertThat(draftStatus.meta().get("openai/outputTemplate"))
+            .isEqualTo(McpWellnessApprovalUiConfiguration.RESOURCE_URI);
+        assertThat(approval.meta()).doesNotContainKey("openai/outputTemplate");
         assertThat(tools.stream().map(x -> x.tool().name()))
             .doesNotContain("prp_prepare_finance","prp_prepare_task");
     }
