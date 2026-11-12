@@ -67,5 +67,10 @@ class McpWellnessChatApprovalPolicyTests {
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThatThrownBy(() -> support.fromMcpInput("meal", Map.of("metric", Map.of())))
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> support.fromMcpInput("meal", Map.of(
+            "meal", Map.of("mealDate", "2026-11-12", "mealType", "BREAKFAST",
+                "items", List.of(Map.of("foodId", 2, "grams", 100, "ownerId", 99))))))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+
     }
 }
