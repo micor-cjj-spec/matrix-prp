@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { color-scheme: light dark; font: 14px/1.55 system-ui, sans-serif; }
+body { margin: 0; padding: 16px; color: CanvasText; background: Canvas; }
+h2 { margin: 0 0 8px; font-size: 17px; }
+#state { margin: 8px 0; color: GrayText; }
+#details { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px;
+ background: color-mix(in srgb, CanvasText 5%, Canvas); border-radius: 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+button { border-radius: 8px; border: 1px solid #777; padding: 10px 18px;
+ background: transparent; color: inherit; font: inherit; cursor: pointer; }
+button.primary { background: #1267a6; border-color: #1267a6; color: #fff; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+</style>
+</head>
+<body>
+<h2>PRP 健康记录确认</h2>
+<p id="state" role="status">等待 ChatGPT 提供草稿预览…</p>
+<pre id="details" aria-label="待确认的草稿内容"></pre>
+<div class="actions">
+  <button class="primary" id="approve" type="button" disabled>审批并保存</button>
+  <button id="reject" type="button" disabled>拒绝写入</button>
+</div>
+<script>
+(() => {
+  'use strict';
+  const status = document.getElementById('state');
+  const details = document.getElementById('details');
+  const approve = document.getElementById('approve');
+  const reject = document.getElementById('reject');
+  let draftId = null, busy = false, settled = false, nextId = 1;
+  const waiting = new Map();
+
+  function show(message) { status.textContent = message; }
+  function setEnabled(enabled) {
+    approve.disabled = reject.disabled = !enabled || busy || settled;
+  }
+  function send(method, params) {
+    const id = nextId++;
+    const promise = new Promise((resolve, rejectPromise) => {
+      waiting.set(id, {resolve, reject: rejectPromise});
+    });
+    // Only message the embedded host, never an arbitrary URL or remote origin.
+    window.parent.postMessage({jsonrpc:'2.0', id, method, params}, '*');
+    return promise;
+  }
+  function extract(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (raw.kind === 'WELLNESS_CREATE' && raw.draftId) return raw;
+    if (raw.structuredContent) return extract(raw.structuredContent);
+    if (raw.result) return extract(raw.result);
+    if (Array.isArray(raw.content)) {
+      for (const item of raw.content) {
+        if (item && item.type === 'text' && typeof item.text === 'string') {
+          try { const out = extract(JSON.parse(item.text)); if (out) return out; }
+          catch (_) { /* text from an unrelated tool */ }
+        }
+      }
+    }
+    return null;
+  }
+  function render(payload) {
+    const draft = extract(payload);
+    if (!draft) return;
+    if (!/^[0-9a-f-]{36}$/i.test(draft.draftId)) {
+      show('草稿编号无效，不能审批'); return;
+    }
+    // Never use innerHTML for tool/model supplied values.
+    draftId = draft.draftId;
+    details.textContent = JSON.stringify({
+      draftId: draft.draftId,
+      expiresAt: draft.expiresAt,
+      kind: draft.kind,
+      values: draft.values
+    }, null, 2);
+    show('请核对所有字段。点击审批并保存将写入 PRP；拒绝不写入。');
+    setEnabled(true);
+  }
+  async function callTool(name, args) {
+    const response = await send('tools/call', {name, arguments: args});
+    const output = response?.result || response;
+    if (output?.isError) throw new Error('PRP 返回工具操作失败');
+    if (output?.error) throw new Error('PRP 拒绝操作');
+    return output;
+  }
+  async function decide(decision) {
+    if (busy || settled || !draftId) return;
+    busy = true;
+    setEnabled(false);
+    show('正在由 PRP 校验身份、权限与草稿状态…');
+    try {
+      await callTool('prp_chatgpt_wellness_approval', {draftId, decision});
+      if (decision === 'reject') {
+        settled = true; show('已拒绝，PRP 未保存记录。');
+        return;
+      }
+      const saved = await callTool('prp_confirm_wellness_draft', {draftId});
+      settled = true;
+      show('PRP 已确认保存。可在 ChatGPT 中重新查询当日健康记录。');
+      details.textContent = JSON.stringify(saved, null, 2);
+    } catch (err) {
+      show('操作未完成：' + (err instanceof Error ? err.message : '未知异常') +
+        '。请不要重复提交，先查询草稿状态。');
+      settled = true; // Fail closed on uncertain network result.
+    } finally { busy = false; setEnabled(false); }
+  }
+  approve.addEventListener('click', () => decide('approve'));
+  reject.addEventListener('click', () => decide('reject'));
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent) return;
+    const data = event.data;
+    if (!data || data.jsonrpc !== '2.0') return;
+    if (typeof data.id === 'number' && waiting.has(data.id)) {
+      const task = waiting.get(data.id);
+      waiting.delete(data.id);
+      data.error ? task.reject(new Error('Host rejected MCP request')) : task.resolve(data);
+      return;
+    }
+    if (data.method === 'ui/notifications/tool-result') render(data.params);
+  });
+  // MCP Apps bridge initialization; UI never fetches the backend directly,
+  // and never receives or stores OAuth credentials.
+  send('initialize', {
+    protocolVersion: '2025-06-18',
+    capabilities: {},
+    clientInfo: {name:'prp-wellness-approval-card', version:'0.1.0'}
+  }).then(() => {
+    window.parent.postMessage({jsonrpc:'2.0',method:'notifications/initialized'},'*');
+  }).catch(() => show('ChatGPT 未启用 MCP Apps UI 能力，未写入任何数据。'));
+  if (window.openai?.toolOutput) render(window.openai.toolOutput);
+})();
+</script>
+</body>
+</html>
