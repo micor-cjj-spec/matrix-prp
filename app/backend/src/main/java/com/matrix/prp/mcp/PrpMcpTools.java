@@ -237,7 +237,7 @@ public class PrpMcpTools {
         return healthReview(draftId);
     }
 
-    @McpTool(name="prp_confirm_wellness_draft", description="Commit an owner-approved health draft exactly once. For ChatGPT-authorized WELLNESS_CREATE drafts only, a server-side default-off opt-in permits a PENDING draft after the user explicitly approves the ChatGPT tool confirmation prompt. Never invoke without user confirmation. Update/delete and all other drafts still require PRP password approval. Requires matching OAuth scopes and bound PRP owner. Replays return the existing result.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=true,openWorldHint=false))
+    @McpTool(name="prp_confirm_wellness_draft", description="Commit an owner-approved health draft exactly once. For ChatGPT WELLNESS_CREATE drafts, first approve in the embedded PRP MCP Apps card. A model-requested tool confirmation alone does not approve a PENDING draft. Never invoke unless the server reports APPROVED. Update/delete and all other drafts still require PRP password approval. Requires matching OAuth scopes and bound PRP owner. Replays return the existing result.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=true,openWorldHint=false))
     public McpDraftService.Result confirmWellnessDraft(@McpToolParam(description="Exact health draft UUID",required=true) String draftId) {
         scopes.require("prp.wellness.write.confirm");
         var review=healthReview(draftId);
