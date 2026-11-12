@@ -57,6 +57,7 @@ public class McpToolConfiguration {
         var permitted = Set.copyOf(
             McpOAuthMetadataController.parseAdvertisedScopes(configured, writeEnabled));
         return REQUIRED_SCOPE.entrySet().stream()
+            .filter(entry -> !"prp_chatgpt_wellness_approval".equals(entry.getKey()))
             .filter(entry -> permitted.contains(entry.getValue()))
             .map(Map.Entry::getKey)
             .collect(java.util.stream.Collectors.toUnmodifiableSet());
@@ -90,7 +91,8 @@ public class McpToolConfiguration {
         String metadataUri = McpOAuthMetadataController.metadataUrl(
             McpOAuthResourceServerConfig.strictHttps(resource, "MCP OAuth resource"));
         return definitions.stream()
-            .filter(spec -> exposed.contains(spec.tool().name()) ||
+            .filter(spec -> (!"prp_chatgpt_wellness_approval".equals(spec.tool().name()) &&
+                 exposed.contains(spec.tool().name())) ||
                 (chatgptApprovalUiEnabled && writeEnabled &&
                  "prp_chatgpt_wellness_approval".equals(spec.tool().name()) &&
                  Set.copyOf(McpOAuthMetadataController.parseAdvertisedScopes(advertisedScopes,writeEnabled))
