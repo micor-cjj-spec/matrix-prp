@@ -13,7 +13,7 @@
 ## 修复的两个独立问题
 
 1. Spring AI MCP Annotation 自动生成的 `McpWellnessSupport.Input` 与 `AiMealItem` JSON Schema 把互斥字段全部列为 `required`。目录食品仅允许 `{foodId,grams}`，估算食品仅允许 `{name,calories,grams?}`，二者不应同时提供 `name/calories/foodId`。工具边界改为 `Map<String,Object>`，然后通过服务端 ObjectMapper 还原强类型 `Input` 并执行原有 `McpWellnessSupport.validate`、食品库权限及快照检查；**不接受**提供用户 ID、SQL 或任意更新指令。
-2. `McpDraftService.confirm` 原本只接受 PRP 页面密码审批后的 `APPROVED` 草稿。新增默认关闭的受限路径：仅在 `matrix-prp.mcp.chatgpt-health-confirm-enabled=true` 且 OAuth 已验证用户、固定 ChatGPT CIMD 客户端、`prp.wellness.write.create` 和 `prp.wellness.write.confirm` 都已授予时，`WELLNESS_CREATE` 的 `PENDING` 草稿可以由 ChatGPT 的高风险工具确认提交。所有任务、财务、健康更新及删除仍保持原有独立审批要求。
+2. **保留** `McpDraftService.confirm` 原有 `APPROVED` 状态硬要求，禁止从聊天直接确认 `PENDING`。新增默认关闭的 MCP Apps UI 通道（`matrix-prp.mcp.chatgpt-health-approval-ui-enabled`），仅当用户在 ChatGPT 内嵌审批卡片点击批准时，才调用声明 `_meta.ui.visibility=["app"]` 的 `prp_chatgpt_wellness_approval`，由 PRP 核对正式 ChatGPT CIMD、当前用户绑定、健康写入创建与确认权限、精确草稿类型和有效期后以事务标记 `APPROVED`。随后调用原有 `prp_confirm_wellness_draft` 写入。拒绝则写 `REJECTED`。所有任务、财务、健康修改及删除继续沿用原先的审批方式。
 
 ## 应在 ChatGPT 中呈现的操作
 
@@ -34,13 +34,13 @@
 }
 ```
 
-3. 在 ChatGPT 聊天中展示服务端回传的不可变草稿预览，明确是“两个鸡蛋、约144千卡”，由用户在 ChatGPT 对提交工具操作作出确认（建议该应用权限设为 **每次操作都询问**）。
-4. 仅用户确认后调用 `prp_confirm_wellness_draft(draftId)`，凭有效 OAuth 和匹配 Scope 在事务内提交一条。随后读取同日记录以核对 ID、热量和营养信息。
+3. ChatGPT 客户端展示 MCP Apps 内嵌审批卡片 `ui://prp/wellness-approval`，显示不可变草稿预览。人点击“审批并保存”才向 **app-only** 工具 `prp_chatgpt_wellness_approval(draftId, "approve")` 发起调用；点击拒绝则标记 `REJECTED`，不调用确认。
+4. 用户审批成功后，在卡片内调用标准 `prp_confirm_wellness_draft(draftId)`，确保只允许 `APPROVED` 草稿；随后读取同日记录核对营养结果。
 
 ## 安全边界与已知平台限制
 
-- ChatGPT 的原生工具确认提示由宿主控制；工具的 `destructiveHint=true` 不能独立证明某位真人点击过批准。官方文档也明确：工具 annotation 并不能替代服务端鉴权与确认。**因此，默认关闭的新通道不得在尚未验证宿主弹出审批且用户真实批准之前开启生产。**
-- 首期仅让低风险 `WELLNESS_CREATE` 借助宿主确认。修改、删除、财务、任务等仍按原流程。要实现“所有操作均强制在 GPT 内可验证地审批”，下一阶段需要专门的 MCP Apps 审批卡片（在 ChatGPT 内显示）与 `_meta.ui.visibility=[\"app\"]` 的控件调用，绑定不可变草稿与用户身份；不得伪造宿主确认收据。
+- 单纯依靠 ChatGPT 的原生工具确认弹窗 **不足以向 PRP 服务端证明人工点击**，因此不允许 PENDING 直接写库。MCP Apps 通过宿主约束 app-only 工具可见性；PRP 还校验已验证的 OAuth 身份、授权快照和草稿状态。恶意、非标准 MCP 客户端可能不遵守该宿主约束，所以此方案的安全边界仍需评审，不能等同于密码或 WebAuthn 二次认证。**在实际 ChatGPT UI 验证及异常流程测试之前必须保持关闭。**
+- 当前首期仅实现低风险 `WELLNESS_CREATE` 的 MCP Apps 审批卡片与 app-only 动作。修改、删除、财务、任务等仍按原流程。将来扩大操作种类时需分别评审每种数据与不可逆风险，并考虑 WebAuthn 等额外的服务端可验证认证。
 - 即使启用 ChatGPT 权限设置“总是询问”，服务器也不应假称它收到密码二次验证或已取得可验证的人工点击凭证。需要在产品安全评审中明确此风险。
 - 不修改生产 Keycloak、CIMD、Nginx、PRP MySQL 表结构、现有 Scope 和用户数据。
 
@@ -48,7 +48,7 @@
 
 - 自动生成的 `tools/list` 不再把食品 item 的 `name` 与 `calories` 误标为必填；工具能提交 `{foodId:2,grams:100}` 与 `{name:...,calories:...,grams:...}`。
 - 错误输入（额外字段、目录/估算混用、不同实体、无 Scope、他人记录）全部拒绝。
-- 功能开关缺省关闭时 `PENDING` 不可确认。错误客户端、缺少任一 Scope、过期草稿、修改及删除草稿均不可通过聊天路径。
-- ChatGPT 对确认工具真实弹出审批；用户拒绝时健康数据不变；接受后恰好一条新餐食，重放不重复写入。
+- 功能开关缺省关闭时 `PENDING` 不可确认；开关开启时，普通 `prp_confirm_wellness_draft` 仍只能确认 `APPROVED`。错误客户端、缺少任一 Scope、过期草稿、修改及删除草稿均不可通过 UI 动作。
+- ChatGPT 实际渲染审批卡片，app-only 工具对模型不可见；用户拒绝时健康数据不变；接受后草稿才从 `PENDING` 进入 `APPROVED`，之后确认恰好写入一条餐食，重放不重复写入。
 - 任何真实授权 Token、PRP 密码或审批码均不出现在 ChatGPT 文字、GitHub 测试工件、Nginx 日志。
 - 真实生产切换必须在隔离 CI、真实 ChatGPT 交互验证、回滚演练后另行批准；本 Draft PR 不构成生产部署许可。
