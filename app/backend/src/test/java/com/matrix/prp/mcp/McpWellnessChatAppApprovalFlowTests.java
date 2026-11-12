@@ -103,18 +103,18 @@ class McpWellnessChatAppApprovalFlowTests {
         auth(CLIENT);
         assertThatThrownBy(() -> drafts(false).approveFromChatgptUi(ID, "approve"))
             .isInstanceOf(ResponseStatusException.class);
-        verify(db, never()).update(startsWith("UPDATE prp_mcp_write_drafts SET status=?"),
-            any(), any(), any());
+        verify(db, never()).update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED'"),
+            any(), any());
     }
 
     @Test void approvedAppClickTransitionsOnlyAnOwnedFreshHealthCreateDraft() throws Exception {
         auth(CLIENT);
         stubPendingApprovalQuery("WELLNESS_CREATE", "PENDING", false);
-        when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status=?"),
-            eq("APPROVED"), eq(ID), eq(2L))).thenReturn(1);
+        when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED',approved_at=CURRENT_TIMESTAMP"),
+            eq(ID), eq(2L))).thenReturn(1);
         assertThat(drafts(true).approveFromChatgptUi(ID, "approve").status()).isEqualTo("APPROVED");
-        verify(db).update(startsWith("UPDATE prp_mcp_write_drafts SET status=?"),
-            eq("APPROVED"), eq(ID), eq(2L));
+        verify(db).update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED',approved_at=CURRENT_TIMESTAMP"),
+            eq(ID), eq(2L));
     }
 
     @Test void updateAndExpiredDraftsCannotUseChatApproval() throws Exception {
@@ -126,17 +126,18 @@ class McpWellnessChatAppApprovalFlowTests {
         stubPendingApprovalQuery("WELLNESS_CREATE", "PENDING", true);
         assertThatThrownBy(() -> drafts(true).approveFromChatgptUi(ID,"approve"))
             .isInstanceOf(ResponseStatusException.class);
-        verify(db, never()).update(anyString(), any(), any(), any());
+        verify(db, never()).update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED'"),
+            any(), any());
     }
 
     @Test void rejectingDraftDoesNotWriteBusinessData() throws Exception {
         auth(CLIENT);
         stubPendingApprovalQuery("WELLNESS_CREATE", "PENDING", false);
-        when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status=?"),
-            eq("REJECTED"), eq(ID), eq(2L))).thenReturn(1);
+        when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status='REJECTED'"),
+            eq(ID), eq(2L))).thenReturn(1);
         assertThat(drafts(true).approveFromChatgptUi(ID, "reject").status()).isEqualTo("REJECTED");
-        verify(db).update(startsWith("UPDATE prp_mcp_write_drafts SET status=?"),
-            eq("REJECTED"), eq(ID), eq(2L));
+        verify(db).update(startsWith("UPDATE prp_mcp_write_drafts SET status='REJECTED'"),
+            eq(ID), eq(2L));
         verify(db, never()).update(startsWith("UPDATE prp_mcp_write_drafts SET status='CONSUMED'"),
             any(), any(), any());
     }
