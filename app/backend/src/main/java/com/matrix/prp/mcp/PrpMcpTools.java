@@ -245,6 +245,22 @@ public class PrpMcpTools {
         return drafts.confirm(draftId);
     }
 
+    /**
+     * Invoked only by the ChatGPT MCP Apps approval UI. The host must enforce
+     * _meta.ui.visibility=["app"]. The server independently enforces verified
+     * OAuth owner/client/scopes and the immutable draft state.
+     */
+    @McpTool(name="prp_chatgpt_wellness_approval",
+        description="APP-ONLY: approve or reject the exact pending health CREATE draft after a human clicks the embedded ChatGPT card; never model-visible.",
+        annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=false,openWorldHint=false))
+    public McpDraftService.Approval chatgptWellnessApproval(
+            @McpToolParam(description="UUID of the displayed pending health CREATE draft",required=true) String draftId,
+            @McpToolParam(description="approve or reject",required=true) String decision) {
+        scopes.require("prp.wellness.write.confirm");
+        scopes.require("prp.wellness.write.create");
+        return drafts.approveFromChatgptUi(draftId, decision);
+    }
+
     private static LocalDate optionalDate(String value) {
         return value == null || value.isBlank() ? null : localDate(value);
     }
