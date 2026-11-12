@@ -81,7 +81,11 @@ public class McpWellnessSupport {
         if (raw == null || raw.size() != 1 || !raw.containsKey(entity))
             throw bad("Exactly one matching health input required");
         try {
-            Input value = json.convertValue(raw, Input.class);
+            // The MCP boundary must not silently discard extra model-supplied
+            // properties while converting into the established typed record.
+            var strict = json.copy().configure(
+                com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+            Input value = strict.convertValue(raw, Input.class);
             if (value == null) throw bad("Invalid wellness payload");
             return value;
         } catch (IllegalArgumentException ex) {
