@@ -185,8 +185,10 @@ public class McpDraftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft");
         }
         String instruction;
-        if (chatApprovalEligible(chatgptApprovalUiEnabled, kind.name(), "PENDING",
-                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication())) {
+        if (request instanceof McpWellnessSupport.Change change
+                && "meal".equals(change.entity())
+                && chatApprovalEligible(chatgptApprovalUiEnabled, kind.name(), "PENDING",
+                    org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication())) {
             instruction = "Review the immutable wellness-create draft in the embedded ChatGPT "
                 + "approval card. The ordinary confirm tool cannot approve pending drafts. "
                 + "Only the app-only approval action can mark this draft approved.";
@@ -294,15 +296,16 @@ public class McpDraftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid approval decision");
         var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         long owner = CurrentUser.id();
-        record Pending(String kind, String status, LocalDateTime expiresAt) {}
+        record Pending(String kind, String status, LocalDateTime expiresAt, String payload) {}
         var rows = db.query(
-            "SELECT kind,status,expires_at FROM prp_mcp_write_drafts WHERE id=? AND user_id=? FOR UPDATE",
+            "SELECT kind,status,expires_at,payload_json FROM prp_mcp_write_drafts WHERE id=? AND user_id=? FOR UPDATE",
             (rs,n) -> new Pending(rs.getString("kind"), rs.getString("status"),
-                rs.getTimestamp("expires_at").toLocalDateTime()),
+                rs.getTimestamp("expires_at").toLocalDateTime(), rs.getString("payload_json")),
             draftId, owner);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "MCP draft not found");
         var row = rows.getFirst();
         if (!chatApprovalEligible(chatgptApprovalUiEnabled, row.kind(), row.status(), auth)
+                || !"meal".equals(readJson(row.payload()).path("entity").asText())
                 || !row.expiresAt().isAfter(LocalDateTime.now()))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ChatGPT UI approval not permitted");
         boolean approved = "approve".equals(decision);
