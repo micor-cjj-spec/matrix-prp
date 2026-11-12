@@ -1,4 +1,0 @@
-{
-  "schema_version": 1,
-  "reason": "Block PRP production publication during 2026-11-12 NoCloud SSH policy rebaseline; remove only after audited SSH acceptance and explicit approval."
-}
