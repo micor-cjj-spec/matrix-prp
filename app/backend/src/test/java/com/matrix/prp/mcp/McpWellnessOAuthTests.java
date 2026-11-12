@@ -103,8 +103,8 @@ class McpWellnessOAuthTests {
         var input = create.path("inputSchema").path("properties").path("input");
         // The server validates the exact item union after JSON -> typed decoding.
         // The MCP client must NOT be forced to submit incompatible null fields.
-        assertThat(input.toString()).doesNotContain("\\"required\\":[\\"exercise\\",\\"meal\\",\\"metric\\"]");
-        assertThat(input.toString()).doesNotContain("\\"required\\":[\\"calories\\",\\"foodId\\",\\"grams\\",\\"name\\"]");
+        assertThat(input.toString()).doesNotContain("calories", "foodId", "exercise");
+        assertThat(input.toString()).doesNotContain("calories", "foodId", "exercise");
     }
 
     @Test void estimatedEggBreakfastPreparesWithoutFabricatedCatalogId() throws Exception {
@@ -116,7 +116,7 @@ class McpWellnessOAuthTests {
                 "items", List.of(Map.of("name", "Two eggs", "grams", 100, "calories", 144)))));
         var result = rpc("tools/call", "prp_prepare_wellness_create", breakfast);
         assertThat(result.getResponse().getContentAsString())
-            .contains("draftId", "WELLNESS_CREATE").doesNotContain("\\"isError\\":true");
+            .contains("draftId", "WELLNESS_CREATE").doesNotContain("isError");
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
             any(), eq(2L), eq("WELLNESS_CREATE"), any(), any());
         verifyNoInteractions(wellness);
@@ -138,7 +138,7 @@ class McpWellnessOAuthTests {
                 "items", List.of(Map.of("foodId", 2, "grams", 100)))));
         var result = rpc("tools/call", "prp_prepare_wellness_create", breakfast);
         assertThat(result.getResponse().getContentAsString())
-            .contains("draftId", "WELLNESS_CREATE").doesNotContain("\\"isError\\":true");
+            .contains("draftId", "WELLNESS_CREATE").doesNotContain("isError");
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
             any(), eq(2L), eq("WELLNESS_CREATE"), any(), any());
         verify(wellness).accessibleFood(2L);
