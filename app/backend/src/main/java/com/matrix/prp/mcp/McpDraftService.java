@@ -61,6 +61,18 @@ public class McpDraftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid health target");
         return prepare(kind, health().capture(entity,id,input,kind==Kind.WELLNESS_DELETE));
     }
+    /**
+     * Tool argument object is a flexible JSON map to avoid SDK-generated
+     * required fields for mutually exclusive wellness alternatives. Recreate
+     * the validated domain input before preparing the immutable draft.
+     */
+    @Transactional
+    public Preview prepareWellnessFromMcp(String entity, long id, java.util.Map<String, Object> raw, Kind kind) {
+        if (kind != Kind.WELLNESS_CREATE && kind != Kind.WELLNESS_UPDATE)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid wellness operation");
+        return prepareWellness(entity, id, health().fromMcpInput(entity, raw), kind);
+    }
+
     static String operationScope(String kind) {
         return switch (Kind.valueOf(kind)) {
             case TASK_UPDATE -> "prp.write.update";
@@ -82,6 +94,10 @@ public class McpDraftService {
     private final String approvalBase;
     private final UserStore users;
     private final PasswordEncoder passwords;
+
+    // Default OFF: app-only, human-click approval flow, never a model-controlled shortcut.
+    @Value("${matrix-prp.mcp.chatgpt-health-approval-ui-enabled:false}")
+    private boolean chatgptApprovalUiEnabled;
 
     public McpDraftService(JdbcTemplate db, ObjectMapper json, Validator validator,
                            TaskService tasks, FinanceService finance, RecordService records,
@@ -168,8 +184,19 @@ public class McpDraftService {
         } catch (JsonProcessingException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft");
         }
-        return new Preview(id, kind.name(), json.valueToTree(request), expiry.toString(),
-            "Open " + approvalBase + "me/mcp-approve/" + id + " in your own browser, review and enter your PRP password there, never in chat. Only then may the MCP client call " + (kind.name().startsWith("WELLNESS_") ? "prp_confirm_wellness_draft" : "prp_confirm_draft") + ".");
+        String instruction;
+        if (chatApprovalEligible(chatgptApprovalUiEnabled, kind.name(), "PENDING",
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication())) {
+            instruction = "Review the immutable wellness-create draft in the embedded ChatGPT "
+                + "approval card. The ordinary confirm tool cannot approve pending drafts. "
+                + "Only the app-only approval action can mark this draft approved.";
+        } else {
+            instruction = "Open " + approvalBase + "me/mcp-approve/" + id
+                + " in your own browser, review and enter your PRP password there, never in chat. "
+                + "Only then may the MCP client call "
+                + (kind.name().startsWith("WELLNESS_") ? "prp_confirm_wellness_draft" : "prp_confirm_draft") + ".";
+        }
+        return new Preview(id, kind.name(), json.valueToTree(request), expiry.toString(), instruction);
     }
 
     /** The human reviews the exact owner-bound data through PRP, never through a model-controlled approval flag. */
@@ -232,6 +259,62 @@ public class McpDraftService {
         } catch (RuntimeException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft ID");
         }
+    }
+
+    /**
+     * Only the trusted ChatGPT MCP Apps UI is offered an approval action, not
+     * the model-visible confirm tool. Host-enforced app-only visibility is a
+     * separate boundary; the server still enforces verified client and scopes.
+     * This is not proof of an external human identity beyond ChatGPT OAuth.
+     */
+    static boolean chatApprovalEligible(boolean enabled, String kind, String status,
+                                        org.springframework.security.core.Authentication auth) {
+        if (!enabled || !"WELLNESS_CREATE".equals(kind) || !"PENDING".equals(status)
+                || auth == null || !auth.isAuthenticated()
+                || !(auth.getDetails() instanceof McpScopeGuard.VerifiedClient client)
+                || !"https://chatgpt.com/oauth/client.json".equals(client.clientId())) {
+            return false;
+        }
+        return java.util.Set.of("SCOPE_prp.wellness.write.confirm", "SCOPE_prp.wellness.write.create")
+            .stream().allMatch(scope -> auth.getAuthorities().stream()
+                .anyMatch(authority -> scope.equals(authority.getAuthority())));
+    }
+
+    /**
+     * App-only UI approval. Requires the host to enforce _meta.ui.visibility=[app].
+     * Never accepts user IDs, model-supplied approval booleans, or passwords.
+     * Pending drafts are still NOT writable through confirm until this transaction
+     * records an explicit approved status.
+     */
+    @Transactional
+    public Approval approveFromChatgptUi(String draftId, String decision) {
+        requireWrite();
+        validId(draftId);
+        if (!"approve".equals(decision) && !"reject".equals(decision))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid approval decision");
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        long owner = CurrentUser.id();
+        record Pending(String kind, String status, LocalDateTime expiresAt) {}
+        var rows = db.query(
+            "SELECT kind,status,expires_at FROM prp_mcp_write_drafts WHERE id=? AND user_id=? FOR UPDATE",
+            (rs,n) -> new Pending(rs.getString("kind"), rs.getString("status"),
+                rs.getTimestamp("expires_at").toLocalDateTime()),
+            draftId, owner);
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "MCP draft not found");
+        var row = rows.getFirst();
+        if (!chatApprovalEligible(chatgptApprovalUiEnabled, row.kind(), row.status(), auth)
+                || !row.expiresAt().isAfter(LocalDateTime.now()))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ChatGPT UI approval not permitted");
+        boolean approved = "approve".equals(decision);
+        String status = approved ? "APPROVED" : "REJECTED";
+        String sql = approved
+            ? "UPDATE prp_mcp_write_drafts SET status='APPROVED',approved_at=CURRENT_TIMESTAMP " +
+                "WHERE id=? AND user_id=? AND status='PENDING'"
+            : "UPDATE prp_mcp_write_drafts SET status='REJECTED' " +
+                "WHERE id=? AND user_id=? AND status='PENDING'";
+        if (db.update(sql, draftId, owner) != 1)
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Draft approval raced");
+        return new Approval(status, 0);
     }
 
     @Transactional

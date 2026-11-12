@@ -69,6 +69,30 @@ public class McpWellnessSupport {
         if(found.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Wellness record not found");
         return snapshot(get(entity,id));
     }
+    /**
+     * The MCP schema generator marks all nested record fields as required, even
+     * though catalog items intentionally omit name/calories and the Input
+     * union intentionally omits two alternatives. Accept a JSON object at the
+     * tool boundary, then restore our exact typed model and validation here.
+     * No owner identifier, SQL, or arbitrary mutation is accepted.
+     */
+    public Input fromMcpInput(String entity, Map<String, Object> raw) {
+        table(entity);
+        if (raw == null || raw.size() != 1 || !raw.containsKey(entity))
+            throw bad("Exactly one matching health input required");
+        try {
+            // The MCP boundary must not silently discard extra model-supplied
+            // properties while converting into the established typed record.
+            var strict = json.copy().configure(
+                com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+            Input value = strict.convertValue(raw, Input.class);
+            if (value == null) throw bad("Invalid wellness payload");
+            return value;
+        } catch (IllegalArgumentException ex) {
+            throw bad("Invalid wellness payload");
+        }
+    }
+
     private void validate(String entity,Input input) {
         table(entity);
         if(input==null || !validator.validate(input).isEmpty()) throw bad("Invalid wellness fields");

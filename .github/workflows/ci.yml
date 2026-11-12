@@ -70,6 +70,8 @@ jobs:
       - name: Typecheck and build Web
         working-directory: app/web
         run: npm run build
+      - name: Verify ChatGPT embedded wellness approval UI (no network)
+        run: node --test app/scripts/mcp-wellness-approval-ui.test.mjs
       - name: Verify future migration registry contracts
         run: node --test app/scripts/migration-policy-contract.test.mjs
       - name: Check source text encoding

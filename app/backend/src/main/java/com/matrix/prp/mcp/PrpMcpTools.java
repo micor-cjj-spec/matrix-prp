@@ -200,21 +200,21 @@ public class PrpMcpTools {
         return wellness.foods(query.trim()).stream().limit(30).toList();
     }
 
-    @McpTool(name="prp_prepare_wellness_create", description="Prepare a structured meal, exercise or metric CREATE draft, not a personal note. Input must contain exactly one matching meal/exercise/metric object. Catalog meal items use foodId+grams only; estimates use name+explicit event calories and no foodId (macros unknown). Nothing is saved as a health record before separate owner password approval and confirm.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=false,idempotentHint=false,openWorldHint=false))
+    @McpTool(name="prp_prepare_wellness_create", description="Prepare a structured meal, exercise or metric CREATE draft, not a personal note. The input object must contain exactly one of meal, exercise, or metric. For a meal, use mealDate yyyy-MM-dd, mealType BREAKFAST/LUNCH/DINNER/SNACK, note, and items. Catalog foods: item {foodId, grams} ONLY. Estimates: item {name, calories, optional grams} ONLY. Do not supply null placeholders. Saves only a draft, never a health record. After preview, confirm in ChatGPT only if explicitly permitted by the server; otherwise an owner-password approval is required.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=false,idempotentHint=false,openWorldHint=false))
     public McpDraftService.Preview prepareWellnessCreate(
             @McpToolParam(description="meal, exercise or metric",required=true) String entity,
-            @McpToolParam(description="Exactly one matching typed health object; no user ID",required=true) McpWellnessSupport.Input input) {
+            @McpToolParam(description="JSON object containing only the matching meal, exercise, or metric object; no user ID and no unnecessary null fields",required=true) Map<String,Object> input) {
         scopes.require("prp.wellness.write.create");
-        return drafts.prepareWellness(entity,0,input,McpDraftService.Kind.WELLNESS_CREATE);
+        return drafts.prepareWellnessFromMcp(entity,0,input,McpDraftService.Kind.WELLNESS_CREATE);
     }
 
     @McpTool(name="prp_prepare_wellness_update", description="Prepare full replacement of one owned meal/exercise/metric. Preview includes before and after. Changed records or catalog nutrition invalidate confirmation. Requires PRP password approval; never updates directly.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=false,openWorldHint=false))
     public McpDraftService.Preview prepareWellnessUpdate(
             @McpToolParam(description="meal, exercise or metric",required=true) String entity,
             @McpToolParam(description="Positive owned record ID",required=true) long recordId,
-            @McpToolParam(description="Full replacement; exactly one matching health object",required=true) McpWellnessSupport.Input input) {
+            @McpToolParam(description="Full replacement JSON object containing one matching meal, exercise or metric; no null placeholders or owner ID",required=true) Map<String,Object> input) {
         scopes.require("prp.wellness.write.update");
-        return drafts.prepareWellness(entity,recordId,input,McpDraftService.Kind.WELLNESS_UPDATE);
+        return drafts.prepareWellnessFromMcp(entity,recordId,input,McpDraftService.Kind.WELLNESS_UPDATE);
     }
 
     @McpTool(name="prp_prepare_wellness_delete", description="Prepare deletion of one exact owned health record. No deletion occurs until owner approval in PRP and separate confirmation. Any changed record is rejected.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=false,openWorldHint=false))
@@ -231,18 +231,34 @@ public class PrpMcpTools {
         return review;
     }
 
-    @McpTool(name="prp_wellness_draft_status", description="Read your own structured health draft status and preview. Cannot approve a draft; approval requires the PRP browser and password.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    @McpTool(name="prp_wellness_draft_status", description="Read your own structured health draft status and immutable preview. Only a separately authorized write confirmation can save it.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
     public McpDraftService.Review wellnessDraftStatus(@McpToolParam(description="Exact health draft UUID",required=true) String draftId) {
         scopes.require("prp.wellness.write.status");
         return healthReview(draftId);
     }
 
-    @McpTool(name="prp_confirm_wellness_draft", description="Commit only an already owner-password-APPROVED health draft, exactly once. Requires its create/update/delete scope too. Never approves, changes another module, or accepts a user ID. Replays return the existing result.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=true,openWorldHint=false))
+    @McpTool(name="prp_confirm_wellness_draft", description="Commit an owner-approved health draft exactly once. For ChatGPT-authorized WELLNESS_CREATE drafts only, a server-side default-off opt-in permits a PENDING draft after the user explicitly approves the ChatGPT tool confirmation prompt. Never invoke without user confirmation. Update/delete and all other drafts still require PRP password approval. Requires matching OAuth scopes and bound PRP owner. Replays return the existing result.", annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=true,openWorldHint=false))
     public McpDraftService.Result confirmWellnessDraft(@McpToolParam(description="Exact health draft UUID",required=true) String draftId) {
         scopes.require("prp.wellness.write.confirm");
         var review=healthReview(draftId);
         scopes.require(McpDraftService.operationScope(review.kind()));
         return drafts.confirm(draftId);
+    }
+
+    /**
+     * Invoked only by the ChatGPT MCP Apps approval UI. The host must enforce
+     * _meta.ui.visibility=["app"]. The server independently enforces verified
+     * OAuth owner/client/scopes and the immutable draft state.
+     */
+    @McpTool(name="prp_chatgpt_wellness_approval",
+        description="APP-ONLY: approve or reject the exact pending health CREATE draft after a human clicks the embedded ChatGPT card; never model-visible.",
+        annotations=@McpTool.McpAnnotations(readOnlyHint=false,destructiveHint=true,idempotentHint=false,openWorldHint=false))
+    public McpDraftService.Approval chatgptWellnessApproval(
+            @McpToolParam(description="UUID of the displayed pending health CREATE draft",required=true) String draftId,
+            @McpToolParam(description="approve or reject",required=true) String decision) {
+        scopes.require("prp.wellness.write.confirm");
+        scopes.require("prp.wellness.write.create");
+        return drafts.approveFromChatgptUi(draftId, decision);
     }
 
     private static LocalDate optionalDate(String value) {
