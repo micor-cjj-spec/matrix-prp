@@ -62,6 +62,10 @@ matrix-prp:
   mcp:
     enabled: ${MATRIX_PRP_MCP_ENABLED:false}
     write-enabled: ${MATRIX_PRP_MCP_WRITE_ENABLED:false}
+    # ChatGPT MCP Apps approval is limited to owner-bound wellness CREATE drafts.
+    # Opt in with the exact production wellness-only mode; otherwise stay OFF.
+    # Emergency kill switch: MATRIX_PRP_MCP_CHATGPT_HEALTH_APPROVAL_UI_ENABLED=false.
+    chatgpt-health-approval-ui-enabled: ${MATRIX_PRP_MCP_CHATGPT_HEALTH_APPROVAL_UI_ENABLED:${matrix-prp.mcp.production-wellness-only:false}}
     # Optional first production task-only canary safety lock; does NOT approve deployment.
     # Requires exact PRP owner database, OAuth, task-only scopes, writes OFF and Flyway OFF.
     # Separate opt-in production health-only contract; never enabled by default.
