@@ -83,7 +83,7 @@ class McpGatewayTests {
         when(db.query(startsWith("SELECT updated_at"), any(RowMapper.class), eq(77L), eq(501L)))
             .thenReturn(List.of("revision"));
         when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status='CONSUMED'"),
-            any(), any(), any())).thenReturn(1);
+            any(), any(), any(), eq("APPROVED"))).thenReturn(1);
     }
 
     @Test void approvedDeleteRejectsChangedValues() throws Exception {
