@@ -63,7 +63,10 @@ class McpWellnessAppVisibilityTests {
         assertThat(resources).hasSize(1);
         var text = new String(getClass().getResourceAsStream("/mcp/wellness-approval.html").readAllBytes());
         assertThat(text).contains("prp_chatgpt_wellness_approval", "tools/call",
-            "审批并保存", "拒绝写入", "ui/notifications/tool-result");
-        assertThat(text).doesNotContain("window.fetch(", "localStorage", "Authorization:");
+            "审批并保存", "拒绝写入", "ui/notifications/tool-result",
+            "send('ui/initialize'", "protocolVersion: '2026-01-26'",
+            "method:'ui/notifications/initialized'");
+        assertThat(text).doesNotContain("send('initialize'", "method:'notifications/initialized'",
+            "window.fetch(", "localStorage", "Authorization:");
     }
 }
