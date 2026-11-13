@@ -61,6 +61,22 @@ const label = (kind: string) => ({ BREAKFAST: '早餐', LUNCH: '午餐', DINNER:
 const n = (x: string | number | null | undefined, digits = 0) => x == null ? '—' : Number(x).toFixed(digits)
 const total = (meal: Meal) => meal.items.reduce((sum, x) => sum + Number(x.calories), 0)
 const mealKinds = ['BREAKFAST', 'LUNCH', 'DINNER', 'SNACK']
+// A 0g snapshot on a manually estimated food means unknown weight, not zero intake.
+const portionText = (item: Meal['items'][number]) =>
+  item.grams == null || (item.foodId <= 0 && Number(item.grams) === 0)
+    ? '重量待确认'
+    : n(item.grams) + 'g'
+const nutritionCoverage = computed(() => {
+  const items = meals.value.flatMap(meal => meal.items)
+  const known = items.filter(item =>
+    item.proteinG != null && item.carbsG != null && item.fatG != null).length
+  return {
+    known,
+    total: items.length,
+    percent: items.length ? Math.round(known * 100 / items.length) : null,
+    complete: items.length > 0 && known === items.length,
+  }
+})
 
 async function loadDay() {
   loading.value = true
@@ -329,6 +345,27 @@ async function saveProfile() {
             <article class="tile"><span>运动时长</span><strong>{{ n(summary?.exerciseMinutes) }} <small>分钟</small></strong><p>消耗估算 {{ n(summary?.exerciseEstimatedKcal) }} kcal</p></article>
             <article class="tile"><span>最近体重</span><strong>{{ n(summary?.latestWeightKg, 1) }} <small>kg</small></strong><p>仅显示所选日期及之前的记录</p></article>
           </section>
+          <section class="panel nutrition-panel" aria-label="营养信息完整度">
+            <div class="panel-head">
+              <h2>营养分析</h2>
+              <el-tag size="small" :type="nutritionCoverage.complete ? 'success' : 'info'">
+                {{ nutritionCoverage.percent === null ? '暂无餐食数据' : '完整度 ' + nutritionCoverage.percent + '%' }}
+              </el-tag>
+            </div>
+            <p class="muted">仅统计已记录餐次。图片识别与外卖估算不能保证营养数据完整，未知数据不按 0 处理。</p>
+            <el-progress v-if="nutritionCoverage.percent !== null"
+              :percentage="nutritionCoverage.percent" :show-text="false" :stroke-width="8"
+              :aria-label="'营养素完整的食物条目 ' + nutritionCoverage.known + ' / ' + nutritionCoverage.total" />
+            <div class="nutrient-grid">
+              <div><span>蛋白质</span><strong>{{ n(summary?.proteinG, 1) }} <small>g</small></strong></div>
+              <div><span>碳水化合物</span><strong>{{ n(summary?.carbsG, 1) }} <small>g</small></strong></div>
+              <div><span>脂肪</span><strong>{{ n(summary?.fatG, 1) }} <small>g</small></strong></div>
+            </div>
+            <p v-if="nutritionCoverage.total && !nutritionCoverage.complete" class="coverage-tip">
+              {{ nutritionCoverage.total - nutritionCoverage.known }} 项食物缺少至少一种营养素，全天宏量营养素暂不能完整汇总。
+            </p>
+            <p v-else-if="!nutritionCoverage.total" class="muted">添加餐食后显示营养素统计与数据完整度。</p>
+          </section>
           <div class="actions">
             <el-button type="primary" @click="activeTab='ai'">📷 拍照 / AI 记录</el-button>
             <el-button @click="openMeal()">记录饮食</el-button>
@@ -339,7 +376,7 @@ async function saveProfile() {
             <div class="panel-head"><h2>{{ date }} 饮食记录</h2><el-button link type="primary" @click="activeTab='meals'">管理餐次</el-button></div>
             <div v-if="!meals.length" class="empty">当天还没有饮食记录，不代表摄入为零。</div>
             <div v-for="meal in meals" :key="meal.id" class="entry">
-              <div><b>{{ label(meal.mealType) }}</b><p>{{ meal.items.map(x => x.foodName + ' ' + n(x.grams) + 'g').join('、') }}</p></div>
+              <div><b>{{ label(meal.mealType) }}</b><p>{{ meal.items.map(x => x.foodName + ' · ' + portionText(x)).join('、') }}</p></div>
               <strong>{{ n(total(meal)) }} kcal</strong>
             </div>
           </section>
@@ -365,7 +402,10 @@ async function saveProfile() {
             <div v-if="!meals.length" class="empty">暂无记录</div>
             <div v-for="meal in meals" :key="meal.id" class="entry">
               <div class="grow"><strong>{{ label(meal.mealType) }} · {{ n(total(meal)) }} kcal</strong>
-                <p v-for="item in meal.items" :key="item.id">{{ item.foodName }} · {{ n(item.grams) }}g · {{ n(item.calories) }} kcal</p>
+                <p v-for="item in meal.items" :key="item.id">{{ item.foodName }} · {{ portionText(item) }} · {{ n(item.calories) }} kcal
+                    <span v-if="item.proteinG == null || item.carbsG == null || item.fatG == null" class="nutrient-unknown"> · 营养素未完整识别</span>
+                    <span v-else> · 蛋白质 {{ n(item.proteinG, 1) }}g / 碳水 {{ n(item.carbsG, 1) }}g / 脂肪 {{ n(item.fatG, 1) }}g</span>
+                  </p>
                 <p v-if="meal.note">{{ meal.note }}</p>
               </div>
               <div class="entry-actions"><el-button link type="primary" @click="openAiChange('meal',meal.id)">AI 变更</el-button>
@@ -568,6 +608,15 @@ async function saveProfile() {
 .form-panel{max-width:640px}.form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .food-row{display:flex;align-items:center;gap:9px;margin-bottom:10px}.food-row .el-select{flex:1;min-width:0}.food-row .el-input-number{width:140px}
 .meal-total{font-size:18px;font-weight:700;margin-top:18px}
+.nutrition-panel{background:var(--el-bg-color-page);border-radius:16px}
+.nutrition-panel .panel-head h2{margin:0}
+.nutrient-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
+.nutrient-grid>div{min-width:0;padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:12px;background:var(--el-bg-color);display:flex;flex-direction:column;gap:8px}
+.nutrient-grid span{font-size:12px;color:var(--el-text-color-secondary)}
+.nutrient-grid strong{font-size:20px;line-height:1.25;overflow-wrap:anywhere}
+.nutrient-grid strong small{font-size:12px;font-weight:400}
+.coverage-tip{margin:12px 0 0;font-size:12px;color:var(--el-color-warning-dark-2)}
+.nutrient-unknown{color:var(--el-text-color-secondary);font-size:12px}
 .weight-chart{width:100%;height:170px;background:var(--el-fill-color-lighter);border-radius:8px}
 .weight-labels{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--el-text-color-secondary);flex-wrap:wrap;margin-top:7px}.chips{display:flex;flex-wrap:wrap;gap:8px}.food-chip{cursor:pointer}
 @media(max-width:900px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -575,5 +624,6 @@ async function saveProfile() {
 .head h1{font-size:21px}.metric-grid{gap:8px}.tile{padding:12px;min-height:118px}.tile strong{font-size:20px}
 .panel{padding:14px}.entry{align-items:start;flex-wrap:wrap}.entry-actions{width:100%;justify-content:flex-start}
 .food-row{flex-wrap:wrap}.food-row .el-select{flex-basis:100%}.form-row{grid-template-columns:1fr}
+.nutrient-grid{grid-template-columns:1fr}.nutrient-grid>div{gap:4px;padding:10px}
 .bars{gap:3px}.bar-track{height:125px}}
 </style>
