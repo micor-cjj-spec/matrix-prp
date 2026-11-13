@@ -351,9 +351,15 @@ watch(activeTab, (next) => {
 })
 
 onUnmounted(() => {
+  // Discard both normal and private in-flight responses after route exit.
+  ++loadGeneration
   ++privateRequestGeneration
   privateOpen.value = false
   privateFacts.value = []
+  candidates.value = []
+  memories.value = []
+  records.value = []
+  context.value = []
 })
 
 onMounted(async () => {
