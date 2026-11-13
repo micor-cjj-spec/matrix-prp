@@ -5,7 +5,10 @@ const read=name=>readFileSync(new URL('../../../.github/workflows/'+name,import.
 test('all required CI and impact checks run on requirement integration PRs',()=>{
   for(const name of ['ci.yml','feature-impact.yml','prp-dev-collab-contract.yml']){
     const text=read(name)
-    assert.match(text,/pull_request:\s*\n\s*branches: \[main, 'integrate\/\*\*'\]/,name)
+    const filter=text.match(/(?:^|\n)\s*pull_request:\s*\n\s*branches:\s*\[([^\]\n]+)\]/)
+    assert.ok(filter,`${name} must define pull_request branches`)
+    const branches=filter[1].split(',').map(branch=>branch.trim().replace(/^['"]|['"]$/g,''))
+    assert.ok(branches.includes('main')&&branches.includes('integrate/**'),name)
     assert.doesNotMatch(text,/pull_request_target:/,name)
   }
   const contract=read('prp-dev-collab-contract.yml')
