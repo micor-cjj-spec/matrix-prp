@@ -54,6 +54,29 @@ class PersonalOntologyAssertionGuardTest {
     }
 
     @Test
+    void p0SkillLabelsRemainProvenancedLiterals() {
+        guard.requireValid(new PersonalOntologyAssertionGuard.Candidate(
+            PERSON, "7", DECLARES_SKILL, LITERAL, null, "Java",
+            USER_INPUT, null, null, null));
+        guard.requireValid(new PersonalOntologyAssertionGuard.Candidate(
+            GOAL, "6", NEEDS_SKILL, LITERAL, null, "Python",
+            USER_INPUT, null, null, null));
+        verify(references).requireOwned(PERSON, "7");
+        verify(references).requireOwned(GOAL, "6");
+        verifyNoMoreInteractions(references);
+    }
+
+    @Test
+    void p0LifeEventMustBeAnOwnedExistingRecord() {
+        guard.requireValid(new PersonalOntologyAssertionGuard.Candidate(
+            PERSON, "7", HAS_EVENT_RECORD, RECORD, "19", null,
+            EvidenceSource.RECORD, "19", null, null));
+        verify(references).requireOwned(PERSON, "7");
+        verify(references, times(2)).requireOwned(RECORD, "19");
+        verifyNoMoreInteractions(references);
+    }
+
+    @Test
     void rejectsWrongSemanticTypesBeforeAccessingRecords() {
         var wrong = new PersonalOntologyAssertionGuard.Candidate(
             GOAL, "6", PURSUES, PERSON, "7", null, USER_INPUT, null, null, null);
