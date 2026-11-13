@@ -8,6 +8,11 @@
       "reason": "Secret management is reserved for interactive settings UI"
     },
     {
+      "route": "DELETE /api/memory/{id}",
+      "status": "excluded",
+      "reason": "Private-memory permanent erasure requires an explicitly authenticated owner action and lifecycle cleanup; MCP writes stay disabled until separate T-006 draft and approval security review."
+    },
+    {
       "route": "DELETE /api/push/subscriptions/{id}",
       "status": "excluded",
       "reason": "Push device removal requires interactive device management"
@@ -82,6 +87,21 @@
       "route": "GET /api/mcp/identity",
       "status": "excluded",
       "reason": "Identity linking status is sensitive control-plane state"
+    },
+    {
+      "route": "GET /api/memory",
+      "status": "excluded",
+      "reason": "Personal confirmed memories are sensitive profile data; MCP read must wait for a separately consented prp.memory.read scope, per-source filtering, and T-006 tool-call coverage."
+    },
+    {
+      "route": "GET /api/memory/{id}",
+      "status": "excluded",
+      "reason": "Single memory record may contain sensitive/private provenance and unconfirmed claims; defer model-facing access pending explicit T-006 scope and owner-evidence audit."
+    },
+    {
+      "route": "GET /api/memory/candidates",
+      "status": "excluded",
+      "reason": "Unconfirmed AI or user candidate facts are private approval workflow state, not verified memories; never publish them to model-facing MCP tools by default."
     },
     {
       "route": "GET /api/push/subscriptions",
@@ -250,6 +270,26 @@
       "route": "POST /api/mcp/link",
       "status": "excluded",
       "reason": "OAuth account linking endpoint is an identity trust boundary"
+    },
+    {
+      "route": "POST /api/memory/{id}/confirm",
+      "status": "excluded",
+      "reason": "Human approval of personal memory must not be represented as a model tool; first-party confirmation UI only until an independently verified user-action channel exists."
+    },
+    {
+      "route": "POST /api/memory/{id}/invalidate",
+      "status": "excluded",
+      "reason": "Invalidating or revoking memories requires an authenticated owner action and audit; no autonomous model-side manipulation is permitted."
+    },
+    {
+      "route": "POST /api/memory/{id}/replacement",
+      "status": "excluded",
+      "reason": "Replacement of personal facts is a sensitive two-stage workflow; model tools must not replace or implicitly confirm private facts without the T-006 approval contract."
+    },
+    {
+      "route": "POST /api/memory/candidates",
+      "status": "excluded",
+      "reason": "Memory candidate writes require a separate model-scoped draft and immutable proposal review design; this authenticated first-party form route is excluded pending T-006."
     },
     {
       "route": "POST /api/push/subscriptions",
