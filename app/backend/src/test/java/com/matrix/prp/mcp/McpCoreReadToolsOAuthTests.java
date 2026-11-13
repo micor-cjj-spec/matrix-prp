@@ -132,7 +132,9 @@ class McpCoreReadToolsOAuthTests {
             .toList();
         when(wellness.goals()).thenReturn(goals);
         var g=rpc("prp_wellness_goals",Map.of());
-        assertThat(g.getResponse().getContentAsString()).contains("\"id\":20").doesNotContain("\"id\":25");
+        var goalText=json.readTree(g.getResponse().getContentAsString())
+            .path("result").path("content").get(0).path("text").asText();
+        assertThat(goalText).contains("\"id\":20").doesNotContain("\"id\":25");
         when(wellness.dishTemplates("noodles")).thenReturn(List.of(new DishTemplate(
             5L,"Synthetic store","Noodles","one bowl",1,
             new BigDecimal("520"),"AI_ESTIMATE","synthetic")));
