@@ -24,6 +24,7 @@ const memories = ref<PersonalMemory[]>([])
 const privateFacts = ref<PersonalMemory[]>([])
 const privateOpen = ref(false)
 const privateLoading = ref(false)
+let privateRequestGeneration = 0
 const records = ref<RecordItem[]>([])
 const timelineDomain = ref('life')
 const selectedGoalId = ref<number | null>(null)
@@ -71,15 +72,20 @@ function describeMemory(item: PersonalMemory) {
 // These fields are never fetched during page initialization or general refresh.
 async function togglePrivateMemories() {
   if (privateOpen.value) {
+    ++privateRequestGeneration
     privateOpen.value = false
     privateFacts.value = []
     return
   }
+  const generation = ++privateRequestGeneration
   privateLoading.value = true
   try {
-    privateFacts.value = await fetchPrivateMemories()
+    const result = await fetchPrivateMemories()
+    if (generation !== privateRequestGeneration || activeTab.value !== 'memory') return
+    privateFacts.value = result
     privateOpen.value = true
   } catch {
+    if (generation !== privateRequestGeneration || activeTab.value !== 'memory') return
     privateFacts.value = []
     ElMessage.error('受限记忆加载失败，请确认账号权限')
   } finally {
@@ -89,9 +95,14 @@ async function togglePrivateMemories() {
 
 async function refreshPrivateIfOpen() {
   if (!privateOpen.value || activeTab.value !== 'memory') return
+  const generation = privateRequestGeneration
   try {
-    privateFacts.value = await fetchPrivateMemories()
+    const result = await fetchPrivateMemories()
+    if (generation !== privateRequestGeneration || activeTab.value !== 'memory') return
+    privateFacts.value = result
   } catch {
+    if (generation !== privateRequestGeneration || activeTab.value !== 'memory') return
+    ++privateRequestGeneration
     privateFacts.value = []
     privateOpen.value = false
     ElMessage.error('受限记忆无法刷新，已收起内容')
@@ -124,6 +135,7 @@ async function loadData() {
     records.value = []
     context.value = []
     selectedGoalId.value = null
+    ++privateRequestGeneration
     privateFacts.value = []
     privateOpen.value = false
     serviceError.value = '数据暂时无法加载。请确认 Personal OS 后端版本已部署且账号已登录。'
@@ -310,12 +322,14 @@ async function saveCorrection() {
 // Private facts must not persist across tabs, even while the view remains mounted.
 watch(activeTab, (next) => {
   if (next !== 'memory') {
+    ++privateRequestGeneration
     privateOpen.value = false
     privateFacts.value = []
   }
 })
 
 onUnmounted(() => {
+  ++privateRequestGeneration
   privateOpen.value = false
   privateFacts.value = []
 })
