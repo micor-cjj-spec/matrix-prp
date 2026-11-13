@@ -160,4 +160,124 @@ class WellnessNutritionEvidenceTests {
             eq(71L),eq("IMAGE"),anyString(),anyString(),eq("ci/vision"));
         verify(db,never()).update(contains("prp_wellness_foods"),any(Object[].class));
     }
+
+    @Test void deliveryScreenshotPreservesPurchasedQuantityWithoutPersonalOrderData() throws Exception {
+        var context = json.readTree("""
+            {
+              "kind":"ORDER_SCREENSHOT",
+              "merchantName":"好味水饺",
+              "lineItems":[{
+                 "name":"鲜肉水饺",
+                 "purchasedQuantity":2,
+                 "portionLabel":"18个/份",
+                 "deliveryAddress":"某省某市XX路",
+                 "phone":"13800138000",
+                 "orderNo":"AB123456789012",
+                 "price":35.8
+              }],
+              "originalOcr":"张某 13800138000 某市某区"
+            }
+            """);
+        Map<String,Object> verified = Map.of("items",List.of(Map.of(
+            "name","鲜肉水饺","grams",BigDecimal.ZERO)));
+        var snap=WellnessNutritionEvidence.initialSnapshot(verified,context,true);
+        var raw=json.writeValueAsString(snap);
+        assertThat(raw).contains("ORDER_SCREENSHOT","好味水饺","鲜肉水饺",
+            "purchasedQuantity","2","18个/份");
+        assertThat(raw).doesNotContain("deliveryAddress","phone","13800138000",
+            "orderNo","AB123456789012","originalOcr","某市某区","price");
+        assertThat(json.valueToTree(snap).path("sourceContext").path("lineItems")
+            .get(0).path("purchasedQuantity").intValue()).isEqualTo(2);
+        // The image is not the user's meal confirmation: purchasedQuantity
+        // never creates a confirmed gram/serving count automatically.
+        assertThat(json.valueToTree(snap).path("items").get(0)
+            .path("estimatedGrams").isNull()).isTrue();
+    }
+
+    @Test void nutritionLabelIsUnverifiedCandidateNotConfirmedNutrition() throws Exception {
+        var model = json.readTree("""
+            {"kind":"NUTRITION_LABEL","lineItems":[{
+               "name":"低脂牛奶",
+               "packageGrams":250,
+               "labelPer100g":{"caloriesKcal":55,"proteinG":3.2,
+                   "carbsG":5,"fatG":1.2,"sodiumMg":60,
+                   "fakeMetric":9876},
+               "rawOcrText":"13800138000 路口"
+            }],"imageBase64":"LEAK"}
+            """);
+        var snap=WellnessNutritionEvidence.initialSnapshot(
+            Map.of("items",List.of(Map.of("name","低脂牛奶","grams",0))),
+            model,true);
+        var safe=json.writeValueAsString(snap);
+        assertThat(safe).contains("NUTRITION_LABEL","labelPer100gCandidate",
+            "packageGrams","labelVerified");
+        assertThat(safe).doesNotContain("LEAK","fakeMetric","rawOcrText","路口");
+        var sourceLabel=json.valueToTree(snap).path("sourceContext")
+            .path("lineItems").get(0);
+        assertThat(sourceLabel.path("labelVerified").asBoolean(true)).isFalse();
+        assertThat(sourceLabel.path("labelPer100gCandidate")
+            .path("proteinG").decimalValue()).isEqualByComparingTo("3.2");
+
+        JdbcTemplate db=mock(JdbcTemplate.class);
+        var meal=new Meal(105L, LocalDate.of(2026,11,13), "BREAKFAST", null,
+            List.of(new MealItem(106L,0L,"低脂牛奶",BigDecimal.ZERO,
+                new BigDecimal("130"),null,null,null,true)));
+        WellnessNutritionEvidence.saveConfirmed(db,json,meal,json.valueToTree(snap),"ci/vision");
+        var rawCaptor=org.mockito.ArgumentCaptor.forClass(String.class);
+        var derivedCaptor=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(db).update(startsWith("INSERT INTO prp_wellness_meal_analyses"),
+            eq(105L),eq("IMAGE"),rawCaptor.capture(),derivedCaptor.capture(),eq("ci/vision"));
+        assertThat(json.readTree(rawCaptor.getValue()).path("sourceContext")
+            .path("lineItems").get(0).path("labelPer100gCandidate")
+            .path("proteinG").decimalValue()).isEqualByComparingTo("3.2");
+        assertThat(json.readTree(derivedCaptor.getValue()).path("items")
+            .get(0).path("proteinG").isNull()).isTrue();
+    }
+
+    @Test void oversizeOrSensitiveModelBusinessFieldsAreDiscarded() throws Exception {
+        var model=json.readTree("""
+            {"kind":"ORDER_SCREENSHOT","merchantName":"李某的配送地址某街道",
+             "lineItems":[
+               {"name":"米饭","purchasedQuantity":2,"portionLabel":"13800138000"},
+               {"name":"手机号13800138000","purchasedQuantity":99999}
+             ]}
+            """);
+        var snap=WellnessNutritionEvidence.initialSnapshot(
+            Map.of("items",List.of(Map.of("name","米饭","grams",0))),model,true);
+        var source=json.valueToTree(snap).path("sourceContext");
+        assertThat(source.has("merchantName")).isFalse();
+        assertThat(source.path("lineItems").size()).isEqualTo(1);
+        assertThat(source.path("lineItems").get(0).has("portionLabel")).isFalse();
+        assertThat(source.path("lineItems").get(0).path("purchasedQuantity").asInt())
+            .isEqualTo(2);
+    }
+
+    @Test void purchasedTwoPortionsOnlyOneConfirmedPortionCountsInNutrition() throws Exception {
+        var model=json.readTree("""
+            {"kind":"ORDER_SCREENSHOT","merchantName":"张记水饺",
+              "lineItems":[{"name":"水饺","purchasedQuantity":2,"portionLabel":"18个/份"}]}
+            """);
+        var extracted=json.valueToTree(WellnessNutritionEvidence.initialSnapshot(
+            Map.of("items",List.of(Map.of("name","水饺","grams",BigDecimal.ZERO))),
+            model,true));
+        JdbcTemplate db=mock(JdbcTemplate.class);
+        // User confirmed eating ONE serving. Actual snapshot is authoritative.
+        var confirmed=new Meal(301L,LocalDate.of(2026,11,13),"LUNCH",null,
+            List.of(new MealItem(302L,0L,"水饺",BigDecimal.ZERO,
+                new BigDecimal("350"),null,null,null,true)));
+        WellnessNutritionEvidence.saveConfirmed(db,json,confirmed,extracted,"ci/model");
+        var raw=org.mockito.ArgumentCaptor.forClass(String.class);
+        var analysis=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(db).update(startsWith("INSERT INTO prp_wellness_meal_analyses"),
+            eq(301L),eq("IMAGE"),raw.capture(),analysis.capture(),eq("ci/model"));
+        assertThat(json.readTree(raw.getValue()).path("sourceContext").path("lineItems")
+                .get(0).path("purchasedQuantity").asInt()).isEqualTo(2);
+        var finalItems=json.readTree(analysis.getValue()).path("items");
+        assertThat(finalItems.size()).isEqualTo(1);
+        assertThat(finalItems.get(0).path("caloriesKcal").decimalValue())
+            .isEqualByComparingTo("350");
+        assertThat(analysis.getValue()).doesNotContain("purchasedQuantity","18个/份");
+        verify(db,times(1)).update(startsWith("INSERT INTO prp_wellness_meal_item_nutrients"),
+            any(Object[].class));
+    }
 }

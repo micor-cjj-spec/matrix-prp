@@ -2,6 +2,7 @@ package com.matrix.prp.wellness;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.matrix.prp.wellness.WellnessModels.Meal;
 import com.matrix.prp.wellness.WellnessModels.MealItem;
@@ -36,6 +37,17 @@ final class WellnessNutritionEvidence {
      */
     static Map<String,Object> initialSnapshot(Map<String,Object> verified,
                                               boolean imageProvided) {
+        return initialSnapshot(verified, null, imageProvided);
+    }
+
+    /**
+     * Optional model sourceContext is an untrusted suggestion. Copy only fields
+     * strictly required for a food/order/label business record; never keep raw
+     * OCR blocks, personal delivery data or model-provided macro totals as facts.
+     */
+    static Map<String,Object> initialSnapshot(Map<String,Object> verified,
+                                              JsonNode modelContext,
+                                              boolean imageProvided) {
         Map<String,Object> result = new LinkedHashMap<>();
         result.put("schemaVersion", 1);
         result.put("sourceType", imageProvided ? "IMAGE" : "TEXT");
@@ -54,6 +66,10 @@ final class WellnessNutritionEvidence {
             }
         }
         result.put("items", items);
+        if (imageProvided && modelContext != null && modelContext.isObject()) {
+            Map<String,Object> context=safeSourceContext(modelContext);
+            if(!context.isEmpty())result.put("sourceContext",context);
+        }
         return result;
     }
 
@@ -66,6 +82,79 @@ final class WellnessNutritionEvidence {
             return REDACTED;
         }
         return normalized;
+    }
+
+    static Map<String,Object> safeSourceContext(JsonNode node) {
+        if (node == null || !node.isObject()) return Map.of();
+        String kind = node.path("kind").asText("");
+        if (!List.of("FOOD_PHOTO","ORDER_SCREENSHOT","NUTRITION_LABEL").contains(kind))
+            return Map.of();
+
+        Map<String,Object> context = new LinkedHashMap<>();
+        context.put("kind",kind);
+        if ("ORDER_SCREENSHOT".equals(kind)) {
+            String merchant = safeBusinessText(node.path("merchantName").asText(""),100);
+            if (merchant != null) context.put("merchantName",merchant);
+        }
+        JsonNode rows = node.path("lineItems");
+        List<Map<String,Object>> sourceItems = new ArrayList<>();
+        if (rows.isArray()) {
+            for (JsonNode entry : rows) {
+                if (sourceItems.size() >= 30) break;
+                if (!entry.isObject()) continue;
+                String name = safeFoodName(entry.path("name").asText(""));
+                if (REDACTED.equals(name)) continue;
+                Map<String,Object> clean = new LinkedHashMap<>();
+                clean.put("name",name);
+                if ("ORDER_SCREENSHOT".equals(kind)) {
+                    BigDecimal purchased=positiveCandidate(entry.path("purchasedQuantity"),100);
+                    if (purchased!=null) clean.put("purchasedQuantity",purchased);
+                    String portion=safeBusinessText(entry.path("portionLabel").asText(""),50);
+                    if (portion!=null)clean.put("portionLabel",portion);
+                }
+                if ("NUTRITION_LABEL".equals(kind)) {
+                    BigDecimal grams=positiveCandidate(entry.path("packageGrams"),10000);
+                    if (grams!=null)clean.put("packageGrams",grams);
+                    JsonNode label=entry.path("labelPer100g");
+                    if (!label.isObject()) label=entry.path("labelPer100gCandidate");
+                    if (label.isObject()) {
+                        Map<String,Object> nutrition = new LinkedHashMap<>();
+                        for (String field : List.of("caloriesKcal","proteinG","carbsG",
+                                "fatG","sugarG","fiberG","sodiumMg")) {
+                            int limit="caloriesKcal".equals(field)?900:
+                                "sodiumMg".equals(field)?50000:100;
+                            BigDecimal number=boundedCandidate(label.path(field),limit);
+                            if(number!=null)nutrition.put(field,number);
+                        }
+                        if(!nutrition.isEmpty()){
+                            clean.put("labelPer100gCandidate",nutrition);
+                            clean.put("labelVerified",false);
+                        }
+                    }
+                }
+                sourceItems.add(clean);
+            }
+        }
+        if (!sourceItems.isEmpty()) context.put("lineItems",sourceItems);
+        // No user/OCR text fields ever flow to persistence.
+        return context;
+    }
+
+    private static String safeBusinessText(String input,int maxLength){
+        String value=input.strip();
+        if(value.isEmpty() || value.length()>maxLength || SENSITIVE.matcher(value).find()
+                || value.chars().anyMatch(Character::isISOControl)) return null;
+        return value;
+    }
+
+    private static BigDecimal boundedCandidate(JsonNode node,int max){
+        if(!node.isNumber())return null;
+        BigDecimal n=safeDecimal(node.decimalValue());
+        return n!=null && n.compareTo(BigDecimal.valueOf(max))<=0?n:null;
+    }
+    private static BigDecimal positiveCandidate(JsonNode node,int max){
+        BigDecimal n=boundedCandidate(node,max);
+        return n!=null && n.signum()>0?n:null;
     }
 
     private static BigDecimal safeDecimal(Object value) {
@@ -110,6 +199,10 @@ final class WellnessNutritionEvidence {
             initialItems.add(entry);
         }
         sanitizedInitial.put("items", initialItems);
+        if ("IMAGE".equals(kind) && immutableInitial.path("sourceContext").isObject()) {
+            Map<String,Object> context=safeSourceContext(immutableInitial.path("sourceContext"));
+            if(!context.isEmpty())sanitizedInitial.put("sourceContext",context);
+        }
 
         Map<String,Object> analysis = new LinkedHashMap<>();
         analysis.put("schemaVersion", 1);
