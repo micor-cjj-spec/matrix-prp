@@ -19,6 +19,10 @@ public final class PersonalMemoryController {
     @GetMapping public ApiResponse<List<PersonalMemoryService.Memory>> list() {
         return ApiResponse.success(service.listCurrent());
     }
+    @GetMapping("/private")
+    public ApiResponse<List<PersonalMemoryService.Memory>> privateFacts() {
+        return ApiResponse.success(service.listPrivate());
+    }
     @GetMapping("/candidates") public ApiResponse<List<PersonalMemoryService.Memory>> pending() {
         return ApiResponse.success(service.pending());
     }
