@@ -34,7 +34,7 @@ class PersonalMemoryServiceTests {
         user(7);
         var invalid=new PersonalMemoryService.Proposed(
             PERSON,"7",HAS_BACKGROUND,LITERAL,null,"  ",USER_INPUT,null,
-            null,null,"memory_req_0001");
+            null,null,null,"memory_req_0001");
         assertThatThrownBy(()->service.propose(invalid))
             .isInstanceOf(ResponseStatusException.class)
             .satisfies(e->assertThat(((ResponseStatusException)e).getStatusCode())
@@ -46,7 +46,7 @@ class PersonalMemoryServiceTests {
         user(7);
         var proposed=new PersonalMemoryService.Proposed(
             PERSON,"7",HAS_EVENT_RECORD,RECORD,"99",null,EvidenceSource.RECORD,"99",
-            null,null,"memory_req_0002");
+            null,null,null,"memory_req_0002");
         doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND))
             .when(references).requireOwned(RECORD,"99");
         assertThatThrownBy(()->service.propose(proposed))
@@ -62,6 +62,20 @@ class PersonalMemoryServiceTests {
             .satisfies(e->assertThat(((ResponseStatusException)e).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED));
         verifyNoInteractions(db);
+    }
+
+    @Test void unclassifiedMemoriesFailClosedToRestrictedVisibility() {
+        var unspecified = new PersonalMemoryService.Proposed(
+            PERSON,"7",DECLARES_SKILL,LITERAL,null,"Java",USER_INPUT,null,
+            null,null,null,"memory_req_0003");
+        assertThat(PersonalMemoryService.effectiveSensitivity(unspecified))
+            .isEqualTo(com.matrix.prp.ontology.PersonalOntology.Sensitivity.RESTRICTED);
+        var explicit = new PersonalMemoryService.Proposed(
+            PERSON,"7",DECLARES_SKILL,LITERAL,null,"Java",USER_INPUT,null,
+            null,null,com.matrix.prp.ontology.PersonalOntology.Sensitivity.NORMAL,
+            "memory_req_0004");
+        assertThat(PersonalMemoryService.effectiveSensitivity(explicit))
+            .isEqualTo(com.matrix.prp.ontology.PersonalOntology.Sensitivity.NORMAL);
     }
 
     @Test void missingOrNegativeIdRejectedWithoutDatabaseAccess() {
