@@ -1,0 +1,50 @@
+-- Personal OS V0.5: two empty owner-scoped tables only; no source data is copied.
+CREATE TABLE prp_goals (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  domain VARCHAR(64) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'PLANNED',
+  priority VARCHAR(16) NOT NULL DEFAULT 'medium',
+  success_criteria TEXT NULL,
+  target_date DATE NULL,
+  request_key VARCHAR(80) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_prp_goals_user_request (user_id,request_key),
+  INDEX idx_prp_goals_user_status_due (user_id,status,deleted,target_date),
+  CONSTRAINT fk_prp_goals_owner FOREIGN KEY (user_id) REFERENCES prp_users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE prp_personal_assertions (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  subject_type VARCHAR(32) NOT NULL,
+  subject_ref VARCHAR(128) NOT NULL,
+  predicate VARCHAR(64) NOT NULL,
+  object_type VARCHAR(32) NOT NULL,
+  object_ref VARCHAR(128) NULL,
+  object_value TEXT NULL,
+  source_type VARCHAR(32) NULL,
+  source_ref VARCHAR(128) NULL,
+  origin VARCHAR(24) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+  sensitivity VARCHAR(16) NOT NULL DEFAULT 'NORMAL',
+  valid_from DATE NULL,
+  valid_to DATE NULL,
+  supersedes_id BIGINT NULL,
+  request_key VARCHAR(80) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_prp_assertions_user_request (user_id,request_key),
+  UNIQUE KEY uk_prp_assertions_user_id (user_id,id),
+  INDEX idx_prp_assertions_subject (user_id,subject_type,subject_ref,status),
+  INDEX idx_prp_assertions_object (user_id,object_type,object_ref,status),
+  CONSTRAINT fk_prp_assertions_owner FOREIGN KEY (user_id) REFERENCES prp_users(id),
+  CONSTRAINT fk_prp_assertions_supersedes FOREIGN KEY (user_id,supersedes_id)
+    REFERENCES prp_personal_assertions(user_id,id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
