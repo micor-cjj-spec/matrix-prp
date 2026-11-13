@@ -31,7 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @Service
 @Profile("!test")
-public final class PersonalMemoryService {
+public class PersonalMemoryService {
     public record Proposed(NodeType subjectType, String subjectRef, Relation predicate,
                            NodeType objectType, String objectRef, String objectValue,
                            EvidenceSource sourceType, String sourceRef,
