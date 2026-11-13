@@ -18,6 +18,13 @@ public final class PersonalOntology {
 
     public enum Relation {
         PURSUES(NodeType.PERSON, NodeType.GOAL),
+        // P0 fallback: self-reported skills are user-confirmed literals,
+        // not independently verified SKILL nodes.
+        DECLARES_SKILL(NodeType.PERSON, NodeType.LITERAL),
+        NEEDS_SKILL(NodeType.GOAL, NodeType.LITERAL),
+        HAS_EVENT_RECORD(NodeType.PERSON, NodeType.RECORD),
+        USES_RESOURCE_RECORD(NodeType.GOAL, NodeType.RECORD),
+        // Reserved for verified entity IDs in a later phase.
         HAS_SKILL(NodeType.PERSON, NodeType.SKILL),
         REQUIRES(NodeType.GOAL, NodeType.SKILL),
         DEMONSTRATES(NodeType.EVENT, NodeType.SKILL),
