@@ -1,0 +1,117 @@
+{
+  "status": "REVIEW_ONLY_NOT_AUTHORIZED_NOT_IMPLEMENTED",
+  "target": "existing-production-prp-task-store",
+  "candidate_endpoint": {
+    "method": "GET",
+    "path": "/internal/mcp/tasks",
+    "public_ingress": false,
+    "allowed_hosts": "explicit-private-approved-peer-only",
+    "allowed_methods": [
+      "GET"
+    ],
+    "request_parameters": {
+      "status": {
+        "optional": true,
+        "allowed": [
+          "todo",
+          "in_progress",
+          "done",
+          "canceled"
+        ]
+      },
+      "limit": {
+        "required": false,
+        "default": 20,
+        "min": 1,
+        "max": 20
+      }
+    },
+    "forbidden_inputs": [
+      "userId",
+      "ownerId",
+      "X-User-Id",
+      "X-PRP-Owner",
+      "X-Forwarded-User",
+      "database-url",
+      "prp-jwt-from-chat",
+      "mcp-tool-userId"
+    ],
+    "max_records": 20,
+    "outbound_db_connection": false,
+    "responses": {
+      "200": "only currently approved authenticated owner's selected task records",
+      "401": "missing, invalid, expired or replayed delegated identity",
+      "403": "service or owner consent lacks prp.tasks.read; disabled or revoked",
+      "404": "never distinguish other-owner IDs",
+      "405": "all methods other than GET"
+    }
+  },
+  "authentication": {
+    "service_peer": "mutual TLS or equivalent separately approved workload-bound authentication",
+    "delegation": "producer-verified user-bound, audience- and scope-bound, short-lived OBO assertion, not a raw ChatGPT/user PRP JWT",
+    "issuer": "explicit trusted issuer configured producer-side",
+    "audience": "exactly production task-read producer endpoint",
+    "subject": "verified production PRP owner mapping established under producer owner consent",
+    "verified_external_identity": [
+      "keycloak_issuer",
+      "keycloak_subject",
+      "verified_mcp_client_id"
+    ],
+    "scope": "prp.tasks.read",
+    "nonce_jti": "short-expiry anti-replay where required by approved design",
+    "consent_revocation": "rechecked by producer on every read",
+    "no_client_supplied_prp_user_id": true,
+    "fail_closed": true
+  },
+  "data": {
+    "owner_filter_source": "CurrentUser.id() after producer-side verified delegated principal",
+    "query": "TaskService.listLimited(new TaskFilter(status,null,null,null),20)",
+    "authoritative_producer_repository": "MyBatisTaskRepository.buildFilterQuery.eq(TaskEntity::getUserId,CurrentUser.id())",
+    "fields": [
+      "id",
+      "moduleCode",
+      "title",
+      "description",
+      "priority",
+      "status",
+      "dueDate",
+      "createdAt",
+      "completedAt"
+    ],
+    "never_return": [
+      "userId",
+      "username",
+      "passwordHash",
+      "finance",
+      "wellness",
+      "writeCredentials"
+    ],
+    "empty_or_wrong_owner": "empty or denied; no fallback to service owner"
+  },
+  "transport": {
+    "mcp_outbound": "only exact allowlisted internal task-read endpoint; no user-configured URL, redirects or arbitrary Host",
+    "no_direct_mysql_cross_connection": true,
+    "no_generic_api_proxy": true,
+    "mcp_write_disabled": true,
+    "feature_default_off": true,
+    "no_active_ingress_change": true
+  },
+  "review_gates": [
+    "G0-C explicit producer data-owner consent and protected review",
+    "external issuer-subject verified and tied to production PRP owner at producer",
+    "non-public service peer authentication and trust rotation",
+    "producer-side no-user-supplied-owner negative tests",
+    "cross-user owner and revoked/disabled account denial",
+    "20 item maximum and field minimization",
+    "no public /api/** or /internal/** Nginx wildcard",
+    "no stage/prod mysql sharing or token copying",
+    "real ChatGPT clientId verified on resource",
+    "independent G0-B/B2 Keycloak/ingress release approval"
+  ],
+  "authority": {
+    "github_ci_can_approve": false,
+    "deployment_permitted": false,
+    "g0_b2": "NO_GO",
+    "real_chatgpt_tasks": "NOT_CONNECTED"
+  }
+}

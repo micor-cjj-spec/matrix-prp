@@ -1,0 +1,32 @@
+name: PRP release backup file-mode contract (offline only)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - "app/deploy/approved/prp-release.py"
+      - "app/deploy/server-release.py"
+      - "app/deploy/test_release_backup_file_mode.py"
+      - ".github/workflows/prp-release-private-backup-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  private-backup-contract:
+    name: No production access; synthetic umask and overwrite tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Compile both release scripts and run isolated dump() AST tests
+        run: |
+          set -Eeuo pipefail
+          python3 -m py_compile app/deploy/approved/prp-release.py app/deploy/server-release.py app/deploy/test_release_backup_file_mode.py
+          python3 -m unittest discover -s app/deploy -p test_release_backup_file_mode.py -v
+          echo 'OFFLINE_RELEASE_BACKUP_DUMP_PRIVATE_NO_OVERWRITE=YES'
+          echo 'NO_PRODUCTION_DB_OR_BACKUP_ACCESS=YES'

@@ -24,6 +24,11 @@ public class MyBatisTaskRepository implements TaskRepository {
     }
 
     @Override
+    public TaskItem get(long id) {
+        return findById(id).toItem();
+    }
+
+    @Override
     public List<TaskItem> list() {
         return list(new TaskFilter(null, null, null, null));
     }

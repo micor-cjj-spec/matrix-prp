@@ -1,0 +1,41 @@
+name: PRP MCP public unauthenticated challenge check (no secrets)
+
+on:
+  push:
+    branches:
+      - test/mcp-authcode-privatejwt-refresh-20261024
+    paths:
+      - ".github/workflows/mcp-public-unauthenticated-challenge-readonly.yml"
+      - "app/deploy/mcp-oauth/public_route_preflight.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unauthenticated-challenge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require exact MCP resource metadata and unauthenticated 401
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != true ||
+                "${RUNNER_OS:-}" != Linux ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            echo CI_RUNNER_ONLY >&2
+            exit 2
+          fi
+          # Existing reviewed script: exactly GET PRM + bearer-less
+          # POST initialize, no redirect, strict TLS, no proxy, no
+          # token/auth code, no user identity, no Keycloak Admin API.
+          python3 -B app/deploy/mcp-oauth/public_route_preflight.py \
+            --resource https://prp-test.micor.top/api/mcp \
+            --issuer https://auth-test.micor.top/realms/prp-mcp
+          echo PUBLIC_UNAUTHENTICATED_401_CHALLENGE=PASS
+          echo REAL_USER_OAUTH_AND_TASKS_VERIFIED=NO
+          echo G0_B2_DEPLOYMENT_ALLOWED=NO

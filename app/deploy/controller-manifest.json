@@ -16,7 +16,7 @@
     "effective_sshd_sha256": "251897dfd75f68eba241ed7f541d0ef145345b840c97caf97ec009cc3f3cffc4",
     "forced_command": "/usr/local/bin/prp-deploy-gateway",
     "gateway_sha256": "d4743a9b7df77e10968bc8e5a94f2676e2c362a50d55ca0203ed88d85708b10b",
-    "policy_files_sha256": "3e25734440b1ec329379d664f99ea506ff1a4e32fb7db6b26a0a980c06d29a6b",
+    "policy_files_sha256": "d894b6616980757e664876308858d6fc532991701b629234ff14b5caf5933c22",
     "subsystem_command": "/usr/lib/openssh/sftp-server"
   },
   "ssh_policy_review": {
