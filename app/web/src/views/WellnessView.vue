@@ -673,7 +673,7 @@ async function saveProfile() {
                   <el-input-number v-model="labelReview.consumedGrams" :min="0.1" :max="3000" :precision="2" />
                 </label>
                 <label>热量（kcal/100g）
-                  <el-input-number v-model="labelReview.caloriesPer100g" :min="0.01" :max="900" :precision="2" />
+                  <el-input-number v-model="labelReview.caloriesPer100g" :min="0" :max="900" :precision="2" />
                 </label>
                 <label>蛋白质（g/100g）
                   <el-input-number v-model="labelReview.proteinPer100g" :min="0" :max="100" :precision="2" />
