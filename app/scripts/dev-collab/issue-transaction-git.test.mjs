@@ -146,16 +146,29 @@ test('isolated Git: owner probe verifies App scope without mutating protected st
  }finally{f.dispose()}
 })
 
-test('isolated bare Git: owner issue atomically claims, repeat is idempotent and stale claim rejects',
- {timeout:40000},()=>{
+test('isolated Git: live owner claim cannot consume fixed V0 migration SHA',
+ {timeout:30000},()=>{
  const f=setup()
  try{
+  const original=f.head()
+  const rejected=f.execute()
+  assert.notEqual(rejected.status,0)
+  assert.match(rejected.stderr,/ISSUE_MIGRATE_V1_FIRST/)
+  assert.equal(f.head(),original)
+  assert.equal(f.snapshot().version,0)
+ }finally{f.dispose()}
+})
+test('isolated bare Git: owner issue atomically claims, repeat is idempotent and stale claim rejects',
+ {timeout:40000},()=>{
+ const f=setup({v1:true})
+ try{
+  f.prepare(request(undefined,1))
   const first=f.execute()
   assert.equal(first.status,0,first.stderr)
   assert.match(first.stdout,/PRP_COLLAB_ISSUE_SUCCESS=999/)
   assert.notEqual(f.head(),f.initialHead)
   const s=f.snapshot()
-  assert.equal(s.version,1)
+  assert.equal(s.version,2)
   assert.equal(s.tasks[0].claim.worker_id,'chat-A')
   const oldClaim=s.tasks[0].claim.claim_id
   const checkpoint={summary:'Committed work from the original GPT session',
@@ -166,7 +179,7 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
    task_id:'T-001',worker_id:'chat-A'}
   f.prepare({...requestBase,action:'checkpoint',
    request_id:'22222222-2222-4222-8222-222222222222',
-   expected_version:1,claim_id:oldClaim,checkpoint})
+   expected_version:2,claim_id:oldClaim,checkpoint})
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const checkpointRun=f.execute()
   assert.equal(checkpointRun.status,0,checkpointRun.stderr)
@@ -174,46 +187,46 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
   assert.equal(f.snapshot().tasks[0].checkpoint.origin,'claimant')
   f.prepare({...requestBase,action:'handoff',
    request_id:'33333333-3333-4333-8333-333333333333',
-   expected_version:2,claim_id:oldClaim,new_worker_id:'chat-B',
+   expected_version:3,claim_id:oldClaim,new_worker_id:'chat-B',
    expected_head_sha:f.checkpointSha,note:'Continue in a fresh GPT conversation'})
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const handoff=f.execute()
   assert.equal(handoff.status,0,handoff.stderr)
   const transferred=f.snapshot()
-  assert.equal(transferred.version,3)
+  assert.equal(transferred.version,4)
   assert.equal(transferred.tasks[0].claim.worker_id,'chat-B')
   assert.equal(transferred.tasks[0].claim.generation,2)
   const newClaim=transferred.tasks[0].claim.claim_id
   f.prepare({...requestBase,action:'start',
    request_id:'44444444-4444-4444-8444-444444444444',
-   expected_version:3,claim_id:oldClaim})
+   expected_version:4,claim_id:oldClaim})
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const oldChat=f.execute()
   assert.notEqual(oldChat.status,0)
   assert.match(oldChat.stderr,/STALE_OR_FOREIGN_CLAIM/)
-  assert.equal(f.snapshot().version,3)
+  assert.equal(f.snapshot().version,4)
   f.prepare({...requestBase,worker_id:'chat-B',action:'start',
    request_id:'55555555-5555-4555-8555-555555555555',
-   expected_version:3,claim_id:newClaim})
+   expected_version:4,claim_id:newClaim})
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const newChat=f.execute()
   assert.equal(newChat.status,0,newChat.stderr)
   assert.equal(f.snapshot().tasks[0].status,'IN_PROGRESS')
   const manifest={schema_version:1,requirement_id:'REQ-20261031-001',
-   task_id:'T-002',title:'Add dashboard filtering',depends_on:['T-001'],
+   task_id:'T-010',title:'Add dashboard filtering',depends_on:['T-001'],
    allowed_paths:['app/web/src/']}
   f.prepareTaskIssue(manifest)
-  f.prepare({...requestBase,action:'register_task',task_id:'T-002',
+  f.prepare({...requestBase,action:'register_task',task_id:'T-010',
    request_id:'66666666-6666-4666-8666-666666666666',
-   expected_version:4,issue_number:1000,title:manifest.title,
+   expected_version:5,issue_number:1000,title:manifest.title,
    depends_on:manifest.depends_on,allowed_paths:manifest.allowed_paths})
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
   const beforeRegister=f.head()
   const registered=f.execute()
-  assert.notEqual(registered.status,0)
-  assert.match(registered.stderr,/TASK_REGISTRATION_REQUIRES_V1/)
-  assert.equal(f.head(),beforeRegister)
-  assert.equal(f.snapshot().version,4)
+  assert.equal(registered.status,0,registered.stderr)
+  assert.equal(f.snapshot().tasks.find(t=>t.task_id==='T-010')?.status,'READY')
+  assert.notEqual(f.head(),beforeRegister)
+  assert.equal(f.snapshot().version,6)
   const prev=f.head()
   f.prepare(request('77777777-7777-4777-8777-777777777777',0))
   rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})

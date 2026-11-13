@@ -40,6 +40,18 @@ export function verifyTaskIssue(issue,validated){
  return true
 }
 
+// A one-shot V0->V1 migration is pinned to its original pristine V0 SHA.
+// Do not let a live task write invalidate that migration before approval.
+export function requireMigratedLiveState(snapshot) {
+ validateSnapshot(snapshot)
+ if(snapshot.requirement_id==='REQ-20261031-001'){
+  const seed=[['T-006',141],['T-007',142],['T-008',143],['T-009',146]]
+  check(snapshot.version>=1 && seed.every(([id,issue])=>
+    snapshot.tasks.some(t=>t.task_id===id&&t.issue_number===issue)),
+    'ISSUE_MIGRATE_V1_FIRST')
+ }
+}
+
 export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>false){
  validateSnapshot(snapshot)
  const {command,expected_version,actor}=validated
@@ -159,6 +171,7 @@ async function main(){
  const path='requirements/'+validated.command.requirement_id+'.json'
  const file=join(tmp,path)
  const before=JSON.parse(readFileSync(file,'utf8'))
+ requireMigratedLiveState(before)
  // A successfully recorded registration is immutable in the state ledger.
  // Replays must not depend on the mutable Task Issue body still being present.
  if(validated.command.type==='register_task' &&

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
-import {applyAuthenticatedIssue,redactedReceipt,verifyTaskIssue} from './issue-transaction.mjs'
+import {applyAuthenticatedIssue,redactedReceipt,verifyTaskIssue,requireMigratedLiveState} from './issue-transaction.mjs'
 import {validateIssueEvent} from './issue-ingress.mjs'
 const sha='a'.repeat(40),req='REQ-20261031-001'
 const uuid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -26,6 +26,15 @@ const v=(action,command={},version=0)=>{
  return {expected_version:version,actor:'micor-cjj-spec',
   recoveryAuthorized:action==='takeover',command:value}
 }
+test('live Issue writes require reviewed V1 seed, preserving fixed V0 migration SHA',()=>{
+ assert.throws(()=>requireMigratedLiveState(snap()),
+  e=>e.code==='ISSUE_MIGRATE_V1_FIRST')
+ assert.doesNotThrow(()=>requireMigratedLiveState(migrated()))
+ const incomplete=migrated()
+ incomplete.tasks.pop()
+ assert.throws(()=>requireMigratedLiveState(incomplete),
+  e=>e.code==='ISSUE_MIGRATE_V1_FIRST')
+})
 test('owner request claims exactly once; public receipt never leaks claim ID',()=>{
  const a=applyAuthenticatedIssue(snap(),v('claim'),'2026-11-01T03:20:00Z')
  assert.equal(a.snapshot.version,1)
