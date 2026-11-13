@@ -1,6 +1,8 @@
 package com.matrix.prp.goals;
 
 import com.matrix.prp.auth.security.CurrentUser;
+import com.matrix.prp.ontology.PersonalOntology;
+import com.matrix.prp.ontology.PersonalOntology.Relation;
 import com.matrix.prp.ontology.PersonalOntology.GoalStatus;
 import com.matrix.prp.ontology.PersonalOntology.NodeType;
 import com.matrix.prp.ontology.PersonalOntologyReferenceGuard;
@@ -203,8 +205,16 @@ public class GoalService {
             try {
                 NodeType subj = NodeType.valueOf(rs.getString("subject_type"));
                 NodeType obj = NodeType.valueOf(rs.getString("object_type"));
+                Relation relation=Relation.valueOf(rs.getString("predicate"));
+                PersonalOntology.requireAllowed(subj,relation,obj);
+                String objectRef=rs.getString("object_ref");
+                String objectValue=rs.getString("object_value");
+                if (obj==NodeType.LITERAL) {
+                    if (objectRef!=null || objectValue==null || objectValue.isBlank()
+                            || objectValue.length()>512) return null;
+                } else if (objectValue!=null) return null;
                 references.requireOwned(subj, rs.getString("subject_ref"));
-                if (obj != NodeType.LITERAL) references.requireOwned(obj, rs.getString("object_ref"));
+                if (obj != NodeType.LITERAL) references.requireOwned(obj, objectRef);
                 String source = rs.getString("source_type");
                 String sourceRef = rs.getString("source_ref");
                 if ("RECORD".equals(source)) references.requireOwned(NodeType.RECORD, sourceRef);
