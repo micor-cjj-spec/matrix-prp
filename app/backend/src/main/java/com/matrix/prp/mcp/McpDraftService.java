@@ -137,10 +137,23 @@ public class McpDraftService {
         return rows.getFirst();
     }
 
+    /**
+     * The AI only supplies task ID and status. The task's other fields are
+     * captured from the owner-scoped repository and never round-tripped through
+     * a model-generated full replacement.
+     */
+    @Transactional
+    public Preview prepareTaskStatus(long id, String status) {
+        return prepareTaskChange(id, null, status, false);
+    }
+
     @Transactional
     public Preview prepareTaskChange(long id, CreateTaskRequest after, String status, boolean delete) {
         requireWrite();
-        if (!delete && after == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Task values required");
+        if (!delete && after == null && status == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Task values or status required");
+        if (status != null && !List.of("todo", "in_progress", "done", "canceled").contains(status))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid task status");
         String revision = lockTask(id);
         return prepare(delete ? Kind.TASK_DELETE : Kind.TASK_UPDATE,
             new TaskChange(id, tasks.get(id), revision, delete ? null : after, delete ? null : status));
@@ -153,6 +166,11 @@ public class McpDraftService {
         if (delete) {
             tasks.delete(change.taskId());
             return java.util.Map.of("taskId", change.taskId(), "deleted", true);
+        }
+        if (change.after() == null) {
+            if (change.status() == null)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing task status");
+            return tasks.updateStatus(change.taskId(), change.status());
         }
         var updated = tasks.update(change.taskId(), change.after());
         return change.status() == null ? updated : tasks.updateStatus(change.taskId(), change.status());

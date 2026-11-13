@@ -38,6 +38,18 @@ class McpOAuthToolManifestTests {
     }
 
     @Test
+    void statusOnlyTaskDraftRequiresWriteUpdateScope() {
+        assertThat(McpToolConfiguration.exposedNames("prp.write.update", true))
+            .containsExactlyInAnyOrder("prp_prepare_task_update", "prp_prepare_task_status");
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read", false))
+            .doesNotContain("prp_prepare_task_status");
+        assertThat(McpToolConfiguration.exposedNames("prp.write.create", true))
+            .doesNotContain("prp_prepare_task_status");
+        assertThatThrownBy(() -> McpToolConfiguration.exposedNames("prp.write.update", false))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void phaseTwoReadCapabilitiesAreExplicitOptInOnly() {
         assertThat(McpToolConfiguration.exposedNames("prp.tasks.read,prp.wellness.read", false))
             .doesNotContain("prp_tasks_summary", "prp_wellness_trends", "prp_wellness_goals",

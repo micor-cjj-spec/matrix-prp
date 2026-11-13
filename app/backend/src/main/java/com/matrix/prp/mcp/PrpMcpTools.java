@@ -110,6 +110,14 @@ public class PrpMcpTools {
             new CreateTaskRequest(moduleCode, title, description, priority, optionalDate(dueDate)), status, false);
     }
 
+    @McpTool(name = "prp_prepare_task_status", description = "Prepare a status-only change for one owned task. Requires task ID and target status; preserves task details. No data changes until the owner approves the draft.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = false, idempotentHint = false, openWorldHint = false))
+    public McpDraftService.Preview prepareTaskStatus(
+            @McpToolParam(description = "Exact positive ID of the owned task", required = true) long taskId,
+            @McpToolParam(description = "Target status: todo, in_progress, done, or canceled", required = true) String status) {
+        scopes.require("prp.write.update");
+        return drafts.prepareTaskStatus(taskId, status);
+    }
+
     @McpTool(name = "prp_prepare_task_delete", description = "Prepare deletion of one owned task. Does not delete until the owner separately approves in PRP and confirms the draft. Changed records are rejected.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = true, idempotentHint = false, openWorldHint = false))
     public McpDraftService.Preview prepareTaskDelete(
             @McpToolParam(description = "Exact owned task ID", required = true) long taskId) {
