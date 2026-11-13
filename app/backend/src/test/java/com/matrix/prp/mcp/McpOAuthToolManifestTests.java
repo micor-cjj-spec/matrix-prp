@@ -38,6 +38,55 @@ class McpOAuthToolManifestTests {
     }
 
     @Test
+    void statusOnlyTaskDraftRequiresWriteUpdateScope() {
+        assertThat(McpToolConfiguration.exposedNames("prp.write.update", true))
+            .containsExactlyInAnyOrder("prp_prepare_task_update", "prp_prepare_task_status");
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read", false))
+            .doesNotContain("prp_prepare_task_status");
+        assertThat(McpToolConfiguration.exposedNames("prp.write.create", true))
+            .doesNotContain("prp_prepare_task_status");
+        assertThatThrownBy(() -> McpToolConfiguration.exposedNames("prp.write.update", false))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void phaseTwoReadCapabilitiesAreExplicitOptInOnly() {
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read,prp.wellness.read", false))
+            .doesNotContain("prp_tasks_summary", "prp_wellness_trends", "prp_wellness_goals",
+                "prp_wellness_frequent_foods", "prp_wellness_dishes");
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read", false, true))
+            .containsExactlyInAnyOrder("prp_tasks_list", "prp_task_get", "prp_tasks_summary", "prp_tasks_search");
+        assertThat(McpToolConfiguration.exposedNames("prp.wellness.read", false, true))
+            .containsExactlyInAnyOrder("prp_wellness_daily", "prp_wellness_list",
+                "prp_wellness_get", "prp_wellness_foods", "prp_wellness_trends",
+                "prp_wellness_goals", "prp_wellness_frequent_foods", "prp_wellness_dishes");
+    }
+
+    @Test
+    void recordReadScopeIsIsolatedAndNewToolsRemainOptIn() {
+        assertThat(McpToolConfiguration.exposedNames("prp.records.read", false))
+            .isEmpty();
+        assertThat(McpToolConfiguration.exposedNames("prp.records.read", false, true))
+            .containsExactly("prp_records_search");
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read", false, true))
+            .containsExactlyInAnyOrder("prp_tasks_list", "prp_task_get",
+                "prp_tasks_summary", "prp_tasks_search");
+        assertThat(McpToolConfiguration.exposedNames("prp.wellness.read", false, true))
+            .doesNotContain("prp_records_search", "prp_tasks_search");
+    }
+
+    @Test
+    void practiceScopeOnlyExposesFiveOptInReadTools() {
+        assertThat(McpToolConfiguration.exposedNames("prp.practice.read", false)).isEmpty();
+        assertThat(McpToolConfiguration.exposedNames("prp.practice.read", false, true))
+            .containsExactlyInAnyOrder("prp_practice_subjects", "prp_practice_banks",
+                "prp_practice_questions", "prp_practice_wrong_questions",
+                "prp_practice_statistics");
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read", false, true))
+            .doesNotContain("prp_practice_questions", "prp_practice_wrong_questions");
+    }
+
+    @Test
     void unexpectedScopeNeverEnablesAnyMcpTool() {
         assertThatThrownBy(() -> McpToolConfiguration.exposedNames("*", true))
             .isInstanceOf(IllegalArgumentException.class);

@@ -5,6 +5,10 @@ import com.matrix.prp.finance.model.CreateFinanceTransactionRequest;
 import com.matrix.prp.finance.model.FinanceTransactionFilter;
 import com.matrix.prp.finance.service.FinanceService;
 import com.matrix.prp.records.model.CreateRecordRequest;
+import com.matrix.prp.records.model.RecordFilter;
+import com.matrix.prp.records.service.RecordService;
+import com.matrix.prp.practice.PracticeService;
+import com.matrix.prp.practice.PracticeModels;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.model.TaskFilter;
 import com.matrix.prp.tasks.service.TaskService;
@@ -31,14 +35,19 @@ public class PrpMcpTools {
     private final TaskService tasks;
     private final FinanceService finance;
     private final WellnessService wellness;
+    private final RecordService records;
+    /** PracticeService is profile-excluded from database-free tests; production supplies it. */
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private PracticeService practice;
     private final McpDraftService drafts;
     private final McpScopeGuard scopes;
 
     public PrpMcpTools(TaskService tasks, FinanceService finance, WellnessService wellness,
-                       McpDraftService drafts, McpScopeGuard scopes) {
+                       RecordService records, McpDraftService drafts, McpScopeGuard scopes) {
         this.tasks = tasks;
         this.finance = finance;
         this.wellness = wellness;
+        this.records = records;
         this.drafts = drafts;
         this.scopes = scopes;
     }
@@ -104,6 +113,14 @@ public class PrpMcpTools {
         scopes.require("prp.write.update");
         return drafts.prepareTaskChange(taskId,
             new CreateTaskRequest(moduleCode, title, description, priority, optionalDate(dueDate)), status, false);
+    }
+
+    @McpTool(name = "prp_prepare_task_status", description = "Prepare a status-only change for one owned task. Requires task ID and target status; preserves task details. No data changes until the owner approves the draft.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = false, idempotentHint = false, openWorldHint = false))
+    public McpDraftService.Preview prepareTaskStatus(
+            @McpToolParam(description = "Exact positive ID of the owned task", required = true) long taskId,
+            @McpToolParam(description = "Target status: todo, in_progress, done, or canceled", required = true) String status) {
+        scopes.require("prp.write.update");
+        return drafts.prepareTaskStatus(taskId, status);
     }
 
     @McpTool(name = "prp_prepare_task_delete", description = "Prepare deletion of one owned task. Does not delete until the owner separately approves in PRP and confirms the draft. Changed records are rejected.", annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = true, idempotentHint = false, openWorldHint = false))
@@ -259,6 +276,146 @@ public class PrpMcpTools {
         scopes.require("prp.wellness.write.confirm");
         scopes.require("prp.wellness.write.create");
         return drafts.approveFromChatgptUi(draftId, decision);
+    }
+
+    // Phase 2 read-only capabilities are opt-in at the registry boundary.
+    // Never directly expose these based on OAuth scope alone in existing deployments.
+    @McpTool(name="prp_tasks_summary", description="Read only your own task summary counts. No tasks or other-user data are exposed.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object tasksSummary() {
+        scopes.require("prp.tasks.read");
+        return tasks.summary();
+    }
+
+    @McpTool(name="prp_wellness_trends", description="Read 1-90 days of your personal daily health trends. At most 90 points. Never reads another account.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object wellnessTrends(@McpToolParam(description="Number of days, 1-90; defaults to 30", required=false) Integer days) {
+        scopes.require("prp.wellness.read");
+        int selected = days == null ? 30 : days;
+        if (selected < 1 || selected > 90) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Days must be 1-90");
+        return wellness.trends(selected);
+    }
+
+    @McpTool(name="prp_wellness_goals", description="Read up to 20 of your latest health goals, newest first. Older goals beyond the limit are omitted.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object wellnessGoals() {
+        scopes.require("prp.wellness.read");
+        return wellness.goals().stream().limit(20).toList();
+    }
+
+    @McpTool(name="prp_wellness_frequent_foods", description="Read up to 12 of your frequently eaten food references. Read only, owner-scoped.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object wellnessFrequentFoods() {
+        scopes.require("prp.wellness.read");
+        return wellness.frequentFoods().stream().limit(12).toList();
+    }
+
+    @McpTool(name="prp_wellness_dishes", description="Search up to 20 of your own reusable personal dish templates. No cross-user or public catalog writes.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object wellnessDishes(@McpToolParam(description="Optional dish or merchant name, maximum 100 characters", required=false) String query) {
+        scopes.require("prp.wellness.read");
+        if (query != null && query.length() > 100) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Query too long");
+        return wellness.dishTemplates(query).stream().limit(20).toList();
+    }
+
+    @McpTool(name="prp_tasks_search", description="Search at most 50 of your own tasks by exact status, module, priority and due date. Read only; results are capped, never cross-user.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object tasksSearch(
+            @McpToolParam(description="todo, in_progress, done, or canceled; optional",required=false) String status,
+            @McpToolParam(description="PRP module code, optional, max 64 characters",required=false) String moduleCode,
+            @McpToolParam(description="low, medium or high; optional",required=false) String priority,
+            @McpToolParam(description="Exact due date yyyy-MM-dd; optional",required=false) String dueDate,
+            @McpToolParam(description="Maximum number of results, 1-50; defaults 20",required=false) Integer limit) {
+        scopes.require("prp.tasks.read");
+        if (status != null && !List.of("todo","in_progress","done","canceled").contains(status))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid task status");
+        if (priority != null && !List.of("low","medium","high").contains(priority))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid task priority");
+        if (moduleCode != null && !moduleCode.matches("[A-Za-z0-9_-]{1,64}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid module code");
+        int cap = limit == null ? 20 : limit;
+        if (cap < 1 || cap > 50) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Limit must be 1-50");
+        return tasks.listLimited(new TaskFilter(status,moduleCode,optionalDate(dueDate),priority),cap);
+    }
+
+    /** Compact record preview avoids returning unbounded private note bodies to an AI client. */
+    public record RecordPreview(long id, String moduleCode, String title, LocalDate recordDate, String excerpt) {}
+
+    @McpTool(name="prp_records_search", description="Read up to 20 summaries of your own life, learning or work records, filtered by module, tag, date or keyword. Excerpts are at most 200 characters. Full note contents and other users' records are never returned.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object recordsSearch(
+            @McpToolParam(description="Optional module code (max 64 characters)",required=false) String moduleCode,
+            @McpToolParam(description="Optional positive tag ID",required=false) Long tagId,
+            @McpToolParam(description="Optional exact record date yyyy-MM-dd",required=false) String recordDate,
+            @McpToolParam(description="Optional title/body keyword, max 100 characters",required=false) String keyword) {
+        scopes.require("prp.records.read");
+        if (moduleCode != null && !moduleCode.matches("[A-Za-z0-9_-]{1,64}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid module code");
+        if (tagId != null && tagId <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Positive tag ID required");
+        if (keyword != null && keyword.length() > 100)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Keyword too long");
+        return records.listLimited(new RecordFilter(moduleCode, tagId, optionalDate(recordDate), keyword),20)
+            .stream().map(r -> new RecordPreview(r.id(),r.moduleCode(),r.title(),r.recordDate(),
+                r.content()==null ? "" : r.content().substring(0,Math.min(200,r.content().length())))).toList();
+    }
+
+    private PracticeService practiceReadService() {
+        if (practice == null) throw new IllegalStateException("Practice service is not available");
+        return practice;
+    }
+
+    @McpTool(name="prp_practice_subjects", description="List up to 50 of your own learning subjects. No answer keys, no writes.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceSubjects() {
+        scopes.require("prp.practice.read");
+        return practiceReadService().subjectsLimited(50);
+    }
+
+    @McpTool(name="prp_practice_banks", description="List up to 30 of your own question banks in an owned subject. A different user's subject ID is unavailable.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceBanks(@McpToolParam(description="Positive owned subject ID",required=true) long subjectId) {
+        scopes.require("prp.practice.read");
+        if (subjectId <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Positive subject ID required");
+        return practiceReadService().banksLimited(subjectId,30);
+    }
+
+    /** No correct answers or explanations. Truncation is explicit to avoid misleading study content. */
+    public record PracticeOptionPreview(String key,String text) {}
+    public record PracticeQuestionPreview(long id,long bankId,String type,String stem,
+                                          List<PracticeOptionPreview> options,String difficulty,boolean truncated) {}
+    private static PracticeQuestionPreview practicePreview(PracticeModels.QuestionPublic q) {
+        String stem=q.stem()==null?"":q.stem();
+        boolean clipped=stem.length()>800;
+        List<PracticeOptionPreview> options=new java.util.ArrayList<>();
+        if (q.options()!=null) for (var o:q.options()) {
+            if(options.size()==8) {clipped=true;break;}
+            String text=o.text()==null?"":o.text();
+            if(text.length()>200)clipped=true;
+            options.add(new PracticeOptionPreview(o.key(),text.substring(0,Math.min(200,text.length()))));
+        }
+        return new PracticeQuestionPreview(q.id(),q.bankId(),q.type(),
+            stem.substring(0,Math.min(800,stem.length())),List.copyOf(options),q.difficulty(),clipped);
+    }
+
+    @McpTool(name="prp_practice_questions", description="Read up to 10 published practice questions from an owned published bank. Returns bounded question/option previews; never returns correct answers or explanations. Truncated content is marked.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceQuestions(@McpToolParam(description="Positive owned published bank ID",required=true) long bankId,
+                                    @McpToolParam(description="1-10 questions; defaults to 5",required=false) Integer limit) {
+        scopes.require("prp.practice.read");
+        if(bankId<=0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Positive bank ID required");
+        int cap=practiceLimit(limit);
+        return practiceReadService().playableLimited(bankId,cap).stream()
+            .map(PrpMcpTools::practicePreview).toList();
+    }
+
+    @McpTool(name="prp_practice_wrong_questions", description="Read up to 10 of your own most recently incorrect published questions. No correct answers or explanations; truncated content is marked.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceWrongQuestions(@McpToolParam(description="1-10 questions; defaults to 5",required=false) Integer limit) {
+        scopes.require("prp.practice.read");
+        int cap=practiceLimit(limit);
+        return practiceReadService().wrongQuestionsLimited(cap).stream()
+            .map(PrpMcpTools::practicePreview).toList();
+    }
+
+    @McpTool(name="prp_practice_statistics", description="Read your own attempt count, correct count and wrong count. No exam answers or edits.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceStatistics() {
+        scopes.require("prp.practice.read");
+        return practiceReadService().statistics();
+    }
+
+    private static int practiceLimit(Integer limit) {
+        int cap=limit==null?5:limit;
+        if(cap<1 || cap>10) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Question limit must be 1-10");
+        return cap;
     }
 
     private static LocalDate optionalDate(String value) {

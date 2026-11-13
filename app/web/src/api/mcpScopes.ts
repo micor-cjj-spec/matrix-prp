@@ -1,5 +1,7 @@
 export const mcpScopes = [
   { value: 'prp.tasks.read', label: '读取任务' },
+  { value: 'prp.records.read', label: '读取个人记录摘要' },
+  { value: 'prp.practice.read', label: '读取学习题库和练习统计' },
   { value: 'prp.finance.read', label: '读取财务' },
   { value: 'prp.wellness.read', label: '读取健康记录' },
   { value: 'prp.write.create', label: '生成待确认草稿' },
@@ -21,5 +23,5 @@ export function advertisedMcpScopes(value: unknown) {
   return mcpScopes.filter(s => value.includes(s.value))
 }
 export function defaultMcpReadScopes(value: readonly { value: string }[]): string[] {
-  return value.some(s => s.value === "prp.tasks.read") ? ["prp.tasks.read"] : value.some(s => s.value === "prp.wellness.read") ? ["prp.wellness.read"] : []
+  return value.some(s => s.value === "prp.wellness.read") ? ["prp.wellness.read"] : value.some(s => s.value === "prp.tasks.read") ? ["prp.tasks.read"] : []
 }

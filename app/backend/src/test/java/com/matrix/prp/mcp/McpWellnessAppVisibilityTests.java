@@ -22,12 +22,13 @@ class McpWellnessAppVisibilityTests {
     private List<McpStatelessServerFeatures.SyncToolSpecification> specs(boolean uiEnabled) {
         var drafts = mock(McpDraftService.class);
         var tools = new PrpMcpTools(mock(TaskService.class), mock(FinanceService.class),
-            mock(WellnessService.class), drafts, mock(McpScopeGuard.class));
+            mock(WellnessService.class), mock(com.matrix.prp.records.service.RecordService.class),
+            drafts, mock(McpScopeGuard.class));
         ObjectProvider<McpClientGrantService> grants = mock(ObjectProvider.class);
         when(grants.getObject()).thenReturn(mock(McpClientGrantService.class));
         return new McpToolConfiguration().prpMcpSpecifications(
             tools, mock(McpScopeGuard.class), grants, drafts,
-            "https://micor.top/api/mcp", true, SCOPES, true, uiEnabled);
+            "https://micor.top/api/mcp", true, SCOPES, true, uiEnabled, false);
     }
 
     @Test void appOnlyApprovalIsAbsentWhenDisabled() {
@@ -67,6 +68,38 @@ class McpWellnessAppVisibilityTests {
         assertThat(approval.meta()).doesNotContainKey("openai/outputTemplate");
         assertThat(tools.stream().map(x -> x.tool().name()))
             .doesNotContain("prp_prepare_finance","prp_prepare_task");
+    }
+
+    @Test void extendedReadManifestKeepsAllHealthToolsAndApprovalButNoGenericWrites() {
+        var drafts = mock(McpDraftService.class);
+        var tools = new PrpMcpTools(mock(TaskService.class), mock(FinanceService.class),
+            mock(WellnessService.class), mock(RecordService.class), drafts, mock(McpScopeGuard.class));
+        ObjectProvider<McpClientGrantService> grants = mock(ObjectProvider.class);
+        when(grants.getObject()).thenReturn(mock(McpClientGrantService.class));
+        String combined = SCOPES + ",prp.tasks.read,prp.records.read,prp.practice.read";
+        var config = new McpToolConfiguration();
+        var healthOnly = config.prpMcpSpecifications(tools,mock(McpScopeGuard.class),grants,drafts,
+            "https://micor.top/api/mcp",true,SCOPES,true,true,false);
+        assertThat(healthOnly).hasSize(10);
+        var hidden = config.prpMcpSpecifications(tools,mock(McpScopeGuard.class),grants,drafts,
+            "https://micor.top/api/mcp",true,combined,true,true,false);
+        // Task list/get already predate the extra-read flag. This mixed-scope manifest
+        // cannot run as production wellness-only unless the new startup guard also opts in.
+        assertThat(hidden).hasSize(12);
+        assertThat(hidden.stream().map(x -> x.tool().name()))
+            .contains("prp_tasks_list","prp_task_get")
+            .doesNotContain("prp_tasks_search","prp_records_search","prp_practice_questions");
+        var extended = config.prpMcpSpecifications(tools,mock(McpScopeGuard.class),grants,drafts,
+            "https://micor.top/api/mcp",true,combined,true,true,true);
+        assertThat(extended).hasSize(24);
+        assertThat(extended.stream().map(x -> x.tool().name())).contains(
+            "prp_chatgpt_wellness_approval","prp_wellness_daily",
+            "prp_tasks_summary","prp_tasks_search","prp_records_search",
+            "prp_wellness_trends","prp_wellness_goals","prp_wellness_frequent_foods",
+            "prp_wellness_dishes","prp_practice_subjects","prp_practice_banks",
+            "prp_practice_questions","prp_practice_wrong_questions","prp_practice_statistics")
+            .doesNotContain("prp_prepare_finance","prp_prepare_task","prp_prepare_task_update",
+                "prp_prepare_task_delete","prp_prepare_task_status");
     }
 
     @Test void resourceIsASandboxedChatgptMcpAppTemplate() throws Exception {
