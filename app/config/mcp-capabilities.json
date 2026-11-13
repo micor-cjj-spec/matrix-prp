@@ -372,6 +372,11 @@
       "reason": "Secrets must never be accepted through an AI tool"
     },
     {
+      "route": "PUT /api/goals/{id}",
+      "status": "excluded",
+      "reason": "Goal detail edits require an authenticated first-party owner request with revision and status checks; MCP update needs a separately reviewed approval-draft tool and scope under T-006."
+    },
+    {
       "route": "PUT /api/tasks/{id}",
       "status": "mapped",
       "tool": "prp_prepare_task_update",
