@@ -56,6 +56,14 @@ class PersonalMemoryServiceTests {
         verifyNoInteractions(db);
     }
 
+    @Test void sensitiveOwnerListIsSeparateFromDefaultMemoryContext() {
+        user(7);
+        assertThat(service.listPrivate()).isEmpty();
+        verify(db).query(contains("status='CONFIRMED' AND sensitivity IN"),
+            any(org.springframework.jdbc.core.RowMapper.class), eq(7L));
+        verifyNoInteractions(references);
+    }
+
     @Test void anonymousCannotReadCandidateQueue() {
         assertThatThrownBy(service::pending)
             .isInstanceOf(ResponseStatusException.class)
