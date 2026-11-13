@@ -82,6 +82,33 @@
       }
     },
     {
+      "code": "personal-os",
+      "name": "个人智能操作系统",
+      "description": "个人目标、长期记忆核对与人生记录时间轴",
+      "type": "feature",
+      "sortOrder": 25,
+      "enabled": true,
+      "status": "implemented",
+      "webRoute": "/personal-os",
+      "mobileRoute": null,
+      "backendPackage": "goals",
+      "visibility": "authenticated",
+      "visibleInNav": true,
+      "impact": {
+        "apiPrefixes": [
+          "/api/goals",
+          "/api/memory"
+        ],
+        "tests": [
+          "app/backend/src/test/java/com/matrix/prp/goals/GoalServiceTests.java",
+          "app/backend/src/test/java/com/matrix/prp/memory/PersonalMemoryServiceTests.java"
+        ],
+        "docs": [
+          "app/docs/technical/personal-os-v0.5-contract.md"
+        ]
+      }
+    },
+    {
       "code": "finance",
       "name": "财务管理",
       "description": "账户、分类、收支流水和月度统计",

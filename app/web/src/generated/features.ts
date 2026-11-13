@@ -31,6 +31,16 @@ export const features = [
     "visibleInNav": true
   },
   {
+    "code": "personal-os",
+    "name": "个人智能操作系统",
+    "sortOrder": 25,
+    "enabled": true,
+    "status": "implemented",
+    "webRoute": "/personal-os",
+    "visibility": "authenticated",
+    "visibleInNav": true
+  },
+  {
     "code": "finance",
     "name": "财务管理",
     "sortOrder": 30,

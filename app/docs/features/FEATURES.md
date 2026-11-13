@@ -10,6 +10,7 @@
 | `dashboard` | 首页概览 | `/` | `pages/home/index` | 登录用户 | `dashboard` |
 | `records` | 记录管理 | `/records` | `pages/record/index` | 登录用户 | `records` |
 | `tasks` | 任务计划 | `/tasks` | `pages/task/index` | 登录用户 | `tasks` |
+| `personal-os` | 个人智能操作系统 | `/personal-os` | `—` | 登录用户 | `goals` |
 | `finance` | 财务管理 | `/finance` | `pages/finance/index` | 登录用户 | `finance` |
 | `wellness` | 健康中心 | `/wellness` | `—` | 登录用户 | `wellness` |
 | `reviews` | 复盘中心 | `/reviews` | `—` | 登录用户 | `reviews` |
