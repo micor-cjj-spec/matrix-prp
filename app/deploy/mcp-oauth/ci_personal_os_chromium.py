@@ -89,6 +89,15 @@ def run(page, origin):
     private = page.locator(".os-private article.os-memory-card").filter(
         has_text="CI-only private fact for browser approval")
     private.wait_for(state="visible", timeout=15000)
+    # Invalidation must suppress normal retrieval without losing the
+    # owner's ability to find and permanently erase historical private data.
+    private.get_by_role("button", name="作废").click()
+    page.locator(".el-message-box").get_by_role(
+        "button", name="作废").click()
+    private.locator("small").filter(has_text="已作废").wait_for(
+        state="visible", timeout=15000)
+    if private.get_by_role("button", name="更正").count() != 0:
+        raise RuntimeError("PERSONAL_OS_ARCHIVED_MEMORY_STILL_EDITABLE")
     private.get_by_role("button", name="永久删除").click()
     page.locator(".el-message-box").get_by_role(
         "button", name="永久删除").click()
