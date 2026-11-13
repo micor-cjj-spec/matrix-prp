@@ -1,0 +1,369 @@
+{
+  "version": 1,
+  "policy": "Explicit MCP mappings and reviewed technical exclusions. Routes absent from this file but present in the frozen baseline are legacy gaps; NEW routes must map to MCP or be justified exclusions.",
+  "routes": [
+    {
+      "route": "DELETE /api/ai/settings/providers/{provider}/key",
+      "status": "excluded",
+      "reason": "Secret management is reserved for interactive settings UI"
+    },
+    {
+      "route": "DELETE /api/push/subscriptions/{id}",
+      "status": "excluded",
+      "reason": "Push device removal requires interactive device management"
+    },
+    {
+      "route": "DELETE /api/tasks/{id}",
+      "status": "mapped",
+      "tool": "prp_prepare_task_delete",
+      "reason": "Delete through owner-approved draft"
+    },
+    {
+      "route": "DELETE /api/wellness/body-metrics/{id}",
+      "status": "mapped",
+      "tool": "prp_prepare_wellness_delete",
+      "reason": "Metric delete via approved draft"
+    },
+    {
+      "route": "DELETE /api/wellness/exercises/{id}",
+      "status": "mapped",
+      "tool": "prp_prepare_wellness_delete",
+      "reason": "Exercise delete via approved draft"
+    },
+    {
+      "route": "DELETE /api/wellness/meals/{id}",
+      "status": "mapped",
+      "tool": "prp_prepare_wellness_delete",
+      "reason": "Delete via immutable preview and approval"
+    },
+    {
+      "route": "GET /.well-known/oauth-protected-resource/**",
+      "status": "excluded",
+      "reason": "OAuth discovery metadata is a protocol endpoint, not business logic"
+    },
+    {
+      "route": "GET /api/finance/summary/monthly",
+      "status": "mapped",
+      "tool": "prp_finance_month",
+      "reason": "Monthly summary is returned within finance month tool"
+    },
+    {
+      "route": "GET /api/finance/transactions",
+      "status": "partial",
+      "tool": "prp_finance_month",
+      "reason": "MCP returns only first 10 transactions for selected month"
+    },
+    {
+      "route": "GET /api/health",
+      "status": "excluded",
+      "reason": "Internal readiness diagnostic is not a business capability"
+    },
+    {
+      "route": "GET /api/health/runtime",
+      "status": "excluded",
+      "reason": "Runtime diagnostics expose operational details"
+    },
+    {
+      "route": "GET /api/knowledge/files",
+      "status": "excluded",
+      "reason": "Raw administrator-scoped files require separate content-access design"
+    },
+    {
+      "route": "GET /api/mcp/approval/drafts/{id}",
+      "status": "excluded",
+      "reason": "MCP control-plane approval state has dedicated secure flow"
+    },
+    {
+      "route": "GET /api/mcp/clients",
+      "status": "excluded",
+      "reason": "OAuth owner grant management is an interactive control-plane action"
+    },
+    {
+      "route": "GET /api/mcp/identity",
+      "status": "excluded",
+      "reason": "Identity linking status is sensitive control-plane state"
+    },
+    {
+      "route": "GET /api/push/subscriptions",
+      "status": "excluded",
+      "reason": "Device push endpoints are sensitive connection metadata"
+    },
+    {
+      "route": "GET /api/push/vapid-public-key",
+      "status": "excluded",
+      "reason": "Web Push transport configuration is not a business capability"
+    },
+    {
+      "route": "GET /api/tasks",
+      "status": "partial",
+      "tool": "prp_tasks_list",
+      "reason": "MCP list is capped at 20 tasks and supports narrower filtering than REST"
+    },
+    {
+      "route": "GET /api/video/items/{id}/playback",
+      "status": "excluded",
+      "reason": "Playback credentials or ticket material must not be returned to models"
+    },
+    {
+      "route": "GET /api/video/media/{id}",
+      "status": "excluded",
+      "reason": "Binary video streaming is not a model tool"
+    },
+    {
+      "route": "GET /api/video/uploads/{id}",
+      "status": "excluded",
+      "reason": "Upload session contains temporary operational state"
+    },
+    {
+      "route": "GET /api/vocal/takes/{id}/audio",
+      "status": "excluded",
+      "reason": "Streaming raw private audio is not a general MCP read tool"
+    },
+    {
+      "route": "GET /api/wellness/body-metrics",
+      "status": "partial",
+      "tool": "prp_wellness_list",
+      "reason": "MCP body metric list supports 1-90 days, maximum 50 records"
+    },
+    {
+      "route": "GET /api/wellness/exercises",
+      "status": "partial",
+      "tool": "prp_wellness_list",
+      "reason": "MCP exercise list is limited to 50 records"
+    },
+    {
+      "route": "GET /api/wellness/foods",
+      "status": "partial",
+      "tool": "prp_wellness_foods",
+      "reason": "MCP requires query and limits results to 30"
+    },
+    {
+      "route": "GET /api/wellness/meals",
+      "status": "partial",
+      "tool": "prp_wellness_list",
+      "reason": "MCP meal list is limited to 50 records"
+    },
+    {
+      "route": "GET /api/wellness/summary/daily",
+      "status": "mapped",
+      "tool": "prp_wellness_daily",
+      "reason": "Read daily structured summary"
+    },
+    {
+      "route": "PATCH /api/tasks/{id}/status",
+      "status": "partial",
+      "tool": "prp_prepare_task_update",
+      "reason": "Status change requires full task update input"
+    },
+    {
+      "route": "POST /api/ai/chat/stream",
+      "status": "excluded",
+      "reason": "Model chat transport is not a business capability to invoke from an MCP tool"
+    },
+    {
+      "route": "POST /api/ai/codex/jobs",
+      "status": "excluded",
+      "reason": "Server execution is intentionally disabled and administrator-only"
+    },
+    {
+      "route": "POST /api/ai/settings/providers/{provider}/test",
+      "status": "excluded",
+      "reason": "Provider credential validation stays in interactive settings UI"
+    },
+    {
+      "route": "POST /api/auth/invitations",
+      "status": "excluded",
+      "reason": "Administrator-only account invitation, not general AI functionality"
+    },
+    {
+      "route": "POST /api/auth/login",
+      "status": "excluded",
+      "reason": "Authentication entrypoint; never accept model-supplied passwords"
+    },
+    {
+      "route": "POST /api/auth/register",
+      "status": "excluded",
+      "reason": "Account signup is an interactive identity flow"
+    },
+    {
+      "route": "POST /api/finance/imports/wechat/preview",
+      "status": "excluded",
+      "reason": "WeChat multipart file transfer is a private import flow"
+    },
+    {
+      "route": "POST /api/finance/transactions",
+      "status": "mapped",
+      "tool": "prp_prepare_finance",
+      "reason": "Finance transaction is a draft requiring explicit owner approval"
+    },
+    {
+      "route": "POST /api/mcp/approval/drafts/{id}/approve",
+      "status": "excluded",
+      "reason": "Owner password approval must not become model-invocable"
+    },
+    {
+      "route": "POST /api/mcp/approval/drafts/{id}/reject",
+      "status": "excluded",
+      "reason": "Human approval decision must not be replaced by model tool call"
+    },
+    {
+      "route": "POST /api/mcp/clients",
+      "status": "excluded",
+      "reason": "OAuth owner grant management must not be delegated to a model"
+    },
+    {
+      "route": "POST /api/mcp/clients/pairing",
+      "status": "excluded",
+      "reason": "Temporary OAuth identity pairing must remain interactive"
+    },
+    {
+      "route": "POST /api/mcp/clients/revoke",
+      "status": "excluded",
+      "reason": "OAuth grant revocation is user-directed security administration"
+    },
+    {
+      "route": "POST /api/mcp/identity/oidc/finish",
+      "status": "excluded",
+      "reason": "OIDC authentication callback must remain interactive"
+    },
+    {
+      "route": "POST /api/mcp/identity/oidc/start",
+      "status": "excluded",
+      "reason": "OIDC authentication ceremony must remain interactive"
+    },
+    {
+      "route": "POST /api/mcp/identity/tickets",
+      "status": "excluded",
+      "reason": "Identity proof tickets are not model tools"
+    },
+    {
+      "route": "POST /api/mcp/identity/unlink",
+      "status": "excluded",
+      "reason": "Identity unlinking must remain interactive"
+    },
+    {
+      "route": "POST /api/mcp/link",
+      "status": "excluded",
+      "reason": "OAuth account linking endpoint is an identity trust boundary"
+    },
+    {
+      "route": "POST /api/push/subscriptions",
+      "status": "excluded",
+      "reason": "Device-specific push subscription is browser controlled"
+    },
+    {
+      "route": "POST /api/push/subscriptions/unsubscribe-current",
+      "status": "excluded",
+      "reason": "Device-specific unsubscription stays in the browser"
+    },
+    {
+      "route": "POST /api/push/test",
+      "status": "excluded",
+      "reason": "Notification transport diagnostics should not be model-triggered"
+    },
+    {
+      "route": "POST /api/records",
+      "status": "mapped",
+      "tool": "prp_prepare_record",
+      "reason": "Record create only through owner-approved draft"
+    },
+    {
+      "route": "POST /api/tasks",
+      "status": "mapped",
+      "tool": "prp_prepare_task",
+      "reason": "Create via owner-approved draft, not immediate write"
+    },
+    {
+      "route": "POST /api/video/uploads",
+      "status": "excluded",
+      "reason": "Multipart upload initiation is handled by the application UI"
+    },
+    {
+      "route": "POST /api/video/uploads/{id}/complete",
+      "status": "excluded",
+      "reason": "Multipart completion is an upload-session protocol action"
+    },
+    {
+      "route": "POST /api/vocal/takes",
+      "status": "excluded",
+      "reason": "Audio multipart upload is a binary transfer, not a structured AI tool"
+    },
+    {
+      "route": "POST /api/wellness/ai/changes/{id}/confirm",
+      "status": "excluded",
+      "reason": "First-party AI change confirmation is not a general MCP tool"
+    },
+    {
+      "route": "POST /api/wellness/ai/chat/confirm-pending",
+      "status": "excluded",
+      "reason": "First-party AI draft confirmation is not a model approval shortcut"
+    },
+    {
+      "route": "POST /api/wellness/ai/chat/prepare",
+      "status": "excluded",
+      "reason": "Multimodal chat-upload transport is internal, structured MCP has separate prepare flow"
+    },
+    {
+      "route": "POST /api/wellness/ai/drafts/{draftId}/confirm",
+      "status": "excluded",
+      "reason": "First-party AI draft approval path is not a general MCP tool"
+    },
+    {
+      "route": "POST /api/wellness/ai/prepare",
+      "status": "excluded",
+      "reason": "Multipart upload-based draft preparation remains in first-party app"
+    },
+    {
+      "route": "POST /api/wellness/body-metrics",
+      "status": "mapped",
+      "tool": "prp_prepare_wellness_create",
+      "reason": "Metric create via approved draft"
+    },
+    {
+      "route": "POST /api/wellness/exercises",
+      "status": "mapped",
+      "tool": "prp_prepare_wellness_create",
+      "reason": "Exercise create via approved draft"
+    },
+    {
+      "route": "POST /api/wellness/meals",
+      "status": "mapped",
+      "tool": "prp_prepare_wellness_create",
+      "reason": "Structured health create uses draft, scopes and approval"
+    },
+    {
+      "route": "PUT /api/ai/settings/providers/{provider}/key",
+      "status": "excluded",
+      "reason": "Secrets must never be accepted through an AI tool"
+    },
+    {
+      "route": "PUT /api/tasks/{id}",
+      "status": "mapped",
+      "tool": "prp_prepare_task_update",
+      "reason": "Full task replacement through draft and approval"
+    },
+    {
+      "route": "PUT /api/video/uploads/{id}/parts/{number}",
+      "status": "excluded",
+      "reason": "Raw binary upload chunks are not suitable MCP tool inputs"
+    },
+    {
+      "route": "PUT /api/wellness/body-metrics/{id}",
+      "status": "mapped",
+      "tool": "prp_prepare_wellness_update",
+      "reason": "Metric update via approved draft"
+    },
+    {
+      "route": "PUT /api/wellness/exercises/{id}",
+      "status": "mapped",
+      "tool": "prp_prepare_wellness_update",
+      "reason": "Exercise update via approved draft"
+    },
+    {
+      "route": "PUT /api/wellness/meals/{id}",
+      "status": "mapped",
+      "tool": "prp_prepare_wellness_update",
+      "reason": "Full replacement through draft and approval"
+    }
+  ]
+}
