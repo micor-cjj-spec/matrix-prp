@@ -403,6 +403,11 @@
       "reason": "Structured health create uses draft, scopes and approval"
     },
     {
+      "route": "POST /api/wellness/meals/{id}/label-verification",
+      "status": "excluded",
+      "reason": "First-party owner-confirmed nutrition correction requires explicit label and intake verification; no MCP direct write or model-driven promotion"
+    },
+    {
       "route": "PUT /api/ai/settings/providers/{provider}/key",
       "status": "excluded",
       "reason": "Secrets must never be accepted through an AI tool"
