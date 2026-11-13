@@ -79,6 +79,19 @@ public class PersonalMemoryService {
             .filter(this::validEvidence).toList();
     }
 
+    /**
+     * Authenticated, first-party-only management of sensitive/restricted facts.
+     * Never call from an AI context builder or register as an MCP tool.
+     * The UI must fetch this list only after an explicit owner action.
+     */
+    public List<Memory> listPrivate() {
+        long owner = CurrentUser.id();
+        return db.query("SELECT " + COLS + " FROM prp_personal_assertions WHERE user_id=?"
+            + " AND status='CONFIRMED' AND sensitivity IN ('SENSITIVE','RESTRICTED')"
+            + " ORDER BY id DESC LIMIT 100", MAPPER, owner).stream()
+            .filter(this::validEvidence).toList();
+    }
+
     /** Candidate queue is intentionally separate from retrieval for AI context. */
     public List<Memory> pending() {
         long owner=CurrentUser.id();
