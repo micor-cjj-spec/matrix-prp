@@ -1,0 +1,289 @@
+{
+  "version": 1,
+  "source": "main@58dac6d0f72a27a50887159fb476a46e851cf713",
+  "policy": "Frozen list of existing REST routes. Existing uncovered routes are backlog; new routes require mapped MCP or explicit exemption.",
+  "controllers": {
+    "activity/ActivityLogController.java": [
+      "GET /api/activity/mine"
+    ],
+    "ai/AgentTaskController.java": [
+      "GET /api/ai/agent/capabilities",
+      "GET /api/ai/agent/tasks",
+      "GET /api/ai/agent/tasks/{id}",
+      "POST /api/ai/agent/tasks",
+      "POST /api/ai/agent/tasks/{id}/approve",
+      "POST /api/ai/agent/tasks/{id}/cancel"
+    ],
+    "ai/AiContextController.java": [
+      "POST /api/ai/context/confirm",
+      "POST /api/ai/context/preview"
+    ],
+    "ai/AiController.java": [
+      "DELETE /api/ai/conversations/{id}",
+      "GET /api/ai/codex/capabilities",
+      "GET /api/ai/conversations",
+      "GET /api/ai/conversations/page",
+      "GET /api/ai/conversations/{id}/blocks",
+      "GET /api/ai/conversations/{id}/messages",
+      "GET /api/ai/usage",
+      "PATCH /api/ai/conversations/{id}",
+      "POST /api/ai/chat/stream",
+      "POST /api/ai/codex/jobs"
+    ],
+    "ai/AiSettingsController.java": [
+      "DELETE /api/ai/settings/providers/{provider}/key",
+      "GET /api/ai/settings",
+      "POST /api/ai/settings/providers/{provider}/test",
+      "PUT /api/ai/settings/providers/{provider}/key",
+      "PUT /api/ai/settings/selection"
+    ],
+    "ai/AiTelemetryController.java": [
+      "GET /api/ai/telemetry"
+    ],
+    "ai/CodexJobController.java": [
+      "GET /api/ai/codex/requests",
+      "GET /api/ai/codex/requests/capabilities",
+      "GET /api/ai/codex/requests/{id}",
+      "POST /api/ai/codex/requests",
+      "POST /api/ai/codex/requests/{id}/approve",
+      "POST /api/ai/codex/requests/{id}/cancel"
+    ],
+    "auth/api/AuthController.java": [
+      "GET /api/users/me",
+      "POST /api/auth/invitations",
+      "POST /api/auth/login",
+      "POST /api/auth/register"
+    ],
+    "common/api/HealthController.java": [
+      "GET /api/health",
+      "GET /api/health/runtime"
+    ],
+    "dashboard/api/DashboardController.java": [
+      "GET /api/dashboard/summary"
+    ],
+    "finance/api/FinanceController.java": [
+      "DELETE /api/finance/accounts/{id}",
+      "DELETE /api/finance/categories/{id}",
+      "DELETE /api/finance/transactions/{id}",
+      "GET /api/finance/accounts",
+      "GET /api/finance/categories",
+      "GET /api/finance/summary/monthly",
+      "GET /api/finance/summary/monthly/accounts",
+      "GET /api/finance/summary/monthly/categories",
+      "GET /api/finance/transactions",
+      "POST /api/finance/accounts",
+      "POST /api/finance/categories",
+      "POST /api/finance/transactions",
+      "PUT /api/finance/accounts/{id}",
+      "PUT /api/finance/categories/{id}",
+      "PUT /api/finance/transactions/{id}"
+    ],
+    "finance/api/FinanceLedgerController.java": [
+      "DELETE /api/finance/transfers/{id}",
+      "GET /api/finance/accounts/balances",
+      "GET /api/finance/transfers",
+      "POST /api/finance/transfers"
+    ],
+    "finance/imports/FinanceImportController.java": [
+      "GET /api/finance/imports",
+      "GET /api/finance/imports/{id}",
+      "POST /api/finance/imports/wechat/preview",
+      "POST /api/finance/imports/{id}/commit"
+    ],
+    "knowledge/api/KnowledgeController.java": [
+      "GET /api/knowledge/files",
+      "GET /api/knowledge/search",
+      "GET /api/knowledge/stats",
+      "GET /api/knowledge/tree"
+    ],
+    "mcp/McpApprovalController.java": [
+      "GET /api/mcp/approval/drafts/{id}",
+      "POST /api/mcp/approval/drafts/{id}/approve",
+      "POST /api/mcp/approval/drafts/{id}/reject"
+    ],
+    "mcp/McpClientGrantController.java": [
+      "GET /api/mcp/clients",
+      "POST /api/mcp/clients",
+      "POST /api/mcp/clients/pairing",
+      "POST /api/mcp/clients/revoke"
+    ],
+    "mcp/McpFirstPartyOidcLinkController.java": [
+      "POST /api/mcp/identity/oidc/finish",
+      "POST /api/mcp/identity/oidc/start"
+    ],
+    "mcp/McpIdentityController.java": [
+      "GET /api/mcp/identity",
+      "POST /api/mcp/identity/tickets",
+      "POST /api/mcp/identity/unlink"
+    ],
+    "mcp/McpOAuthLinkController.java": [
+      "POST /api/mcp/link"
+    ],
+    "mcp/McpOAuthMetadataController.java": [
+      "GET /.well-known/oauth-protected-resource/**"
+    ],
+    "modules/api/ModuleController.java": [
+      "GET /api/modules",
+      "GET /api/modules/domains",
+      "GET /api/modules/features"
+    ],
+    "notification/NotificationController.java": [
+      "DELETE /api/notification-rules/{id}",
+      "DELETE /api/push/subscriptions/{id}",
+      "GET /api/notification-rules",
+      "GET /api/notifications",
+      "GET /api/push/subscriptions",
+      "GET /api/push/vapid-public-key",
+      "PATCH /api/notification-rules/{id}/status",
+      "PATCH /api/notifications/{id}/read",
+      "POST /api/notification-rules",
+      "POST /api/notification-rules/send-now",
+      "POST /api/push/subscriptions",
+      "POST /api/push/subscriptions/unsubscribe-current",
+      "POST /api/push/test",
+      "PUT /api/notification-rules/{id}"
+    ],
+    "practice/PracticeController.java": [
+      "DELETE /api/practice/banks/{id}",
+      "DELETE /api/practice/questions/{id}",
+      "DELETE /api/practice/subjects/{id}",
+      "GET /api/practice/banks/{bankId}/play",
+      "GET /api/practice/banks/{bankId}/questions",
+      "GET /api/practice/statistics",
+      "GET /api/practice/subjects",
+      "GET /api/practice/subjects/{subjectId}/banks",
+      "GET /api/practice/wrong-questions",
+      "POST /api/practice/banks",
+      "POST /api/practice/banks/{bankId}/ai/generate",
+      "POST /api/practice/banks/{bankId}/imports",
+      "POST /api/practice/banks/{bankId}/questions",
+      "POST /api/practice/imports/preview",
+      "POST /api/practice/questions/{id}/ai/explain",
+      "POST /api/practice/questions/{id}/check",
+      "POST /api/practice/subjects",
+      "PUT /api/practice/banks/{id}",
+      "PUT /api/practice/banks/{id}/status",
+      "PUT /api/practice/questions/{id}",
+      "PUT /api/practice/questions/{id}/status",
+      "PUT /api/practice/subjects/{id}"
+    ],
+    "records/api/RecordController.java": [
+      "DELETE /api/records/{id}",
+      "GET /api/records",
+      "POST /api/records",
+      "PUT /api/records/{id}"
+    ],
+    "reviews/api/ReviewController.java": [
+      "DELETE /api/reviews/{id}",
+      "GET /api/reviews",
+      "POST /api/reviews",
+      "PUT /api/reviews/{id}"
+    ],
+    "tags/api/TagController.java": [
+      "DELETE /api/tags/{id}",
+      "GET /api/tags",
+      "POST /api/tags",
+      "PUT /api/tags/{id}"
+    ],
+    "tasks/api/TaskController.java": [
+      "DELETE /api/tasks/{id}",
+      "GET /api/tasks",
+      "GET /api/tasks/summary",
+      "PATCH /api/tasks/{id}/status",
+      "POST /api/tasks",
+      "PUT /api/tasks/{id}"
+    ],
+    "video/VideoController.java": [
+      "DELETE /api/video/folders/{id}",
+      "DELETE /api/video/items/{id}",
+      "GET /api/video/folders",
+      "GET /api/video/items",
+      "GET /api/video/items/{id}/playback",
+      "GET /api/video/media/{id}",
+      "GET /api/video/storage/usage",
+      "GET /api/video/uploads/{id}",
+      "POST /api/video/folders",
+      "POST /api/video/uploads",
+      "POST /api/video/uploads/{id}/complete",
+      "PUT /api/video/folders/{id}",
+      "PUT /api/video/items/{id}",
+      "PUT /api/video/items/{id}/progress",
+      "PUT /api/video/uploads/{id}/parts/{number}"
+    ],
+    "vocal/VocalController.java": [
+      "DELETE /api/vocal/takes/{id}",
+      "GET /api/vocal/exercises",
+      "GET /api/vocal/takes",
+      "GET /api/vocal/takes/{id}/audio",
+      "POST /api/vocal/takes",
+      "POST /api/vocal/takes/{id}/coach"
+    ],
+    "vocal/VocalLibraryController.java": [
+      "DELETE /api/vocal/assignments/{id}",
+      "DELETE /api/vocal/lessons/{id}",
+      "DELETE /api/vocal/sections/{id}",
+      "DELETE /api/vocal/songs/{id}",
+      "GET /api/vocal/assignments",
+      "GET /api/vocal/lessons",
+      "GET /api/vocal/songs",
+      "GET /api/vocal/songs/{songId}/sections",
+      "POST /api/vocal/assignments",
+      "POST /api/vocal/lessons",
+      "POST /api/vocal/songs",
+      "POST /api/vocal/songs/{songId}/sections",
+      "PUT /api/vocal/assignments/{id}",
+      "PUT /api/vocal/lessons/{id}",
+      "PUT /api/vocal/sections/{id}",
+      "PUT /api/vocal/songs/{id}"
+    ],
+    "wellness/WellnessAiChangeController.java": [
+      "PATCH /api/wellness/ai/changes/{id}",
+      "POST /api/wellness/ai/changes/prepare",
+      "POST /api/wellness/ai/changes/{id}/confirm"
+    ],
+    "wellness/WellnessAiDraftController.java": [
+      "GET /api/wellness/ai/drafts/{draftId}",
+      "GET /api/wellness/ai/drafts/{draftId}/targets",
+      "PATCH /api/wellness/ai/drafts/{draftId}",
+      "POST /api/wellness/ai/chat/confirm-pending",
+      "POST /api/wellness/ai/chat/prepare",
+      "POST /api/wellness/ai/drafts/{draftId}/confirm",
+      "POST /api/wellness/ai/prepare"
+    ],
+    "wellness/WellnessController.java": [
+      "DELETE /api/wellness/body-metrics/{id}",
+      "DELETE /api/wellness/dishes/{id}",
+      "DELETE /api/wellness/exercises/{id}",
+      "DELETE /api/wellness/meals/{id}",
+      "GET /api/wellness/body-metrics",
+      "GET /api/wellness/dishes",
+      "GET /api/wellness/dishes/{id}",
+      "GET /api/wellness/exercises",
+      "GET /api/wellness/foods",
+      "GET /api/wellness/foods/frequent",
+      "GET /api/wellness/foods/usda/search",
+      "GET /api/wellness/foods/usda/status",
+      "GET /api/wellness/foods/{id}",
+      "GET /api/wellness/goals",
+      "GET /api/wellness/meals",
+      "GET /api/wellness/profile",
+      "GET /api/wellness/summary/daily",
+      "GET /api/wellness/summary/trends",
+      "POST /api/wellness/body-metrics",
+      "POST /api/wellness/dishes",
+      "POST /api/wellness/exercises",
+      "POST /api/wellness/foods",
+      "POST /api/wellness/foods/usda/{id}/import",
+      "POST /api/wellness/goals",
+      "POST /api/wellness/meals",
+      "POST /api/wellness/meals/snapshots",
+      "POST /api/wellness/meals/{id}/copy",
+      "PUT /api/wellness/body-metrics/{id}",
+      "PUT /api/wellness/dishes/{id}",
+      "PUT /api/wellness/exercises/{id}",
+      "PUT /api/wellness/meals/{id}",
+      "PUT /api/wellness/meals/{id}/snapshots",
+      "PUT /api/wellness/profile"
+    ]
+  }
+}
