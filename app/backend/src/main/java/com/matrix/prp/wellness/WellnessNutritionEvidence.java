@@ -116,6 +116,7 @@ final class WellnessNutritionEvidence {
                     BigDecimal grams=positiveCandidate(entry.path("packageGrams"),10000);
                     if (grams!=null)clean.put("packageGrams",grams);
                     JsonNode label=entry.path("labelPer100g");
+                    if (!label.isObject()) label=entry.path("labelPer100gCandidate");
                     if (label.isObject()) {
                         Map<String,Object> nutrition = new LinkedHashMap<>();
                         for (String field : List.of("caloriesKcal","proteinG","carbsG",
