@@ -160,7 +160,9 @@ class McpNineScopeCombinedOAuthTests {
         identity(2,CLIENT,NINE_SCOPES,Set.of());
         assertThat(rpc("prp_tasks_search",Map.of()).getResponse().getStatus()).isEqualTo(401);
         identity(3,CLIENT,NINE_SCOPES,NINE_SCOPES);
-        rpc("prp_tasks_search",Map.of());
+        // The legacy task-read scope is intentionally not owner-allowlist gated.
+        // Exercise the expanded record scope here, which must reject this owner.
+        rpc("prp_records_search",Map.of());
         identity(2,"https://unreviewed.example.test/client",NINE_SCOPES,NINE_SCOPES);
         rpc("prp_records_search",Map.of());
         verifyNoInteractions(tasks,records,practice,wellness,finance);
