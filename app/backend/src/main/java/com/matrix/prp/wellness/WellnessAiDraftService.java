@@ -109,7 +109,8 @@ public class WellnessAiDraftService {
                 "来源餐次包含无法安全复制的食物，请先核对健康中心的来源记录");
         for(var item:source.items()) if(item.foodId()>0) wellness.accessibleFood(item.foodId());
         for(var target:request.targets())
-            if(wellness.meals(target).stream().anyMatch(m->m.mealType().equals(request.mealType())))
+            if(!"SNACK".equals(request.mealType()) &&
+                wellness.meals(target).stream().anyMatch(m->m.mealType().equals(request.mealType())))
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                     target+" 已有同类型餐次，请先检查健康中心，避免重复记录");
         List<Map<String,Object>> foods=new ArrayList<>();
@@ -172,7 +173,8 @@ public class WellnessAiDraftService {
         List<Map<String,Object>> meals=new ArrayList<>();
         for(var meal:request.meals()){
             if(onlyType!=null && !onlyType.equals(meal.type()))continue;
-            if(existing.contains(meal.type()))continue;
+            // An existing snack does not occupy a single daily slot.
+            if(!"SNACK".equals(meal.type()) && existing.contains(meal.type()))continue;
             List<Map<String,Object>> items=new ArrayList<>();
             for(var food:meal.foods()){
                 Map<String,Object> item=new LinkedHashMap<>();
@@ -197,6 +199,7 @@ public class WellnessAiDraftService {
         payload.put("date",request.date().toString());
         payload.put("meals",meals);
         payload.put("alreadyExistingTypes",existing.stream()
+            .filter(t->!"SNACK".equals(t))
             .filter(t->request.meals().stream().anyMatch(m->m.type().equals(t))).toList());
         String id=UUID.randomUUID().toString();
         LocalDateTime expires=LocalDateTime.now().plusMinutes(15);
@@ -800,7 +803,7 @@ public class WellnessAiDraftService {
                     if(day.isBefore(today().minusYears(2)) || day.isAfter(today().plusDays(1)))
                         throw invalid("Meal date outside recording range");
                     var groups=data.path("meals");
-                    if(!groups.isArray() || groups.isEmpty() || groups.size()>4)
+                    if(!groups.isArray() || groups.isEmpty() || groups.size()>8)
                         throw invalid("Invalid meal batch");
                     // Serialize all meal confirmations for this account. This also protects
                     // multiple pending drafts from creating duplicate same-day meal types.
@@ -809,8 +812,9 @@ public class WellnessAiDraftService {
                     List<WellnessService.AiMealItem> all=new ArrayList<>();
                     for(var group:groups){
                         String type=group.path("mealType").asText("");
-                        if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) || !types.add(type))
-                            throw invalid("Duplicate/invalid meal type");
+                        if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) ||
+                            (!"SNACK".equals(type) && !types.add(type)))
+                            throw invalid("Duplicate/invalid primary meal type");
                         var foods=group.path("items");
                         if(!foods.isArray() || foods.isEmpty() || foods.size()>30)
                             throw invalid("Invalid meal items");
@@ -906,7 +910,8 @@ public class WellnessAiDraftService {
                         if(!day.isBefore(now) || day.isBefore(now.minusYears(2)) ||
                             day.equals(source.mealDate()) || !targets.add(day))
                             throw invalid("Invalid or duplicated target date");
-                        if(wellness.meals(day).stream().anyMatch(m->m.mealType().equals(type)))
+                        if(!"SNACK".equals(type) &&
+                            wellness.meals(day).stream().anyMatch(m->m.mealType().equals(type)))
                             throw new ResponseStatusException(HttpStatus.CONFLICT,
                                 day+" 已有该餐次，本次未新增任何记录");
                     }
@@ -931,7 +936,8 @@ public class WellnessAiDraftService {
                     if(!Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(targetType))
                         throw invalid("Invalid meal type");
                     db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
-                    if(wellness.meals(target).stream().anyMatch(m->m.mealType().equals(targetType)))
+                    if(!"SNACK".equals(targetType) &&
+                        wellness.meals(target).stream().anyMatch(m->m.mealType().equals(targetType)))
                         throw new ResponseStatusException(HttpStatus.CONFLICT,
                             "该日期的餐次已存在，请在健康中心查看或编辑，不能重复保存");
                     List<ItemInput> catalogItems=new ArrayList<>();
