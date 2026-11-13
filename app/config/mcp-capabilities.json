@@ -124,6 +124,11 @@
       "reason": "Unconfirmed AI or user candidate facts are private approval workflow state, not verified memories; never publish them to model-facing MCP tools by default."
     },
     {
+      "route": "GET /api/memory/private",
+      "status": "excluded",
+      "reason": "Authenticated first-party owner-only view of sensitive and restricted confirmed memories; never expose to MCP or general AI context. Fetch only after a deliberate UI interaction and audit privacy."
+    },
+    {
       "route": "GET /api/practice/banks/{bankId}/play",
       "status": "partial",
       "tool": "prp_practice_questions",
