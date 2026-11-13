@@ -160,14 +160,22 @@ async function loadData() {
 
 async function selectGoal(id: number) {
   selectedGoalId.value = id
+  context.value = []
   contextLoading.value = true
+  const generation = loadGeneration
+  const identity = auth.token
   try {
-    context.value = await fetchPersonalGoalContext(id)
+    const response = await fetchPersonalGoalContext(id)
+    if (generation !== loadGeneration || identity !== auth.token
+        || selectedGoalId.value !== id || activeTab.value !== 'goals') return
+    context.value = response
   } catch {
+    if (generation !== loadGeneration || identity !== auth.token
+        || selectedGoalId.value !== id || activeTab.value !== 'goals') return
     context.value = []
     ElMessage.error('目标关联证据加载失败')
   } finally {
-    contextLoading.value = false
+    if (generation === loadGeneration && identity === auth.token) contextLoading.value = false
   }
 }
 
@@ -332,6 +340,28 @@ async function saveCorrection() {
   } catch { ElMessage.error('创建更正候选失败') }
   finally { actionBusy.value = false }
 }
+
+// Never reuse old-account data or accept delayed responses after an auth switch.
+watch(() => auth.token, (next, prior) => {
+  if (next === prior) return
+  ++loadGeneration
+  ++privateRequestGeneration
+  goals.value = []
+  context.value = []
+  selectedGoalId.value = null
+  contextLoading.value = false
+  candidates.value = []
+  memories.value = []
+  memoryLoaded.value = false
+  privateFacts.value = []
+  privateOpen.value = false
+  records.value = []
+  correctionTarget.value = null
+  correctionText.value = ''
+  correctionRequestKey.value = ''
+  correctionOpen.value = false
+  if (next) void loadData()
+})
 
 // Private facts must not persist across tabs, even while the view remains mounted.
 watch(activeTab, (next) => {
