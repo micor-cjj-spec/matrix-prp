@@ -306,7 +306,7 @@ async function eraseMemory(item: PersonalMemory) {
 }
 
 function openCorrection(item: PersonalMemory) {
-  if (item.objectType !== 'LITERAL'
+  if (item.status !== 'CONFIRMED' || item.objectType !== 'LITERAL'
     || !['PREFERS', 'DECLARES_SKILL', 'HAS_BACKGROUND'].includes(item.predicate)) return
   correctionTarget.value = item
   correctionText.value = item.objectValue ?? ''
@@ -534,11 +534,13 @@ onMounted(async () => {
                   </el-tag>
                 </div>
                 <p>{{ describeMemory(item) }}</p>
-                <small>来源 {{ item.sourceType }} · 事实 #{{ item.id }}</small>
+                <small>来源 {{ item.sourceType }} · 事实 #{{ item.id }} ·
+                  {{ item.status === 'CONFIRMED' ? '已确认' : item.status === 'INVALID' ? '已作废' : '已被替代' }}</small>
                 <div class="os-card-actions">
-                  <el-button v-if="item.objectType === 'LITERAL'" size="small"
+                  <el-button v-if="item.status === 'CONFIRMED' && item.objectType === 'LITERAL'" size="small"
                     :disabled="actionBusy" @click="openCorrection(item)">更正</el-button>
-                  <el-button size="small" :disabled="actionBusy" @click="invalidateCandidate(item)">作废</el-button>
+                  <el-button v-if="item.status === 'CONFIRMED'" size="small"
+                    :disabled="actionBusy" @click="invalidateCandidate(item)">作废</el-button>
                   <el-button size="small" type="danger" text :disabled="actionBusy"
                     @click="eraseMemory(item)">永久删除</el-button>
                 </div>
