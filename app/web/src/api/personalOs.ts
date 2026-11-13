@@ -98,6 +98,12 @@ export async function fetchConfirmedMemories() {
   return data.data
 }
 
+// Private confirmed facts are requested only by an explicit user action.
+export async function fetchPrivateMemories() {
+  const { data } = await apiClient.get<ApiResponse<PersonalMemory[]>>('/memory/private')
+  return data.data
+}
+
 export async function fetchMemoryCandidates() {
   const { data } = await apiClient.get<ApiResponse<PersonalMemory[]>>('/memory/candidates')
   return data.data
