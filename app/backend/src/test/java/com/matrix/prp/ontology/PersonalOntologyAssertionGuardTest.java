@@ -46,10 +46,9 @@ class PersonalOntologyAssertionGuardTest {
         var item = new PersonalOntologyAssertionGuard.Candidate(
             TASK, "4", ADVANCES, GOAL, "6", null, EvidenceSource.TASK, "4", null, null);
         guard.requireValid(item);
-        verify(references).requireOwned(TASK, "4");
-        verify(references).requireOwned(GOAL, "6");
-        // Even when source is the same object, recheck its type and owner.
+        // Subject and evidence are the same Task, but each ownership check is mandatory.
         verify(references, times(2)).requireOwned(TASK, "4");
+        verify(references).requireOwned(GOAL, "6");
         verifyNoMoreInteractions(references);
     }
 
