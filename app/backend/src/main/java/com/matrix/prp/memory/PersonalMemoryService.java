@@ -103,6 +103,12 @@ public class PersonalMemoryService {
     public Memory proposeReplacement(long oldId, Proposed proposal) {
         Memory previous=get(oldId);
         if (!"CONFIRMED".equals(previous.status())) throw conflict("Only confirmed facts can be replaced");
+        if (proposal == null || previous.subjectType() != proposal.subjectType()
+                || !Objects.equals(previous.subjectRef(),proposal.subjectRef())
+                || previous.predicate() != proposal.predicate()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Memory replacement must describe the same subject and predicate");
+        }
         return proposeWithParent(proposal,oldId);
     }
 
