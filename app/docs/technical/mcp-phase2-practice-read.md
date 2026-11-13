@@ -1,6 +1,6 @@
 # Phase 2 / Batch 3: Practice MCP read tools
 
-This is **code for review only**, dependent on PR #172 and its parent PR #171. It adds five **read-only** tools under a new least-privilege `prp.practice.read` scope. The new scope is added to the backend metadata allowlist and first-party client grant UI enumeration, **not** to production advertised scopes, Keycloak, existing owner grants or OAuth tokens.
+This is **code for review only**. PRs #171 and #172 are merged into `main`; PR #179 has been rebased onto their merged baseline and stays Draft until separately approved. It adds five **read-only** tools under a new least-privilege `prp.practice.read` scope. The new scope is added to the backend metadata allowlist and first-party client grant UI enumeration, **not** to production advertised scopes, Keycloak, existing owner grants or OAuth tokens.
 
 | Tool | REST reference | Result contract |
 | --- | --- | --- |
@@ -32,10 +32,17 @@ node --test scripts/mcp-scopes.test.mjs
 
 Required negative cases: no scope, revoked client consent, wrong client or unallowlisted owner, other user's subject/bank, invalid negative or excessive limits, unpublished questions, correct answers never exposed, and explicit content truncation. Complete CI, including production-health regression suites, is a merge prerequisite.
 
-**Release boundary:** No changes to production Keycloak, issuer, Nginx, MySQL, Web Push, Flyway or actual OAuth grants. The repository's `main` CI can trigger `Deploy PRP`; merging this or parent PRs requires separate approval even with green CI.
+**Release boundary:** No changes to production Keycloak, issuer, Nginx, MySQL, Web Push, Flyway or actual OAuth grants. The repository's `main` CI can trigger `Deploy PRP`; merging **this PR #179** requires separate owner approval even with green CI. The existing publication hold must remain in place.
 
 ## Next staged work
 
 - Clarify verified answer provenance and question-version lifecycle before building AI grading or bulk answer ingestion; neither is part of this read-only batch.
 - Add separate owner-approved write drafts for practice question import/edit/grade only after an explicit write-scope and review workflow.
 - Continue remaining records/video/reviews after practice read regression and security tests pass.
+
+## Merge-base verification (2026-11-13)
+
+- Parent PR #172 squash-merged into `main` at `9b68ccef6742e169275345dc0573d29481f3fa82` after its 34/34 CI pass.
+- The rebased #179 branch applies the same original ten practice-related file blobs to this parent tree; no runtime business logic change was introduced by the rebase. The new commit's complete tree was checked against the original head.
+- `app/deploy/publication-hold.json` remains byte-for-byte identical to the merged main version. Production exposure of the new tools still requires separate operator opt-in plus an approved OAuth grant.
+- Current-head CI and Feature Impact Report must pass before an owner-authorized merge. Leave this PR in Draft while checks run.
