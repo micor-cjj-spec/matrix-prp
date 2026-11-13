@@ -22,6 +22,7 @@ const goals = ref<PersonalGoal[]>([])
 const candidates = ref<PersonalMemory[]>([])
 const memories = ref<PersonalMemory[]>([])
 const records = ref<RecordItem[]>([])
+const timelineDomain = ref('life')
 const selectedGoalId = ref<number | null>(null)
 const context = ref<PersonalGoalLink[]>([])
 const contextLoading = ref(false)
@@ -69,7 +70,8 @@ async function loadData() {
   serviceError.value = ''
   try {
     const [goalData, candidateData, memoryData, recordData] = await Promise.all([
-      fetchPersonalGoals(), fetchMemoryCandidates(), fetchConfirmedMemories(), fetchRecords(),
+      fetchPersonalGoals(), fetchMemoryCandidates(), fetchConfirmedMemories(),
+      fetchRecords({ moduleCode: timelineDomain.value || undefined }),
     ])
     goals.value = goalData
     candidates.value = candidateData
@@ -420,7 +422,13 @@ onMounted(async () => {
       <section v-else class="os-timeline">
         <div class="os-section-heading"><h2>人生记录时间轴</h2>
           <RouterLink to="/records">管理原始记录</RouterLink></div>
-        <p class="os-help">复用已有记录模块。时间轴仅展示当前账号可读取的原始记录，不自动推断人生经历。</p>
+        <el-select v-model="timelineDomain" style="max-width: 220px; margin-bottom: 14px;" aria-label="时间轴记录领域" @change="loadData">
+          <el-option label="生活记录" value="life" />
+          <el-option label="工作经历" value="work" />
+          <el-option label="学习经历" value="learning" />
+          <el-option label="全部记录（主动选择）" value="" />
+        </el-select>
+        <p class="os-help">复用已有记录模块，默认只读取生活记录。其他领域由你主动选择；不自动推断人生经历。</p>
         <el-empty v-if="!timeline.length && !loading" description="暂无记录，先在记录管理中留下第一条。" />
         <article v-for="record in timeline" :key="record.id" class="os-timeline-item">
           <time>{{ record.recordDate }}</time>
