@@ -96,6 +96,8 @@ class WellnessNutritionEvidenceTests {
             "mealType", "LUNCH", "items", List.of()));
         JdbcTemplate db = mock(JdbcTemplate.class);
         var wellness = mock(WellnessService.class);
+        when(wellness.profile()).thenReturn(
+            new com.matrix.prp.wellness.WellnessModels.Profile(null, "Asia/Shanghai"));
         var service = new WellnessAiDraftService(db, wellness, mock(com.matrix.prp.ai.AiSettingsService.class),
             mock(com.matrix.prp.ai.AiStore.class),json,20,20,1000,1000);
         when(db.queryForList(contains("FROM prp_wellness_ai_drafts"),
@@ -120,6 +122,8 @@ class WellnessNutritionEvidenceTests {
         asOwner(71L);
         JdbcTemplate db = mock(JdbcTemplate.class);
         var wellness = mock(WellnessService.class);
+        when(wellness.profile()).thenReturn(
+            new com.matrix.prp.wellness.WellnessModels.Profile(null, "Asia/Shanghai"));
         var service = new WellnessAiDraftService(db, wellness,
             mock(com.matrix.prp.ai.AiSettingsService.class),
             mock(com.matrix.prp.ai.AiStore.class),json,20,20,1000,1000);
