@@ -3,6 +3,7 @@ package com.matrix.prp.ontology;
 import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.ontology.PersonalOntology.NodeType;
 import java.util.List;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
  * The model never supplies a user ID, table name, or SQL expression.
  */
 @Component
+@Profile("!test")
 public final class PersonalOntologyReferenceGuard {
     private final JdbcTemplate jdbc;
 
