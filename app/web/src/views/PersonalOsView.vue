@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
@@ -88,7 +88,7 @@ async function togglePrivateMemories() {
 }
 
 async function refreshPrivateIfOpen() {
-  if (!privateOpen.value) return
+  if (!privateOpen.value || activeTab.value !== 'memory') return
   try {
     privateFacts.value = await fetchPrivateMemories()
   } catch {
@@ -306,6 +306,19 @@ async function saveCorrection() {
   } catch { ElMessage.error('创建更正候选失败') }
   finally { actionBusy.value = false }
 }
+
+// Private facts must not persist across tabs, even while the view remains mounted.
+watch(activeTab, (next) => {
+  if (next !== 'memory') {
+    privateOpen.value = false
+    privateFacts.value = []
+  }
+})
+
+onUnmounted(() => {
+  privateOpen.value = false
+  privateFacts.value = []
+})
 
 onMounted(async () => {
   try { await auth.loadCurrentUser() } catch { /* auth/error UI is handled by route and API */ }
