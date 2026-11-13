@@ -115,4 +115,45 @@ class WellnessNutritionEvidenceTests {
         assertThat(carried.path("items").get(0).path("name").asText()).isEqualTo("米饭");
         assertThat(carried.toString()).doesNotContain("FORGED");
     }
+
+    @Test void confirmingFirstPartyDraftWritesEvidenceBeforeDraftIsConsumed() throws Exception {
+        asOwner(71L);
+        JdbcTemplate db = mock(JdbcTemplate.class);
+        var wellness = mock(WellnessService.class);
+        var service = new WellnessAiDraftService(db, wellness,
+            mock(com.matrix.prp.ai.AiSettingsService.class),
+            mock(com.matrix.prp.ai.AiStore.class),json,20,20,1000,1000);
+        String draftId = "22345678-1234-1234-1234-123456789012";
+        String day = LocalDate.now(ZoneId.of("Asia/Shanghai")).toString();
+        var initial = Map.<String,Object>of("schemaVersion",1,"sourceType","IMAGE",
+            "items",List.of(Map.of("name","红油馄饨","estimatedGrams",0)));
+        var payload = Map.<String,Object>of(
+            "date",day,"mealType","LUNCH","note","人工审核",
+            "items",List.of(Map.of("foodId",0,"mode","manual","name","红油馄饨",
+                "grams",0,"manualCalories",470)),
+            "_initialExtraction",initial);
+        when(db.queryForList(contains("FROM prp_wellness_ai_drafts"),
+            eq(draftId),eq(71L))).thenReturn(List.of(Map.of(
+                "action_type","meal.create","status","PENDING",
+                "expires_at",Timestamp.valueOf(LocalDateTime.now().plusMinutes(10)),
+                "payload_json",json.writeValueAsString(payload),"model_used","ci/vision")));
+        when(db.update(anyString(),any(Object[].class))).thenReturn(1);
+        var stored = new Meal(71L, LocalDate.parse(day), "LUNCH", null,
+            List.of(new MealItem(171L,0L,"红油馄饨",BigDecimal.ZERO,
+                new BigDecimal("470"),null,null,null,true)));
+        when(wellness.addAiMeal(any(),anyString(),anyString(),anyList(),eq(draftId)))
+            .thenReturn(stored);
+
+        var result = service.confirm(draftId);
+        assertThat(result.saved()).isEqualTo(stored);
+        var order = inOrder(db);
+        order.verify(db).update(startsWith("INSERT INTO prp_wellness_meal_analyses"),
+            any(Object[].class));
+        order.verify(db).update(startsWith("INSERT INTO prp_wellness_meal_item_nutrients"),
+            any(Object[].class));
+        order.verify(db).update(contains("status='CONSUMED'"),eq(draftId),eq(71L));
+        verify(db).update(startsWith("INSERT INTO prp_wellness_meal_analyses"),
+            eq(71L),eq("IMAGE"),anyString(),anyString(),eq("ci/vision"));
+        verify(db,never()).update(contains("prp_wellness_foods"),any(Object[].class));
+    }
 }
