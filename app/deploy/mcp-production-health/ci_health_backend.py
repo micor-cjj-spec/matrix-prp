@@ -65,7 +65,7 @@ class Backend:
   else:raise RuntimeError('REAL_HEALTH_MYSQL_START_TIMEOUT')
   # Only this new CI schema is migrated. Guarded production-shaped runtime is then restarted with Flyway OFF.
   self.start_java({'spring':{'flyway':{'enabled':True},'ai':{'mcp':{'server':{'enabled':False}}}},'matrix-prp':{'mcp':{'enabled':False}}})
-  self.check('real_health_mysql_v29_migrated',self.sql('SELECT version,success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;')=='29\t1')
+  self.check('real_health_mysql_v30_migrated',self.sql('SELECT version,success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;')=='30\t1')
   migration_history=self.sql('SELECT installed_rank,version,checksum,success FROM flyway_schema_history ORDER BY installed_rank;')
   self.stop_java()
   self.sql("UPDATE prp_users SET is_admin=0 WHERE username='ci_health_owner'; INSERT INTO prp_users(username,display_name,password_hash,is_admin,enabled) SELECT 'ci_health_other','Synthetic other',password_hash,0,1 FROM prp_users WHERE username='ci_health_owner';")
