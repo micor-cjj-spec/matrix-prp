@@ -192,4 +192,95 @@ class WellnessDatabaseIT {
         assertThat(missing.get(0).path("record").isNull()).isTrue();
     }
 
+
+    @Test void confirmedOrderEvidencePersistsAndReadsBackWithOwnerIsolation() throws Exception {
+        String owner = login("video_admin","video-test-admin-password-2026");
+        Long ownerId = jdbc.queryForObject("SELECT id FROM prp_users WHERE username=?",
+                Long.class,"video_admin");
+        String day = "2026-08-17";
+        String draftId = UUID.randomUUID().toString();
+        // The model's order quantity is a provenance candidate, not actual intake.
+        // Only one confirmed serving (350 kcal) may enter daily totals.
+        Map<String,Object> extraction = Map.of(
+            "schemaVersion",1,"sourceType","IMAGE",
+            "items",List.of(Map.of("name","外卖水饺","estimatedGrams",0)),
+            "sourceContext",Map.of("kind","ORDER_SCREENSHOT",
+                "merchantName","Synthetic Dumplings",
+                "lineItems",List.of(Map.of("name","外卖水饺",
+                    "purchasedQuantity",2,"portionLabel","18个/份"))));
+        Map<String,Object> payload = Map.of(
+            "date",day,"mealType","LUNCH","note","已人工核对：只吃一份",
+            "items",List.of(Map.of("mode","manual","foodId",0,
+                "name","外卖水饺","grams",0,"manualCalories",350)),
+            "_initialExtraction",extraction);
+        jdbc.update("INSERT INTO prp_wellness_ai_drafts " +
+            "(id,user_id,action_type,payload_json,description,model_used,expires_at) " +
+            "VALUES (?,?,?,?,?,?,?)",draftId,ownerId,"meal.create",
+            mapper.writeValueAsString(payload),"Isolated order test","ci/vision",
+            Timestamp.valueOf(LocalDateTime.now().plusMinutes(10)));
+
+        JsonNode result = postJson("/api/wellness/ai/drafts/" + draftId + "/confirm",
+            owner,Map.of());
+        long id = result.path("saved").path("id").asLong();
+        assertThat(id).isPositive();
+        assertThat(result.path("saved").path("items").size()).isEqualTo(1);
+        assertThat(result.path("saved").path("items").get(0).path("calories").decimalValue())
+            .isEqualByComparingTo("350");
+        assertThat(result.path("saved").path("items").get(0).path("proteinG").isNull())
+            .isTrue();
+
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM prp_wellness_meal_analyses WHERE meal_id=?",
+            Long.class,id)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM prp_wellness_meal_item_nutrients n " +
+            "JOIN prp_wellness_meal_items i ON i.id=n.meal_item_id WHERE i.meal_id=?",
+            Long.class,id)).isEqualTo(1L);
+        String savedRaw = jdbc.queryForObject(
+            "SELECT raw_extraction_json FROM prp_wellness_meal_analyses WHERE meal_id=?",
+            String.class,id);
+        String savedAnalysis = jdbc.queryForObject(
+            "SELECT analysis_json FROM prp_wellness_meal_analyses WHERE meal_id=?",
+            String.class,id);
+        assertThat(mapper.readTree(savedRaw).path("sourceContext").path("lineItems")
+            .get(0).path("purchasedQuantity").asInt()).isEqualTo(2);
+        assertThat(mapper.readTree(savedAnalysis).path("items").size()).isEqualTo(1);
+        assertThat(mapper.readTree(savedAnalysis).path("items").get(0)
+            .path("caloriesKcal").decimalValue()).isEqualByComparingTo("350");
+        assertThat(savedAnalysis).doesNotContain("purchasedQuantity","18个/份");
+
+        JsonNode details=getData("/api/wellness/meals/"+id+"/analysis",owner);
+        assertThat(details.path("meal").path("id").asLong()).isEqualTo(id);
+        assertThat(details.path("analyses").size()).isEqualTo(1);
+        assertThat(details.path("nutrients").size()).isEqualTo(1);
+        assertThat(details.path("nutrients").get(0).path("proteinG").isNull()).isTrue();
+        assertThat(details.path("analyses").get(0).path("rawExtraction")
+            .path("sourceContext").path("lineItems").get(0)
+            .path("purchasedQuantity").asInt()).isEqualTo(2);
+        assertThat(details.path("nutritionCompleteness").path("knownProteinCount").asInt())
+            .isEqualTo(0);
+
+        JsonNode summary=getData("/api/wellness/summary/daily?date="+day,owner);
+        assertThat(summary.path("mealCount").asInt()).isEqualTo(1);
+        assertThat(summary.path("calories").decimalValue()).isEqualByComparingTo("350");
+
+        String invitation=postJson("/api/auth/invitations",owner,Map.of())
+            .path("code").asText();
+        String other=postJson("/api/auth/register",null,Map.of(
+            "username","v2_order_guest_"+UUID.randomUUID().toString().substring(0,8),
+            "password","guest-password-2026","displayName","Another owner",
+            "invitationCode",invitation)).path("token").asText();
+        mvc.perform(auth(get("/api/wellness/meals/{id}/analysis",id),other))
+            .andExpect(status().isNotFound());
+
+        // Double confirmation is denied without duplicate meal/evidence rows.
+        mvc.perform(auth(post("/api/wellness/ai/drafts/{id}/confirm",draftId),owner))
+            .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM prp_wellness_meal_analyses WHERE meal_id=?",
+            Long.class,id)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM prp_wellness_meals WHERE user_id=? AND meal_date=? AND meal_type='LUNCH'",
+            Long.class,ownerId,day)).isEqualTo(1L);
+    }
 }
