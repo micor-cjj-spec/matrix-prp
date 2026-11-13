@@ -373,4 +373,97 @@ class WellnessDatabaseIT {
             "SELECT COUNT(*) FROM prp_wellness_meal_analyses WHERE meal_id=?",
             Long.class,id)).isEqualTo(2L);
     }
+
+    @Test void repeatedSnacksFromRestAndAiAreDistinctWhileRetriesAndMainMealsStayProtected() throws Exception {
+        String owner=login("video_admin","video-test-admin-password-2026");
+        Long ownerId=jdbc.queryForObject("SELECT id FROM prp_users WHERE username=?",
+            Long.class,"video_admin");
+        String day="2026-08-19";
+        JsonNode catalog=postJson("/api/wellness/foods",owner,Map.of(
+            "name","Synthetic snack yogurt","preparation","cooked","calories100g",120,
+            "protein100g",3,"carbs100g",10,"fat100g",2,"sourceNote","snack CI"));
+        long foodId=catalog.path("id").asLong();
+
+        Map<String,Object> first=Map.of(
+            "mealDate",day,"mealType","SNACK","note","Morning fruit",
+            "items",List.of(Map.of("foodId",0,"name","苹果","grams",120,
+                "calories",90)),"idempotencyKey","snack-"+UUID.randomUUID());
+        long firstId=postJson("/api/wellness/meals/snapshots",owner,first).path("id").asLong();
+        assertThat(firstId).isPositive();
+        // Repeated request with the same idempotency key must not create another snack.
+        assertThat(postJson("/api/wellness/meals/snapshots",owner,first).path("id").asLong())
+            .isEqualTo(firstId);
+        Map<String,Object> second=Map.of("mealDate",day,"mealType","SNACK",
+            "note","Afternoon yogurt","items",List.of(Map.of("foodId",foodId,"grams",80)),
+            "idempotencyKey","snack-"+UUID.randomUUID());
+        long secondId=postJson("/api/wellness/meals",owner,second).path("id").asLong();
+        assertThat(secondId).isPositive().isNotEqualTo(firstId);
+
+        String singleDraftId=UUID.randomUUID().toString();
+        String single=mapper.writeValueAsString(Map.of(
+            "date",day,"mealType","SNACK","note","Evening nuts",
+            "items",List.of(Map.of("foodId",0,"mode","manual",
+                "name","坚果","grams",0,"manualCalories",110))));
+        jdbc.update("INSERT INTO prp_wellness_ai_drafts " +
+            "(id,user_id,action_type,payload_json,description,model_used,expires_at) " +
+            "VALUES (?,?,?,?,?,?,?)",singleDraftId,ownerId,"meal.create",single,
+            "Snack without fake macros","ci/manual",
+            Timestamp.valueOf(LocalDateTime.now().plusMinutes(10)));
+        long thirdId=postJson("/api/wellness/ai/drafts/"+singleDraftId+"/confirm",owner,Map.of())
+            .path("saved").path("id").asLong();
+        assertThat(thirdId).isPositive().isNotEqualTo(secondId);
+
+        String batchId=UUID.randomUUID().toString();
+        String batch=mapper.writeValueAsString(Map.of(
+            "date",day,"meals",List.of(
+                Map.of("mealType","SNACK","totalCalories",50,"note","Snack A",
+                    "items",List.of(Map.of("foodId",0,"mode","manual","name","小番茄",
+                        "grams",0,"manualCalories",50))),
+                Map.of("mealType","SNACK","totalCalories",60,"note","Snack B",
+                    "items",List.of(Map.of("foodId",0,"mode","manual","name","黄瓜",
+                        "grams",0,"manualCalories",60))))));
+        jdbc.update("INSERT INTO prp_wellness_ai_drafts " +
+            "(id,user_id,action_type,payload_json,description,model_used,expires_at) " +
+            "VALUES (?,?,?,?,?,?,?)",batchId,ownerId,"meal.create_batch",batch,
+            "Two separate snacks in one approval","ci/manual",
+            Timestamp.valueOf(LocalDateTime.now().plusMinutes(10)));
+        JsonNode confirmed=postJson("/api/wellness/ai/drafts/"+batchId+"/confirm",
+            owner,Map.of());
+        assertThat(confirmed.path("saved").size()).isEqualTo(2);
+        mvc.perform(auth(post("/api/wellness/ai/drafts/{id}/confirm",batchId),owner))
+            .andExpect(status().isConflict());
+
+        JsonNode records=getData("/api/wellness/meals?date="+day,owner);
+        assertThat(records.size()).isEqualTo(5);
+        assertThat(records.findValuesAsText("mealType"))
+            .containsOnly("SNACK");
+        assertThat(records.findValuesAsText("id")).hasSize(5);
+        JsonNode summary=getData("/api/wellness/summary/daily?date="+day,owner);
+        assertThat(summary.path("mealCount").asInt()).isEqualTo(5);
+        assertThat(summary.path("calories").decimalValue())
+            .isEqualByComparingTo("406.00"); // 90+96+110+50+60
+        assertThat(summary.path("proteinG").isNull()).isTrue();
+        assertThat(summary.path("recordedMealTypes").size()).isEqualTo(1);
+        assertThat(summary.path("recordedMealTypes").get(0).asText()).isEqualTo("SNACK");
+
+        Map<String,Object> breakfast=Map.of("mealDate",day,"mealType","BREAKFAST",
+            "items",List.of(Map.of("foodId",foodId,"grams",100)),
+            "idempotencyKey","breakfast-"+UUID.randomUUID());
+        postJson("/api/wellness/meals",owner,breakfast);
+        Map<String,Object> duplicateBreakfast=Map.of("mealDate",day,"mealType","BREAKFAST",
+            "items",List.of(Map.of("foodId",foodId,"grams",100)),
+            "idempotencyKey","breakfast-"+UUID.randomUUID());
+        mvc.perform(auth(post("/api/wellness/meals").contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsBytes(duplicateBreakfast)),owner))
+            .andExpect(status().isConflict());
+
+        String code=postJson("/api/auth/invitations",owner,Map.of()).path("code").asText();
+        String guest=postJson("/api/auth/register",null,Map.of(
+            "username","snack_guest_"+UUID.randomUUID().toString().substring(0,8),
+            "password","guest-password-2026","displayName","Snacking stranger",
+            "invitationCode",code)).path("token").asText();
+        assertThat(getData("/api/wellness/meals?date="+day,guest).size()).isZero();
+        mvc.perform(auth(delete("/api/wellness/meals/{id}",firstId),guest))
+            .andExpect(status().isNotFound());
+    }
 }
