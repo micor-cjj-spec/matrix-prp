@@ -7,6 +7,8 @@ import com.matrix.prp.finance.service.FinanceService;
 import com.matrix.prp.records.model.CreateRecordRequest;
 import com.matrix.prp.records.model.RecordFilter;
 import com.matrix.prp.records.service.RecordService;
+import com.matrix.prp.practice.PracticeService;
+import com.matrix.prp.practice.PracticeModels;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.model.TaskFilter;
 import com.matrix.prp.tasks.service.TaskService;
@@ -34,6 +36,9 @@ public class PrpMcpTools {
     private final FinanceService finance;
     private final WellnessService wellness;
     private final RecordService records;
+    /** PracticeService is profile-excluded from database-free tests; production supplies it. */
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private PracticeService practice;
     private final McpDraftService drafts;
     private final McpScopeGuard scopes;
 
@@ -337,6 +342,72 @@ public class PrpMcpTools {
         return records.listLimited(new RecordFilter(moduleCode, tagId, optionalDate(recordDate), keyword),20)
             .stream().map(r -> new RecordPreview(r.id(),r.moduleCode(),r.title(),r.recordDate(),
                 r.content()==null ? "" : r.content().substring(0,Math.min(200,r.content().length())))).toList();
+    }
+
+    private PracticeService practiceReadService() {
+        if (practice == null) throw new IllegalStateException("Practice service is not available");
+        return practice;
+    }
+
+    @McpTool(name="prp_practice_subjects", description="List up to 50 of your own learning subjects. No answer keys, no writes.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceSubjects() {
+        scopes.require("prp.practice.read");
+        return practiceReadService().subjectsLimited(50);
+    }
+
+    @McpTool(name="prp_practice_banks", description="List up to 30 of your own question banks in an owned subject. A different user's subject ID is unavailable.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceBanks(@McpToolParam(description="Positive owned subject ID",required=true) long subjectId) {
+        scopes.require("prp.practice.read");
+        if (subjectId <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Positive subject ID required");
+        return practiceReadService().banksLimited(subjectId,30);
+    }
+
+    /** No correct answers or explanations. Truncation is explicit to avoid misleading study content. */
+    public record PracticeOptionPreview(String key,String text) {}
+    public record PracticeQuestionPreview(long id,long bankId,String type,String stem,
+                                          List<PracticeOptionPreview> options,String difficulty,boolean truncated) {}
+    private static PracticeQuestionPreview practicePreview(PracticeModels.QuestionPublic q) {
+        String stem=q.stem()==null?"":q.stem();
+        boolean clipped=stem.length()>800;
+        List<PracticeOptionPreview> options=new java.util.ArrayList<>();
+        if (q.options()!=null) for (var o:q.options()) {
+            if(options.size()==8) {clipped=true;break;}
+            String text=o.text()==null?"":o.text();
+            if(text.length()>200)clipped=true;
+            options.add(new PracticeOptionPreview(o.key(),text.substring(0,Math.min(200,text.length()))));
+        }
+        return new PracticeQuestionPreview(q.id(),q.bankId(),q.type(),
+            stem.substring(0,Math.min(800,stem.length())),List.copyOf(options),q.difficulty(),clipped);
+    }
+
+    @McpTool(name="prp_practice_questions", description="Read up to 10 published practice questions from an owned published bank. Returns bounded question/option previews; never returns correct answers or explanations. Truncated content is marked.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceQuestions(@McpToolParam(description="Positive owned published bank ID",required=true) long bankId,
+                                    @McpToolParam(description="1-10 questions; defaults to 5",required=false) Integer limit) {
+        scopes.require("prp.practice.read");
+        if(bankId<=0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Positive bank ID required");
+        int cap=practiceLimit(limit);
+        return practiceReadService().playableLimited(bankId,cap).stream()
+            .map(PrpMcpTools::practicePreview).toList();
+    }
+
+    @McpTool(name="prp_practice_wrong_questions", description="Read up to 10 of your own most recently incorrect published questions. No correct answers or explanations; truncated content is marked.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceWrongQuestions(@McpToolParam(description="1-10 questions; defaults to 5",required=false) Integer limit) {
+        scopes.require("prp.practice.read");
+        int cap=practiceLimit(limit);
+        return practiceReadService().wrongQuestionsLimited(cap).stream()
+            .map(PrpMcpTools::practicePreview).toList();
+    }
+
+    @McpTool(name="prp_practice_statistics", description="Read your own attempt count, correct count and wrong count. No exam answers or edits.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object practiceStatistics() {
+        scopes.require("prp.practice.read");
+        return practiceReadService().statistics();
+    }
+
+    private static int practiceLimit(Integer limit) {
+        int cap=limit==null?5:limit;
+        if(cap<1 || cap>10) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Question limit must be 1-10");
+        return cap;
     }
 
     private static LocalDate optionalDate(String value) {

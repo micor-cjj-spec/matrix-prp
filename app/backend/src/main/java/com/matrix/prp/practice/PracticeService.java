@@ -58,6 +58,12 @@ public class PracticeService {
         }, holder);
         return holder.getKey().longValue();
     }
+    private static void readLimit(int value, int max) {
+        if (value < 1 || value > max) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Read limit must be 1-" + max);
+        }
+    }
+
     private long count(String sql, Object... args) {
         Long result = jdbc.queryForObject(sql, Long.class, args);
         return result == null ? 0 : result;
@@ -101,6 +107,13 @@ public class PracticeService {
         return jdbc.query("SELECT * FROM prp_practice_subjects WHERE user_id=? ORDER BY id",
                 subjectRow, CurrentUser.id());
     }
+
+    /** MCP bounded read: enforce the limit in SQL rather than loading all owner rows. */
+    public List<Subject> subjectsLimited(int limit) {
+        readLimit(limit, 50);
+        return jdbc.query("SELECT * FROM prp_practice_subjects WHERE user_id=? ORDER BY id LIMIT " + limit,
+                subjectRow, CurrentUser.id());
+    }
     public Subject createSubject(SubjectForm form) {
         validateParent(form.parentId(), null);
         long id = insert("INSERT INTO prp_practice_subjects(user_id,parent_id,name,description) VALUES(?,?,?,?)",
@@ -126,6 +139,13 @@ public class PracticeService {
     public List<Bank> banks(long subjectId) {
         requireSubject(subjectId);
         return jdbc.query("SELECT * FROM prp_practice_banks WHERE subject_id=? AND user_id=? ORDER BY id DESC",
+                bankRow, subjectId, CurrentUser.id());
+    }
+
+    public List<Bank> banksLimited(long subjectId, int limit) {
+        readLimit(limit, 50);
+        requireSubject(subjectId);
+        return jdbc.query("SELECT * FROM prp_practice_banks WHERE subject_id=? AND user_id=? ORDER BY id DESC LIMIT " + limit,
                 bankRow, subjectId, CurrentUser.id());
     }
     public Bank bank(long id) {
@@ -264,8 +284,13 @@ public class PracticeService {
         jdbc.update("DELETE FROM prp_practice_questions WHERE id=? AND user_id=?", id, CurrentUser.id());
     }
     public List<QuestionPublic> playable(long bankId) {
+        return playableLimited(bankId, 100);
+    }
+
+    public List<QuestionPublic> playableLimited(long bankId, int limit) {
+        readLimit(limit, 100);
         ensure("published".equals(bank(bankId).status()), "Publish the bank to start practicing");
-        return jdbc.query("SELECT * FROM prp_practice_questions WHERE bank_id=? AND user_id=? AND status='published' ORDER BY id LIMIT 100",
+        return jdbc.query("SELECT * FROM prp_practice_questions WHERE bank_id=? AND user_id=? AND status='published' ORDER BY id LIMIT " + limit,
                 questionRow, bankId, CurrentUser.id()).stream()
                 .map(q -> new QuestionPublic(q.id(), q.bankId(), q.type(), q.stem(), q.options(), q.difficulty())).toList();
     }
@@ -290,12 +315,17 @@ public class PracticeService {
         return rows.get(0);
     }
     public List<QuestionPublic> wrongQuestions() {
+        return wrongQuestionsLimited(100);
+    }
+
+    public List<QuestionPublic> wrongQuestionsLimited(int limit) {
+        readLimit(limit, 100);
         return jdbc.query("SELECT q.* FROM prp_practice_questions q JOIN ("
                 + "SELECT question_id, MAX(id) AS last_id FROM prp_practice_attempts WHERE user_id=? GROUP BY question_id"
                 + ") latest ON latest.question_id=q.id JOIN prp_practice_attempts a ON a.id=latest.last_id "
                 + "JOIN prp_practice_banks b ON b.id=q.bank_id "
-                + "WHERE q.user_id=? AND a.is_correct=0 AND q.status='published' AND b.status='published' "
-                + "ORDER BY a.created_at DESC LIMIT 100", questionRow, CurrentUser.id(), CurrentUser.id())
+                + "WHERE q.user_id=? AND b.user_id=? AND a.is_correct=0 AND q.status='published' AND b.status='published' "
+                + "ORDER BY a.created_at DESC LIMIT " + limit, questionRow, CurrentUser.id(), CurrentUser.id(), CurrentUser.id())
                 .stream().map(q -> new QuestionPublic(q.id(), q.bankId(), q.type(), q.stem(),
                         q.options(), q.difficulty())).toList();
     }
