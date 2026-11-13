@@ -94,10 +94,16 @@
       "reason": "Web Push transport configuration is not a business capability"
     },
     {
+      "route": "GET /api/records",
+      "status": "partial",
+      "tool": "prp_records_search",
+      "reason": "MCP queries the same owned records and filters, but returns at most 20 items with 200-character previews instead of full note bodies"
+    },
+    {
       "route": "GET /api/tasks",
       "status": "partial",
-      "tool": "prp_tasks_list",
-      "reason": "MCP list is capped at 20 tasks and supports narrower filtering than REST"
+      "tool": "prp_tasks_search",
+      "reason": "MCP exposes all four REST task filters (status/module/due date/priority), capped at 50 owner-scoped rows"
     },
     {
       "route": "GET /api/tasks/summary",
