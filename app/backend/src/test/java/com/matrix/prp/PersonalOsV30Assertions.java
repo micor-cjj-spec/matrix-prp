@@ -9,6 +9,19 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
+
+import com.matrix.prp.auth.model.UserProfile;
+import com.matrix.prp.ontology.PersonalOntology.NodeType;
+import com.matrix.prp.ontology.PersonalOntology.Relation;
+import com.matrix.prp.ontology.PersonalOntologyAssertionGuard;
+import com.matrix.prp.ontology.PersonalOntologyReferenceGuard;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Synthetic JDBC evidence for V30 on the existing disposable CI-only MySQL.
@@ -57,6 +70,16 @@ final class PersonalOsV30Assertions {
                     "'USER_CONFIRMED','CONFIRMED','assert-a',NOW(6),NOW(6))",
                     Long.toString(goal));
                 assertThat(a).isPositive();
+                long otherGoal = insertKey(c, "INSERT INTO prp_goals " +
+                    "(user_id,title,domain,created_at,updated_at) " +
+                    "VALUES (970002,'Foreign goal','career',NOW(6),NOW(6))");
+                long ownedRecord = insertKey(c, "INSERT INTO prp_records " +
+                    "(user_id,module_code,title,content,record_date,created_at,updated_at) " +
+                    "VALUES (970001,'work','Synthetic evidence A','CI_ONLY',CURRENT_DATE(),NOW(6),NOW(6))");
+                long foreignRecord = insertKey(c, "INSERT INTO prp_records " +
+                    "(user_id,module_code,title,content,record_date,created_at,updated_at) " +
+                    "VALUES (970002,'work','Synthetic evidence B','CI_ONLY',CURRENT_DATE(),NOW(6),NOW(6))");
+                verifyOwnedReferences(c, goal, otherGoal, ownedRecord, foreignRecord);
 
                 assertThatThrownBy(() -> insert(c,
                     "INSERT INTO prp_goals (user_id,title,domain,created_at,updated_at) " +
@@ -84,6 +107,61 @@ final class PersonalOsV30Assertions {
             }
             assertThat(count(c,"SELECT COUNT(*) FROM prp_goals")).isZero();
             assertThat(count(c,"SELECT COUNT(*) FROM prp_personal_assertions")).isZero();
+        }
+    }
+
+    private static void verifyOwnedReferences(Connection connection, long ownGoal,
+            long otherGoal, long ownRecord, long otherRecord) {
+        // Reuse this exact open JDBC transaction so the uncommitted synthetic
+        // fixtures remain invisible to all other connections and are rolled back.
+        var jdbc = new JdbcTemplate(new SingleConnectionDataSource(connection, true));
+        var resolver = new PersonalOntologyReferenceGuard(jdbc);
+        var assertions = new PersonalOntologyAssertionGuard(resolver);
+        var owner = new UserProfile(970001L, "personal_os_ci_a", "Synthetic A");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(owner, null, List.of()));
+        try {
+            resolver.requireOwned(NodeType.GOAL, Long.toString(ownGoal));
+            resolver.requireOwned(NodeType.RECORD, Long.toString(ownRecord));
+
+            assertThatThrownBy(() -> resolver.requireOwned(NodeType.GOAL, Long.toString(otherGoal)))
+                .as("No cross-user goal read through the polymorphic reference resolver")
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                    .isEqualTo(HttpStatus.NOT_FOUND));
+            assertThatThrownBy(() -> resolver.requireOwned(NodeType.RECORD, Long.toString(otherRecord)))
+                .as("No cross-user evidence read")
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                    .isEqualTo(HttpStatus.NOT_FOUND));
+
+            var allowed = new PersonalOntologyAssertionGuard.Candidate(
+                NodeType.PERSON, "970001", Relation.HAS_EVENT_RECORD,
+                NodeType.RECORD, Long.toString(ownRecord), null,
+                PersonalOntologyAssertionGuard.EvidenceSource.RECORD,
+                Long.toString(ownRecord), null, null);
+            assertions.requireValid(allowed);
+            var forbiddenGoal = new PersonalOntologyAssertionGuard.Candidate(
+                NodeType.PERSON, "970001", Relation.PURSUES, NodeType.GOAL,
+                Long.toString(otherGoal), null,
+                PersonalOntologyAssertionGuard.EvidenceSource.USER_INPUT,
+                null, null, null);
+            assertThatThrownBy(() -> assertions.requireValid(forbiddenGoal))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                    .isEqualTo(HttpStatus.NOT_FOUND));
+            var forbiddenEvidence = new PersonalOntologyAssertionGuard.Candidate(
+                NodeType.PERSON, "970001", Relation.HAS_BACKGROUND,
+                NodeType.LITERAL, null, "Synthetic statement",
+                PersonalOntologyAssertionGuard.EvidenceSource.RECORD,
+                Long.toString(otherRecord), null, null);
+            assertThatThrownBy(() -> assertions.requireValid(forbiddenEvidence))
+                .as("No foreign evidence reference, even with a valid statement body")
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                    .isEqualTo(HttpStatus.NOT_FOUND));
+        } finally {
+            SecurityContextHolder.clearContext();
         }
     }
 
