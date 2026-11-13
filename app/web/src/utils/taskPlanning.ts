@@ -72,6 +72,11 @@ export function filterAndRankTasks(tasks: readonly TaskItem[], options: TaskList
     if (sortBy === 'due') {
       const terminal = Number(!isOpen(a)) - Number(!isOpen(b))
       if (terminal) return terminal
+      // Completed tasks precede canceled tasks when both are terminal.
+      if (!isOpen(a) && !isOpen(b)) {
+        const canceled = Number(a.status === 'canceled') - Number(b.status === 'canceled')
+        if (canceled) return canceled
+      }
       const due = compareDue(a, b)
       if (due) return due
     } else {
