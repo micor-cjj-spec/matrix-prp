@@ -65,9 +65,9 @@ final class PersonalOsV31Assertions {
                 assertThat(goal).isPositive();
                 long a = insertKey(c,"INSERT INTO prp_personal_assertions " +
                     "(user_id,subject_type,subject_ref,predicate,object_type,object_ref," +
-                    "origin,status,request_key,created_at,updated_at) " +
+                    "source_type,origin,status,sensitivity,request_key,created_at,updated_at) " +
                     "VALUES (970001,'PERSON','970001','PURSUES','GOAL',?," +
-                    "'USER_CONFIRMED','CONFIRMED','assert-a',NOW(6),NOW(6))",
+                    "'USER_INPUT','USER_CONFIRMED','CONFIRMED','NORMAL','assert-a',NOW(6),NOW(6))",
                     Long.toString(goal));
                 assertThat(a).isPositive();
                 long otherGoal = insertKey(c, "INSERT INTO prp_goals " +
@@ -80,6 +80,7 @@ final class PersonalOsV31Assertions {
                     "(user_id,module_code,title,content,record_date,created_at,updated_at) " +
                     "VALUES (970002,'work','Synthetic evidence B','CI_ONLY',CURRENT_DATE(),NOW(6),NOW(6))");
                 verifyOwnedReferences(c, goal, otherGoal, ownedRecord, foreignRecord);
+                PersonalOsServiceLifecycleChecks.verify(c, otherGoal, ownedRecord);
 
                 assertThatThrownBy(() -> insert(c,
                     "INSERT INTO prp_goals (user_id,title,domain,created_at,updated_at) " +
