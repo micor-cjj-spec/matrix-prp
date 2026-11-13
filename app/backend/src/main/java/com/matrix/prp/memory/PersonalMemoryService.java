@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import org.springframework.context.annotation.Profile;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -86,18 +87,22 @@ public class PersonalMemoryService {
      */
     public List<Memory> listPrivate() {
         long owner = CurrentUser.id();
+        // Owner management must retain visibility of stale evidence so the
+        // owner can correct or erase it; only default AI-safe retrieval filters
+        // source validity. Never expose this endpoint to MCP.
         return db.query("SELECT " + COLS + " FROM prp_personal_assertions WHERE user_id=?"
             + " AND status='CONFIRMED' AND sensitivity IN ('SENSITIVE','RESTRICTED')"
-            + " ORDER BY id DESC LIMIT 100", MAPPER, owner).stream()
-            .filter(this::validEvidence).toList();
+            + " ORDER BY id DESC LIMIT 100", MAPPER, owner);
     }
 
     /** Candidate queue is intentionally separate from retrieval for AI context. */
     public List<Memory> pending() {
         long owner=CurrentUser.id();
+        // A revoked evidence source must not hide its pending candidate from
+        // the owner: rejection and erasure remain available. Confirmation
+        // independently validates current source ownership.
         return db.query("SELECT "+COLS+" FROM prp_personal_assertions WHERE user_id=?"
-            + " AND status='PENDING' ORDER BY id DESC LIMIT 100",MAPPER,owner).stream()
-            .filter(this::validEvidence).toList();
+            + " AND status='PENDING' ORDER BY id DESC LIMIT 100",MAPPER,owner);
     }
 
     public Memory get(long id) {
@@ -128,16 +133,16 @@ public class PersonalMemoryService {
     private Memory proposeWithParent(Proposed p,Long supersedes) {
         validate(p);
         long owner=CurrentUser.id();
-        if (!db.query("SELECT id FROM prp_personal_assertions"
+        List<Long> priorIds = db.query("SELECT id FROM prp_personal_assertions"
             + " WHERE user_id=? AND request_key=? LIMIT 1",
-            (rs,row)->rs.getLong(1),owner,p.requestKey()).isEmpty()) {
-            throw conflict("Memory request key already used");
-        }
+            (rs,row)->rs.getLong(1),owner,p.requestKey());
+        if (!priorIds.isEmpty()) return matchingReplay(get(priorIds.get(0)),p,supersedes);
         var keys=new GeneratedKeyHolder();
         var now=LocalDateTime.now();
         String origin=p.sourceType()==EvidenceSource.USER_INPUT?"USER_CONFIRMED":"BUSINESS_REFERENCE";
         Sensitivity sensitivity=effectiveSensitivity(p);
-        db.update(con->{
+        try {
+            db.update(con->{
             PreparedStatement ps=con.prepareStatement(
                 "INSERT INTO prp_personal_assertions"
                 + " (user_id,subject_type,subject_ref,predicate,object_type,object_ref,"
@@ -164,10 +169,37 @@ public class PersonalMemoryService {
             ps.setObject(16,now);
             ps.setObject(17,now);
             return ps;
-        },keys);
+            },keys);
+        } catch (DataIntegrityViolationException race) {
+            // Two simultaneous retries may pass the initial SELECT. The
+            // unique (user_id,request_key) constraint is final authority.
+            List<Long> ids = db.query("SELECT id FROM prp_personal_assertions"
+                + " WHERE user_id=? AND request_key=? LIMIT 1",
+                (rs,row)->rs.getLong(1),owner,p.requestKey());
+            if (!ids.isEmpty()) return matchingReplay(get(ids.get(0)),p,supersedes);
+            throw race;
+        }
         Number key=keys.getKey();
         if(key==null)throw new IllegalStateException("No memory generated key");
         return get(key.longValue());
+    }
+
+    private static Memory matchingReplay(Memory prior, Proposed proposal, Long supersedes) {
+        if (prior.subjectType()!=proposal.subjectType()
+                || !Objects.equals(prior.subjectRef(),proposal.subjectRef())
+                || prior.predicate()!=proposal.predicate()
+                || prior.objectType()!=proposal.objectType()
+                || !Objects.equals(prior.objectRef(),proposal.objectRef())
+                || !Objects.equals(prior.objectValue(),proposal.objectValue())
+                || prior.sourceType()!=proposal.sourceType()
+                || !Objects.equals(prior.sourceRef(),proposal.sourceRef())
+                || !Objects.equals(prior.validFrom(),proposal.validFrom())
+                || !Objects.equals(prior.validTo(),proposal.validTo())
+                || !Objects.equals(prior.sensitivity(),effectiveSensitivity(proposal).name())
+                || !Objects.equals(prior.supersedesId(),supersedes)) {
+            throw conflict("Memory request key already used for another payload");
+        }
+        return prior;
     }
 
     /** Confirmation re-checks both endpoints and the source; no inferred grants. */
