@@ -98,7 +98,7 @@ public class WellnessLabelVerificationService {
         BigDecimal grams=check(input.consumedGrams(),"实际食用克数",new BigDecimal("3000"),true);
         if(grams.compareTo(new BigDecimal("0.1"))<0 || grams.scale()>2)
             throw invalid("实际食用克数");
-        BigDecimal kcal100=check(input.caloriesPer100g(),"每100g热量",new BigDecimal("900"),true);
+        BigDecimal kcal100=check(input.caloriesPer100g(),"每100g热量",new BigDecimal("900"),false);
         BigDecimal protein100=check(input.proteinPer100g(),"每100g蛋白质",new BigDecimal("100"),false);
         BigDecimal carbs100=check(input.carbsPer100g(),"每100g碳水",new BigDecimal("100"),false);
         BigDecimal fat100=check(input.fatPer100g(),"每100g脂肪",new BigDecimal("100"),false);
@@ -109,7 +109,10 @@ public class WellnessLabelVerificationService {
         BigDecimal sodium100=optional(input.sodiumMgPer100g(),"每100g钠",new BigDecimal("50000"));
         if(sugar100!=null && sugar100.compareTo(carbs100)>0)
             throw invalid("糖含量不能大于碳水总量");
-        // SQL row lock ensures version progression and exactly-one app update.
+        // Use the same account-row lock ordering as existing meal writers,
+        // then lock the specific meal to serialize edits, deletion and versions.
+        db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",
+                Long.class,owner);
         List<Map<String,Object>> locks=db.queryForList(
             "SELECT id FROM prp_wellness_meals WHERE id=? AND user_id=? FOR UPDATE",
             mealId,owner);
