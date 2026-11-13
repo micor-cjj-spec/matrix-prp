@@ -77,6 +77,52 @@ test('voluntary handoff preserves progress, rotates claim and fences original se
   {worker_id:'chat-B',claim_id:task.claim.claim_id,note:'Continuing validated checkpoint'}),owner)
  assert.equal(resumed.snapshot.tasks[0].last_note,'Continuing validated checkpoint')
 })
+test('owner-authorized takeover refreshes stale checkpoint only at verified newer Git head',()=>{
+ const {state,old}=running()
+ const saved=checkpoint(state,old).snapshot
+ const newer='b'.repeat(40)
+ const progressed=applyCommand(saved,command('progress',{
+   worker_id:'chat-A',claim_id:old,note:'New implementation pushed after checkpoint',
+   head_sha:newer
+ }),owner).snapshot
+ const fresh={summary:'Reconstructed newer pushed Git revision',
+   next_step:'Review the actual new diff and rerun tests',
+   branch:'feature/recovered',head_sha:newer,pr_number:222}
+ const base={worker_id:'chat-A',new_worker_id:'chat-B',expected_claim_id:old,
+   expected_version:progressed.version,expected_head_sha:newer,
+   note:'Original session lost after pushing newer code',checkpoint:fresh}
+ const authorized={...owner,recoveryAuthorized:true,gitEvidenceVerified:true}
+ const original=JSON.stringify(progressed)
+ fail(()=>applyCommand(progressed,command('takeover',base),owner),
+   'RECOVERY_OWNER_APPROVAL_REQUIRED')
+ fail(()=>applyCommand(progressed,command('takeover',base),
+   {...owner,recoveryAuthorized:true}), 'RECOVERY_GIT_EVIDENCE_REQUIRED')
+ fail(()=>applyCommand(progressed,command('takeover',{
+   ...base,checkpoint:{...fresh,head_sha:'c'.repeat(40)}
+ }),authorized),'STALE_RECOVERY_HEAD')
+ fail(()=>applyCommand(progressed,command('takeover',{
+   ...base,expected_claim_id:uuid()
+ }),authorized),'STALE_RECOVERY_CLAIM')
+ fail(()=>applyCommand(saved,command('takeover',{
+   ...base,expected_version:saved.version,expected_head_sha:sha,
+   checkpoint:{...fresh,head_sha:sha}
+ }),authorized),'RECOVERY_CHECKPOINT_NOT_STALE')
+ assert.equal(JSON.stringify(progressed),original)
+ const transferred=applyCommand(progressed,command('takeover',base),authorized)
+ const t=transferred.snapshot.tasks[0]
+ assert.equal(t.checkpoint.head_sha,newer)
+ assert.equal(t.checkpoint.origin,'owner_verified_git')
+ assert.equal(t.checkpoint.worker_id,'chat-A')
+ assert.equal(t.head_sha,newer)
+ assert.equal(t.claim.worker_id,'chat-B')
+ assert.equal(t.claim.generation,2)
+ assert.notEqual(t.claim.claim_id,old)
+ assert.equal(t.handoff_history.at(-1).head_sha,newer)
+ fail(()=>applyCommand(transferred.snapshot,command('progress',{
+   worker_id:'chat-A',claim_id:old,note:'stale original worker'
+ }),owner),'STALE_OR_FOREIGN_CLAIM')
+})
+
 test('unauthorized takeover fails, owner-authorized takeover works without old chat',()=>{
  const {state,old}=running()
  const before=checkpoint(state,old).snapshot

@@ -321,7 +321,16 @@ export function applyCommand(original, command, context) {
         check(UUID.test(command.expected_claim_id) &&
           command.expected_claim_id===task.claim.claim_id &&
           command.worker_id===task.claim.worker_id,'STALE_RECOVERY_CLAIM')
-        if(task.checkpoint===undefined){
+        if(task.checkpoint===undefined || command.checkpoint!==undefined){
+          // The old chat may have pushed a newer head after saving its last checkpoint.
+          // Replacing it is owner-only, and only with verified Git evidence for that head.
+          if(task.checkpoint!==undefined){
+            check(task.checkpoint.worker_id===task.claim.worker_id,
+              'RECOVERY_CHECKPOINT_OWNER_MISMATCH')
+            check(task.head_sha!==undefined &&
+              task.checkpoint.head_sha!==task.head_sha,
+              'RECOVERY_CHECKPOINT_NOT_STALE')
+          }
           check(plain(command.checkpoint),'RECOVERY_CHECKPOINT_REQUIRED')
           check(context.gitEvidenceVerified===true,'RECOVERY_GIT_EVIDENCE_REQUIRED')
           check(!Object.keys(command.checkpoint).some(k=>['recorded_at','worker_id','origin'].includes(k)),
