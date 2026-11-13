@@ -15,7 +15,7 @@ function git(cwd, args) {
   return result.stdout.trim()
 }
 
-function setup() {
+function setup({migrated=false}={}) {
   const root = mkdtempSync(join(tmpdir(), 'prp-collab-localgit-'))
   const origin = join(root, 'origin.git')
   const seed = join(root, 'seed')
@@ -36,16 +36,26 @@ function setup() {
   const mainHead = git(seed, ['rev-parse', 'HEAD'])
   git(seed, ['checkout', '-b', 'prp-collab-state'])
   mkdirSync(join(seed, 'requirements'))
-  writeFileSync(join(seed, 'requirements', reqId + '.json'), JSON.stringify({
+  const snapshot={
     schema_version: 1, requirement_id: reqId, issue_number: 132, title: 'local e2e',
-    version: 0, status: 'ACTIVE', processed_requests: [],
+    version: migrated?1:0, status: 'ACTIVE', processed_requests: [],
     tasks: [
       { task_id: 'T-001', issue_number: 133, title: 'core', status: 'READY', depends_on: [],
         allowed_paths: ['app/scripts/dev-collab/core.mjs'], claim: null },
       { task_id: 'T-002', issue_number: 134, title: 'templates', status: 'READY', depends_on: [],
         allowed_paths: ['.github/ISSUE_TEMPLATE/'], claim: null }
     ]
-  }, null, 2))
+  }
+  if(migrated){
+    const reviewedIssueIds={3:135,4:136,5:137,6:141,7:142,8:143,9:146}
+    for(let n=3;n<=9;n++)snapshot.tasks.push({
+      task_id:'T-'+String(n).padStart(3,'0'),issue_number:reviewedIssueIds[n],
+      title:'Synthetic reviewed V1 task '+n,status:'READY',depends_on:[],
+      allowed_paths:['app/docs/dev-collab/T-'+String(n)+'.md'],claim:null
+    })
+  }
+  writeFileSync(join(seed, 'requirements', reqId + '.json'),
+    JSON.stringify(snapshot,null,2))
   git(seed, ['add', 'requirements'])
   git(seed, ['commit', '-m', 'test-only state'])
   git(seed, ['push', 'origin', 'prp-collab-state'])
@@ -163,7 +173,7 @@ test('same request rerun in Git coordinator keeps exactly one claim commit', { t
 
 test('two independent Git processes racing owner-approved takeover produce one new owner and fence the old claim',
   {timeout:30000},async()=>{
- const f=setup()
+ const f=setup({migrated:true})
  try{
   const init=await run(f.workers[0],'77777777-7777-4777-8777-777777777777','T-001')
   assert.equal(init.status,0,init.err)
@@ -180,7 +190,7 @@ test('two independent Git processes racing owner-approved takeover produce one n
      })})
   assert.equal(checkpoint.status,0,checkpoint.err)
   const current=f.readState()
-  assert.equal(current.version,3)
+  assert.equal(current.version,4)
   const common={
    GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'workflow_dispatch',
    GITHUB_WORKFLOW_REF:'micor-cjj-spec/matrix-prp/.github/workflows/prp-collab-coordinator.yml@refs/heads/main',
@@ -198,7 +208,7 @@ test('two independent Git processes racing owner-approved takeover produce one n
   ])
   assert.equal([a,b].filter(x=>x.status===0).length,1,JSON.stringify([a,b]))
   const state=f.readState()
-  assert.equal(state.version,4)
+  assert.equal(state.version,5)
   assert.equal(state.tasks[0].status,'IN_PROGRESS')
   assert.equal(state.tasks[0].claim.worker_id,'chat-rescue')
   assert.equal(state.tasks[0].claim.generation,2)
@@ -211,7 +221,7 @@ test('two independent Git processes racing owner-approved takeover produce one n
 
 test('lost original chat with zero checkpoint can be owner-reconstructed only from an existing remote feature SHA',
  {timeout:30000},async()=>{
- const f=setup()
+ const f=setup({migrated:true})
  try{
   const start=await run(f.workers[0],'cccccccc-cccc-4ccc-8ccc-cccccccccccc','T-001')
   assert.equal(start.status,0,start.err)
