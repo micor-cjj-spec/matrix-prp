@@ -80,7 +80,6 @@ final class PersonalOsV31Assertions {
                     "(user_id,module_code,title,content,record_date,created_at,updated_at) " +
                     "VALUES (970002,'work','Synthetic evidence B','CI_ONLY',CURRENT_DATE(),NOW(6),NOW(6))");
                 verifyOwnedReferences(c, goal, otherGoal, ownedRecord, foreignRecord);
-                PersonalOsServiceLifecycleChecks.verify(c, otherGoal, ownedRecord);
 
                 assertThatThrownBy(() -> insert(c,
                     "INSERT INTO prp_goals (user_id,title,domain,created_at,updated_at) " +
@@ -102,6 +101,7 @@ final class PersonalOsV31Assertions {
                     .isInstanceOf(SQLException.class);
                 assertThat(count(c,"SELECT COUNT(*) FROM prp_personal_assertions " +
                     "WHERE user_id=970001")).isEqualTo(1);
+                PersonalOsServiceLifecycleChecks.verify(c, otherGoal, ownedRecord);
             } finally {
                 c.rollback();
                 c.setAutoCommit(true);
