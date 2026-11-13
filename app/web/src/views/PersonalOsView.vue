@@ -23,6 +23,7 @@ const candidates = ref<PersonalMemory[]>([])
 const memories = ref<PersonalMemory[]>([])
 const memoryLoaded = ref(false)
 let loadGeneration = 0
+let goalContextGeneration = 0
 const privateFacts = ref<PersonalMemory[]>([])
 const privateOpen = ref(false)
 const privateLoading = ref(false)
@@ -135,8 +136,10 @@ async function loadData() {
     await refreshPrivateIfOpen()
     if (generation !== loadGeneration || activeTab.value !== tab) return
     if (selectedGoalId.value !== null && !goalData.some(item => item.id === selectedGoalId.value)) {
+      ++goalContextGeneration
       selectedGoalId.value = null
       context.value = []
+      contextLoading.value = false
     }
   } catch {
     if (generation !== loadGeneration || activeTab.value !== tab) return
@@ -148,7 +151,9 @@ async function loadData() {
     memoryLoaded.value = false
     records.value = []
     context.value = []
+    ++goalContextGeneration
     selectedGoalId.value = null
+    contextLoading.value = false
     ++privateRequestGeneration
     privateFacts.value = []
     privateOpen.value = false
@@ -162,20 +167,24 @@ async function selectGoal(id: number) {
   selectedGoalId.value = id
   context.value = []
   contextLoading.value = true
+  const request = ++goalContextGeneration
   const generation = loadGeneration
   const identity = auth.token
   try {
     const response = await fetchPersonalGoalContext(id)
-    if (generation !== loadGeneration || identity !== auth.token
-        || selectedGoalId.value !== id || activeTab.value !== 'goals') return
+    if (request !== goalContextGeneration || generation !== loadGeneration
+        || identity !== auth.token || selectedGoalId.value !== id
+        || activeTab.value !== 'goals') return
     context.value = response
   } catch {
-    if (generation !== loadGeneration || identity !== auth.token
-        || selectedGoalId.value !== id || activeTab.value !== 'goals') return
+    if (request !== goalContextGeneration || generation !== loadGeneration
+        || identity !== auth.token || selectedGoalId.value !== id
+        || activeTab.value !== 'goals') return
     context.value = []
     ElMessage.error('目标关联证据加载失败')
   } finally {
-    if (generation === loadGeneration && identity === auth.token) contextLoading.value = false
+    if (request === goalContextGeneration && generation === loadGeneration
+        && identity === auth.token) contextLoading.value = false
   }
 }
 
@@ -345,6 +354,7 @@ async function saveCorrection() {
 watch(() => auth.token, (next, prior) => {
   if (next === prior) return
   ++loadGeneration
+  ++goalContextGeneration
   ++privateRequestGeneration
   goals.value = []
   context.value = []
@@ -376,14 +386,20 @@ watch(activeTab, (next) => {
     memoryLoaded.value = false
   }
   if (next !== 'timeline') records.value = []
-  if (next !== 'goals') context.value = []
+  if (next !== 'goals') {
+    ++goalContextGeneration
+    context.value = []
+    contextLoading.value = false
+  }
   void loadData()
 })
 
 onUnmounted(() => {
   // Discard both normal and private in-flight responses after route exit.
   ++loadGeneration
+  ++goalContextGeneration
   ++privateRequestGeneration
+  contextLoading.value = false
   privateOpen.value = false
   privateFacts.value = []
   candidates.value = []
