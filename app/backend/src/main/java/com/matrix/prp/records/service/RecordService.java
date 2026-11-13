@@ -24,6 +24,10 @@ public class RecordService {
         return recordRepository.list(filter == null ? new RecordFilter(null, null, null, null) : filter);
     }
 
+    public List<RecordItem> listLimited(RecordFilter filter, int limit) {
+        return recordRepository.listLimited(filter == null ? new RecordFilter(null, null, null, null) : filter, limit);
+    }
+
     public RecordItem create(CreateRecordRequest request) {
         return recordRepository.create(request);
     }

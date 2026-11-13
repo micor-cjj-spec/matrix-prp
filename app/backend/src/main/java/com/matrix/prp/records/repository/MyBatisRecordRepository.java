@@ -43,6 +43,16 @@ public class MyBatisRecordRepository implements RecordRepository {
 
     @Override
     public List<RecordItem> list(RecordFilter filter) {
+        return listFiltered(filter, null);
+    }
+
+    @Override
+    public List<RecordItem> listLimited(RecordFilter filter, int limit) {
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("Limit out of range");
+        return listFiltered(filter, limit);
+    }
+
+    private List<RecordItem> listFiltered(RecordFilter filter, Integer limit) {
         RecordFilter effectiveFilter = filter == null ? new RecordFilter(null, null, null, null) : filter;
         List<Long> recordIds = findRecordIdsByTag(effectiveFilter.tagId());
         if (effectiveFilter.tagId() != null && recordIds.isEmpty()) {
@@ -65,6 +75,7 @@ public class MyBatisRecordRepository implements RecordRepository {
         if (effectiveFilter.tagId() != null) {
             query.in(RecordEntity::getId, recordIds);
         }
+        if (limit != null) query.last("LIMIT " + limit);
         List<RecordEntity> records = recordMapper.selectList(query);
         Map<Long, List<RecordTagItem>> tagsByRecordId = loadTagsByRecordId(records.stream()
                 .map(RecordEntity::getId)

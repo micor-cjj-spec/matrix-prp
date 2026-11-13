@@ -41,7 +41,7 @@ class McpGatewayTests {
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
             new UserProfile(501L, "mcp-user", "MCP"), null,
             List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.confirm"))));
-        var tools = new PrpMcpTools(tasks, finance, null, approvals, new McpScopeGuard(true));
+        var tools = new PrpMcpTools(tasks, finance, null, records, approvals, new McpScopeGuard(true));
         assertThatThrownBy(() -> tools.confirmDraft(CHANGE_ID)).isInstanceOf(ResponseStatusException.class)
             .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
         verify(approvals, never()).confirm(anyString());
@@ -56,7 +56,7 @@ class McpGatewayTests {
             new UserProfile(501L, "mcp-user", "MCP"), null,
             List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.confirm"),
                 new org.springframework.security.core.authority.SimpleGrantedAuthority("SCOPE_prp.write.create"))));
-        var tools = new PrpMcpTools(tasks, finance, null, approvals, new McpScopeGuard(true));
+        var tools = new PrpMcpTools(tasks, finance, null, records, approvals, new McpScopeGuard(true));
         assertThatThrownBy(() -> tools.confirmDraft(CHANGE_ID)).isInstanceOf(ResponseStatusException.class);
         verify(approvals, never()).confirm(anyString());
     }

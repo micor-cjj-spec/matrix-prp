@@ -88,7 +88,7 @@ class McpCoreReadToolsOAuthTests {
         assertThat(r.getResponse().getStatus()).isEqualTo(200);
         var toolsJson=json.readTree(r.getResponse().getContentAsString())
             .path("result").path("tools");
-        assertThat(toolsJson.size()).isEqualTo(11);
+        assertThat(toolsJson.size()).isEqualTo(12);
         Set<String> names=new HashSet<>();
         for(var tool:toolsJson) {
             names.add(tool.path("name").asText());
@@ -98,7 +98,8 @@ class McpCoreReadToolsOAuthTests {
             assertThat(tool.path("annotations").path("readOnlyHint").asBoolean()).isTrue();
         }
         assertThat(names).contains("prp_tasks_summary","prp_wellness_trends",
-            "prp_wellness_goals","prp_wellness_frequent_foods","prp_wellness_dishes");
+            "prp_wellness_goals","prp_wellness_frequent_foods","prp_wellness_dishes",
+            "prp_tasks_search");
         assertThat(names).noneMatch(x -> x.startsWith("prp_prepare_"));
     }
 

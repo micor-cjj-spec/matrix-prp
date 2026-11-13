@@ -5,6 +5,8 @@ import com.matrix.prp.finance.model.CreateFinanceTransactionRequest;
 import com.matrix.prp.finance.model.FinanceTransactionFilter;
 import com.matrix.prp.finance.service.FinanceService;
 import com.matrix.prp.records.model.CreateRecordRequest;
+import com.matrix.prp.records.model.RecordFilter;
+import com.matrix.prp.records.service.RecordService;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.model.TaskFilter;
 import com.matrix.prp.tasks.service.TaskService;
@@ -31,14 +33,16 @@ public class PrpMcpTools {
     private final TaskService tasks;
     private final FinanceService finance;
     private final WellnessService wellness;
+    private final RecordService records;
     private final McpDraftService drafts;
     private final McpScopeGuard scopes;
 
     public PrpMcpTools(TaskService tasks, FinanceService finance, WellnessService wellness,
-                       McpDraftService drafts, McpScopeGuard scopes) {
+                       RecordService records, McpDraftService drafts, McpScopeGuard scopes) {
         this.tasks = tasks;
         this.finance = finance;
         this.wellness = wellness;
+        this.records = records;
         this.drafts = drafts;
         this.scopes = scopes;
     }
@@ -294,6 +298,45 @@ public class PrpMcpTools {
         scopes.require("prp.wellness.read");
         if (query != null && query.length() > 100) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Query too long");
         return wellness.dishTemplates(query).stream().limit(20).toList();
+    }
+
+    @McpTool(name="prp_tasks_search", description="Search at most 50 of your own tasks by exact status, module, priority and due date. Read only; results are capped, never cross-user.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object tasksSearch(
+            @McpToolParam(description="todo, in_progress, done, or canceled; optional",required=false) String status,
+            @McpToolParam(description="PRP module code, optional, max 64 characters",required=false) String moduleCode,
+            @McpToolParam(description="low, medium or high; optional",required=false) String priority,
+            @McpToolParam(description="Exact due date yyyy-MM-dd; optional",required=false) String dueDate,
+            @McpToolParam(description="Maximum number of results, 1-50; defaults 20",required=false) Integer limit) {
+        scopes.require("prp.tasks.read");
+        if (status != null && !List.of("todo","in_progress","done","canceled").contains(status))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid task status");
+        if (priority != null && !List.of("low","medium","high").contains(priority))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid task priority");
+        if (moduleCode != null && !moduleCode.matches("[A-Za-z0-9_-]{1,64}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid module code");
+        int cap = limit == null ? 20 : limit;
+        if (cap < 1 || cap > 50) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Limit must be 1-50");
+        return tasks.listLimited(new TaskFilter(status,moduleCode,optionalDate(dueDate),priority),cap);
+    }
+
+    /** Compact record preview avoids returning unbounded private note bodies to an AI client. */
+    public record RecordPreview(long id, String moduleCode, String title, LocalDate recordDate, String excerpt) {}
+
+    @McpTool(name="prp_records_search", description="Read up to 20 summaries of your own life, learning or work records, filtered by module, tag, date or keyword. Excerpts are at most 200 characters. Full note contents and other users' records are never returned.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object recordsSearch(
+            @McpToolParam(description="Optional module code (max 64 characters)",required=false) String moduleCode,
+            @McpToolParam(description="Optional positive tag ID",required=false) Long tagId,
+            @McpToolParam(description="Optional exact record date yyyy-MM-dd",required=false) String recordDate,
+            @McpToolParam(description="Optional title/body keyword, max 100 characters",required=false) String keyword) {
+        scopes.require("prp.records.read");
+        if (moduleCode != null && !moduleCode.matches("[A-Za-z0-9_-]{1,64}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid module code");
+        if (tagId != null && tagId <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Positive tag ID required");
+        if (keyword != null && keyword.length() > 100)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Keyword too long");
+        return records.listLimited(new RecordFilter(moduleCode, tagId, optionalDate(recordDate), keyword),20)
+            .stream().map(r -> new RecordPreview(r.id(),r.moduleCode(),r.title(),r.recordDate(),
+                r.content()==null ? "" : r.content().substring(0,Math.min(200,r.content().length())))).toList();
     }
 
     private static LocalDate optionalDate(String value) {
