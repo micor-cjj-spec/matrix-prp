@@ -70,6 +70,30 @@ class McpWellnessAppVisibilityTests {
             .doesNotContain("prp_prepare_finance","prp_prepare_task");
     }
 
+    @Test void extendedReadManifestKeepsAllHealthToolsAndApprovalButNoGenericWrites() {
+        var drafts = mock(McpDraftService.class);
+        var tools = new PrpMcpTools(mock(TaskService.class), mock(FinanceService.class),
+            mock(WellnessService.class), mock(RecordService.class), drafts, mock(McpScopeGuard.class));
+        ObjectProvider<McpClientGrantService> grants = mock(ObjectProvider.class);
+        when(grants.getObject()).thenReturn(mock(McpClientGrantService.class));
+        String combined = SCOPES + ",prp.tasks.read,prp.records.read,prp.practice.read";
+        var config = new McpToolConfiguration();
+        var hidden = config.prpMcpSpecifications(tools,mock(McpScopeGuard.class),grants,drafts,
+            "https://micor.top/api/mcp",true,combined,true,true,false);
+        assertThat(hidden).hasSize(10);
+        var extended = config.prpMcpSpecifications(tools,mock(McpScopeGuard.class),grants,drafts,
+            "https://micor.top/api/mcp",true,combined,true,true,true);
+        assertThat(extended).hasSize(22);
+        assertThat(extended.stream().map(x -> x.tool().name())).contains(
+            "prp_chatgpt_wellness_approval","prp_wellness_daily",
+            "prp_tasks_summary","prp_tasks_search","prp_records_search",
+            "prp_wellness_trends","prp_wellness_goals","prp_wellness_frequent_foods",
+            "prp_wellness_dishes","prp_practice_subjects","prp_practice_banks",
+            "prp_practice_questions","prp_practice_wrong_questions","prp_practice_statistics")
+            .doesNotContain("prp_prepare_finance","prp_prepare_task","prp_prepare_task_update",
+                "prp_prepare_task_delete","prp_prepare_task_status");
+    }
+
     @Test void resourceIsASandboxedChatgptMcpAppTemplate() throws Exception {
         var resources = new McpWellnessApprovalUiConfiguration().prpChatgptApprovalResource();
         assertThat(resources).hasSize(1);
