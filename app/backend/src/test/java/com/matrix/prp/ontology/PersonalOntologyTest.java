@@ -18,6 +18,18 @@ class PersonalOntologyTest {
     }
 
     @Test
+    void supportsGroundedP0FactsWithoutInventingFreeFloatingNodes() {
+        assertDoesNotThrow(() -> PersonalOntology.requireAllowed(PERSON, DECLARES_SKILL, LITERAL));
+        assertDoesNotThrow(() -> PersonalOntology.requireAllowed(GOAL, NEEDS_SKILL, LITERAL));
+        assertDoesNotThrow(() -> PersonalOntology.requireAllowed(PERSON, HAS_EVENT_RECORD, RECORD));
+        assertDoesNotThrow(() -> PersonalOntology.requireAllowed(GOAL, USES_RESOURCE_RECORD, RECORD));
+        assertThrows(IllegalArgumentException.class,
+            () -> PersonalOntology.requireAllowed(PERSON, DECLARES_SKILL, SKILL));
+        assertThrows(IllegalArgumentException.class,
+            () -> PersonalOntology.requireAllowed(GOAL, USES_RESOURCE_RECORD, RESOURCE));
+    }
+
+    @Test
     void rejectsUnmodelledOrReversedLinks() {
         assertThrows(IllegalArgumentException.class,
             () -> PersonalOntology.requireAllowed(GOAL, PURSUES, PERSON));
