@@ -166,22 +166,27 @@ test('full owner Issue takeover maps the expected state version, not just the ou
 test('owner Issue takeover may recover newer progress head with verified stale-checkpoint replacement',()=>{
  const first=applyAuthenticatedIssue(snap(),v('claim'),'2026-11-01T04:00:00Z')
  const old=first.receipt.claim_id
+ const started=applyAuthenticatedIssue(first.snapshot,v('start',{
+   claim_id:old,request_id:'bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb'
+ },1),'2026-11-01T04:00:30Z')
  const cp={summary:'Earlier pushed implementation checkpoint',
    next_step:'Inspect review and tests',branch:'feat/session-recover',
    head_sha:sha}
- const saved=applyAuthenticatedIssue(first.snapshot,v('checkpoint',{
-   claim_id:old,checkpoint:cp
- },1),'2026-11-01T04:01:00Z',()=>true)
+ const saved=applyAuthenticatedIssue(started.snapshot,v('checkpoint',{
+   claim_id:old,checkpoint:cp,
+   request_id:'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'
+ },2),'2026-11-01T04:01:00Z',()=>true)
  const newer='b'.repeat(40)
  const progressed=applyAuthenticatedIssue(saved.snapshot,v('progress',{
-   claim_id:old,note:'Further tested implementation pushed',head_sha:newer
- },2),'2026-11-01T04:02:00Z')
+   claim_id:old,note:'Further tested implementation pushed',head_sha:newer,
+   request_id:'bbbbbbbb-3333-4333-8333-bbbbbbbbbbbb'
+ },3),'2026-11-01T04:02:00Z')
  const base=v('takeover',{
    worker_id:'chat-A',claim_id:old,expected_claim_id:old,
    new_worker_id:'chat-B',expected_version:progressed.snapshot.version,
    expected_head_sha:newer,note:'Old chat lost after pushing more work',
    checkpoint:{...cp,head_sha:newer,summary:'Rebuilt latest committed work'}
- },3)
+ },4)
  base.command.request_id='bbbbbbbb-eeee-4bbb-8bbb-bbbbbbbbbbbb'
  const before=JSON.stringify(progressed.snapshot)
  assert.throws(()=>applyAuthenticatedIssue(progressed.snapshot,base,
@@ -194,8 +199,9 @@ test('owner Issue takeover may recover newer progress head with verified stale-c
  assert.equal(recovered.snapshot.tasks[0].checkpoint.head_sha,newer)
  assert.equal(recovered.snapshot.tasks[0].checkpoint.origin,'owner_verified_git')
  assert.throws(()=>applyAuthenticatedIssue(recovered.snapshot,v('progress',{
-   worker_id:'chat-A',claim_id:old,note:'Old session cannot progress'
- },4),'2026-11-01T04:05:00Z'),e=>e.code==='STALE_OR_FOREIGN_CLAIM')
+   worker_id:'chat-A',claim_id:old,note:'Old session cannot progress',
+   request_id:'bbbbbbbb-4444-4444-8444-bbbbbbbbbbbb'
+ },5),'2026-11-01T04:05:00Z'),e=>e.code==='STALE_OR_FOREIGN_CLAIM')
 })
 
 test('checkpoint and handoff both require the exact remote Git branch SHA',()=>{
