@@ -140,6 +140,11 @@ final class PersonalOsServiceLifecycleChecks {
             assertThat(memories.pending()).extracting(PersonalMemoryService.Memory::id)
                 .contains(stalePending.id());
             assertHttp(HttpStatus.NOT_FOUND, () -> memories.confirm(stalePending.id()));
+            memories.invalidate(stalePrivate.id());
+            assertThat(memories.listPrivate()).extracting(PersonalMemoryService.Memory::id)
+                .contains(stalePrivate.id());
+            assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
+                .doesNotContain(stalePrivate.id());
             memories.erase(stalePending.id());
             memories.erase(stalePrivate.id());
             assertHttp(HttpStatus.NOT_FOUND, () -> memories.get(stalePrivate.id()));
