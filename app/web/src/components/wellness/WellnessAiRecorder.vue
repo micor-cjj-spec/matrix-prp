@@ -49,7 +49,7 @@ async function fileChanged(e: Event) {
     if (version !== photoSelectionVersion) return
     file.value = result.file
     if (result.compressed)
-      ElMessage.success('照片已在本机压缩：' + photoSizeLabel(result.originalBytes) +
+      ElMessage.success('照片已在本机重新编码并移除元数据：' + photoSizeLabel(result.originalBytes) +
         ' → ' + photoSizeLabel(result.file.size))
   } catch (error) {
     if (version === photoSelectionVersion)
@@ -156,7 +156,7 @@ async function save() {
     </div>
     <small v-if="preparingPhoto" role="status">正在本机处理照片，请稍候…</small>
     <small v-if="file">选中图片：{{ file.name }}（{{ photoSizeLabel(file.size) }}）</small>
-    <p class="capture-note">仅在点击识别后把本次文字和图片发送给所选 AI 服务商；照片不存储在 PRP。菜品热量按你确认的食品库条目和重量计算，图片估重需人工核对。</p>
+    <p class="capture-note">上传外卖截图前，请在相册中遮挡姓名、电话、收货地址、订单号及支付信息。图片在本机去除元数据后发送给所选 AI 服务商，PRP 不保存原图；仅确认后的饮食数据参与统计。AI 服务商的数据处理规则请参考其隐私条款。</p>
     <p v-if="error" role="alert" class="capture-error">{{ error }}</p>
     <div v-if="draft" class="capture-draft">
       <strong>{{ draft.description }}</strong>
