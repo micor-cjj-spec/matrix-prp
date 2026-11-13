@@ -28,7 +28,7 @@ export function renderBoard(snapshot, options = {}) {
     '',
     `Requirement Issue: #${snapshot.issue_number} · Status: **${escapeCell(snapshot.status)}** · State version: **${snapshot.version}**`,
     `Completed: **${completed}/${snapshot.tasks.length}** · Claimed or in review: **${claimed}**`,
-    `Claimable now: **${claimable.length}**${claimable.length ? ' · ' + claimable.map(escapeCell).join(', ') : ''}`
+    `Dependency-ready: **${claimable.length}**${claimable.length ? ' · ' + claimable.map(escapeCell).join(', ') : ''}`
   ]
   if (sha) lines.push(`State commit: \`${sha}\``)
   lines.push('', '| Task | GitHub Issue | Status | Dependencies | Assigned worker | PR |')
@@ -40,7 +40,7 @@ export function renderBoard(snapshot, options = {}) {
       `| ${escapeCell(task.task_id)} · ${escapeCell(task.title)} | #${task.issue_number} | ${status} | ${escapeCell(task.depends_on.join(', ') || 'None')} | ${escapeCell(task.claim?.worker_id)} | ${task.pr_number ? '#'+task.pr_number : '—'} |`
     )
   }
-  lines.push('', '_This board is a read-only projection of the Git state branch. Refresh for newer updates. It does not authorize deployment, merge or task acceptance._')
+  lines.push('', '_This board is a read-only projection of the Git state branch. Dependency-ready is not permission to claim: the reviewed V1 migration and trusted controller activation must succeed first. Refresh for newer updates. It does not authorize deployment, merge or task acceptance._')
   return lines.join('\n') + '\n'
 }
 

@@ -34,9 +34,9 @@ test('display redacts claims, request history and notes, escapes Markdown and HT
   assert.match(b,/&lt;script&gt;/)
   assert.match(b,/&#124;/)
 })
-test('board shows immediately claimable tasks without treating dependency-blocked items as ready', () => {
+test('board shows dependency-ready tasks without implying activated task claims', () => {
   const b = renderBoard(state())
-  assert.ok(b.includes('Claimable now: **1** · T-002'))
+  assert.ok(b.includes('Dependency-ready: **1** · T-002'))
   assert.ok(b.includes('T-003'))
   assert.match(b, /T-003.*WAITING/)
 })
