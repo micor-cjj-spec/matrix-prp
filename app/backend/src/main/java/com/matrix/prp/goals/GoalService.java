@@ -28,7 +28,7 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @Service
 @Profile("!test")
-public final class GoalService {
+public class GoalService {
     public record Goal(long id, String title, String description, String domain,
                        String status, String priority, String successCriteria,
                        LocalDate targetDate, LocalDateTime createdAt, LocalDateTime updatedAt) {}
