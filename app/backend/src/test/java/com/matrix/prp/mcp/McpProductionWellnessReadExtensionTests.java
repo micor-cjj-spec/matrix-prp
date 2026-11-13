@@ -48,8 +48,9 @@ class McpProductionWellnessReadExtensionTests {
     }
 
     @Test void extensionCannotBypassExistingHealthDbIssuerOrWriteGuards() {
+        // Invalid write-enabled=false + wellness write scopes is rejected by scope parsing first.
         assertThatThrownBy(()->McpProductionWellnessGuard.verify(true,true,false,false,false,EXPANDED,
-            JDBC,RESOURCE,ISSUER,OWNER,true,true)).isInstanceOf(IllegalStateException.class);
+            JDBC,RESOURCE,ISSUER,OWNER,true,true)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->McpProductionWellnessGuard.verify(true,true,true,true,false,EXPANDED,
             JDBC,RESOURCE,ISSUER,OWNER,true,true)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(()->McpProductionWellnessGuard.verify(true,true,true,false,false,EXPANDED,
