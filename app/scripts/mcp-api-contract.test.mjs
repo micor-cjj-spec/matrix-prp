@@ -99,3 +99,12 @@ test('duplicate API routes and duplicate contract entries cannot silently pass',
   assert.ok(double.errors.some(x => x.includes('Duplicate REST route')))
   assert.ok(double.errors.some(x => x.includes('Duplicate MCP mapping')))
 })
+
+test('computed mapping expressions fail closed instead of bypassing API inventory', () => {
+  const dynamic = '@RestController public class Dynamic { @GetMapping(PATH_CONST) public Object get(){return null;} }'
+  assert.throws(() => parseControllerRoutes(dynamic, 'Dynamic.java'), /Unsupported nonliteral/)
+  const value = '@RestController public class Dynamic { @GetMapping(path=ROUTE_CONST) public Object get(){return null;} }'
+  assert.throws(() => parseControllerRoutes(value, 'Dynamic.java'), /Unsupported nonliteral/)
+  const media = '@RestController public class Media { @GetMapping(produces="application/json") public Object get(){return null;} }'
+  assert.deepEqual(parseControllerRoutes(media, 'Media.java').map(x => x.route), ['GET /'])
+})
