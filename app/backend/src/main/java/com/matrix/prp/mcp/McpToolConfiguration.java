@@ -57,14 +57,21 @@ public class McpToolConfiguration {
         Map.entry("prp_wellness_frequent_foods", "prp.wellness.read"),
         Map.entry("prp_wellness_dishes", "prp.wellness.read"),
         Map.entry("prp_tasks_search", "prp.tasks.read"),
-        Map.entry("prp_records_search", "prp.records.read")
+        Map.entry("prp_records_search", "prp.records.read"),
+        Map.entry("prp_practice_subjects", "prp.practice.read"),
+        Map.entry("prp_practice_banks", "prp.practice.read"),
+        Map.entry("prp_practice_questions", "prp.practice.read"),
+        Map.entry("prp_practice_wrong_questions", "prp.practice.read"),
+        Map.entry("prp_practice_statistics", "prp.practice.read")
     );
     // Extra read tools remain invisible unless the operator explicitly opts in.
     // This protects the existing production nine-tool health manifest.
     static final Set<String> OPTIONAL_READ_TOOLS = Set.of(
         "prp_tasks_summary", "prp_wellness_trends", "prp_wellness_goals",
         "prp_wellness_frequent_foods", "prp_wellness_dishes",
-        "prp_tasks_search", "prp_records_search");
+        "prp_tasks_search", "prp_records_search",
+        "prp_practice_subjects", "prp_practice_banks", "prp_practice_questions",
+        "prp_practice_wrong_questions", "prp_practice_statistics");
 
     static Set<String> exposedNames(String configured, boolean writeEnabled) {
         return exposedNames(configured, writeEnabled, false);
@@ -96,7 +103,9 @@ public class McpToolConfiguration {
             "prp_wellness_draft_status", "prp_confirm_wellness_draft", "prp_chatgpt_wellness_approval",
             "prp_tasks_summary", "prp_wellness_trends", "prp_wellness_goals",
             "prp_wellness_frequent_foods", "prp_wellness_dishes",
-            "prp_tasks_search", "prp_records_search");
+            "prp_tasks_search", "prp_records_search",
+            "prp_practice_subjects", "prp_practice_banks", "prp_practice_questions",
+            "prp_practice_wrong_questions", "prp_practice_statistics");
         var actual = definitions.stream().map(spec -> spec.tool().name()).collect(java.util.stream.Collectors.toSet());
         if (!REQUIRED_SCOPE.keySet().equals(expected)) {
             throw new IllegalStateException("PRP MCP scope-to-tool registry mismatch");
