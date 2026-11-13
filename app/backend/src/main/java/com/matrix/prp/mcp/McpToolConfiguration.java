@@ -55,13 +55,16 @@ public class McpToolConfiguration {
         Map.entry("prp_wellness_trends", "prp.wellness.read"),
         Map.entry("prp_wellness_goals", "prp.wellness.read"),
         Map.entry("prp_wellness_frequent_foods", "prp.wellness.read"),
-        Map.entry("prp_wellness_dishes", "prp.wellness.read")
+        Map.entry("prp_wellness_dishes", "prp.wellness.read"),
+        Map.entry("prp_tasks_search", "prp.tasks.read"),
+        Map.entry("prp_records_search", "prp.records.read")
     );
     // Extra read tools remain invisible unless the operator explicitly opts in.
     // This protects the existing production nine-tool health manifest.
     static final Set<String> OPTIONAL_READ_TOOLS = Set.of(
         "prp_tasks_summary", "prp_wellness_trends", "prp_wellness_goals",
-        "prp_wellness_frequent_foods", "prp_wellness_dishes");
+        "prp_wellness_frequent_foods", "prp_wellness_dishes",
+        "prp_tasks_search", "prp_records_search");
 
     static Set<String> exposedNames(String configured, boolean writeEnabled) {
         return exposedNames(configured, writeEnabled, false);
@@ -92,7 +95,8 @@ public class McpToolConfiguration {
             "prp_prepare_wellness_create", "prp_prepare_wellness_update", "prp_prepare_wellness_delete",
             "prp_wellness_draft_status", "prp_confirm_wellness_draft", "prp_chatgpt_wellness_approval",
             "prp_tasks_summary", "prp_wellness_trends", "prp_wellness_goals",
-            "prp_wellness_frequent_foods", "prp_wellness_dishes");
+            "prp_wellness_frequent_foods", "prp_wellness_dishes",
+            "prp_tasks_search", "prp_records_search");
         var actual = definitions.stream().map(spec -> spec.tool().name()).collect(java.util.stream.Collectors.toSet());
         if (!REQUIRED_SCOPE.keySet().equals(expected)) {
             throw new IllegalStateException("PRP MCP scope-to-tool registry mismatch");

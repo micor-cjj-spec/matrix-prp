@@ -22,7 +22,8 @@ class McpWellnessAppVisibilityTests {
     private List<McpStatelessServerFeatures.SyncToolSpecification> specs(boolean uiEnabled) {
         var drafts = mock(McpDraftService.class);
         var tools = new PrpMcpTools(mock(TaskService.class), mock(FinanceService.class),
-            mock(WellnessService.class), drafts, mock(McpScopeGuard.class));
+            mock(WellnessService.class), mock(com.matrix.prp.records.service.RecordService.class),
+            drafts, mock(McpScopeGuard.class));
         ObjectProvider<McpClientGrantService> grants = mock(ObjectProvider.class);
         when(grants.getObject()).thenReturn(mock(McpClientGrantService.class));
         return new McpToolConfiguration().prpMcpSpecifications(
