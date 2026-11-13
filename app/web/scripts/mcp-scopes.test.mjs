@@ -22,4 +22,6 @@ test('write scopes are not selected by default', () => {
  assert.throws(() => advertisedMcpScopes(['prp.wellness.read','unknown']))
  assert.throws(() => advertisedMcpScopes(['prp.wellness.read','prp.wellness.read']))
  assert.deepEqual(defaultMcpReadScopes([]), [])
+ assert.deepEqual(defaultMcpReadScopes(advertisedMcpScopes(['prp.tasks.read','prp.wellness.read','prp.records.read','prp.practice.read'])), ['prp.wellness.read'])
+ assert.deepEqual(defaultMcpReadScopes(advertisedMcpScopes(['prp.tasks.read'])), ['prp.tasks.read'])
 })
