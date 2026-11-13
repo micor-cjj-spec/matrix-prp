@@ -297,6 +297,10 @@ public class WellnessService {
         db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
     }
     private void assertMealSlotFree(long user,LocalDate date,String type,long excludedId) {
+        // Snacks are distinct eating events, not one daily slot. Keep the owner
+        // lock and idempotency-key checks in every writer so retries cannot
+        // recreate a confirmed snack, while ordinary meals stay unique per day.
+        if ("SNACK".equals(type)) return;
         List<Long> duplicates=db.query(
             "SELECT id FROM prp_wellness_meals WHERE user_id=? AND meal_date=? AND meal_type=? " +
             "AND id<>? LIMIT 1 FOR UPDATE",

@@ -113,7 +113,7 @@ class IsolatedV28BackupRestoreMcpV29IT {
                 + "WHERE TABLE_SCHEMA=DATABASE() "
                 + "AND TABLE_NAME='prp_mcp_oidc_link_flows'")).isZero();
 
-        Flyway next = synthetic.flyway(CLONE_URL, null);
+        Flyway next = synthetic.flyway(CLONE_URL, "29");
         assertThat(next.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(next.validateWithResult().validationSuccessful).isTrue();
 

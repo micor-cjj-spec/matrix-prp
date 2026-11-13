@@ -15,7 +15,8 @@ import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 import { isMealCardRequest } from '@/utils/mealCardIntent'
 import { isWellnessReadQuery } from '@/utils/wellnessReadIntent'
-import { prepareMealPhoto, photoSizeLabel } from '@/utils/mealPhoto'
+import { photoSizeLabel } from '@/utils/mealPhoto'
+import MealPhotoPrivacyEditor from '@/components/wellness/MealPhotoPrivacyEditor.vue'
 
 type ContextOption = { value: string; label: string; hint: string }
 const options: ContextOption[] = [
@@ -81,28 +82,34 @@ const streamError = ref('')
 const chatPhoto = ref<File | null>(null)
 const photoInput = ref<HTMLInputElement | null>(null)
 const preparingPhoto = ref(false)
+const photoPrivacyOpen = ref(false)
+const photoSource = ref<File | null>(null)
 let photoSelectionVersion = 0
-async function photoSelected(event: Event) {
+function photoSelected(event: Event) {
   const inputElement = event.target as HTMLInputElement
   const source = inputElement.files?.[0]
   inputElement.value = ''
   if (!source) return
-  const version = ++photoSelectionVersion
-  preparingPhoto.value = true
+  ++photoSelectionVersion
   chatPhoto.value = null
-  try {
-    const result = await prepareMealPhoto(source)
-    if (version !== photoSelectionVersion) return
-    chatPhoto.value = result.file
-    if (result.compressed)
-      ElMessage.success('照片已在本机压缩：' + photoSizeLabel(result.originalBytes) +
-        ' → ' + photoSizeLabel(result.file.size))
-  } catch (error) {
-    if (version === photoSelectionVersion)
-      ElMessage.warning(error instanceof Error ? error.message : '照片处理失败，请重新选择')
-  } finally {
-    if (version === photoSelectionVersion) preparingPhoto.value = false
-  }
+  // The upload-ready ref may only receive the reviewed/re-encoded file.
+  photoSource.value = source
+  photoPrivacyOpen.value = true
+  preparingPhoto.value = true
+}
+function photoPrepared(redacted: File) {
+  if (!photoSource.value) return
+  chatPhoto.value = redacted
+  photoSource.value = null
+  photoPrivacyOpen.value = false
+  preparingPhoto.value = false
+  ElMessage.success('已裁剪/遮挡并去除元数据：' + photoSizeLabel(redacted.size))
+}
+function photoReviewCanceled() {
+  ++photoSelectionVersion
+  photoSource.value = null
+  photoPrivacyOpen.value = false
+  preparingPhoto.value = false
 }
 async function prepareInlineDiet(content: string) {
   if (sending.value) return
@@ -696,10 +703,11 @@ onBeforeUnmount(() => controller?.abort())
             <div v-if="filteredOptions.length === 0" class="mention-empty">暂无匹配的可授权应用</div>
             <div class="mention-hint">引用其他应用需要一次性只读授权；饮食记录在聊天卡片中确认后才写入。</div>
           </div>
-          <div v-if="preparingPhoto" class="chat-photo-preview" role="status">正在本机处理照片，请稍候…</div>
+          <div v-if="preparingPhoto" class="chat-photo-preview" role="status">请先在本地检查图片并确认隐私遮挡，不会自动上传原图。</div>
           <div v-if="chatPhoto" class="chat-photo-preview">
             <span>📷 {{ chatPhoto.name }}（{{ photoSizeLabel(chatPhoto.size) }}）</span>
             <button type="button" aria-label="移除照片" @click="photoSelectionVersion++; chatPhoto = null; preparingPhoto = false">移除</button>
+            <small role="note">已完成本地图片检查与重新编码。发送时仅向所选 AI 服务商提供处理后的图片，PRP 不保存原图。</small>
           </div>
           <div class="chat-composer">
             <el-input v-model="input" type="textarea" class="chat-input" resize="none" :autosize="{ minRows: 1, maxRows: 5 }"
@@ -724,6 +732,12 @@ onBeforeUnmount(() => controller?.abort())
     </div>
     </div>
 
+    <el-dialog v-model="photoPrivacyOpen" title="本地检查餐食图片隐私" append-to-body
+      :width="'min(96vw,900px)'" :close-on-click-modal="false" destroy-on-close
+      @close="photoReviewCanceled">
+      <MealPhotoPrivacyEditor v-if="photoSource" :source="photoSource"
+        @prepared="photoPrepared" @cancel="photoReviewCanceled" />
+    </el-dialog>
     <el-drawer v-model="historyOpen" direction="ltr" :size="'min(86vw, 320px)'"
       :with-header="false" append-to-body class="prp-chat-history-drawer">
       <ChatConversationPanel mobile :conversations="conversations" :selected-id="selectedId"

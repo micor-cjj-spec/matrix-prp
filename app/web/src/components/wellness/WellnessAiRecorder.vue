@@ -4,10 +4,14 @@ import { ElMessage } from 'element-plus'
 import { apiClient, type ApiResponse } from '@/api/client'
 import { wellnessApi, type Food } from '@/api/wellness'
 import { cloneJson } from '@/utils/cloneJson'
-import { prepareMealPhoto, photoSizeLabel } from '@/utils/mealPhoto'
+import { photoSizeLabel } from '@/utils/mealPhoto'
+import MealPhotoPrivacyEditor from '@/components/wellness/MealPhotoPrivacyEditor.vue'
 import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 type Action = 'meal.create' | 'exercise.create' | 'metric.create'
-type Item = { foodId: number; name: string; grams: number; calories: number | null }
+type Item = {
+  foodId: number; name: string; grams: number; calories: number | null
+  mode?: 'catalog' | 'manual'; manualCalories?: number | null
+}
 type Values = {
   date: string; mealType?: string; items?: Item[]; note?: string
   name?: string; durationMinutes?: number; estimatedKcal?: string | number | null
@@ -35,28 +39,31 @@ watch(() => props.initialText, value => {
   }
 }, { immediate: true })
 const preparingPhoto = ref(false)
-let photoSelectionVersion = 0
-async function fileChanged(e: Event) {
+const photoPrivacyOpen = ref(false)
+const photoSource = ref<File | null>(null)
+function fileChanged(e: Event) {
   const inputElement = e.target as HTMLInputElement
   const source = inputElement.files?.[0]
   inputElement.value = ''
   if (!source) return
-  const version = ++photoSelectionVersion
+  // Raw bytes are never put into the upload-ready file ref.
   file.value = null; draft.value = null
+  photoSource.value = source
+  photoPrivacyOpen.value = true
   preparingPhoto.value = true
-  try {
-    const result = await prepareMealPhoto(source)
-    if (version !== photoSelectionVersion) return
-    file.value = result.file
-    if (result.compressed)
-      ElMessage.success('照片已在本机压缩：' + photoSizeLabel(result.originalBytes) +
-        ' → ' + photoSizeLabel(result.file.size))
-  } catch (error) {
-    if (version === photoSelectionVersion)
-      ElMessage.warning(error instanceof Error ? error.message : '照片处理失败，请重新选择')
-  } finally {
-    if (version === photoSelectionVersion) preparingPhoto.value = false
-  }
+}
+function photoPrepared(redacted: File) {
+  if (!photoSource.value) return
+  file.value = redacted
+  photoSource.value = null
+  photoPrivacyOpen.value = false
+  preparingPhoto.value = false
+  ElMessage.success('已在本机裁剪/遮挡并重新编码，仅使用处理后的图片：' + photoSizeLabel(redacted.size))
+}
+function photoReviewCanceled() {
+  photoSource.value = null
+  photoPrivacyOpen.value = false
+  preparingPhoto.value = false
 }
 async function findFoods(query: string) {
   if (!query.trim()) return
@@ -69,6 +76,9 @@ async function findFoods(query: string) {
   finally { searchBusy.value = false }
 }
 function energy(item: Item): string {
+  if (item.mode === 'manual') {
+    return Number(item.manualCalories) > 0 ? Number(item.manualCalories).toFixed(1) + ' kcal（手动）' : '待人工填写热量'
+  }
   const food = foods.value.find(x => x.id === Number(item.foodId))
   const grams = Number(item.grams)
   if (!food || !Number.isFinite(grams) || grams <= 0) return '待确认'
@@ -109,7 +119,7 @@ function addIngredient() {
   if (!draft.value || draft.value.action !== 'meal.create' || confirming.value) return
   const current = values.value.items ?? []
   if (current.length >= 30) return
-  values.value.items = [...current, { foodId: 0, name: '', grams: 0, calories: null }]
+  values.value.items = [...current, { foodId: 0, name: '', grams: 0, calories: null, mode: 'catalog', manualCalories: null }]
 }
 function removeIngredient(index: number) {
   const current = values.value.items ?? []
@@ -120,8 +130,15 @@ async function save() {
   if (!draft.value || confirming.value) return
   if (draft.value.action === 'meal.create' &&
       (!values.value.items?.length || values.value.items.length > 30 ||
-       values.value.items.some(item => !item.foodId || !Number(item.grams) || Number(item.grams) <= 0))) {
-    ElMessage.warning('请为每种食物选择食品库条目并填写有效克数')
+       values.value.items.some(item =>
+         !item.name?.trim() ||
+         (item.mode === 'manual'
+           ? !Number.isFinite(Number(item.manualCalories)) ||
+             Number(item.manualCalories) <= 0 || Number(item.manualCalories) > 20000 ||
+             !Number.isFinite(Number(item.grams)) || Number(item.grams) < 0 ||
+             Number(item.grams) > 3000
+           : !item.foodId || !Number(item.grams) || Number(item.grams) <= 0)))) {
+    ElMessage.warning('请核对每种食物：食品库条目需要克数；自定义条目需要本次热量，重量不确定可为 0')
     return
   }
   confirming.value = true; error.value = ''
@@ -154,9 +171,9 @@ async function save() {
       <label>📷 餐食照片 <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" @change="fileChanged" /></label>
       <button :disabled="busy || confirming || preparingPhoto || (!text.trim() && !file)" @click="plan">{{ preparingPhoto ? '照片压缩中…' : busy ? '识别中…' : 'AI 生成草稿' }}</button>
     </div>
-    <small v-if="preparingPhoto" role="status">正在本机处理照片，请稍候…</small>
+    <small v-if="preparingPhoto" role="status">图片待本地检查，确认后才可交给 AI 识别。</small>
     <small v-if="file">选中图片：{{ file.name }}（{{ photoSizeLabel(file.size) }}）</small>
-    <p class="capture-note">仅在点击识别后把本次文字和图片发送给所选 AI 服务商；照片不存储在 PRP。菜品热量按你确认的食品库条目和重量计算，图片估重需人工核对。</p>
+    <p class="capture-note">每张图片都需要先在本机检查；可裁剪和用实心黑块遮挡收货信息。仅处理后的图片可进入 AI 草稿识别，PRP 不保存原图。黑块遮挡不是自动识别隐私文字。</p>
     <p v-if="error" role="alert" class="capture-error">{{ error }}</p>
     <div v-if="draft" class="capture-draft">
       <strong>{{ draft.description }}</strong>
@@ -176,15 +193,31 @@ async function save() {
             <input v-model="item.name" placeholder="搜索食品名称" aria-label="食物名称" />
             <button type="button" class="outline" :disabled="searchBusy" @click="findFoods(item.name)">查找食品</button>
           </div>
-          <label>选择食品库条目
+          <label>热量依据
+            <select v-model="item.mode" @change="item.mode === 'manual' ? item.foodId = 0 : item.manualCalories = null">
+              <option value="catalog">食品库 × 克数</option>
+              <option value="manual">本次手动填写热量（未知营养素不按0处理）</option>
+            </select>
+          </label>
+          <label v-if="item.mode !== 'manual'">选择食品库条目
             <select v-model.number="item.foodId">
-              <option :value="0">未匹配（不能直接保存）</option>
+              <option :value="0">未匹配（请选择条目）</option>
               <option v-for="food in foods" :key="food.id" :value="food.id">
                 {{ food.name }} · {{ food.calories100g }} kcal/100g
               </option>
             </select>
           </label>
-          <label>可食部分量（g）<input v-model.number="item.grams" type="number" inputmode="decimal" min="0.1" max="3000" step="0.1" /></label>
+          <label v-if="item.mode === 'manual'">本次实际热量（kcal，人工输入）
+            <input v-model.number="item.manualCalories" type="number" inputmode="decimal" min="0.01" max="20000" step="0.01" />
+          </label>
+          <label>可食部分量（g）
+            <input v-model.number="item.grams" type="number" inputmode="decimal"
+              :min="item.mode === 'manual' ? 0 : 0.1" max="3000" step="0.1" />
+          </label>
+          <small v-if="item.mode === 'manual'">
+            克数不确定可填0；此处热量须人工确认。包装标签每100g候选值不自动成为正式营养数据，
+            保存后可在“今日饮食 → 分析详情”中核实标签与实际食用克数。
+          </small>
           <button v-if="(values.items?.length ?? 0) > 1" type="button" class="outline"
             :disabled="confirming" @click="removeIngredient(index)">移除食物</button>
         </div>
@@ -194,7 +227,7 @@ async function save() {
             @click="addIngredient">+ 补充食物</button>
         </div>
         <label>备注 <input v-model="values.note" maxlength="300" /></label>
-        <p class="capture-note">未找到的菜品可先前往健康中心的食品库自建，或查询 USDA 后再返回本草稿选择。</p>
+        <p class="capture-note">未找到食品库条目时，可手动确认本次热量并保存（未知营养素留空）；有包装标签的食物保存后可在详情中核实每100g数据，自动换算实际摄入。</p>
       </template>
       <template v-else-if="draft.action === 'exercise.create'">
         <label>运动名称 <input v-model="values.name" maxlength="100" /></label>
@@ -213,6 +246,12 @@ async function save() {
       </div>
     </div>
     </template>
+    <el-dialog v-model="photoPrivacyOpen" title="本地检查餐食图片隐私" append-to-body
+      :width="'min(96vw,900px)'" :close-on-click-modal="false" destroy-on-close
+      @close="photoReviewCanceled">
+      <MealPhotoPrivacyEditor v-if="photoSource" :source="photoSource"
+        @prepared="photoPrepared" @cancel="photoReviewCanceled" />
+    </el-dialog>
     <router-link v-if="done" :to="done">✅ 已完成，打开当天健康中心 →</router-link>
   </section>
 </template>
