@@ -58,6 +58,9 @@ export interface MealAnalysisVersion {
     schemaVersion?: number
     confirmed?: boolean
     method?: string
+    userInput?: NutritionLabelVerificationInput
+    calculated?: { caloriesKcal: number | string; proteinG: number | string
+      carbsG: number | string; fatG: number | string }
     items?: Array<{
       foodName: string; weightGrams: number | string | null
       caloriesKcal: number | string | null
