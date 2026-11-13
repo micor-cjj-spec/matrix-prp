@@ -1,6 +1,6 @@
 # GPT 零点击协作：GitHub Issue 自动请求入口（Draft）
 
-> **状态校正（2026-11-13）：** main 发布冻结已通过 PR #165 解除；[Draft PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168) 尚未合并。工作流只读探针通过之后，不得先领取 V0 任务作为写入试点：须经独立审核并取得单独明确授权执行固定 V0→V1 迁移，成功后才允许 claim/register_task 等动作；候选 Issue runner 在 V0 拒绝这些写入（`ISSUE_MIGRATE_V1_FIRST`）。完整放行顺序见 [2026-11-13 清单](RELEASE-READINESS-20261113.md)。
+> **最新状态（2026-11-13）：** [PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168) 已获所有者批准、Squash 合并至受保护 main（`2b8ca6097ba7a39874ef39cfda90415780df49cf`）。真实 [Deploy PRP #43355995634](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/43355995634) 的 `release_control=success`、`build=success`、`publish=skipped`，发布暂停已验收。协作 [PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138) 仍为 Draft、未合并，候选代码已覆盖新旧两类任务入口的 V0 迁移前写入保护；[PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144) 仍为 Draft、未获独立批准、未迁移。真实 App/Environment 权限、只读 Issue 探针、正式 V1 迁移及双会话测试仍未完成。后续各项必须分别授权。
 
 关联需求：[Issue #148](https://github.com/micor-cjj-spec/matrix-prp/issues/148)。代码和工作流仅存在于 [Draft PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)，**当前尚不能在生产状态分支调用**。
 

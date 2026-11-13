@@ -1,6 +1,6 @@
 # Matrix PRP 跨会话任务协作 — MVP 候选实现
 
-> **状态校正（2026-11-13）：** PR #165 已移除 main 发布冻结；新 [Draft PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168) 仅提出恢复冻结，未合并。先审查/单独授权恢复冻结，再审查/单独授权协作源代码；只读 probe 后 **先执行独立审查且由所有者明确授权的固定 V0→V1 迁移**，它是首次真实写入试点，最后才允许任务领取。以下 11 月 1 日冻结描述是历史记录；以 [11 月 13 日放行清单](RELEASE-READINESS-20261113.md) 为准。
+> **最新状态（2026-11-13）：** [PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168) 已获所有者批准、Squash 合并至受保护 main（`2b8ca6097ba7a39874ef39cfda90415780df49cf`）。真实 [Deploy PRP #43355995634](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/43355995634) 的 `release_control=success`、`build=success`、`publish=skipped`，发布暂停已验收。协作 [PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138) 仍为 Draft、未合并，候选代码已覆盖新旧两类任务入口的 V0 迁移前写入保护；[PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144) 仍为 Draft、未获独立批准、未迁移。真实 App/Environment 权限、只读 Issue 探针、正式 V1 迁移及双会话测试仍未完成。后续各项必须分别授权。
 
 父需求：[Issue #132](https://github.com/micor-cjj-spec/matrix-prp/issues/132)。
 跨会话恢复：[Issue #145](https://github.com/micor-cjj-spec/matrix-prp/issues/145)。

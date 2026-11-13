@@ -1,6 +1,6 @@
 # 零点击 Issue 自动化启用前检查（只读）
 
-> **状态校正（2026-11-13）：** 本文“当前已核实的 GitHub 状态（2026-11-01）”为历史快照；main 发布冻结已在 PR #165 中解除，因此该 preflight 当前应返回 NO-GO。仅在单独批准并合并 [Draft PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168)、观察到 publish=skipped 以后才可重评；真实 Environment/App 证据仍未验收。写入顺序是只读 probe → 固定 V0→V1 迁移（单独授权/独立审核）→ 两个实际 ChatGPT 会话任务领取，而不是在 V0 先做 claim 试点。详见 [放行清单](RELEASE-READINESS-20261113.md)。
+> **最新状态（2026-11-13）：** [PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168) 已获所有者批准、Squash 合并至受保护 main（`2b8ca6097ba7a39874ef39cfda90415780df49cf`）。真实 [Deploy PRP #43355995634](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/43355995634) 的 `release_control=success`、`build=success`、`publish=skipped`，发布暂停已验收。协作 [PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138) 仍为 Draft、未合并，候选代码已覆盖新旧两类任务入口的 V0 迁移前写入保护；[PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144) 仍为 Draft、未获独立批准、未迁移。真实 App/Environment 权限、只读 Issue 探针、正式 V1 迁移及双会话测试仍未完成。后续各项必须分别授权。
 
 本检查只验证启用前置条件，不创建任务、不写状态分支、不合并 PR、不验收任务，也不部署生产。
 

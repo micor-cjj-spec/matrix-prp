@@ -1,6 +1,6 @@
 # 受保护状态 V0→V1 一次性迁移
 
-> **11 月 13 日补充：** 由于固定 V0 SHA 是迁移强校验，任何 V0 claim/checkpoint/register_task 的真实状态写入都会破坏这一次性迁移前置条件。因此当前协作 Issue runner 在无已审查 V1 seed 时拒绝常规写入（`ISSUE_MIGRATE_V1_FIRST`）。首次真实写入必须是单独批准、独立评审的 V0→V1 迁移；不得先在真实 V0 上做写入试点。main 发布冻结已由 PR #165 解除，恢复提案仅见 [Draft PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168)，未合并。详见 [最新放行清单](RELEASE-READINESS-20261113.md)。
+> **最新状态（2026-11-13）：** [PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168) 已获所有者批准、Squash 合并至受保护 main（`2b8ca6097ba7a39874ef39cfda90415780df49cf`）。真实 [Deploy PRP #43355995634](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/43355995634) 的 `release_control=success`、`build=success`、`publish=skipped`，发布暂停已验收。协作 [PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138) 仍为 Draft、未合并，候选代码已覆盖新旧两类任务入口的 V0 迁移前写入保护；[PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144) 仍为 Draft、未获独立批准、未迁移。真实 App/Environment 权限、只读 Issue 探针、正式 V1 迁移及双会话测试仍未完成。后续各项必须分别授权。
 
 来源：[Draft PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)、[Draft PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144)、跟踪 [Issue #139](https://github.com/micor-cjj-spec/matrix-prp/issues/139)。
 
