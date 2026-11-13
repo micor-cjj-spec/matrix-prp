@@ -616,6 +616,8 @@ public class WellnessAiDraftService {
                 for(JsonNode item:items){
                     String name=item.path("name").asText("").trim();
                     if(name.isBlank()||name.length()>120)throw invalid("Food name missing");
+                    if(!name.equals(WellnessNutritionEvidence.safeFoodName(name)))
+                        throw invalid("食物名称包含疑似收货信息或订单隐私，请遮挡后重试");
                     BigDecimal grams=decimal(item,"grams",false);
                     if(grams==null)grams=BigDecimal.ZERO;
                     if(grams.compareTo(BigDecimal.valueOf(3000))>0)
