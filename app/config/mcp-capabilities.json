@@ -222,9 +222,9 @@
     },
     {
       "route": "PATCH /api/tasks/{id}/status",
-      "status": "partial",
-      "tool": "prp_prepare_task_update",
-      "reason": "Status change requires full task update input"
+      "status": "mapped",
+      "tool": "prp_prepare_task_status",
+      "reason": "Status-only change prepared from the current owned task; no full-field replacement or immediate write"
     },
     {
       "route": "POST /api/ai/chat/stream",
