@@ -116,6 +116,16 @@ async function loadData() {
       context.value = []
     }
   } catch {
+    // Do not leave owner-specific data rendered after a 401, token change,
+    // failed refresh, or transient response error.
+    goals.value = []
+    candidates.value = []
+    memories.value = []
+    records.value = []
+    context.value = []
+    selectedGoalId.value = null
+    privateFacts.value = []
+    privateOpen.value = false
     serviceError.value = '数据暂时无法加载。请确认 Personal OS 后端版本已部署且账号已登录。'
   } finally {
     loading.value = false
