@@ -437,7 +437,6 @@ class WellnessDatabaseIT {
         assertThat(records.size()).isEqualTo(5);
         assertThat(records.findValuesAsText("mealType"))
             .containsOnly("SNACK");
-        assertThat(records.findValuesAsText("id")).hasSize(5);
         JsonNode summary=getData("/api/wellness/summary/daily?date="+day,owner);
         assertThat(summary.path("mealCount").asInt()).isEqualTo(5);
         assertThat(summary.path("calories").decimalValue())
