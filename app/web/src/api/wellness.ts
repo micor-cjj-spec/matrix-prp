@@ -26,6 +26,46 @@ export interface MealItem {
 export interface Meal {
   id: number; mealDate: string; mealType: string; note: string | null; items: MealItem[]
 }
+/** Optional V30 enrichment. No image or full-order OCR is returned. */
+export interface MealAnalysisVersion {
+  id: number; versionNumber: number; sourceType: 'TEXT' | 'IMAGE'
+  rawExtraction: {
+    schemaVersion?: number
+    sourceType?: string
+    items?: Array<{ name: string; estimatedGrams: number | string | null }>
+  }
+  analysis: {
+    schemaVersion?: number
+    confirmed?: boolean
+    method?: string
+    items?: Array<{
+      foodName: string; weightGrams: number | string | null
+      caloriesKcal: number | string | null
+      proteinG: number | string | null
+      carbsG: number | string | null; fatG: number | string | null
+      source: string; unknownWeight?: boolean
+    }>
+  }
+  modelKey: string | null; createdAt: string
+}
+export interface MealNutrientDetails {
+  mealItemId: number; foodName: string
+  proteinG: number | string | null; carbsG: number | string | null
+  fatG: number | string | null; fiberG: number | string | null
+  sugarG: number | string | null; sodiumMg: number | string | null
+  sourceType: string; confidenceLevel: string
+  estimateNote: string | null; weightMinG: number | string | null
+  weightMaxG: number | string | null
+  caloriesMinKcal: number | string | null; caloriesMaxKcal: number | string | null
+}
+export interface MealAnalysisDetails {
+  meal: Meal; analyses: MealAnalysisVersion[]
+  nutrients: MealNutrientDetails[]
+  nutritionCompleteness: {
+    foodCount: number; knownProteinCount: number
+    knownCarbsCount: number; knownFatCount: number
+  }
+}
 export interface ItemInput { foodId: number; grams: number }
 export interface MealSnapshotItem {
   foodId: number | null; name: string | null; grams: number; calories: number | null
@@ -99,6 +139,7 @@ export const wellnessApi = {
     '/wellness/foods/usda/' + fdcId + '/import' + (alias ? '?alias=' + encodeURIComponent(alias) : ''), {}),
   addFood: (form: FoodInput) => post<Food>('/wellness/foods', form),
   meals: (date: string) => get<Meal[]>('/wellness/meals', { date }),
+  mealAnalysis: (id: number) => get<MealAnalysisDetails>('/wellness/meals/' + id + '/analysis'),
   addMeal: (form: MealInput) => post<Meal>('/wellness/meals', form),
   addMealSnapshots: (form: MealSnapshotInput) => post<Meal>('/wellness/meals/snapshots', form),
   updateMealSnapshots: (id: number, form: MealSnapshotInput) =>
