@@ -64,6 +64,17 @@ class McpOAuthToolManifestTests {
     }
 
     @Test
+    void practiceScopeOnlyExposesFiveOptInReadTools() {
+        assertThat(McpToolConfiguration.exposedNames("prp.practice.read", false)).isEmpty();
+        assertThat(McpToolConfiguration.exposedNames("prp.practice.read", false, true))
+            .containsExactlyInAnyOrder("prp_practice_subjects", "prp_practice_banks",
+                "prp_practice_questions", "prp_practice_wrong_questions",
+                "prp_practice_statistics");
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read", false, true))
+            .doesNotContain("prp_practice_questions", "prp_practice_wrong_questions");
+    }
+
+    @Test
     void unexpectedScopeNeverEnablesAnyMcpTool() {
         assertThatThrownBy(() -> McpToolConfiguration.exposedNames("*", true))
             .isInstanceOf(IllegalArgumentException.class);
