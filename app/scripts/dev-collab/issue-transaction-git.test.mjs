@@ -263,16 +263,16 @@ test('isolated Git rejects a writer token not confined to this repository', {tim
 
 test('isolated Git rejects a task Issue whose owner-authored manifest does not match the request',
  {timeout:30000},()=>{
- const f=setup()
+ const f=setup({v1:true})
  try{
   const manifest={schema_version:1,requirement_id:'REQ-20261031-001',
-   task_id:'T-002',title:'Different title',depends_on:[],
+   task_id:'T-010',title:'Different title',depends_on:[],
    allowed_paths:['app/web/src/']}
   f.prepareTaskIssue(manifest)
   f.prepare({schema_version:1,action:'register_task',
    request_id:'88888888-8888-4888-8888-888888888888',
-   requirement_id:'REQ-20261031-001',task_id:'T-002',worker_id:'chat-A',
-   expected_version:0,issue_number:1000,title:'Requested title',
+   requirement_id:'REQ-20261031-001',task_id:'T-010',worker_id:'chat-A',
+   expected_version:1,issue_number:1000,title:'Requested title',
    depends_on:[],allowed_paths:['app/web/src/']})
   const before=f.head()
   const attempt=f.execute()
@@ -318,14 +318,15 @@ test('isolated Git registers T-010 on reviewed V1 seed and safely replays after 
 
 test('isolated Git refuses a state push if trusted main changes after initial validation',
  {timeout:30000},()=>{
- const f=setup()
+ const f=setup({v1:true})
  try{
+  f.prepare(request(undefined,1))
   const before=f.head()
   const attempt=f.execute({PRP_MOCK_DRIFT_MAIN:'1'})
   assert.notEqual(attempt.status,0)
   assert.match(attempt.stderr,/ISSUE_MAIN_CHANGED_BEFORE_PUSH/)
   assert.equal(f.head(),before)
-  assert.equal(f.snapshot().version,0)
+  assert.equal(f.snapshot().version,1)
   assert.equal(f.snapshot().tasks[0].claim,null)
   assert.notEqual(git(f.root,'--git-dir',f.origin,'rev-parse','refs/heads/main'),f.initialMain)
  }finally{f.dispose()}
