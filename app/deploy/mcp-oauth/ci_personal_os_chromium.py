@@ -17,8 +17,15 @@ def run(page, origin):
 
     # Count paths only. Never log memory values or authentication headers.
     private_requests = []
-    page.on("request", lambda req: private_requests.append(1)
-            if (urlsplit(req.url).path == "/api/memory/private") else None)
+    routine_memory_requests = []
+    def observe(req):
+        # Vue is deployed under /prp/; do not assume the backend-local /api/ prefix.
+        path = urlsplit(req.url).path
+        if path.endswith("/api/memory/private"):
+            private_requests.append(1)
+        elif path.endswith("/api/memory") or path.endswith("/api/memory/candidates"):
+            routine_memory_requests.append(1)
+    page.on("request", observe)
 
     # Start with real authenticated first-party Vue UI and fresh isolated MySQL.
     page.goto(origin + "/prp/personal-os", wait_until="domcontentloaded",
@@ -26,8 +33,8 @@ def run(page, origin):
     page.locator(".os-hero h1").wait_for(state="visible", timeout=20000)
     if page.locator(".os-alert").is_visible():
         raise RuntimeError("PERSONAL_OS_BACKEND_NOT_AVAILABLE")
-    if private_requests:
-        raise RuntimeError("PERSONAL_OS_PRIVATE_MEMORY_AUTO_FETCH")
+    if private_requests or routine_memory_requests:
+        raise RuntimeError("PERSONAL_OS_MEMORY_FETCH_BEFORE_OWNER_OPENS_TAB")
 
     # The only way to create a goal here is an explicit first-party form submit.
     page.get_by_placeholder("例如：完成一个阶段性学习计划").fill(
@@ -39,12 +46,16 @@ def run(page, origin):
 
     page.locator(".el-segmented").get_by_text(
         "个人记忆", exact=True).click()
+    page.get_by_text("补充个人事实", exact=True).wait_for(
+        state="visible", timeout=15000)
     page.locator(".os-panel textarea").fill(
         "CI-only private fact for browser approval")
     page.get_by_role("button", name="保存为待确认候选").click()
     pending = page.locator(".os-list-panel article.os-memory-card").filter(
         has_text="CI-only private fact for browser approval")
     pending.wait_for(state="visible", timeout=15000)
+    if not routine_memory_requests:
+        raise RuntimeError("PERSONAL_OS_MEMORY_TAB_DID_NOT_LOAD")
     if private_requests:
         raise RuntimeError("PERSONAL_OS_PRIVATE_MEMORY_FETCH_BEFORE_CLICK")
 
