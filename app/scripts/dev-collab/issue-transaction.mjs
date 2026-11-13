@@ -5,7 +5,8 @@ import {execFileSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
 import {resolve} from 'node:path'
 import {validateIssueEvent} from './issue-ingress.mjs'
-import {applyCommand,validateSnapshot,CollabError} from './core.mjs'
+import {applyCommand,validateSnapshot,CollabError,requireMigratedLiveState} from './core.mjs'
+export {requireMigratedLiveState}
 import {verifyStateBranchRuleset} from './state-rule-policy.mjs'
 import {applyOwnerIssuedMigration} from './issue-migrate.mjs'
 
@@ -38,18 +39,6 @@ export function verifyTaskIssue(issue,validated){
    JSON.stringify(manifest.allowed_paths)===JSON.stringify(command.allowed_paths),
    'ISSUE_TASK_MANIFEST_MISMATCH')
  return true
-}
-
-// A one-shot V0->V1 migration is pinned to its original pristine V0 SHA.
-// Do not let a live task write invalidate that migration before approval.
-export function requireMigratedLiveState(snapshot) {
- validateSnapshot(snapshot)
- if(snapshot.requirement_id==='REQ-20261031-001'){
-  const seed=[['T-006',141],['T-007',142],['T-008',143],['T-009',146]]
-  check(snapshot.version>=1 && seed.every(([id,issue])=>
-    snapshot.tasks.some(t=>t.task_id===id&&t.issue_number===issue)),
-    'ISSUE_MIGRATE_V1_FIRST')
- }
 }
 
 export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>false){

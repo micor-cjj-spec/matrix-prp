@@ -40,6 +40,18 @@ for attempt in 1 2 3; do
   fi
   file="requirements/${COLLAB_REQ_ID}.json"
   [[ -f "$state/$file" ]] || { echo 'REQUIREMENT_NOT_REGISTERED'; exit 3; }
+  # Legacy manual dispatch must never mutate the pinned V0 state before reviewed V1 migration.
+  # Local bare-Git harnesses are not an authenticated GitHub workflow_dispatch event.
+  if [[ "${GITHUB_ACTIONS:-}" == 'true' && "${GITHUB_EVENT_NAME:-}" == 'workflow_dispatch' ]]; then
+    node --input-type=module - "$state/$file" <<'PRP_V1_GATE' || {
+import {readFileSync} from 'node:fs'
+import {requireMigratedLiveState} from './app/scripts/dev-collab/core.mjs'
+requireMigratedLiveState(JSON.parse(readFileSync(process.argv[2],'utf8')))
+PRP_V1_GATE
+      echo 'ISSUE_MIGRATE_V1_FIRST' >&2
+      exit 3
+    }
+  fi
   node "$root/app/scripts/dev-collab/coordinator-cli.mjs" "$state/$file" "$receipt"
   git -C "$state" add -- "$file"
   if git -C "$state" diff --cached --quiet; then

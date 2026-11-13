@@ -88,6 +88,18 @@ function run(worker, id, taskId, overrides = {}) {
   })
 }
 
+test('trusted manual dispatch cannot claim pristine V0 before migration', {timeout:30000}, async()=>{
+ const f=setup()
+ try{
+  const previous=f.readState()
+  const result=await run(f.workers[0],'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'T-001',{GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'workflow_dispatch'})
+  assert.notEqual(result.status,0)
+  assert.match(result.err,/ISSUE_MIGRATE_V1_FIRST/)
+  assert.deepEqual(f.readState(),previous)
+ }finally{f.destroy()}
+})
+
 test('two independent Git processes competing on one task cannot both commit a claim', { timeout: 30000 }, async () => {
   const f = setup()
   try {

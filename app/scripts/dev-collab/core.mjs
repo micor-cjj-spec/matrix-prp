@@ -24,6 +24,13 @@ function hasV1Seed(snapshot){
   return snapshot.tasks.length>=9 && V1_SEED_TASKS.every(([id,issue]) =>
     snapshot.tasks.some(t=>t.task_id===id && t.issue_number===issue))
 }
+// Shared gate for every live state-writer entrypoint, including legacy manual dispatch.
+// A state revision does not prove the pinned V0-to-V1 migration occurred.
+export function requireMigratedLiveState(snapshot){
+  validateSnapshot(snapshot)
+  if(snapshot.requirement_id==='REQ-20261031-001')
+    check(snapshot.version>=1 && hasV1Seed(snapshot),'ISSUE_MIGRATE_V1_FIRST')
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function check(condition, code) {
