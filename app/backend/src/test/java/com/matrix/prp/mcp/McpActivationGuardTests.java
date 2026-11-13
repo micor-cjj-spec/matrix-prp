@@ -7,6 +7,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class McpActivationGuardTests {
     @Test
+    void extensionFailsClosedUnlessHealthOAuthWritesAndReadOptInAreEnabled() {
+        assertThatCode(() -> McpActivationGuard.verify(true,true,true,List.of("prod"),true,true,true))
+            .doesNotThrowAnyException();
+        for (var flags : List.of(
+            List.of(false,true,true,true,true),
+            List.of(true,false,true,true,true),
+            List.of(true,true,false,true,true),
+            List.of(true,true,true,false,true),
+            List.of(true,true,true,true,false))) {
+            assertThatThrownBy(() -> McpActivationGuard.verify(flags.get(0),flags.get(1),
+                flags.get(2),List.of("prod"),flags.get(3),true,flags.get(4)))
+                .isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Test
     void allDisabledIsAllowed() {
         assertThatCode(() -> McpActivationGuard.verify(false, false, false, List.of()))
             .doesNotThrowAnyException();
