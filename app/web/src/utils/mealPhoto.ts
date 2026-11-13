@@ -38,6 +38,43 @@ export function scaledPhotoDimensions(width: number, height: number, maxEdge: nu
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }
 }
 
+/**
+ * Normalized rectangles are local canvas geometry, never sent as metadata.
+ * The actual outgoing JPEG must be rendered from this canvas after both crop
+ * and irreversible opaque black masks are applied.
+ */
+export interface PhotoRect { x: number; y: number; width: number; height: number }
+type PrivacyCanvas = Pick<CanvasRenderingContext2D, 'fillRect' | 'drawImage' | 'fillStyle'>
+function validRect(r: PhotoRect): boolean {
+  return [r.x, r.y, r.width, r.height].every(Number.isFinite) &&
+    r.x >= 0 && r.y >= 0 && r.width > 0 && r.height > 0 &&
+    r.x + r.width <= 1.0000001 && r.y + r.height <= 1.0000001
+}
+/**
+ * Shared by the preview and the file encoder; crop drops pixels outside the
+ * selected region, and masks replace pixels with solid BLACK, not blur.
+ */
+export function paintPrivateMealPhoto(
+  context: PrivacyCanvas, image: CanvasImageSource,
+  sourceWidth: number, sourceHeight: number,
+  width: number, height: number,
+  crop: PhotoRect, masks: readonly PhotoRect[],
+): void {
+  if (![sourceWidth, sourceHeight, width, height].every(x => Number.isFinite(x) && x > 0) ||
+      !validRect(crop) || masks.length > 40 || masks.some(m => !validRect(m)))
+    throw new Error('图片裁剪或遮挡区域无效')
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, width, height)
+  context.drawImage(image,
+    crop.x * sourceWidth, crop.y * sourceHeight,
+    crop.width * sourceWidth, crop.height * sourceHeight,
+    0, 0, width, height)
+  context.fillStyle = '#000000'
+  for (const mask of masks)
+    context.fillRect(mask.x * width, mask.y * height,
+      mask.width * width, mask.height * height)
+}
+
 export interface PreparedMealPhoto { file: File; compressed: boolean; originalBytes: number }
 
 /**
