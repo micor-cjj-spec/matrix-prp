@@ -7,7 +7,7 @@ import { fetchRecords, type RecordItem } from '@/api/records'
 import {
   changePersonalGoalStatus, confirmPersonalMemory, createPersonalGoal,
   erasePersonalMemory, fetchConfirmedMemories, fetchMemoryCandidates,
-  fetchPersonalGoalContext, fetchPersonalGoals, invalidatePersonalMemory,
+  fetchPersonalGoalContext, fetchPersonalGoals, fetchPrivateMemories, invalidatePersonalMemory,
   proposePersonalMemory, replacePersonalMemory,
   type GoalStatus, type MemoryPredicate, type MemorySensitivity,
   type PersonalGoal, type PersonalGoalLink, type PersonalMemory,
@@ -21,6 +21,9 @@ const serviceError = ref('')
 const goals = ref<PersonalGoal[]>([])
 const candidates = ref<PersonalMemory[]>([])
 const memories = ref<PersonalMemory[]>([])
+const privateFacts = ref<PersonalMemory[]>([])
+const privateOpen = ref(false)
+const privateLoading = ref(false)
 const records = ref<RecordItem[]>([])
 const timelineDomain = ref('life')
 const selectedGoalId = ref<number | null>(null)
@@ -65,6 +68,36 @@ function describeMemory(item: PersonalMemory) {
   return `${item.objectType} · #${item.objectRef ?? '—'}`
 }
 
+// These fields are never fetched during page initialization or general refresh.
+async function togglePrivateMemories() {
+  if (privateOpen.value) {
+    privateOpen.value = false
+    privateFacts.value = []
+    return
+  }
+  privateLoading.value = true
+  try {
+    privateFacts.value = await fetchPrivateMemories()
+    privateOpen.value = true
+  } catch {
+    privateFacts.value = []
+    ElMessage.error('受限记忆加载失败，请确认账号权限')
+  } finally {
+    privateLoading.value = false
+  }
+}
+
+async function refreshPrivateIfOpen() {
+  if (!privateOpen.value) return
+  try {
+    privateFacts.value = await fetchPrivateMemories()
+  } catch {
+    privateFacts.value = []
+    privateOpen.value = false
+    ElMessage.error('受限记忆无法刷新，已收起内容')
+  }
+}
+
 async function loadData() {
   loading.value = true
   serviceError.value = ''
@@ -77,6 +110,7 @@ async function loadData() {
     candidates.value = candidateData
     memories.value = memoryData
     records.value = recordData
+    await refreshPrivateIfOpen()
     if (selectedGoalId.value !== null && !goalData.some(item => item.id === selectedGoalId.value)) {
       selectedGoalId.value = null
       context.value = []
@@ -416,6 +450,36 @@ onMounted(async () => {
               <el-button size="small" text type="danger" :disabled="actionBusy" @click="eraseMemory(item)">永久删除</el-button>
             </div>
           </article>
+
+          <section class="os-private" aria-label="受限记忆管理">
+            <div class="os-section-heading os-secondary-heading">
+              <h2>受限 / 敏感记忆</h2>
+              <el-button :loading="privateLoading" @click="togglePrivateMemories">
+                {{ privateOpen ? '收起并清除本页内容' : '主动查看并管理' }}
+              </el-button>
+            </div>
+            <p class="os-help">默认不读取这些事实。只有点击查看才会向后端请求；不会发送给 AI 或 MCP。</p>
+            <template v-if="privateOpen">
+              <el-empty v-if="!privateFacts.length" description="没有可管理的受限/敏感记忆" />
+              <article v-for="item in privateFacts" :key="item.id" class="os-memory-card">
+                <div class="os-memory-heading">
+                  <strong>{{ relationLabels[item.predicate] || item.predicate }}</strong>
+                  <el-tag size="small" type="warning">
+                    {{ item.sensitivity === 'RESTRICTED' ? '受限' : '敏感' }}
+                  </el-tag>
+                </div>
+                <p>{{ describeMemory(item) }}</p>
+                <small>来源 {{ item.sourceType }} · 事实 #{{ item.id }}</small>
+                <div class="os-card-actions">
+                  <el-button v-if="item.objectType === 'LITERAL'" size="small"
+                    :disabled="actionBusy" @click="openCorrection(item)">更正</el-button>
+                  <el-button size="small" :disabled="actionBusy" @click="invalidateCandidate(item)">作废</el-button>
+                  <el-button size="small" type="danger" text :disabled="actionBusy"
+                    @click="eraseMemory(item)">永久删除</el-button>
+                </div>
+              </article>
+            </template>
+          </section>
         </div>
       </section>
 
