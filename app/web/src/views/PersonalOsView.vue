@@ -27,6 +27,7 @@ const context = ref<PersonalGoalLink[]>([])
 const contextLoading = ref(false)
 const correctionTarget = ref<PersonalMemory | null>(null)
 const correctionText = ref('')
+const correctionRequestKey = ref('')
 const correctionOpen = ref(false)
 
 function requestKey(prefix: string) {
@@ -237,6 +238,7 @@ function openCorrection(item: PersonalMemory) {
     || !['PREFERS', 'DECLARES_SKILL', 'HAS_BACKGROUND'].includes(item.predicate)) return
   correctionTarget.value = item
   correctionText.value = item.objectValue ?? ''
+  correctionRequestKey.value = requestKey('correction')
   correctionOpen.value = true
 }
 
@@ -247,10 +249,11 @@ async function saveCorrection() {
   try {
     await replacePersonalMemory(item.id, memoryInput(
       item.predicate as MemoryPredicate, correctionText.value,
-      item.sensitivity, requestKey('correction'),
+      item.sensitivity, correctionRequestKey.value,
     ))
     correctionOpen.value = false
     correctionTarget.value = null
+    correctionRequestKey.value = ''
     ElMessage.success('更正已保存为候选；原事实在更正确认前仍然有效')
     await loadData()
     activeTab.value = 'memory'
