@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { prepareMealPhoto, photoDisposition, paintPrivateMealPhoto, type PhotoRect } from '@/utils/mealPhoto'
+import { prepareMealPhoto, photoDisposition, paintPrivateMealPhoto, remapPrivateMealMasks, type PhotoRect } from '@/utils/mealPhoto'
 
 /**
  * All operations run locally. The original File is used only for object-URL
@@ -126,8 +126,10 @@ function endDraw(e: PointerEvent) {
       masks.value.push(box)
     }
   } else {
-    // Crop selection is relative to the currently shown image. Existing masks
-    // are cleared because their geometry would otherwise refer to old pixels.
+    // Both the selection and existing masks use current preview coordinates.
+    // Remap masks BEFORE changing the crop, so a second crop never silently
+    // reveals pixels that the user already covered.
+    const retained = remapPrivateMealMasks(box, masks.value)
     const previous = crop.value
     crop.value = {
       x: previous.x + box.x * previous.width,
@@ -135,7 +137,7 @@ function endDraw(e: PointerEvent) {
       width: previous.width * box.width,
       height: previous.height * box.height,
     }
-    masks.value = []
+    masks.value = retained
     mode.value = 'mask'
   }
   render()
@@ -215,7 +217,7 @@ async function confirm() {
     </div>
     <p class="hint" role="status">
       {{ mode === 'mask' ? '在图片上拖动矩形，松开后区域将覆盖为不透明黑色。' :
-        '拖动框选要保留的部分，松开后裁掉框外内容；此前遮挡区域会被重置。' }}
+        '拖动框选要保留的部分，松开后裁掉框外内容；已添加的黑色遮挡会随裁剪保留。' }}
       已遮挡 {{ masks.length }} 处。
     </p>
     <div class="image-scroll">
