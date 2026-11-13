@@ -87,6 +87,16 @@
         "prp_wellness_meal_analyses",
         "prp_wellness_meal_item_nutrients"
       ]
+    },
+    {
+      "version": 31,
+      "file": "V31__personal_os_goals_and_assertions.sql",
+      "sha256": "e9da502ffef9bd8cf3fa4e6256658de078a610a5694270f1b9124238e00fab0b",
+      "mode": "create-empty",
+      "tables": [
+        "prp_goals",
+        "prp_personal_assertions"
+      ]
     }
   ]
 }

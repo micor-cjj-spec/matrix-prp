@@ -219,6 +219,32 @@ class FlywayV28ToV29IT {
         assertThat(preservedFingerprints(url)).containsExactlyInAnyOrderEntriesOf(before);
         assertThat(next.migrate().migrationsExecuted).isZero();
         assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history")).isEqualTo(29);
+
+        // The historical V28 -> V29 proof above remains untouched. Only now
+        // advance the populated, disposable V29 schema through both reviewed
+        // CREATE-EMPTY migrations: wellness V30 and Personal OS V31.
+        Map<String, String> priorBusinessRows = preservedFingerprints(url);
+        Flyway v31 = flyway(url, null);
+        assertThat(v31.migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(v31.validateWithResult().validationSuccessful).isTrue();
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history")).isEqualTo(31);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE version='30' " +
+            "AND script='V30__wellness_analysis_details.sql' AND success=1")).isEqualTo(1);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE version='31' " +
+            "AND script='V31__personal_os_goals_and_assertions.sql' AND success=1")).isEqualTo(1);
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables " +
+            "WHERE table_schema=DATABASE() AND table_type='BASE TABLE'")).isEqualTo(beforeTables + 5);
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables " +
+            "WHERE table_schema=DATABASE() AND table_name IN " +
+            "('prp_wellness_meal_analyses','prp_wellness_meal_item_nutrients'," +
+            "'prp_goals','prp_personal_assertions')")).isEqualTo(4);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_goals")).isZero();
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_personal_assertions")).isZero();
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meal_analyses")).isZero();
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meal_item_nutrients")).isZero();
+        assertThat(preservedFingerprints(url)).containsExactlyInAnyOrderEntriesOf(priorBusinessRows);
+        assertThat(v31.migrate().migrationsExecuted).isZero();
+        System.out.println("CI_SYNTHETIC_POPULATED_V29_TO_V31_BOTH_CREATE_EMPTY_DATA_PRESERVATION=PASS");
         System.out.println("CI_SYNTHETIC_POPULATED_V28_TO_V29_DATA_PRESERVATION=PASS");
         System.out.println("CI_SYNTHETIC_V29_OWNER_FOREIGN_KEY_ENFORCED=PASS");
         System.out.println("NO_LIVE_V2_OR_PRODUCTION_DATABASE_ACCESSED=YES");
