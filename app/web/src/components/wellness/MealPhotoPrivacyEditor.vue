@@ -167,6 +167,12 @@ function reset() {
 }
 async function confirm() {
   if (!ready.value || !image || processing.value) return
+  // Never export while a pointer rectangle is still being drawn: a dashed
+  // in-progress selection is not yet part of the irreversible image masks.
+  if (start !== null) {
+    error.value = '请先完成正在框选的遮挡或裁剪，再确认使用图片'
+    return
+  }
   processing.value = true
   error.value = ''
   const token = revision
