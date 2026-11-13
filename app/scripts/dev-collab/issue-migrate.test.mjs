@@ -29,6 +29,10 @@ test('owner-issued migration uses the full reviewed apply gate, not read-only ve
  assert.ok(source.includes("approvalPhrase:'APPLY-REQ-20261031-001-V1'"))
  assert.ok(source.includes('appInstallation:repos'))
  assert.ok(source.includes("pulls/144/reviews?per_page=100"))
+ assert.ok(source.includes('validateIssueEvent(env,event,latest)'))
+ assert.ok(source.indexOf('validateIssueEvent(env,event,latest)') <
+   source.lastIndexOf("git('-C',temp,'push'"))
+
  assert.ok(source.includes('verifyMigrationEvidence({before,after,pr,prFiles,reviews,rule:ruleset'))
  assert.doesNotMatch(source,/mode:'verify'/)
 })

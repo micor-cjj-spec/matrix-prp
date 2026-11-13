@@ -71,7 +71,7 @@ function setup({v1=false}={}){
   '#!/usr/bin/env bash','set -euo pipefail',
   '[[ "$1" == api ]] || exit 3',
   'case "$2" in',
-  ' */issues/999) cat "$PRP_MOCK_ISSUE" ;;',
+  ' */issues/999) if [[ "${PRP_MOCK_REVOKE_ON_RECHECK:-}" == "1" ]]; then n=$(cat "$PRP_MOCK_ISSUE_READ_COUNT" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$PRP_MOCK_ISSUE_READ_COUNT"; if (( n >= 2 )); then cat "$PRP_MOCK_ISSUE_REVOKED"; else cat "$PRP_MOCK_ISSUE"; fi; else cat "$PRP_MOCK_ISSUE"; fi ;;',
   ' */issues/1000) cat "$PRP_MOCK_TASK_ISSUE" ;;',
   ' */rulesets/26294671) [[ "${GH_TOKEN:-}" == "isolated-test-app-token" ]] || exit 4; cat "$PRP_MOCK_RULESET" ;;',
   ' installation/repositories) [[ "${GH_TOKEN:-}" == "isolated-test-app-token" ]] || exit 4; cat "$PRP_MOCK_APP_REPOS" ;;',
@@ -82,7 +82,7 @@ function setup({v1=false}={}){
  ].join('\n')+'\n'
  writeFileSync(join(fakeDir,'gh'),mock,{mode:0o755})
  const eventPath=join(root,'event.json'),issuePath=join(root,'issue.json')
- const taskIssuePath=join(root,'task-issue.json')
+ const taskIssuePath=join(root,'task-issue.json'),revokedIssuePath=join(root,'revoked-issue.json')
  const rulePath=join(root,'rule.json'),appReposPath=join(root,'app-repos.json'),temp=join(root,'run-temp')
  mkdirSync(temp)
  writeFileSync(appReposPath,JSON.stringify({total_count:1,repositories:[{full_name:REPO}]}))
@@ -99,6 +99,7 @@ function setup({v1=false}={}){
    repository:{full_name:REPO,default_branch:'main',owner:{login:OWNER,id:123868412}},
    issue}
   writeFileSync(eventPath,JSON.stringify(evt));writeFileSync(issuePath,JSON.stringify(issue))
+  writeFileSync(revokedIssuePath,JSON.stringify({...issue,state:'closed'}))
  }
  prepare(request())
  const prepareTaskIssue=(manifest,author=OWNER)=>{
@@ -118,6 +119,7 @@ function setup({v1=false}={}){
   GH_TOKEN:'not-a-real-token',COLLAB_APP_TOKEN:'isolated-test-app-token',
   COLLAB_APP_ID:'5561446',COLLAB_RULESET_ID:'26294671',RUNNER_TEMP:temp,
   PRP_MOCK_ISSUE:issuePath,PRP_MOCK_TASK_ISSUE:taskIssuePath,
+  PRP_MOCK_ISSUE_REVOKED:revokedIssuePath,PRP_MOCK_ISSUE_READ_COUNT:join(root,'issue-read-count'),
   PRP_MOCK_RULESET:rulePath,PRP_MOCK_APP_REPOS:appReposPath,PRP_MOCK_SEED:seed}
  const execute=(extra={})=>spawnSync(process.execPath,['app/scripts/dev-collab/issue-transaction.mjs'],
   {cwd:runner,env:{...env,...extra},encoding:'utf8',timeout:15000})
@@ -234,6 +236,20 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
   assert.notEqual(stale.status,0)
   assert.match(stale.stderr,/PRP_COLLAB_ISSUE_FAILURE=ISSUE_STALE_VERSION/)
   assert.equal(f.head(),prev)
+ }finally{f.dispose()}
+})
+test('isolated Git: owner closes request after validation, no protected state push',
+ {timeout:30000},()=>{
+ const f=setup({v1:true})
+ try{
+  f.prepare(request(undefined,1))
+  const before=f.head()
+  const result=f.execute({PRP_MOCK_REVOKE_ON_RECHECK:'1'})
+  assert.notEqual(result.status,0)
+  assert.match(result.stderr,/INGRESS_ISSUE_MODIFIED/)
+  assert.equal(f.head(),before)
+  assert.equal(f.snapshot().version,1)
+  assert.equal(f.snapshot().tasks[0].claim,null)
  }finally{f.dispose()}
 })
 test('isolated Git never writes state for a non-owner opened Issue', {timeout:30000},()=>{

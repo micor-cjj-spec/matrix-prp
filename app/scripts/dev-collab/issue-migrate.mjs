@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os'
 import {execFileSync} from 'node:child_process'
 import {verifyMigrationEvidence} from './migration-guard.mjs'
 import {CollabError} from './core.mjs'
+import {validateIssueEvent} from './issue-ingress.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const BASE='062036f7021e215ffbfdcbf5689d207a0549b68b'
@@ -77,6 +78,13 @@ export function applyOwnerIssuedMigration(validated,env){
    '-m','Pinned-proposal: '+PROPOSAL)
  check(getRemote(REF)===BASE&&getRemote('refs/heads/main')===env.GITHUB_SHA,
    'MIGRATION_FINAL_RACE')
+ // A closed/edited owner Issue revokes the request before the protected push.
+ const event=JSON.parse(readFileSync(env.GITHUB_EVENT_PATH,'utf8'))
+ const latest=gh('repos/'+REPO+'/issues/'+validated.source_issue)
+ const authorized=validateIssueEvent(env,event,latest)
+ check(authorized.oneShotMigration===true &&
+   authorized.command.request_id===validated.command.request_id,
+   'MIGRATION_ISSUE_REVOKED')
  git('-C',temp,'push','origin','HEAD:'+REF)
  const newSha=git('-C',temp,'rev-parse','HEAD')
  check(getRemote(REF)===newSha,'MIGRATION_POST_PUSH_SHA')

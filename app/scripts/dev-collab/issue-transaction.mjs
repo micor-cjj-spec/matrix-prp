@@ -200,6 +200,8 @@ async function main(){
      'ISSUE_MAIN_CHANGED_BEFORE_PUSH')
    check(git('ls-remote','--exit-code','--refs','origin',stateRef)===base,
      'ISSUE_RACE_BEFORE_PUSH')
+   // Narrow the revocation window: re-read the owner Issue before Git CAS push.
+   validateIssueEvent(env,event,gh('repos/'+REPO+'/issues/'+validated.source_issue))
    git('-C',tmp,'push','origin','HEAD:'+stateRef)
  }
  const newSha=git('ls-remote','--exit-code','--refs','origin',stateRef).split('\t')[0]
