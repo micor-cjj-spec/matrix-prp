@@ -17,7 +17,13 @@ function mappingPaths(args) {
   if (!value) return ['']
   const named = /(?:^|[,\s])(?:value|path)\s*=\s*(\{[^}]*\}|"[^"]*")/.exec(value)
   const selected = named ? named[1] : /^[{"]/.test(value) ? value : null
-  if (!selected) return ['']
+  if (!selected) {
+    // Explicit media/header/parameter conditions may omit a route path.
+    // Symbolic or computed route expressions must NOT silently become '/'.
+    if (/^(?:consumes|produces|headers|params)\s*=/.test(value) &&
+        !/\b(?:path|value)\s*=/.test(value)) return ['']
+    throw Error('Unsupported nonliteral Spring mapping path: ' + value)
+  }
   const paths = [...selected.matchAll(/"([^"]*)"/g)].map(x => x[1])
   if (!paths.length || paths.some(x => x && !x.startsWith('/'))) {
     throw Error('Unsupported Spring request mapping path: ' + value)
