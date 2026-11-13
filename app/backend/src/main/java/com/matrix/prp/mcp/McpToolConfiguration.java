@@ -39,6 +39,7 @@ public class McpToolConfiguration {
         Map.entry("prp_prepare_finance", "prp.write.create"),
         Map.entry("prp_prepare_record", "prp.write.create"),
         Map.entry("prp_prepare_task_update", "prp.write.update"),
+        Map.entry("prp_prepare_task_status", "prp.write.update"),
         Map.entry("prp_prepare_task_delete", "prp.write.delete"),
         Map.entry("prp_draft_status", "prp.write.status"),
         Map.entry("prp_confirm_draft", "prp.write.confirm"),
@@ -97,7 +98,7 @@ public class McpToolConfiguration {
         var definitions = new SyncStatelessMcpToolProvider(List.of(tools)).getToolSpecifications();
         var expected = java.util.Set.of("prp_tasks_list", "prp_task_get", "prp_finance_month",
             "prp_wellness_daily", "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record",
-            "prp_draft_status", "prp_confirm_draft", "prp_prepare_task_update", "prp_prepare_task_delete",
+            "prp_draft_status", "prp_confirm_draft", "prp_prepare_task_update", "prp_prepare_task_status", "prp_prepare_task_delete",
             "prp_wellness_list", "prp_wellness_get", "prp_wellness_foods",
             "prp_prepare_wellness_create", "prp_prepare_wellness_update", "prp_prepare_wellness_delete",
             "prp_wellness_draft_status", "prp_confirm_wellness_draft", "prp_chatgpt_wellness_approval",
