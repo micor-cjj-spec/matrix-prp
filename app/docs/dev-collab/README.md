@@ -1,5 +1,7 @@
 # Matrix PRP 跨会话任务协作 — MVP 候选实现
 
+> **状态校正（2026-11-13）：** PR #165 已移除 main 发布冻结；新 [Draft PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168) 仅提出恢复冻结，未合并。先审查/单独授权恢复冻结，再审查/单独授权协作源代码；只读 probe 后 **先执行独立审查且由所有者明确授权的固定 V0→V1 迁移**，它是首次真实写入试点，最后才允许任务领取。以下 11 月 1 日冻结描述是历史记录；以 [11 月 13 日放行清单](RELEASE-READINESS-20261113.md) 为准。
+
 父需求：[Issue #132](https://github.com/micor-cjj-spec/matrix-prp/issues/132)。
 跨会话恢复：[Issue #145](https://github.com/micor-cjj-spec/matrix-prp/issues/145)。
 零点击操作：[Issue #148](https://github.com/micor-cjj-spec/matrix-prp/issues/148)。

@@ -1,5 +1,7 @@
 # GPT 零点击协作：GitHub Issue 自动请求入口（Draft）
 
+> **状态校正（2026-11-13）：** main 发布冻结已通过 PR #165 解除；[Draft PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168) 尚未合并。工作流只读探针通过之后，不得先领取 V0 任务作为写入试点：须经独立审核并取得单独明确授权执行固定 V0→V1 迁移，成功后才允许 claim/register_task 等动作；候选 Issue runner 在 V0 拒绝这些写入（`ISSUE_MIGRATE_V1_FIRST`）。完整放行顺序见 [2026-11-13 清单](RELEASE-READINESS-20261113.md)。
+
 关联需求：[Issue #148](https://github.com/micor-cjj-spec/matrix-prp/issues/148)。代码和工作流仅存在于 [Draft PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)，**当前尚不能在生产状态分支调用**。
 
 ## 用户体验与状态源

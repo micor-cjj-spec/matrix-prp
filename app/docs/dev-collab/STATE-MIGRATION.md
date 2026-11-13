@@ -1,5 +1,7 @@
 # 受保护状态 V0→V1 一次性迁移
 
+> **11 月 13 日补充：** 由于固定 V0 SHA 是迁移强校验，任何 V0 claim/checkpoint/register_task 的真实状态写入都会破坏这一次性迁移前置条件。因此当前协作 Issue runner 在无已审查 V1 seed 时拒绝常规写入（`ISSUE_MIGRATE_V1_FIRST`）。首次真实写入必须是单独批准、独立评审的 V0→V1 迁移；不得先在真实 V0 上做写入试点。main 发布冻结已由 PR #165 解除，恢复提案仅见 [Draft PR #168](https://github.com/micor-cjj-spec/matrix-prp/pull/168)，未合并。详见 [最新放行清单](RELEASE-READINESS-20261113.md)。
+
 来源：[Draft PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)、[Draft PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144)、跟踪 [Issue #139](https://github.com/micor-cjj-spec/matrix-prp/issues/139)。
 
 **当前没有执行迁移。** 正式状态仍为 V0。PR #138 尚未合并到 main，prp-collab-automation Environment 和真实 Issue/App 写入尚未验收。
