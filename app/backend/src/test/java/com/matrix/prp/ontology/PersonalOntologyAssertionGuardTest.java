@@ -2,7 +2,8 @@ package com.matrix.prp.ontology;
 
 import static com.matrix.prp.ontology.PersonalOntology.NodeType.*;
 import static com.matrix.prp.ontology.PersonalOntology.Relation.*;
-import static com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.*;
+import static com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.USER_INPUT;
+import com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
@@ -27,7 +28,7 @@ class PersonalOntologyAssertionGuardTest {
 
     @Test
     void checksSubjectAndOwnedEvidenceForLiteralFacts() {
-        guard.requireValid(literal("19", RECORD));
+        guard.requireValid(literal("19", EvidenceSource.RECORD));
         verify(references).requireOwned(PERSON, "7");
         verify(references).requireOwned(RECORD, "19");
         verifyNoMoreInteractions(references);
@@ -43,7 +44,7 @@ class PersonalOntologyAssertionGuardTest {
     @Test
     void validatesBothEndpointsAndSeparateEvidenceForEntityRelations() {
         var item = new PersonalOntologyAssertionGuard.Candidate(
-            TASK, "4", ADVANCES, GOAL, "6", null, TASK, "4", null, null);
+            TASK, "4", ADVANCES, GOAL, "6", null, EvidenceSource.TASK, "4", null, null);
         guard.requireValid(item);
         verify(references).requireOwned(TASK, "4");
         verify(references).requireOwned(GOAL, "6");
@@ -97,7 +98,7 @@ class PersonalOntologyAssertionGuardTest {
     void propagatesReferenceOwnershipRejectionWithoutConcealingIt() {
         doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND))
             .when(references).requireOwned(RECORD, "19");
-        assertThatThrownBy(() -> guard.requireValid(literal("19", RECORD)))
+        assertThatThrownBy(() -> guard.requireValid(literal("19", EvidenceSource.RECORD)))
             .isInstanceOf(ResponseStatusException.class)
             .satisfies(error ->
                 org.assertj.core.api.Assertions.assertThat(
