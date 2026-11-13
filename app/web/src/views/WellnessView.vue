@@ -538,6 +538,40 @@ async function saveProfile() {
                 <p v-for="(item, index) in (version.rawExtraction.items ?? [])" :key="index">
                   {{ item.name }} · {{ item.estimatedGrams == null ? '重量未知' : n(item.estimatedGrams) + 'g（初始识别）' }}
                 </p>
+                <div v-if="version.rawExtraction.sourceContext" class="nutrition-source-context">
+                  <p class="muted">
+                    识别类型：
+                    {{ version.rawExtraction.sourceContext.kind === 'ORDER_SCREENSHOT' ? '外卖订单' :
+                      version.rawExtraction.sourceContext.kind === 'NUTRITION_LABEL' ? '营养标签' : '食物照片' }}
+                    <span v-if="version.rawExtraction.sourceContext.merchantName">
+                      · {{ version.rawExtraction.sourceContext.merchantName }}
+                    </span>
+                  </p>
+                  <div v-for="(sourceItem, sourceIndex) in (version.rawExtraction.sourceContext.lineItems ?? [])"
+                    :key="sourceIndex" class="nutrition-source-row">
+                    <strong>{{ sourceItem.name }}</strong>
+                    <p v-if="version.rawExtraction.sourceContext.kind === 'ORDER_SCREENSHOT'">
+                      订单购买数量：{{ sourceItem.purchasedQuantity ?? '未知' }}
+                      <span v-if="sourceItem.portionLabel"> · {{ sourceItem.portionLabel }}</span>
+                    </p>
+                    <template v-if="version.rawExtraction.sourceContext.kind === 'NUTRITION_LABEL'">
+                      <p>包装净含量：{{ sourceItem.packageGrams == null ? '未知' : n(sourceItem.packageGrams) + 'g' }}</p>
+                      <p v-if="sourceItem.labelPer100gCandidate">
+                        标签候选值（每100g）：
+                        热量 {{ n(sourceItem.labelPer100gCandidate.caloriesKcal,1) }} kcal
+                        · 蛋白质 {{ n(sourceItem.labelPer100gCandidate.proteinG,1) }}g
+                        · 碳水 {{ n(sourceItem.labelPer100gCandidate.carbsG,1) }}g
+                        · 脂肪 {{ n(sourceItem.labelPer100gCandidate.fatG,1) }}g
+                      </p>
+                      <p v-if="sourceItem.labelVerified === false" class="coverage-tip">
+                        图片识别候选，尚未经核实，未直接计入正式营养数据。
+                      </p>
+                    </template>
+                  </div>
+                  <p v-if="version.rawExtraction.sourceContext.kind === 'ORDER_SCREENSHOT'" class="coverage-tip">
+                    订单购买数量仅用于溯源；最终摄入量请以用户确认后的重量和餐食记录为准。
+                  </p>
+                </div>
                 <p class="muted">确认后营养分析（记录当时的估算及食品库数据，后续编辑可能改变当前餐食）：</p>
                 <p v-for="(item, index) in (version.analysis.items ?? [])" :key="index">
                   {{ item.foodName }} · {{ item.weightGrams == null ? '重量未知' : n(item.weightGrams) + 'g' }}
@@ -672,6 +706,9 @@ async function saveProfile() {
 .nutrition-detail{display:flex;flex-direction:column;gap:10px;min-height:120px;overflow-wrap:anywhere}
 .nutrition-detail h3{margin:12px 0 2px;font-size:15px}
 .nutrition-detail .muted{margin:0}
+.nutrition-source-context{border:1px dashed var(--el-border-color);border-radius:12px;padding:12px;background:var(--el-fill-color-light)}
+.nutrition-source-row{padding:7px 0;border-top:1px solid var(--el-border-color-lighter)}
+.nutrition-source-row p{font-size:13px;color:var(--el-text-color-secondary);margin:5px 0}
 .nutrition-detail-food{padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:12px}
 .nutrition-detail-food p{margin:5px 0;color:var(--el-text-color-secondary);font-size:13px}
 .nutrition-detail-food small{color:var(--el-color-info)}
