@@ -2,6 +2,7 @@ package com.matrix.prp.mcp;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.matrix.prp.finance.service.FinanceService;
+import com.matrix.prp.records.service.RecordService;
 import com.matrix.prp.tasks.service.TaskService;
 import com.matrix.prp.wellness.WellnessModels;
 import com.matrix.prp.wellness.WellnessService;
@@ -28,7 +29,7 @@ class McpWellnessV2NutritionBoundaryTests {
     private PrpMcpTools tools(WellnessService wellness, McpDraftService drafts,
                               McpScopeGuard scopes) {
         return new PrpMcpTools(mock(TaskService.class), mock(FinanceService.class),
-                wellness, drafts, scopes);
+                wellness, mock(RecordService.class), drafts, scopes);
     }
 
     @Test void oneOwnedMealReadKeepsUnknownMacrosNullWithoutExposingRawSourceEvidence() {
