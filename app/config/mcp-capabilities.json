@@ -104,6 +104,36 @@
       "reason": "Identity linking status is sensitive control-plane state"
     },
     {
+      "route": "GET /api/practice/banks/{bankId}/play",
+      "status": "partial",
+      "tool": "prp_practice_questions",
+      "reason": "MCP returns at most 10 published questions with bounded previews, never full text when truncated; correct answers remain hidden"
+    },
+    {
+      "route": "GET /api/practice/statistics",
+      "status": "mapped",
+      "tool": "prp_practice_statistics",
+      "reason": "Shared PracticeService.statistics result scoped to authenticated owner, same fields as REST"
+    },
+    {
+      "route": "GET /api/practice/subjects",
+      "status": "partial",
+      "tool": "prp_practice_subjects",
+      "reason": "MCP retrieves at most 50 of the same owner-scoped subjects; REST allows unrestricted list"
+    },
+    {
+      "route": "GET /api/practice/subjects/{subjectId}/banks",
+      "status": "partial",
+      "tool": "prp_practice_banks",
+      "reason": "MCP limits the owned subject's bank list to 30; REST returns full list"
+    },
+    {
+      "route": "GET /api/practice/wrong-questions",
+      "status": "partial",
+      "tool": "prp_practice_wrong_questions",
+      "reason": "MCP returns at most 10 latest incorrect published questions with bounded previews, compared with up to 100 in REST"
+    },
+    {
       "route": "GET /api/push/subscriptions",
       "status": "excluded",
       "reason": "Device push endpoints are sensitive connection metadata"
@@ -114,10 +144,22 @@
       "reason": "Web Push transport configuration is not a business capability"
     },
     {
+      "route": "GET /api/records",
+      "status": "partial",
+      "tool": "prp_records_search",
+      "reason": "MCP queries the same owned records and filters, but returns at most 20 items with 200-character previews instead of full note bodies"
+    },
+    {
       "route": "GET /api/tasks",
       "status": "partial",
-      "tool": "prp_tasks_list",
-      "reason": "MCP list is capped at 20 tasks and supports narrower filtering than REST"
+      "tool": "prp_tasks_search",
+      "reason": "MCP exposes all four REST task filters (status/module/due date/priority), capped at 50 owner-scoped rows"
+    },
+    {
+      "route": "GET /api/tasks/summary",
+      "status": "mapped",
+      "tool": "prp_tasks_summary",
+      "reason": "Shared TaskService.summary, same per-owner aggregate as REST"
     },
     {
       "route": "GET /api/video/items/{id}/playback",
@@ -146,6 +188,12 @@
       "reason": "MCP body metric list supports 1-90 days, maximum 50 records"
     },
     {
+      "route": "GET /api/wellness/dishes",
+      "status": "partial",
+      "tool": "prp_wellness_dishes",
+      "reason": "MCP returns only first 20 dish templates; REST can return up to 100"
+    },
+    {
       "route": "GET /api/wellness/exercises",
       "status": "partial",
       "tool": "prp_wellness_list",
@@ -156,6 +204,18 @@
       "status": "partial",
       "tool": "prp_wellness_foods",
       "reason": "MCP requires query and limits results to 30"
+    },
+    {
+      "route": "GET /api/wellness/foods/frequent",
+      "status": "mapped",
+      "tool": "prp_wellness_frequent_foods",
+      "reason": "Shared WellnessService.frequentFoods, naturally at most 12 items"
+    },
+    {
+      "route": "GET /api/wellness/goals",
+      "status": "partial",
+      "tool": "prp_wellness_goals",
+      "reason": "MCP exposes only the latest 20 goals; REST may return all historical goals"
     },
     {
       "route": "GET /api/wellness/meals",
@@ -173,6 +233,12 @@
       "status": "mapped",
       "tool": "prp_wellness_daily",
       "reason": "Read daily structured summary"
+    },
+    {
+      "route": "GET /api/wellness/summary/trends",
+      "status": "mapped",
+      "tool": "prp_wellness_trends",
+      "reason": "Same WellnessService.trends with same 1-90 day bound"
     },
     {
       "route": "PATCH /api/goals/{id}/status",
