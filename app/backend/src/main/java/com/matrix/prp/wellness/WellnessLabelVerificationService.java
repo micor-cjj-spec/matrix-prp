@@ -62,6 +62,27 @@ public class WellnessLabelVerificationService {
         return per100g==null?null:NutritionMath.portion(per100g,grams);
     }
 
+    /** Jackson can decode JSON 54 as an integer even when input used BigDecimal. */
+    private static boolean sameUserInput(JsonNode previous,Map<String,Object> expected) {
+        if(!previous.isObject())return false;
+        for(var entry:expected.entrySet()) {
+            JsonNode value=previous.path(entry.getKey());
+            Object expectedValue=entry.getValue();
+            if(expectedValue==null) {
+                if(!value.isNull())return false;
+            } else if(expectedValue instanceof BigDecimal decimal) {
+                if(!value.isNumber() || value.decimalValue().compareTo(decimal)!=0)return false;
+            } else if(expectedValue instanceof Number numeric) {
+                if(!value.isNumber() || value.longValue()!=numeric.longValue())return false;
+            } else if(expectedValue instanceof Boolean checked) {
+                if(!value.isBoolean() || value.booleanValue()!=checked)return false;
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static JsonNode decode(ObjectMapper json,String raw) {
         try { return json.readTree(raw); }
         catch (Exception ex) { throw new IllegalStateException("Invalid persisted label evidence",ex); }
@@ -128,11 +149,10 @@ public class WellnessLabelVerificationService {
         normalized.put("sugarPer100g",sugar100);
         normalized.put("sodiumMgPer100g",sodium100);
         normalized.put("userVerified",true);
-        JsonNode proposed=json.valueToTree(normalized);
         Map<String,Object> mostRecent=versions.getLast();
         JsonNode previous=decode(json,String.valueOf(mostRecent.get("analysis_json")));
         if("USER_VERIFIED_LABEL".equals(previous.path("method").asText())
-                && proposed.equals(previous.path("userInput"))) {
+                && sameUserInput(previous.path("userInput"),normalized)) {
             return details.readOwnedMeal(mealId); // Identical request is idempotent.
         }
 
