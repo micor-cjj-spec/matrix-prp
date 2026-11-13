@@ -19,7 +19,11 @@
 | 谓词 | Subject | Object | 含义 |
 |---|---|---|---|
 | PURSUES | PERSON | GOAL | 追求目标 |
-| HAS_SKILL | PERSON | SKILL | 具备技能 |
+| DECLARES_SKILL | PERSON | LITERAL | 用户确认的技能自述（不等于客观认证） |
+| NEEDS_SKILL | GOAL | LITERAL | 目标需要的技能名称（不生成虚假技能实体） |
+| HAS_EVENT_RECORD | PERSON | RECORD | 某条属于用户的记录描述人生事件 |
+| USES_RESOURCE_RECORD | GOAL | RECORD | 目标引用一条用户已有资源/证据记录 |
+| HAS_SKILL | PERSON | SKILL | 预留：关联可验证技能实体 |
 | REQUIRES | GOAL | SKILL | 目标需要技能 |
 | DEMONSTRATES | EVENT | SKILL | 经历证明技能 |
 | ADVANCES | TASK | GOAL | 任务推进目标 |
@@ -114,6 +118,7 @@ T-001 的本体词汇列出了 SKILL、EVENT、RESOURCE，但它们目前**没�
 
 - PERSON / GOAL / TASK / RECORD / REVIEW：可以通过当前登录用户和具体持久数据归属校验。
 - LITERAL：是附着在已验证主体上的受限值，没有独立的 `object_ref`，最多 512 个 Java UTF-16 字符；其状态仍需要用户确认。
+- MVP 立即可用的退化语义：`DECLARES_SKILL(PERSON,LITERAL)`、`NEEDS_SKILL(GOAL,LITERAL)`、`HAS_EVENT_RECORD(PERSON,RECORD)`、`USES_RESOURCE_RECORD(GOAL,RECORD)`；这四类边必须同样经过用户确认与来源校验，不能因有 Record 就推断相关技能、事件或资源质量。
 - SKILL / EVENT / RESOURCE：仅保留为**未来可扩展词汇**，当前实体引用必须拒绝。后续优先基于可验证的用户确认记录或明确归属的资源实体建立解析策略，再考虑扩展关系；不预先添加三张业务表或无约束的名称节点。
 
 `PersonalOntologyAssertionGuard` 是业务写入前的额外校验组件：核对谓词和两端类型、实体归属、证据来源（USER_INPUT/RECORD/TASK/REVIEW）、LITERAL 与实体互斥、有效时间区间。它不负责用户确认流程，也不替代源记录撤销同步、敏感数据筛选或向模型传输授权。这些必须由 T-002/T-005 的 Service 处理。
@@ -124,4 +129,4 @@ T-001 的本体词汇列出了 SKILL、EVENT、RESOURCE，但它们目前**没�
 
 
 
-在完整实体解析、所有权校验、V30 隔离 MySQL 升级回归及上述安全检查通过前，T-001 继续标记为 **IN PROGRESS**。不得把 Draft PR、编译或 CI 单项通过等同于功能和生产验收完成。
+在当前 MVP 实体/证据/生命周期校验、顺延版本的联合迁移回归及上述安全检查通过前，T-001 继续标记为 **IN PROGRESS**。不得把 Draft PR、编译或 CI 单项通过等同于功能和生产验收完成。
