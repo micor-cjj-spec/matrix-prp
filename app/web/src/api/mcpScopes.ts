@@ -23,5 +23,5 @@ export function advertisedMcpScopes(value: unknown) {
   return mcpScopes.filter(s => value.includes(s.value))
 }
 export function defaultMcpReadScopes(value: readonly { value: string }[]): string[] {
-  return value.some(s => s.value === "prp.tasks.read") ? ["prp.tasks.read"] : value.some(s => s.value === "prp.wellness.read") ? ["prp.wellness.read"] : []
+  return value.some(s => s.value === "prp.wellness.read") ? ["prp.wellness.read"] : value.some(s => s.value === "prp.tasks.read") ? ["prp.tasks.read"] : []
 }

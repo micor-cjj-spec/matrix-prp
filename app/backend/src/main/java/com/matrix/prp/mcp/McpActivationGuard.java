@@ -15,13 +15,24 @@ public class McpActivationGuard {
     public McpActivationGuard(Environment environment,
         @Value("${matrix-prp.mcp.enabled:false}") boolean mcpEnabled,
         @Value("${matrix-prp.mcp.oauth.enabled:false}") boolean oauthEnabled,
-        @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled) {
-        verify(mcpEnabled, oauthEnabled, writeEnabled,
-            Arrays.asList(environment.getActiveProfiles()));
+        @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled,
+        @Value("${matrix-prp.mcp.production-wellness-only:false}") boolean wellnessOnly,
+        @Value("${matrix-prp.mcp.production-wellness-read-extension-enabled:false}") boolean readExtensionEnabled,
+        @Value("${matrix-prp.mcp.additional-read-tools-enabled:false}") boolean additionalReadToolsEnabled) {
+        verify(mcpEnabled, oauthEnabled, writeEnabled, Arrays.asList(environment.getActiveProfiles()),
+            wellnessOnly,readExtensionEnabled,additionalReadToolsEnabled);
     }
 
     static void verify(boolean mcp, boolean oauth, boolean write,
                        java.util.List<String> activeProfiles) {
+        verify(mcp,oauth,write,activeProfiles,false,false,false);
+    }
+
+    static void verify(boolean mcp, boolean oauth, boolean write,
+                       java.util.List<String> activeProfiles, boolean wellnessOnly,
+                       boolean readExtensionEnabled, boolean additionalReadToolsEnabled) {
+        if (readExtensionEnabled && (!wellnessOnly || !mcp || !oauth || !write || !additionalReadToolsEnabled))
+            throw new IllegalStateException("Production health read extension requires health/OAuth/write and opt-in read tools");
         if (write && !mcp) {
             throw new IllegalStateException("MCP write requires the MCP service to be enabled");
         }
