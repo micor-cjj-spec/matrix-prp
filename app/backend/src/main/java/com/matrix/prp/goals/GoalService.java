@@ -133,8 +133,8 @@ public class GoalService {
         if (request == null || request.expectedUpdatedAt() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Goal revision is required");
         }
-        validate(new Create(request.title(), request.description(), request.domain(),
-            request.priority(), request.successCriteria(), request.targetDate(), "revision_000000"));
+        validateFields(request.title(), request.description(), request.domain(),
+            request.priority(), request.successCriteria());
         if (Set.of("COMPLETED", "CANCELLED").contains(old.status())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Closed goals are read-only");
         }
@@ -239,14 +239,21 @@ public class GoalService {
         if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid goal ID");
     }
     private static void validate(Create request) {
-        if (request == null || request.title() == null || request.title().isBlank()
-            || request.title().length() > 255
-            || request.domain() == null || !request.domain().matches("[a-z][a-z0-9_-]{0,63}")
-            || (request.priority() != null && !Set.of("low","medium","high").contains(request.priority()))
-            || request.requestKey() == null || !request.requestKey().matches("[a-zA-Z0-9_-]{8,80}")
-            || (request.description() != null && request.description().length() > 20000)
-            || (request.successCriteria() != null && request.successCriteria().length() > 4000)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid goal input");
+        if (request == null || request.requestKey() == null
+                || !request.requestKey().matches("[a-zA-Z0-9_-]{8,80}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid goal request key");
+        validateFields(request.title(),request.description(),request.domain(),
+            request.priority(),request.successCriteria());
+    }
+
+    private static void validateFields(String title,String description,String domain,
+                                       String priority,String successCriteria) {
+        if (title == null || title.isBlank() || title.length() > 255
+            || domain == null || !domain.matches("[a-z][a-z0-9_-]{0,63}")
+            || (priority != null && !Set.of("low","medium","high").contains(priority))
+            || (description != null && description.length() > 20000)
+            || (successCriteria != null && successCriteria.length() > 4000)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid goal input");
         }
     }
 }
