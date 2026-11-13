@@ -5,6 +5,7 @@ Never connects to MySQL, accepts credentials or changes a database.
 Even a match is REVIEW_ONLY and cannot grant G0/B2 or deploy approval.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -13,6 +14,7 @@ import zlib
 
 SCHEMA_DEFAULT = "matrix_prp"
 MIGRATIONS = Path(__file__).resolve().parents[2] / "backend/src/main/resources/db/migration"
+FUTURE_MIGRATION_POLICY = Path(__file__).resolve().parents[1] / "migration-policy.json"
 MIGRATION_PATTERN = re.compile(r"^V([1-9][0-9]*)__([a-zA-Z0-9_]+)\.sql$")
 KEYS = {"installed_rank", "version", "type", "script", "checksum", "success"}
 LEGACY_BASELINE_SCRIPT = "<< Flyway Baseline >>"
@@ -21,19 +23,53 @@ MAX_BYTES = 32 * 1024
 REVIEWABLE_TERMINAL_VERSIONS = frozenset((24, 28, 29))
 
 
-def source_scripts(folder=MIGRATIONS):
+def source_scripts(folder=MIGRATIONS, future_policy=None):
+    """Review V1..V29 independently while refusing uncontracted future scripts.
+
+    This production-metadata reviewer does NOT verify V30+ as deployed, and its
+    return value remains V1..V29 only. Later migrations are accepted as source
+    files only when exact bytes match a create-empty policy; release/controller
+    checks and restored-data preservation remain separate, mandatory gates.
+    """
+    folder = Path(folder)
     expected = {}
+    future = {}
     for path in folder.iterdir():
-        if not path.is_file():
+        if not path.is_file() or path.is_symlink():
             continue
         match = MIGRATION_PATTERN.fullmatch(path.name)
         if match:
             version = int(match.group(1))
-            if version in expected:
+            target = future if version > 29 else expected
+            if version in target:
                 raise ValueError("DUPLICATE_CANDIDATE_MIGRATION_VERSION")
-            expected[version] = path.name
+            target[version] = path.name
     if set(expected) != set(range(1, 30)):
         raise ValueError("CANDIDATE_EXPECTED_MIGRATION_RANGE_NOT_1_TO_29")
+    if future:
+        if set(future) != set(range(30, max(future) + 1)):
+            raise ValueError("FUTURE_MIGRATION_VERSION_GAP")
+        if future_policy is None:
+            future_policy = FUTURE_MIGRATION_POLICY
+        policy = json.loads(Path(future_policy).read_text(encoding="utf-8"))
+        if policy.get("schema_version") != 1 or not isinstance(policy.get("rules"), list):
+            raise ValueError("FUTURE_MIGRATION_CONTRACT_INVALID")
+        rules = [rule for rule in policy["rules"]
+                 if isinstance(rule, dict) and type(rule.get("version")) is int
+                 and rule["version"] > 29]
+        by_version = {rule["version"]: rule for rule in rules}
+        if len(rules) != len(by_version) or set(by_version) != set(future):
+            raise ValueError("FUTURE_MIGRATION_CONTRACT_MISSING_OR_DUPLICATE")
+        for version, name in future.items():
+            rule = by_version[version]
+            if (rule.get("file") != name or rule.get("mode") != "create-empty"
+                    or not isinstance(rule.get("tables"), list) or not rule["tables"]):
+                raise ValueError("FUTURE_MIGRATION_CONTRACT_INVALID")
+            candidate = folder / name
+            if candidate.stat().st_size > 1024 * 1024:
+                raise ValueError("FUTURE_MIGRATION_TOO_LARGE")
+            if hashlib.sha256(candidate.read_bytes()).hexdigest() != rule.get("sha256"):
+                raise ValueError("FUTURE_MIGRATION_CONTRACT_DIGEST_MISMATCH")
     return expected
 
 
