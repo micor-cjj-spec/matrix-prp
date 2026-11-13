@@ -251,4 +251,33 @@ class WellnessNutritionEvidenceTests {
         assertThat(source.path("lineItems").get(0).path("purchasedQuantity").asInt())
             .isEqualTo(2);
     }
+
+    @Test void purchasedTwoPortionsOnlyOneConfirmedPortionCountsInNutrition() throws Exception {
+        var model=json.readTree("""
+            {"kind":"ORDER_SCREENSHOT","merchantName":"张记水饺",
+              "lineItems":[{"name":"水饺","purchasedQuantity":2,"portionLabel":"18个/份"}]}
+            """);
+        var extracted=json.valueToTree(WellnessNutritionEvidence.initialSnapshot(
+            Map.of("items",List.of(Map.of("name","水饺","grams",BigDecimal.ZERO))),
+            model,true));
+        JdbcTemplate db=mock(JdbcTemplate.class);
+        // User confirmed eating ONE serving. Actual snapshot is authoritative.
+        var confirmed=new Meal(301L,LocalDate.of(2026,11,13),"LUNCH",null,
+            List.of(new MealItem(302L,0L,"水饺",BigDecimal.ZERO,
+                new BigDecimal("350"),null,null,null,true)));
+        WellnessNutritionEvidence.saveConfirmed(db,json,confirmed,extracted,"ci/model");
+        var raw=org.mockito.ArgumentCaptor.forClass(String.class);
+        var analysis=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(db).update(startsWith("INSERT INTO prp_wellness_meal_analyses"),
+            eq(301L),eq("IMAGE"),raw.capture(),analysis.capture(),eq("ci/model"));
+        assertThat(json.readTree(raw.getValue()).path("sourceContext").path("lineItems")
+                .get(0).path("purchasedQuantity").asInt()).isEqualTo(2);
+        var finalItems=json.readTree(analysis.getValue()).path("items");
+        assertThat(finalItems.size()).isEqualTo(1);
+        assertThat(finalItems.get(0).path("caloriesKcal").decimalValue())
+            .isEqualByComparingTo("350");
+        assertThat(analysis.getValue()).doesNotContain("purchasedQuantity","18个/份");
+        verify(db,times(1)).update(startsWith("INSERT INTO prp_wellness_meal_item_nutrients"),
+            any(Object[].class));
+    }
 }
