@@ -65,9 +65,9 @@ final class PersonalOsV31Assertions {
                 assertThat(goal).isPositive();
                 long a = insertKey(c,"INSERT INTO prp_personal_assertions " +
                     "(user_id,subject_type,subject_ref,predicate,object_type,object_ref," +
-                    "origin,status,request_key,created_at,updated_at) " +
+                    "source_type,origin,status,sensitivity,request_key,created_at,updated_at) " +
                     "VALUES (970001,'PERSON','970001','PURSUES','GOAL',?," +
-                    "'USER_CONFIRMED','CONFIRMED','assert-a',NOW(6),NOW(6))",
+                    "'USER_INPUT','USER_CONFIRMED','CONFIRMED','NORMAL','assert-a',NOW(6),NOW(6))",
                     Long.toString(goal));
                 assertThat(a).isPositive();
                 long otherGoal = insertKey(c, "INSERT INTO prp_goals " +
@@ -101,6 +101,7 @@ final class PersonalOsV31Assertions {
                     .isInstanceOf(SQLException.class);
                 assertThat(count(c,"SELECT COUNT(*) FROM prp_personal_assertions " +
                     "WHERE user_id=970001")).isEqualTo(1);
+                PersonalOsServiceLifecycleChecks.verify(c, otherGoal, ownedRecord);
             } finally {
                 c.rollback();
                 c.setAutoCommit(true);
