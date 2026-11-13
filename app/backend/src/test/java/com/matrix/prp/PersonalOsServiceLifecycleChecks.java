@@ -85,8 +85,13 @@ final class PersonalOsServiceLifecycleChecks {
                 .contains(first.id());
             assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
                 .doesNotContain(first.id());
-            assertHttp(HttpStatus.CONFLICT, () -> memories.propose(initial));
+            assertThat(memories.propose(initial).id()).isEqualTo(first.id());
+            assertHttp(HttpStatus.CONFLICT, () -> memories.propose(
+                new PersonalMemoryService.Proposed(PERSON, "970001", DECLARES_SKILL,
+                    LITERAL, null, "Different payload", USER_INPUT, null, null, null,
+                    NORMAL, "pos_memory_normal_001")));
             assertThat(memories.confirm(first.id()).status()).isEqualTo("CONFIRMED");
+            assertThat(memories.propose(initial).id()).isEqualTo(first.id());
             assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
                 .contains(first.id());
             assertThat(memories.listPrivate()).extracting(PersonalMemoryService.Memory::id)
@@ -115,12 +120,29 @@ final class PersonalOsServiceLifecycleChecks {
                 null, com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.RECORD,
                 Long.toString(ownedRecord), null, null, NORMAL, "pos_memory_record_001"));
             memories.confirm(sourced.id());
+            var stalePrivate = memories.propose(new PersonalMemoryService.Proposed(
+                PERSON, "970001", HAS_EVENT_RECORD, RECORD, Long.toString(ownedRecord),
+                null, com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.RECORD,
+                Long.toString(ownedRecord), null, null, RESTRICTED, "pos_private_source_001"));
+            memories.confirm(stalePrivate.id());
+            var stalePending = memories.propose(new PersonalMemoryService.Proposed(
+                PERSON, "970001", HAS_EVENT_RECORD, RECORD, Long.toString(ownedRecord),
+                null, com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.RECORD,
+                Long.toString(ownedRecord), null, null, RESTRICTED, "pos_pending_source_001"));
             assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
                 .contains(sourced.id());
             assertThat(db.update("UPDATE prp_records SET deleted=1 WHERE id=? AND user_id=?",
                 ownedRecord, 970001L)).isEqualTo(1);
             assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
                 .doesNotContain(sourced.id());
+            assertThat(memories.listPrivate()).extracting(PersonalMemoryService.Memory::id)
+                .contains(stalePrivate.id());
+            assertThat(memories.pending()).extracting(PersonalMemoryService.Memory::id)
+                .contains(stalePending.id());
+            assertHttp(HttpStatus.NOT_FOUND, () -> memories.confirm(stalePending.id()));
+            memories.erase(stalePending.id());
+            memories.erase(stalePrivate.id());
+            assertHttp(HttpStatus.NOT_FOUND, () -> memories.get(stalePrivate.id()));
 
             // A confirmed relation becomes invalid when its goal is deleted.
             var relation = memories.propose(new PersonalMemoryService.Proposed(
