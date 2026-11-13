@@ -1,6 +1,6 @@
 # Phase 2 / Batch 2: owned task and record search via MCP
 
-**Code-review artifact only.** Depends on PR #171; the parent PR already supplies an explicit default-off read-tool flag. This batch does not deploy to production.
+**Code-review artifact only.** PR #171 has been squash-merged into `main`; PR #172 has been rebased as a single incremental commit on that merged baseline. The parent already supplies the explicit default-off read-tool flag. The rebased branch retains the production publication hold byte-for-byte and does not deploy to production.
 
 | MCP tool | Source REST route | Scope | Limit / behavior |
 | --- | --- | --- | --- |
@@ -31,5 +31,10 @@ Validate OAuth tools/list scopes and tools/call successful reads, incorrect/expi
 ## Remaining work
 
 - Complete full owned record detail retrieval with separate bounded content and precise record ID/owner checks, only when approved.
-- Add learning/practice read tools in the next batch with separate least-privilege `prp.practice.read` scope.
+- The separate learning/practice read tools are in draft PR #179, which depends on #172 and requires its own approval and CI checks.
 - For any newly introduced business REST API endpoint, update `mcp-capabilities.json` and provide MCP tests or a reviewed technical exclusion under PR #169's gate.
+## Merge/release provenance (2026-11-13)
+
+- #171 main squash commit: `b0cab9daf8e6afdc7cc72e82e2dd3463b45ee5f9`.
+- #172 was rebuilt from the exact 15 original changed file blobs (no functional edits) against that commit. The only additional change is this review note; `app/deploy/publication-hold.json` remains unchanged.
+- Re-run required pull-request CI against the new `main` base. Leave #172 as **Draft** until the owner separately authorizes its merge. Do not alter the publication hold or production OAuth advertised scopes while merging.
