@@ -8,7 +8,7 @@ import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 import PersonalDishManager from '@/components/wellness/PersonalDishManager.vue'
 import {
   wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type MealSnapshotItem, type Exercise, type ExerciseInput,
-  type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint,
+  type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint, type MealAnalysisDetails,
   type Goal, type Profile,
 } from '@/api/wellness'
 
@@ -66,6 +66,25 @@ const portionText = (item: Meal['items'][number]) =>
   item.grams == null || (item.foodId <= 0 && Number(item.grams) === 0)
     ? '重量待确认'
     : n(item.grams) + 'g'
+const analysisDialog = ref(false)
+const analysisLoading = ref(false)
+const analysisDetails = ref<MealAnalysisDetails | null>(null)
+const analysisError = ref('')
+async function openAnalysis(meal: Meal) {
+  analysisDetails.value = null
+  analysisError.value = ''
+  analysisDialog.value = true
+  analysisLoading.value = true
+  try {
+    analysisDetails.value = await wellnessApi.mealAnalysis(meal.id)
+  } catch {
+    analysisError.value = '无法读取该餐次的分析详情；请确认健康 V2 接口已经部署。'
+  } finally {
+    analysisLoading.value = false
+  }
+}
+const nutrientSourceLabel = (source: string) => source === 'FOOD_CATALOG'
+  ? '食品库参考' : source === 'USER_ESTIMATE' ? '本次食物估算' : '来源待核对'
 const nutritionCoverage = computed(() => {
   const items = meals.value.flatMap(meal => meal.items)
   const known = items.filter(item =>
@@ -408,7 +427,8 @@ async function saveProfile() {
                   </p>
                 <p v-if="meal.note">{{ meal.note }}</p>
               </div>
-              <div class="entry-actions"><el-button link type="primary" @click="openAiChange('meal',meal.id)">AI 变更</el-button>
+              <div class="entry-actions"><el-button link type="primary" @click="openAnalysis(meal)">分析详情</el-button>
+                <el-button link type="primary" @click="openAiChange('meal',meal.id)">AI 变更</el-button>
                  <el-button link type="primary" @click="openMeal(meal.mealType,meal)">编辑</el-button>
                 <el-button link @click="copyMeal(meal)">复制到今天</el-button>
                 <el-button link type="danger" @click="deleteMeal(meal)">删除</el-button></div>
@@ -490,6 +510,46 @@ async function saveProfile() {
         </el-tab-pane>
       </el-tabs>
 
+
+      <el-dialog v-model="analysisDialog" title="餐食识别与营养分析" width="min(96vw,760px)"
+        append-to-body destroy-on-close>
+        <div class="nutrition-detail" v-loading="analysisLoading">
+          <p v-if="analysisError" role="alert" class="coverage-tip">{{ analysisError }}</p>
+          <template v-else-if="analysisDetails">
+            <p class="muted">仅展示已保存的结构化数据，不保存照片或外卖订单原图。旧餐食可能没有 AI 分析历史。</p>
+            <div class="nutrition-coverage-summary">
+              <strong>{{ label(analysisDetails.meal.mealType) }} · {{ analysisDetails.meal.mealDate }}</strong>
+              <span>蛋白质已知 {{ analysisDetails.nutritionCompleteness.knownProteinCount }} / {{ analysisDetails.nutritionCompleteness.foodCount }} 项</span>
+              <span>碳水已知 {{ analysisDetails.nutritionCompleteness.knownCarbsCount }} / {{ analysisDetails.nutritionCompleteness.foodCount }} 项</span>
+              <span>脂肪已知 {{ analysisDetails.nutritionCompleteness.knownFatCount }} / {{ analysisDetails.nutritionCompleteness.foodCount }} 项</span>
+            </div>
+            <h3>最终保存的食物</h3>
+            <div v-for="item in analysisDetails.meal.items" :key="item.id" class="nutrition-detail-food">
+              <strong>{{ item.foodName }}</strong>
+              <p>{{ portionText(item) }} · {{ n(item.calories) }} kcal</p>
+              <p>蛋白质 {{ n(item.proteinG,1) }}g · 碳水 {{ n(item.carbsG,1) }}g · 脂肪 {{ n(item.fatG,1) }}g</p>
+              <small>{{ nutrientSourceLabel(analysisDetails.nutrients.find(x => x.mealItemId === item.id)?.sourceType ?? '') }}</small>
+            </div>
+            <h3>AI 原始识别及分析依据</h3>
+            <el-collapse v-if="analysisDetails.analyses.length">
+              <el-collapse-item v-for="version in analysisDetails.analyses" :key="version.id"
+                :name="String(version.id)" :title="'第 ' + version.versionNumber + ' 版 · ' + (version.sourceType === 'IMAGE' ? '图片识别' : '文本识别')">
+                <p class="muted">首次识别结果（仅保留脱敏食物业务字段）：</p>
+                <p v-for="(item, index) in (version.rawExtraction.items ?? [])" :key="index">
+                  {{ item.name }} · {{ item.estimatedGrams == null ? '重量未知' : n(item.estimatedGrams) + 'g（初始识别）' }}
+                </p>
+                <p class="muted">确认后营养分析（记录当时的估算及食品库数据，后续编辑可能改变当前餐食）：</p>
+                <p v-for="(item, index) in (version.analysis.items ?? [])" :key="index">
+                  {{ item.foodName }} · {{ item.weightGrams == null ? '重量未知' : n(item.weightGrams) + 'g' }}
+                  · {{ n(item.caloriesKcal) }} kcal · {{ nutrientSourceLabel(item.source) }}
+                </p>
+              </el-collapse-item>
+            </el-collapse>
+            <div v-else class="empty">这条餐食还没有保存 AI 识别历史，可以继续查看已有的正式营养数据。</div>
+          </template>
+        </div>
+        <template #footer><el-button @click="analysisDialog=false">关闭</el-button></template>
+      </el-dialog>
       <el-dialog v-model="aiChangeVisible" title="AI 修改 / 删除健康记录" width="min(96vw,680px)" destroy-on-close append-to-body>
         <WellnessAiChange :key="aiChangeKey" :initial-kind="aiChangeKind" :initial-id="aiChangeRecord"
           :initial-date="date" @changed="savedAiChange" />
@@ -609,6 +669,14 @@ async function saveProfile() {
 .food-row{display:flex;align-items:center;gap:9px;margin-bottom:10px}.food-row .el-select{flex:1;min-width:0}.food-row .el-input-number{width:140px}
 .meal-total{font-size:18px;font-weight:700;margin-top:18px}
 .nutrition-panel{background:var(--el-bg-color-page);border-radius:16px}
+.nutrition-detail{display:flex;flex-direction:column;gap:10px;min-height:120px;overflow-wrap:anywhere}
+.nutrition-detail h3{margin:12px 0 2px;font-size:15px}
+.nutrition-detail .muted{margin:0}
+.nutrition-detail-food{padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:12px}
+.nutrition-detail-food p{margin:5px 0;color:var(--el-text-color-secondary);font-size:13px}
+.nutrition-detail-food small{color:var(--el-color-info)}
+.nutrition-coverage-summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-radius:12px;background:var(--el-fill-color-light);padding:12px}
+.nutrition-coverage-summary span{font-size:12px;color:var(--el-text-color-secondary)}
 .nutrition-panel .panel-head h2{margin:0}
 .nutrient-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
 .nutrient-grid>div{min-width:0;padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:12px;background:var(--el-bg-color);display:flex;flex-direction:column;gap:8px}
