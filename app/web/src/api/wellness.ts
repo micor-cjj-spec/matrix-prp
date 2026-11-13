@@ -86,6 +86,14 @@ export interface MealAnalysisDetails {
     knownCarbsCount: number; knownFatCount: number
   }
 }
+/** Confirmed manually by the owner; model OCR values alone never produce this payload. */
+export interface NutritionLabelVerificationInput {
+  mealItemId: number; consumedGrams: number
+  caloriesPer100g: number; proteinPer100g: number
+  carbsPer100g: number; fatPer100g: number
+  fiberPer100g: number | null; sugarPer100g: number | null
+  sodiumMgPer100g: number | null; userVerified: boolean
+}
 export interface ItemInput { foodId: number; grams: number }
 export interface MealSnapshotItem {
   foodId: number | null; name: string | null; grams: number; calories: number | null
@@ -160,6 +168,8 @@ export const wellnessApi = {
   addFood: (form: FoodInput) => post<Food>('/wellness/foods', form),
   meals: (date: string) => get<Meal[]>('/wellness/meals', { date }),
   mealAnalysis: (id: number) => get<MealAnalysisDetails>('/wellness/meals/' + id + '/analysis'),
+  verifyMealLabel: (id: number, input: NutritionLabelVerificationInput) =>
+    post<MealAnalysisDetails>('/wellness/meals/' + id + '/label-verification', input),
   addMeal: (form: MealInput) => post<Meal>('/wellness/meals', form),
   addMealSnapshots: (form: MealSnapshotInput) => post<Meal>('/wellness/meals/snapshots', form),
   updateMealSnapshots: (id: number, form: MealSnapshotInput) =>
