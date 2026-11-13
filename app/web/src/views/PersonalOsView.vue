@@ -21,6 +21,8 @@ const serviceError = ref('')
 const goals = ref<PersonalGoal[]>([])
 const candidates = ref<PersonalMemory[]>([])
 const memories = ref<PersonalMemory[]>([])
+const memoryLoaded = ref(false)
+let loadGeneration = 0
 const privateFacts = ref<PersonalMemory[]>([])
 const privateOpen = ref(false)
 const privateLoading = ref(false)
@@ -110,28 +112,40 @@ async function refreshPrivateIfOpen() {
 }
 
 async function loadData() {
+  const generation = ++loadGeneration
+  const tab = activeTab.value
   loading.value = true
   serviceError.value = ''
   try {
+    // Only the active panel may fetch its personal source data.
     const [goalData, candidateData, memoryData, recordData] = await Promise.all([
-      fetchPersonalGoals(), fetchMemoryCandidates(), fetchConfirmedMemories(),
-      fetchRecords({ moduleCode: timelineDomain.value || undefined }),
+      fetchPersonalGoals(),
+      tab === 'memory' ? fetchMemoryCandidates() : Promise.resolve([] as PersonalMemory[]),
+      tab === 'memory' ? fetchConfirmedMemories() : Promise.resolve([] as PersonalMemory[]),
+      tab === 'timeline'
+        ? fetchRecords({ moduleCode: timelineDomain.value || undefined })
+        : Promise.resolve([] as RecordItem[]),
     ])
+    if (generation !== loadGeneration || activeTab.value !== tab) return
     goals.value = goalData
     candidates.value = candidateData
     memories.value = memoryData
+    memoryLoaded.value = tab === 'memory'
     records.value = recordData
     await refreshPrivateIfOpen()
+    if (generation !== loadGeneration || activeTab.value !== tab) return
     if (selectedGoalId.value !== null && !goalData.some(item => item.id === selectedGoalId.value)) {
       selectedGoalId.value = null
       context.value = []
     }
   } catch {
+    if (generation !== loadGeneration || activeTab.value !== tab) return
     // Do not leave owner-specific data rendered after a 401, token change,
     // failed refresh, or transient response error.
     goals.value = []
     candidates.value = []
     memories.value = []
+    memoryLoaded.value = false
     records.value = []
     context.value = []
     selectedGoalId.value = null
@@ -140,7 +154,7 @@ async function loadData() {
     privateOpen.value = false
     serviceError.value = '数据暂时无法加载。请确认 Personal OS 后端版本已部署且账号已登录。'
   } finally {
-    loading.value = false
+    if (generation === loadGeneration) loading.value = false
   }
 }
 
@@ -321,11 +335,19 @@ async function saveCorrection() {
 
 // Private facts must not persist across tabs, even while the view remains mounted.
 watch(activeTab, (next) => {
+  // Cancel stale responses and immediately clear data from inactive panels.
+  ++loadGeneration
   if (next !== 'memory') {
     ++privateRequestGeneration
     privateOpen.value = false
     privateFacts.value = []
+    candidates.value = []
+    memories.value = []
+    memoryLoaded.value = false
   }
+  if (next !== 'timeline') records.value = []
+  if (next !== 'goals') context.value = []
+  void loadData()
 })
 
 onUnmounted(() => {
@@ -368,8 +390,8 @@ onMounted(async () => {
       <div class="os-stats">
         <div><span>目标总数</span><strong>{{ goals.length }}</strong></div>
         <div><span>进行中的目标</span><strong>{{ goals.filter(g => g.status === 'ACTIVE').length }}</strong></div>
-        <div><span>待确认记忆</span><strong>{{ candidates.length }}</strong></div>
-        <div><span>可查询的普通记忆</span><strong>{{ memories.length }}</strong></div>
+        <div><span>待确认记忆</span><strong>{{ memoryLoaded ? candidates.length : '—' }}</strong></div>
+        <div><span>可查询的普通记忆</span><strong>{{ memoryLoaded ? memories.length : '—' }}</strong></div>
       </div>
 
       <section v-if="activeTab === 'goals'" class="os-grid">
