@@ -33,6 +33,26 @@ export interface MealAnalysisVersion {
     schemaVersion?: number
     sourceType?: string
     items?: Array<{ name: string; estimatedGrams: number | string | null }>
+    sourceContext?: {
+      kind: 'FOOD_PHOTO' | 'ORDER_SCREENSHOT' | 'NUTRITION_LABEL'
+      merchantName?: string
+      lineItems?: Array<{
+        name: string
+        purchasedQuantity?: number | string
+        portionLabel?: string
+        packageGrams?: number | string
+        labelVerified?: boolean
+        labelPer100gCandidate?: {
+          caloriesKcal?: number | string
+          proteinG?: number | string
+          carbsG?: number | string
+          fatG?: number | string
+          fiberG?: number | string
+          sugarG?: number | string
+          sodiumMg?: number | string
+        }
+      }>
+    }
   }
   analysis: {
     schemaVersion?: number
