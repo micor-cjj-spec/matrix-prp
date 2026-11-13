@@ -4,8 +4,13 @@ import { resolve } from 'node:path'
 import { availableTasks, validateSnapshot } from './core.mjs'
 
 const REQ = /^REQ-[0-9]{8}-[0-9]{3}$/
+// Encode HTML, GitHub-flavored Markdown syntax and mentions in untrusted labels.
+// Task IDs and explicit Issue references are rendered separately from these labels.
 const escapeCell = value => String(value ?? '—')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/[\\*_{}\[\]()#!~@\x60]/g, ch => '&#' + ch.charCodeAt(0) + ';')
+  .replace(/https?:\/\//gi, url => url.replace(':', '&#58;'))
+  .replace(/\bwww\./gi, url => url.slice(0, -1) + '&#46;')
   .replace(/\|/g, '&#124;').replace(/[\r\n\t]/g, ' ')
 
 export function renderBoard(snapshot, options = {}) {
@@ -14,14 +19,16 @@ export function renderBoard(snapshot, options = {}) {
   if (sha !== undefined && !/^[a-f0-9]{40}$/.test(sha)) {
     throw new Error('INVALID_STATE_SHA')
   }
-  const ready = new Set(availableTasks(snapshot).map(t => t.task_id))
+  const claimable = availableTasks(snapshot).map(t => t.task_id)
+  const ready = new Set(claimable)
   const completed = snapshot.tasks.filter(t => t.status === 'DONE').length
   const claimed = snapshot.tasks.filter(t => ['CLAIMED','IN_PROGRESS','PAUSED','BLOCKED','IN_REVIEW'].includes(t.status)).length
   const lines = [
     `## ${escapeCell(snapshot.requirement_id)} — ${escapeCell(snapshot.title)}`,
     '',
     `Requirement Issue: #${snapshot.issue_number} · Status: **${escapeCell(snapshot.status)}** · State version: **${snapshot.version}**`,
-    `Completed: **${completed}/${snapshot.tasks.length}** · Claimed or in review: **${claimed}**`
+    `Completed: **${completed}/${snapshot.tasks.length}** · Claimed or in review: **${claimed}**`,
+    `Claimable now: **${claimable.length}**${claimable.length ? ' · ' + claimable.map(escapeCell).join(', ') : ''}`
   ]
   if (sha) lines.push(`State commit: \`${sha}\``)
   lines.push('', '| Task | GitHub Issue | Status | Dependencies | Assigned worker | PR |')

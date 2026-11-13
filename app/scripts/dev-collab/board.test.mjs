@@ -34,6 +34,23 @@ test('display redacts claims, request history and notes, escapes Markdown and HT
   assert.match(b,/&lt;script&gt;/)
   assert.match(b,/&#124;/)
 })
+test('board shows immediately claimable tasks without treating dependency-blocked items as ready', () => {
+  const b = renderBoard(state())
+  assert.match(b, /Claimable now: \\*\\*1\\*\\* · T-002/)
+  assert.match(b, /T-003.*WAITING/)
+})
+test('board labels do not activate Markdown links, images, mentions or autolinks', () => {
+  const s = state()
+  s.title = '[click](https://example.invalid/tracker) @all'
+  s.tasks[1].title = '![pixel](https://example.invalid/pixel) ~~done~~ *urgent* www.example.invalid'
+  const b = renderBoard(s)
+  assert.doesNotMatch(b, /!\\[pixel\\]|\\[click\\]\\(|@all|https:\\/\\/example|www\\.example/)
+  assert.match(b, /&#91;click&#93;&#40;https&#58;\\/\\/example/)
+  assert.match(b, /&#33;&#91;pixel&#93;&#40;https&#58;\\/\\/example/)
+  assert.match(b, /&#64;all/)
+  assert.match(b, /&#126;&#126;done&#126;&#126;/)
+  assert.match(b, /www&#46;example/)
+})
 test('invalid snapshot or source SHA cannot render an apparently reliable board', () => {
   const s=state()
   assert.throws(()=>renderBoard(s,{state_sha:'bad'}),/INVALID_STATE_SHA/)
