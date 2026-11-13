@@ -150,6 +150,7 @@ class FlywayMigrationIT {
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
+        PersonalOsV30Assertions.verify(url, user(), password());
         assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(17 + pending);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('prp_ai_conversations','prp_ai_messages','prp_ai_usage','prp_ai_preferences','prp_ai_provider_credentials','prp_ai_agent_tasks','prp_ai_codex_jobs','prp_ai_message_blocks','prp_ai_tool_audit','prp_ai_conversation_meta')")).isEqualTo(10);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() " +
