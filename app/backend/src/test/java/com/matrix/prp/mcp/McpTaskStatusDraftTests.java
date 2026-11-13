@@ -43,7 +43,7 @@ class McpTaskStatusDraftTests {
             "Don't lose this description", "high", "todo",
             LocalDate.of(2026, 11, 20), OffsetDateTime.parse("2026-11-11T10:00:00+08:00"), null);
         when(tasks.get(42L)).thenReturn(previous);
-        when(db.query(startsWith("SELECT updated_at FROM prp_tasks"), any(RowMapper.class),
+        when(db.query(startsWith("SELECT updated_at FROM prp_tasks"), org.mockito.ArgumentMatchers.<RowMapper<String>>any(),
             eq(42L), eq(2L))).thenReturn(List.of("2026-11-13 10:00:00"));
         when(db.queryForObject(startsWith("SELECT COUNT(*) FROM prp_mcp_write_drafts"),
             eq(Integer.class), eq(2L))).thenReturn(0);
