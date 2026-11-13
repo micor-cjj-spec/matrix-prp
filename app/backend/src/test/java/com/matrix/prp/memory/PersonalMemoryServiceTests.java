@@ -59,7 +59,7 @@ class PersonalMemoryServiceTests {
     @Test void sensitiveOwnerListIsSeparateFromDefaultMemoryContext() {
         user(7);
         assertThat(service.listPrivate()).isEmpty();
-        verify(db).query(contains("status='CONFIRMED' AND sensitivity IN"),
+        verify(db).query(contains("status IN ('CONFIRMED','SUPERSEDED','INVALID')"),
             any(org.springframework.jdbc.core.RowMapper.class), eq(7L));
         verifyNoInteractions(references);
     }
