@@ -195,6 +195,9 @@ onMounted(loadAll)
 
 const mealDialog = ref(false)
 const editingMeal = ref<number | null>(null)
+// Same UI session retries reuse the exact key even if the first HTTP response
+// was lost. Opening a distinct meal form intentionally starts a new event.
+const mealSubmissionKey = ref<string | null>(null)
 const mealForm = reactive<MealInput>({ mealDate: today, mealType: 'BREAKFAST', note: '', items: [] })
 type DraftItem = {
   foodId: number | null; grams: number; manual: boolean
@@ -203,6 +206,7 @@ type DraftItem = {
 const draftItems = ref<DraftItem[]>([])
 function openMeal(kind = 'BREAKFAST', meal?: Meal) {
   editingMeal.value = meal?.id ?? null
+  mealSubmissionKey.value = meal ? null : crypto.randomUUID()
   mealForm.mealDate = meal?.mealDate ?? date.value
   mealForm.mealType = meal?.mealType ?? kind
   mealForm.note = meal?.note || ''
@@ -230,6 +234,7 @@ async function searchFoods(q: string) {
   } catch { ElMessage.error('食物搜索失败') }
 }
 async function saveMeal() {
+  if (saving.value) return
   if (!draftItems.value.length || draftItems.value.length > 30 ||
       draftItems.value.some(item => item.manual
         ? !item.customName.trim() || item.customName.length > 120 ||
@@ -242,7 +247,8 @@ async function saveMeal() {
   }
   saving.value = true
   try {
-    const key = editingMeal.value === null ? crypto.randomUUID() : undefined
+    const key = editingMeal.value === null
+      ? (mealSubmissionKey.value ??= crypto.randomUUID()) : undefined
     const hasManual = draftItems.value.some(item => item.manual)
     if (hasManual) {
       const items: MealSnapshotItem[] = draftItems.value.map(item => item.manual
@@ -260,6 +266,7 @@ async function saveMeal() {
       else await wellnessApi.addMeal(payload)
     }
     ElMessage.success('餐食已保存')
+    mealSubmissionKey.value = null
     mealDialog.value = false; date.value = mealForm.mealDate
     await Promise.all([loadDay(), wellnessApi.frequent().then(x => { frequentFoods.value = x }), loadTrend()])
   } catch { ElMessage.error('餐食保存失败') } finally { saving.value = false }
@@ -740,7 +747,7 @@ async function saveProfile() {
           <el-button link type="primary" @click="foodDialog=true">没有找到？创建食物</el-button>
           <el-form-item label="备注"><el-input v-model="mealForm.note" maxlength="500" /></el-form-item>
           <p class="meal-total">本餐估算：{{ n(mealPreview) }} kcal</p>
-          <p class="muted">自定义热量只保存在本餐次明细，不进入食品参考库；不确定重量可填 0，未知蛋白质、碳水和脂肪不会显示为 0。</p>
+          <p class="muted">自定义热量只保存在本餐次明细，不进入食品参考库；不确定重量可填 0，未知蛋白质、碳水和脂肪不会显示为 0。一天可以分别记录多次加餐；早餐、午餐、晚餐仍按各一次防重复。保存失败重试会沿用本次提交标识。</p>
         </el-form>
         <template #footer><el-button @click="mealDialog=false">取消</el-button>
           <el-button type="primary" :loading="saving" @click="saveMeal()">保存餐次</el-button></template>
