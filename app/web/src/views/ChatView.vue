@@ -95,7 +95,7 @@ async function photoSelected(event: Event) {
     if (version !== photoSelectionVersion) return
     chatPhoto.value = result.file
     if (result.compressed)
-      ElMessage.success('照片已在本机压缩：' + photoSizeLabel(result.originalBytes) +
+      ElMessage.success('照片已在本机重新编码并移除元数据：' + photoSizeLabel(result.originalBytes) +
         ' → ' + photoSizeLabel(result.file.size))
   } catch (error) {
     if (version === photoSelectionVersion)
