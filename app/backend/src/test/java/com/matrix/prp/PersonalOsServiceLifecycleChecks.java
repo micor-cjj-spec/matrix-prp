@@ -3,7 +3,7 @@ package com.matrix.prp;
 import static com.matrix.prp.ontology.PersonalOntology.NodeType.*;
 import static com.matrix.prp.ontology.PersonalOntology.Relation.*;
 import static com.matrix.prp.ontology.PersonalOntology.Sensitivity.*;
-import static com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.*;
+import static com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.USER_INPUT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
