@@ -16,7 +16,7 @@
 - 在新 Environment 配置 `PRP_COLLAB_APP_PRIVATE_KEY` secret，并配置 `PRP_COLLAB_APP_CLIENT_ID`、`PRP_COLLAB_APP_ID=5561446`、`PRP_COLLAB_RULESET_ID=26294671` variables。无需将凭证提供给 ChatGPT。不要将这些 Secret 复制到公开 Issue。
 - 保留现有 `prp-collab-controller` 人工审批 Environment，**不要直接把原环境解除审批来绕过安全控制**。
 - 必须先独立审核并单独批准将 Draft PR #138 合入受保护 `main`。当前仍有发布冻结 `app/deploy/publication-hold.json`；本入口不会移除冻结，也不执行 PRP 生产应用部署。
-- 首次真实自动写入只在已审核的低影响测试任务上执行；保留远端 SHA、Issue 回执和 Actions 日志。没有真实审批配置、App Token 和 Ruleset 验证前不得宣称已上线。
+- 首次对正式 `prp-collab-state` 的真实写入必须是经所有者单独授权、PR #144 独立审核通过的固定 V0→V1 迁移，不能先在 V0 领取测试任务。迁移成功即为首次 App 写入与 Ruleset bypass 的实证试点；保留远端 SHA、Issue 回执和 Actions 日志。没有真实 Environment/App 权限验证前不得宣称已上线。
 
 ## 首次启用：不修改任务状态的只读探针
 
@@ -37,7 +37,7 @@
 
 工作流先核验 owner-authored GitHub Issue、受保护 main 来源及发布冻结，再检查 GitHub App token 的安装仓库仅为 `micor-cjj-spec/matrix-prp`、状态分支保护和专用 Ruleset，最后读取当前远端状态 SHA 并发布脱敏回执。**不会提交 Git 变更，不会修改正式任务状态，不会触发生产部署。**
 
-探针通过仅证明 Issue → Actions → 安装令牌签发与只读权限范围核验链路可用。它**不证明 Contents: write 权限或 Ruleset bypass 真实推送成功**。后续写入试点仍需明确授权和独立证据，不能把只读探针成功等同于整个零点击系统上线。
+探针通过仅证明 Issue → Actions → 安装令牌签发与只读权限范围核验链路可用。它**不证明 Contents: write 权限或 Ruleset bypass 真实推送成功**。后续首个正式写入试点是单独授权且独立审核的固定 V0→V1 迁移，不能把只读探针成功等同于整个零点击系统上线。
 
 ## 请求格式：任务领取
 
