@@ -67,6 +67,14 @@ class Backend:
   self.start_java({'spring':{'flyway':{'enabled':True,'target':'29'},'ai':{'mcp':{'server':{'enabled':False}}}},'matrix-prp':{'mcp':{'enabled':False}}})
   self.check('real_health_mysql_v29_migrated',self.sql('SELECT version,success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;')=='29\t1')
   migration_history=self.sql('SELECT installed_rank,version,checksum,success FROM flyway_schema_history ORDER BY installed_rank;')
+  # /api/health may return 200 before AdminBootstrap's ApplicationRunner inserts the initial owner.
+  for _ in range(30):
+   owner_id=self.sql("SELECT id FROM prp_users WHERE username='ci_health_owner';")
+   if owner_id.isdecimal():break
+   if self.process.poll() is not None:raise RuntimeError('REAL_HEALTH_BOOTSTRAP_PROCESS_EXITED')
+   time.sleep(1)
+  else:raise RuntimeError('REAL_HEALTH_BOOTSTRAP_TIMEOUT')
+  self.check('real_health_bootstrap_owner_ready',True)
   self.stop_java()
   self.sql("UPDATE prp_users SET is_admin=0 WHERE username='ci_health_owner'; INSERT INTO prp_users(username,display_name,password_hash,is_admin,enabled) SELECT 'ci_health_other','Synthetic other',password_hash,0,1 FROM prp_users WHERE username='ci_health_owner';")
   owner=int(self.sql("SELECT id FROM prp_users WHERE username='ci_health_owner';"));self.check('real_health_owner_is_normal_synthetic',self.sql("SELECT is_admin FROM prp_users WHERE id="+str(owner))=='0')
