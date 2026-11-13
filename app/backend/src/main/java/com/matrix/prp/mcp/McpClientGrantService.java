@@ -27,8 +27,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class McpClientGrantService {
     public record Grant(String clientId, List<String> scopes, String status) {}
     private boolean wellnessOnly;
+    private boolean wellnessReadExtensionEnabled;
     @org.springframework.beans.factory.annotation.Autowired
-    void configureWellnessOnly(@org.springframework.beans.factory.annotation.Value("${matrix-prp.mcp.production-wellness-only:false}") boolean enabled) { wellnessOnly=enabled; }
+    void configureWellnessOnly(
+            @org.springframework.beans.factory.annotation.Value("${matrix-prp.mcp.production-wellness-only:false}") boolean enabled,
+            @org.springframework.beans.factory.annotation.Value("${matrix-prp.mcp.production-wellness-read-extension-enabled:false}") boolean extensionEnabled) {
+        if (extensionEnabled && !enabled)
+            throw new IllegalStateException("Read extension cannot bypass production health-only consent guard");
+        wellnessOnly=enabled;
+        wellnessReadExtensionEnabled=extensionEnabled;
+    }
     private final JdbcTemplate db;
     private final UserStore users;
     private final PasswordEncoder encoder;
@@ -72,7 +80,7 @@ public class McpClientGrantService {
         long owner = CurrentUser.id();
         String id = client(clientId);
         Set<String> approved = scopes(requested);
-        if (wellnessOnly && !McpProductionWellnessGuard.SCOPES.containsAll(approved))
+        if (wellnessOnly && !McpProductionWellnessGuard.consentScopes(wellnessReadExtensionEnabled).containsAll(approved))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Only health scopes are enabled");
         UserAccount account = users.findById(owner).orElse(null);
         if (account == null || !account.enabled()) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
