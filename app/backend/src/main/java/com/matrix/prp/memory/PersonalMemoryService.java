@@ -90,8 +90,12 @@ public class PersonalMemoryService {
         // Owner management must retain visibility of stale evidence so the
         // owner can correct or erase it; only default AI-safe retrieval filters
         // source validity. Never expose this endpoint to MCP.
+        // Include archived/invalidated private facts so the owner can
+        // permanently erase values even after a revocation or replacement.
+        // PENDING candidates remain in the separate review queue.
         return db.query("SELECT " + COLS + " FROM prp_personal_assertions WHERE user_id=?"
-            + " AND status='CONFIRMED' AND sensitivity IN ('SENSITIVE','RESTRICTED')"
+            + " AND status IN ('CONFIRMED','SUPERSEDED','INVALID')"
+            + " AND sensitivity IN ('SENSITIVE','RESTRICTED')"
             + " ORDER BY id DESC LIMIT 100", MAPPER, owner);
     }
 
