@@ -19,7 +19,7 @@ import org.springframework.http.HttpStatus;
 @ConditionalOnProperty(prefix = "matrix-prp.mcp.oauth", name = "enabled", havingValue = "true")
 public class McpOAuthMetadataController {
     public static final List<String> SCOPES = List.of(
-        "prp.tasks.read", "prp.finance.read", "prp.wellness.read", "prp.records.read",
+        "prp.tasks.read", "prp.finance.read", "prp.wellness.read", "prp.records.read", "prp.practice.read",
         "prp.write.create", "prp.write.status", "prp.write.confirm", "prp.write.update", "prp.write.delete",
         "prp.wellness.write.create", "prp.wellness.write.update", "prp.wellness.write.delete",
         "prp.wellness.write.status", "prp.wellness.write.confirm");
