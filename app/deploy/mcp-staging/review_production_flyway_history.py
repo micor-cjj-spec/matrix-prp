@@ -35,7 +35,9 @@ def source_scripts(folder=MIGRATIONS, future_policy=None):
     expected = {}
     future = {}
     for path in folder.iterdir():
-        if not path.is_file() or path.is_symlink():
+        if path.is_symlink() and MIGRATION_PATTERN.fullmatch(path.name):
+            raise ValueError("SYMLINK_MIGRATION_FORBIDDEN")
+        if not path.is_file():
             continue
         match = MIGRATION_PATTERN.fullmatch(path.name)
         if match:
