@@ -36,6 +36,9 @@ public class GoalService {
                          String successCriteria, LocalDate targetDate, String requestKey) {}
     public record Link(long assertionId, String predicate, String subjectType, String subjectRef,
                        String objectType, String objectRef, String objectValue) {}
+    public record Revision(String title, String description, String domain, String priority,
+                           String successCriteria, LocalDate targetDate, LocalDateTime expectedUpdatedAt) {}
+
 
     private static final String COLS = "id,title,description,domain,status,priority,"
         + "success_criteria,target_date,created_at,updated_at";
@@ -121,6 +124,33 @@ public class GoalService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Goal request key already used");
         }
         return prior;
+    }
+
+    /** Explicit user-facing change; optimistic revision prevents lost updates. */
+    @Transactional
+    public Goal revise(long id, Revision request) {
+        Goal old = get(id);
+        if (request == null || request.expectedUpdatedAt() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Goal revision is required");
+        }
+        validate(new Create(request.title(), request.description(), request.domain(),
+            request.priority(), request.successCriteria(), request.targetDate(), "revision_000000"));
+        if (Set.of("COMPLETED", "CANCELLED").contains(old.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Closed goals are read-only");
+        }
+        if (!request.expectedUpdatedAt().equals(old.updatedAt())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Goal revision is stale");
+        }
+        int updated = db.update("UPDATE prp_goals SET title=?,description=?,domain=?,priority=?,"
+            + "success_criteria=?,target_date=?,updated_at=?"
+            + " WHERE id=? AND user_id=? AND status=? AND updated_at=? AND deleted=0",
+            request.title().trim(),request.description(),request.domain(),
+            request.priority() == null ? "medium" : request.priority(),
+            request.successCriteria(),request.targetDate(),LocalDateTime.now(),
+            id,CurrentUser.id(),old.status(),old.updatedAt());
+        if (updated!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,
+            "Goal changed concurrently");
+        return get(id);
     }
 
     @Transactional
