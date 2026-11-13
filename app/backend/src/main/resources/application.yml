@@ -74,6 +74,8 @@ matrix-prp:
     # Phase 2 extra read tools remain hidden until explicitly enabled.
     # A code merge alone must NOT expand the production ChatGPT tool list.
     additional-read-tools-enabled: ${MATRIX_PRP_MCP_ADDITIONAL_READ_TOOLS_ENABLED:false}
+    # Explicit fail-closed extension to production health-only mode; adds only 3 read scopes.
+    production-wellness-read-extension-enabled: ${MATRIX_PRP_MCP_PRODUCTION_WELLNESS_READ_EXTENSION_ENABLED:false}
     # Exact HTTPS browser origins; never use wildcard or suffix matching.
     allowed-origins: ${MATRIX_PRP_MCP_ALLOWED_ORIGINS:https://micor.top}
     # Resource-server mode: external OAuth issuer/JWKS. No PRP JWT fallback for /api/mcp.
