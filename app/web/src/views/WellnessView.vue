@@ -70,9 +70,79 @@ const analysisDialog = ref(false)
 const analysisLoading = ref(false)
 const analysisDetails = ref<MealAnalysisDetails | null>(null)
 const analysisError = ref('')
+const labelSaving = ref(false)
+type LabelCandidate = { caloriesKcal?: number | string; proteinG?: number | string
+  carbsG?: number | string; fatG?: number | string; fiberG?: number | string
+  sugarG?: number | string; sodiumMg?: number | string }
+const labelReview = reactive({
+  mealItemId: 0, consumedGrams: null as number | null,
+  caloriesPer100g: null as number | null, proteinPer100g: null as number | null,
+  carbsPer100g: null as number | null, fatPer100g: null as number | null,
+  fiberPer100g: null as number | null, sugarPer100g: null as number | null,
+  sodiumMgPer100g: null as number | null, userVerified: false,
+})
+const labelPreview = computed(() =>
+  labelReview.consumedGrams != null && labelReview.caloriesPer100g != null
+    ? (Number(labelReview.consumedGrams) * Number(labelReview.caloriesPer100g) / 100).toFixed(2)
+    : '—')
+const numericLabel = (x: string | number | undefined): number | null =>
+  x === undefined ? null : Number(x)
+function beginLabelReview(name: string, candidate: LabelCandidate) {
+  const matched = analysisDetails.value?.meal.items.filter(item =>
+    item.foodName === name && item.foodId <= 0) ?? []
+  if (matched.length !== 1) {
+    ElMessage.warning('包装食物名称与已确认餐食不一致或有重名，请先核对餐食明细')
+    return
+  }
+  Object.assign(labelReview, {
+    mealItemId: matched[0].id,
+    consumedGrams: Number(matched[0].grams) > 0 ? Number(matched[0].grams) : null,
+    caloriesPer100g: numericLabel(candidate.caloriesKcal),
+    proteinPer100g: numericLabel(candidate.proteinG),
+    carbsPer100g: numericLabel(candidate.carbsG),
+    fatPer100g: numericLabel(candidate.fatG),
+    fiberPer100g: numericLabel(candidate.fiberG),
+    sugarPer100g: numericLabel(candidate.sugarG),
+    sodiumMgPer100g: numericLabel(candidate.sodiumMg),
+    userVerified: false,
+  })
+}
+async function submitLabelReview() {
+  if (!analysisDetails.value || labelSaving.value || !labelReview.mealItemId) return
+  if (!labelReview.userVerified || labelReview.consumedGrams == null ||
+      ![labelReview.caloriesPer100g, labelReview.proteinPer100g,
+        labelReview.carbsPer100g, labelReview.fatPer100g].every(x => x != null && Number.isFinite(x))) {
+    ElMessage.warning('请核对每100g热量、三大营养素和实际食用克数，并勾选人工核实')
+    return
+  }
+  const id = analysisDetails.value.meal.id
+  labelSaving.value = true
+  try {
+    analysisDetails.value = await wellnessApi.verifyMealLabel(id, {
+      mealItemId: labelReview.mealItemId, consumedGrams: Number(labelReview.consumedGrams),
+      caloriesPer100g: Number(labelReview.caloriesPer100g),
+      proteinPer100g: Number(labelReview.proteinPer100g),
+      carbsPer100g: Number(labelReview.carbsPer100g),
+      fatPer100g: Number(labelReview.fatPer100g),
+      fiberPer100g: labelReview.fiberPer100g,
+      sugarPer100g: labelReview.sugarPer100g,
+      sodiumMgPer100g: labelReview.sodiumMgPer100g,
+      userVerified: true,
+    })
+    labelReview.mealItemId = 0
+    ElMessage.success('已按实际食用克数计算营养，并保存人工核实版本')
+    await loadDay()
+  } catch (error) {
+    const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
+    ElMessage.error(message || '营养标签核实失败，请核对字段和包装信息')
+  } finally {
+    labelSaving.value = false
+  }
+}
 async function openAnalysis(meal: Meal) {
   analysisDetails.value = null
   analysisError.value = ''
+  labelReview.mealItemId = 0
   analysisDialog.value = true
   analysisLoading.value = true
   try {
@@ -84,7 +154,8 @@ async function openAnalysis(meal: Meal) {
   }
 }
 const nutrientSourceLabel = (source: string) => source === 'FOOD_CATALOG'
-  ? '食品库参考' : source === 'USER_ESTIMATE' ? '本次食物估算' : '来源待核对'
+  ? '食品库参考' : source === 'USER_LABEL' ? '用户核实的包装营养标签'
+  : source === 'USER_ESTIMATE' ? '本次食物估算' : '来源待核对'
 const nutritionCoverage = computed(() => {
   const items = meals.value.flatMap(meal => meal.items)
   const known = items.filter(item =>
@@ -564,15 +635,28 @@ async function saveProfile() {
                         · 脂肪 {{ n(sourceItem.labelPer100gCandidate.fatG,1) }}g
                       </p>
                       <p v-if="sourceItem.labelVerified === false" class="coverage-tip">
-                        图片识别候选，尚未经核实，未直接计入正式营养数据。
+                        以下属于首次图片识别候选，未自动计入正式营养数据；如已核对包装可人工确认。
                       </p>
+                      <el-button v-if="sourceItem.labelPer100gCandidate"
+                        size="small" type="primary" plain
+                        @click="beginLabelReview(sourceItem.name, sourceItem.labelPer100gCandidate)">
+                        核对标签并计算实际摄入
+                      </el-button>
                     </template>
                   </div>
                   <p v-if="version.rawExtraction.sourceContext.kind === 'ORDER_SCREENSHOT'" class="coverage-tip">
                     订单购买数量仅用于溯源；最终摄入量请以用户确认后的重量和餐食记录为准。
                   </p>
                 </div>
-                <p class="muted">确认后营养分析（记录当时的估算及食品库数据，后续编辑可能改变当前餐食）：</p>
+                <p v-if="version.analysis.method === 'USER_VERIFIED_LABEL' && version.analysis.userInput"
+                  class="nutrition-verified">
+                  已人工核对：食用 {{ n(version.analysis.userInput.consumedGrams) }}g
+                  · 计算热量 {{ n(version.analysis.calculated?.caloriesKcal,2) }} kcal
+                  · 蛋白质 {{ n(version.analysis.calculated?.proteinG,2) }}g
+                  · 碳水 {{ n(version.analysis.calculated?.carbsG,2) }}g
+                  · 脂肪 {{ n(version.analysis.calculated?.fatG,2) }}g
+                </p>
+                <p v-else class="muted">确认后营养分析（记录当时的估算及食品库数据，后续编辑可能改变当前餐食）：</p>
                 <p v-for="(item, index) in (version.analysis.items ?? [])" :key="index">
                   {{ item.foodName }} · {{ item.weightGrams == null ? '重量未知' : n(item.weightGrams) + 'g' }}
                   · {{ n(item.caloriesKcal) }} kcal · {{ nutrientSourceLabel(item.source) }}
@@ -580,6 +664,46 @@ async function saveProfile() {
               </el-collapse-item>
             </el-collapse>
             <div v-else class="empty">这条餐食还没有保存 AI 识别历史，可以继续查看已有的正式营养数据。</div>
+            <section v-if="labelReview.mealItemId" class="nutrition-label-review">
+              <h3>核实包装营养标签</h3>
+              <p class="muted">请对照包装逐项校对每100g的数值，并填写真正食用的克数。
+                可修改 AI 识别错误的数字。仅保存核实后的结构化信息，不保存图片。</p>
+              <div class="nutrition-review-fields">
+                <label>实际吃下（g）
+                  <el-input-number v-model="labelReview.consumedGrams" :min="0.1" :max="3000" :precision="2" />
+                </label>
+                <label>热量（kcal/100g）
+                  <el-input-number v-model="labelReview.caloriesPer100g" :min="0.01" :max="900" :precision="2" />
+                </label>
+                <label>蛋白质（g/100g）
+                  <el-input-number v-model="labelReview.proteinPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>碳水（g/100g）
+                  <el-input-number v-model="labelReview.carbsPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>脂肪（g/100g）
+                  <el-input-number v-model="labelReview.fatPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>膳食纤维（g/100g，可选）
+                  <el-input-number v-model="labelReview.fiberPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>糖（g/100g，可选）
+                  <el-input-number v-model="labelReview.sugarPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>钠（mg/100g，可选）
+                  <el-input-number v-model="labelReview.sodiumMgPer100g" :min="0" :max="50000" :precision="2" />
+                </label>
+              </div>
+              <p>按当前输入计算，本次热量约 <strong>{{ labelPreview }} kcal</strong></p>
+              <el-checkbox v-model="labelReview.userVerified">
+                我已对照包装核实每100g数据，并确认实际食用克数；不是直接信任 AI 候选值
+              </el-checkbox>
+              <div class="entry-actions">
+                <el-button type="primary" :loading="labelSaving" :disabled="!labelReview.userVerified"
+                  @click="submitLabelReview">保存人工核实营养</el-button>
+                <el-button :disabled="labelSaving" @click="labelReview.mealItemId=0">取消</el-button>
+              </div>
+            </section>
           </template>
         </div>
         <template #footer><el-button @click="analysisDialog=false">关闭</el-button></template>
@@ -709,6 +833,11 @@ async function saveProfile() {
 .nutrition-source-context{border:1px dashed var(--el-border-color);border-radius:12px;padding:12px;background:var(--el-fill-color-light)}
 .nutrition-source-row{padding:7px 0;border-top:1px solid var(--el-border-color-lighter)}
 .nutrition-source-row p{font-size:13px;color:var(--el-text-color-secondary);margin:5px 0}
+.nutrition-label-review{padding:14px;border:1px solid var(--el-border-color);border-radius:12px;background:var(--el-fill-color-light);display:grid;gap:12px}
+.nutrition-review-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}
+.nutrition-review-fields label{display:grid;gap:6px;font-size:13px}
+.nutrition-review-fields .el-input-number{width:100%}
+.nutrition-verified{font-size:13px;color:var(--el-color-success)}
 .nutrition-detail-food{padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:12px}
 .nutrition-detail-food p{margin:5px 0;color:var(--el-text-color-secondary);font-size:13px}
 .nutrition-detail-food small{color:var(--el-color-info)}
