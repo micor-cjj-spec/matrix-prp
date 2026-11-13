@@ -1,9 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { File } from 'node:buffer'
+import { readFileSync } from 'node:fs'
 import {
   AI_PHOTO_MAX_BYTES, AI_PHOTO_TARGET_BYTES, AI_PHOTO_MAX_SOURCE_BYTES,
   photoDisposition, prepareMealPhoto, photoSizeLabel, scaledPhotoDimensions,
+  paintPrivateMealPhoto,
 } from '../src/utils/mealPhoto.ts'
 
 test('all accepted images are redrawn, including those below 3MB', () => {
@@ -126,4 +128,53 @@ test('oversize image is locally converted to a real JPEG file below POST limit',
     URL.createObjectURL = origCreate
     URL.revokeObjectURL = origRevoke
   }
+})
+
+test('opaque black masks are applied to the cropped pixels before JPEG encode', () => {
+  const calls = []
+  let color = ''
+  const canvas = {
+    set fillStyle(next) { color = next },
+    fillRect: (...args) => calls.push({ op: 'fill', color, args }),
+    drawImage: (...args) => calls.push({ op: 'source', args }),
+  }
+  const photo = { localOnly: true }
+  paintPrivateMealPhoto(
+    canvas, photo, 1200, 800, 600, 400,
+    { x: 0.1, y: 0.25, width: 0.5, height: 0.5 },
+    [{ x: 0.25, y: 0.1, width: 0.3, height: 0.15 }],
+  )
+  assert.deepEqual(calls, [
+    { op: 'fill', color: '#ffffff', args: [0, 0, 600, 400] },
+    { op: 'source', args: [photo, 120, 200, 600, 400, 0, 0, 600, 400] },
+    { op: 'fill', color: '#000000', args: [150, 40, 180, 60] },
+  ])
+})
+
+test('invalid crop and mask geometry are rejected rather than exporting unmasked pixels', () => {
+  const canvas = { set fillStyle(_) {}, fillRect: () => {}, drawImage: () => {} }
+  const full = { x: 0, y: 0, width: 1, height: 1 }
+  assert.throws(() => paintPrivateMealPhoto(canvas, {}, 100, 100, 100, 100,
+    { x: 0.5, y: 0.5, width: 0.75, height: 0.75 }, []), /区域无效/)
+  assert.throws(() => paintPrivateMealPhoto(canvas, {}, 100, 100, 100, 100,
+    full, [{ x: -0.1, y: 0, width: 0.25, height: 0.2 }]), /区域无效/)
+  assert.throws(() => paintPrivateMealPhoto(canvas, {}, 100, 100, 100, 100,
+    full, new Array(41).fill(full)), /区域无效/)
+})
+
+test('both upload entrypoints require explicit local privacy-review confirmation', () => {
+  const chat = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
+  const recorder = readFileSync(new URL('../src/components/wellness/WellnessAiRecorder.vue',
+    import.meta.url), 'utf8')
+  const editor = readFileSync(new URL('../src/components/wellness/MealPhotoPrivacyEditor.vue',
+    import.meta.url), 'utf8')
+  for (const view of [chat, recorder]) {
+    assert.match(view, /MealPhotoPrivacyEditor/)
+    assert.match(view, /photoPrivacyOpen/)
+    assert.match(view, /@prepared="photoPrepared"/)
+    assert.doesNotMatch(view, /(?:chatPhoto|file)\.value\s*=\s*source/)
+  }
+  assert.match(editor, /paintPrivateMealPhoto\(context, image/)
+  assert.match(editor, /prepareMealPhoto\(rendered\)/)
+  assert.match(editor, /emit\('prepared', prepared\.file\)/)
 })
