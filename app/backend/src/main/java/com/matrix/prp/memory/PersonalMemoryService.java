@@ -3,6 +3,7 @@ package com.matrix.prp.memory;
 import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.ontology.PersonalOntology.NodeType;
 import com.matrix.prp.ontology.PersonalOntology.Relation;
+import com.matrix.prp.ontology.PersonalOntology.Sensitivity;
 import com.matrix.prp.ontology.PersonalOntologyAssertionGuard;
 import com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource;
 import com.matrix.prp.ontology.PersonalOntologyReferenceGuard;
@@ -36,7 +37,7 @@ public class PersonalMemoryService {
                            NodeType objectType, String objectRef, String objectValue,
                            EvidenceSource sourceType, String sourceRef,
                            LocalDate validFrom, LocalDate validTo,
-                           String requestKey) {}
+                           Sensitivity sensitivity, String requestKey) {}
     public record Memory(long id, NodeType subjectType, String subjectRef,
                          Relation predicate, NodeType objectType, String objectRef,
                          String objectValue, EvidenceSource sourceType, String sourceRef,
@@ -116,13 +117,14 @@ public class PersonalMemoryService {
         var keys=new GeneratedKeyHolder();
         var now=LocalDateTime.now();
         String origin=p.sourceType()==EvidenceSource.USER_INPUT?"USER_CONFIRMED":"BUSINESS_REFERENCE";
+        Sensitivity sensitivity=effectiveSensitivity(p);
         db.update(con->{
             PreparedStatement ps=con.prepareStatement(
                 "INSERT INTO prp_personal_assertions"
                 + " (user_id,subject_type,subject_ref,predicate,object_type,object_ref,"
                 + "object_value,source_type,source_ref,origin,status,sensitivity,"
                 + "valid_from,valid_to,supersedes_id,request_key,created_at,updated_at)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,'PENDING','NORMAL',?,?,?,?,?,?)",
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,'PENDING',?,?,?,?,?,?,?)",
                 Statement.RETURN_GENERATED_KEYS);
             ps.setLong(1,owner);
             ps.setString(2,p.subjectType().name());
@@ -134,13 +136,14 @@ public class PersonalMemoryService {
             ps.setString(8,p.sourceType().name());
             ps.setString(9,p.sourceRef());
             ps.setString(10,origin);
-            ps.setObject(11,p.validFrom());
-            ps.setObject(12,p.validTo());
-            if(supersedes==null)ps.setNull(13,java.sql.Types.BIGINT);
-            else ps.setLong(13,supersedes);
-            ps.setString(14,p.requestKey());
-            ps.setObject(15,now);
+            ps.setString(11,sensitivity.name());
+            ps.setObject(12,p.validFrom());
+            ps.setObject(13,p.validTo());
+            if(supersedes==null)ps.setNull(14,java.sql.Types.BIGINT);
+            else ps.setLong(14,supersedes);
+            ps.setString(15,p.requestKey());
             ps.setObject(16,now);
+            ps.setObject(17,now);
             return ps;
         },keys);
         Number key=keys.getKey();
@@ -199,6 +202,10 @@ public class PersonalMemoryService {
             + " WHERE user_id=? AND supersedes_id=?",LocalDateTime.now(),owner,id);
         if(db.update("DELETE FROM prp_personal_assertions WHERE id=? AND user_id=?",
             id,owner)!=1) throw conflict("Memory changed concurrently");
+    }
+
+    static Sensitivity effectiveSensitivity(Proposed proposed) {
+        return proposed.sensitivity()==null ? Sensitivity.RESTRICTED : proposed.sensitivity();
     }
 
     private static PersonalOntologyAssertionGuard.Candidate toCandidate(Memory m) {
