@@ -26,7 +26,7 @@ const reviewedV1=()=>{
   [6,141],[7,142],[8,143],[9,146]]){
   snapshot.tasks.push({task_id:'T-'+String(number).padStart(3,'0'),
    issue_number:issue,title:'Reviewed task '+number,status:'READY',
-   depends_on:[],allowed_paths:[],claim:null})
+   depends_on:[],allowed_paths:number===2?['app/docs/dev-collab/']:[],claim:null})
  }
  return snapshot
 }
@@ -237,6 +237,51 @@ test('isolated bare Git: owner issue atomically claims, repeat is idempotent and
   assert.match(stale.stderr,/PRP_COLLAB_ISSUE_FAILURE=ISSUE_STALE_VERSION/)
   assert.equal(f.head(),prev)
  }finally{f.dispose()}
+})
+test('isolated Git: two ChatGPT-labelled workers can claim independent tasks, not the same task or stale version',
+ {timeout:50000},()=>{
+ const f=setup({v1:true})
+ try{
+  const a={...request('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1),worker_id:'chat-A'}
+  f.prepare(a)
+  assert.equal(f.execute().status,0)
+  const afterA=f.head()
+  assert.equal(f.snapshot().version,2)
+  assert.equal(f.snapshot().tasks[0].claim.worker_id,'chat-A')
+
+  // Session B read version 1 before A committed and must retry after refresh.
+  const stale={...request('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1),
+   task_id:'T-002',worker_id:'chat-B'}
+  f.prepare(stale)
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
+  const rejected=f.execute()
+  assert.notEqual(rejected.status,0)
+  assert.match(rejected.stderr,/ISSUE_STALE_VERSION/)
+  assert.equal(f.head(),afterA)
+  assert.equal(f.snapshot().tasks[1].status,'READY')
+
+  const fresh={...stale,request_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+   expected_version:2}
+  f.prepare(fresh)
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
+  assert.equal(f.execute().status,0)
+  const both=f.snapshot()
+  assert.equal(both.version,3)
+  assert.equal(both.tasks[0].claim.worker_id,'chat-A')
+  assert.equal(both.tasks[1].claim.worker_id,'chat-B')
+  assert.notEqual(both.tasks[0].claim.claim_id,both.tasks[1].claim.claim_id)
+  const afterB=f.head()
+
+  // A third label cannot claim a task already owned by Session A.
+  f.prepare({...request('dddddddd-dddd-4ddd-8ddd-dddddddddddd',3),
+   worker_id:'chat-C'})
+  rmSync(join(f.root,'run-temp/prp-issue-receipt.md'),{force:true})
+  const collision=f.execute()
+  assert.notEqual(collision.status,0)
+  assert.match(collision.stderr,/TASK_NOT_READY/)
+  assert.equal(f.head(),afterB)
+  assert.equal(f.snapshot().version,3)
+ } finally {f.dispose()}
 })
 test('isolated Git: owner closes request after validation, no protected state push',
  {timeout:30000},()=>{
