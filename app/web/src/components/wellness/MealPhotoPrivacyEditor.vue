@@ -218,10 +218,12 @@ async function confirm() {
         '拖动框选要保留的部分，松开后裁掉框外内容；此前遮挡区域会被重置。' }}
       已遮挡 {{ masks.length }} 处。
     </p>
-    <canvas v-show="ready" ref="previewCanvas" class="image-preview"
-      aria-label="本地图片预览画布；拖拽添加黑色遮挡或裁剪"
-      @pointerdown="startDraw" @pointermove="moveDraw"
-      @pointerup="endDraw" @pointercancel="cancelDraw" />
+    <div class="image-scroll">
+      <canvas v-show="ready" ref="previewCanvas" class="image-preview"
+        aria-label="本地图片预览画布；拖拽添加黑色遮挡或裁剪"
+        @pointerdown="startDraw" @pointermove="moveDraw"
+        @pointerup="endDraw" @pointercancel="cancelDraw" />
+    </div>
     <p v-if="!ready && !error" class="hint">正在本机读取图片…</p>
     <p v-if="error" class="editor-error" role="alert">{{ error }}</p>
     <p class="hint">
@@ -248,8 +250,11 @@ async function confirm() {
 .editor-controls button:disabled,.editor-actions button:disabled{opacity:.5;cursor:not-allowed}
 .editor-actions{justify-content:flex-end}
 .editor-actions .primary{background:#1d4ed8;color:#fff;border-color:#1d4ed8}
-.image-preview{display:block;width:100%;max-height:min(56vh,620px);height:auto;object-fit:contain;
-  border-radius:10px;border:1px solid var(--el-border-color,#ddd);cursor:crosshair;touch-action:none;
-  background:#fff}
+.image-scroll{max-height:min(56vh,620px);overflow:auto;border-radius:10px;
+  border:1px solid var(--el-border-color,#ddd)}
+/* Do not object-fit or max-height the canvas itself: getBoundingClientRect()
+   must exactly match the drawn pixels for touch/mouse redaction coordinates. */
+.image-preview{display:block;width:100%;max-width:1100px;height:auto;cursor:crosshair;
+  touch-action:none;background:#fff}
 .editor-error{margin:0;color:var(--el-color-danger,#d33);font-size:13px}
 </style>
