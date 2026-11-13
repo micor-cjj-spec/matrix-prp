@@ -54,6 +54,30 @@ function validRect(r: PhotoRect): boolean {
  * Shared by the preview and the file encoder; crop drops pixels outside the
  * selected region, and masks replace pixels with solid BLACK, not blur.
  */
+/**
+ * When cropping after masking, transform the still-visible portions of all
+ * existing masks into the newly cropped image. Never silently drop protection.
+ */
+export function remapPrivateMealMasks(crop: PhotoRect, masks: readonly PhotoRect[]): PhotoRect[] {
+  if (!validRect(crop) || masks.length > 40 || masks.some(m => !validRect(m)))
+    throw new Error('图片裁剪或遮挡区域无效')
+  const mapped: PhotoRect[] = []
+  for (const mask of masks) {
+    const left = Math.max(crop.x, mask.x)
+    const top = Math.max(crop.y, mask.y)
+    const right = Math.min(crop.x + crop.width, mask.x + mask.width)
+    const bottom = Math.min(crop.y + crop.height, mask.y + mask.height)
+    if (right <= left || bottom <= top) continue
+    mapped.push({
+      x: Math.max(0, (left - crop.x) / crop.width),
+      y: Math.max(0, (top - crop.y) / crop.height),
+      width: (right - left) / crop.width,
+      height: (bottom - top) / crop.height,
+    })
+  }
+  return mapped
+}
+
 export function paintPrivateMealPhoto(
   context: PrivacyCanvas, image: CanvasImageSource,
   sourceWidth: number, sourceHeight: number,
@@ -70,9 +94,15 @@ export function paintPrivateMealPhoto(
     crop.width * sourceWidth, crop.height * sourceHeight,
     0, 0, width, height)
   context.fillStyle = '#000000'
-  for (const mask of masks)
-    context.fillRect(mask.x * width, mask.y * height,
-      mask.width * width, mask.height * height)
+  for (const mask of masks) {
+    // Snap outward to whole pixels and pad two pixels to survive resizing and
+    // JPEG ringing at the edges: NEVER blur or partially cover private text.
+    const x1 = Math.max(0, Math.floor(mask.x * width) - 2)
+    const y1 = Math.max(0, Math.floor(mask.y * height) - 2)
+    const x2 = Math.min(width, Math.ceil((mask.x + mask.width) * width) + 2)
+    const y2 = Math.min(height, Math.ceil((mask.y + mask.height) * height) + 2)
+    context.fillRect(x1, y1, x2 - x1, y2 - y1)
+  }
 }
 
 export interface PreparedMealPhoto { file: File; compressed: boolean; originalBytes: number }
