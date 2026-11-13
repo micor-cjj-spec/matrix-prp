@@ -14,6 +14,7 @@ import {
   type TaskSummary,
 } from '@/api/tasks'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { loadTaskResources } from '@/utils/taskLoading'
 import { moduleLabel, priorityLabel } from '@/utils/labels'
 import {
   filterAndRankTasks, getNextTask, taskProgress, moduleTaskProgress, type TaskSortOrder,
@@ -112,14 +113,10 @@ const editForm = reactive({
 async function loadTasks() {
   loading.value = true
   try {
-    const [taskResult, summaryResult, moduleResult] = await Promise.allSettled([
-      fetchTasks(),
-      fetchTaskSummary(),
-      fetchDomainModules(),
-    ])
-    // Task data is required; summaries and module metadata are independent extras.
-    if (taskResult.status === 'rejected') throw taskResult.reason
-    tasks.value = taskResult.value
+    const { taskItems, summaryResult, moduleResult } = await loadTaskResources(
+      fetchTasks, fetchTaskSummary, fetchDomainModules,
+    )
+    tasks.value = taskItems
     apiOnline.value = true
 
     if (summaryResult.status === 'fulfilled') {
