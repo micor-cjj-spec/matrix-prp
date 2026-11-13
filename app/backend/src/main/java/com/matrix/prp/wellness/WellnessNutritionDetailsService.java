@@ -111,11 +111,16 @@ public class WellnessNutritionDetailsService {
                 "WHERE m.id=? AND m.user_id=? ORDER BY i.id",
                 this::mapNutrients, mealId, owner);
 
+        // Prefer the existing confirmed snapshot, then any separately
+        // validated enrichment. Count each food item once, not each version.
+        java.util.Map<Long, ItemNutrients> byItem = new java.util.HashMap<>();
+        for (ItemNutrients nutrient : nutrients) byItem.put(nutrient.mealItemId(), nutrient);
         int protein = 0, carbs = 0, fat = 0;
         for (MealItem item : meal.items()) {
-            if (item.proteinG() != null) protein++;
-            if (item.carbsG() != null) carbs++;
-            if (item.fatG() != null) fat++;
+            ItemNutrients extra = byItem.get(item.id());
+            if (item.proteinG() != null || extra != null && extra.proteinG() != null) protein++;
+            if (item.carbsG() != null || extra != null && extra.carbsG() != null) carbs++;
+            if (item.fatG() != null || extra != null && extra.fatG() != null) fat++;
         }
         return new MealDetails(meal, analyses, nutrients,
                 new NutritionCompleteness(meal.items().size(), protein, carbs, fat));
