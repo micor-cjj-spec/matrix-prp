@@ -36,7 +36,8 @@ test('display redacts claims, request history and notes, escapes Markdown and HT
 })
 test('board shows immediately claimable tasks without treating dependency-blocked items as ready', () => {
   const b = renderBoard(state())
-  assert.match(b, /Claimable now: \\*\\*1\\*\\* · T-002/)
+  assert.ok(b.includes('Claimable now: **1** · T-002'))
+  assert.ok(b.includes('T-003'))
   assert.match(b, /T-003.*WAITING/)
 })
 test('board labels do not activate Markdown links, images, mentions or autolinks', () => {
@@ -44,12 +45,16 @@ test('board labels do not activate Markdown links, images, mentions or autolinks
   s.title = '[click](https://example.invalid/tracker) @all'
   s.tasks[1].title = '![pixel](https://example.invalid/pixel) ~~done~~ *urgent* www.example.invalid'
   const b = renderBoard(s)
-  assert.doesNotMatch(b, /!\\[pixel\\]|\\[click\\]\\(|@all|https:\\/\\/example|www\\.example/)
-  assert.match(b, /&#91;click&#93;&#40;https&#58;\\/\\/example/)
-  assert.match(b, /&#33;&#91;pixel&#93;&#40;https&#58;\\/\\/example/)
-  assert.match(b, /&#64;all/)
-  assert.match(b, /&#126;&#126;done&#126;&#126;/)
-  assert.match(b, /www&#46;example/)
+  assert.equal(b.includes('![pixel]'), false)
+  assert.equal(b.includes('[click]('), false)
+  assert.equal(b.includes('@all'), false)
+  assert.equal(b.includes('https://example.invalid'), false)
+  assert.equal(b.includes('www.example.invalid'), false)
+  assert.ok(b.includes('&#91;click&#93;&#40;https&#58;//example.invalid'))
+  assert.ok(b.includes('&#33;&#91;pixel&#93;&#40;https&#58;//example.invalid'))
+  assert.ok(b.includes('&#64;all'))
+  assert.ok(b.includes('&#126;&#126;done&#126;&#126;'))
+  assert.ok(b.includes('www&#46;example.invalid'))
 })
 test('invalid snapshot or source SHA cannot render an apparently reliable board', () => {
   const s=state()
