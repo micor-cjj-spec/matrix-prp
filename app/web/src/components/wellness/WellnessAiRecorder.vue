@@ -4,7 +4,8 @@ import { ElMessage } from 'element-plus'
 import { apiClient, type ApiResponse } from '@/api/client'
 import { wellnessApi, type Food } from '@/api/wellness'
 import { cloneJson } from '@/utils/cloneJson'
-import { prepareMealPhoto, photoSizeLabel } from '@/utils/mealPhoto'
+import { photoSizeLabel } from '@/utils/mealPhoto'
+import MealPhotoPrivacyEditor from '@/components/wellness/MealPhotoPrivacyEditor.vue'
 import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 type Action = 'meal.create' | 'exercise.create' | 'metric.create'
 type Item = {
@@ -38,28 +39,31 @@ watch(() => props.initialText, value => {
   }
 }, { immediate: true })
 const preparingPhoto = ref(false)
-let photoSelectionVersion = 0
-async function fileChanged(e: Event) {
+const photoPrivacyOpen = ref(false)
+const photoSource = ref<File | null>(null)
+function fileChanged(e: Event) {
   const inputElement = e.target as HTMLInputElement
   const source = inputElement.files?.[0]
   inputElement.value = ''
   if (!source) return
-  const version = ++photoSelectionVersion
+  // Raw bytes are never put into the upload-ready file ref.
   file.value = null; draft.value = null
+  photoSource.value = source
+  photoPrivacyOpen.value = true
   preparingPhoto.value = true
-  try {
-    const result = await prepareMealPhoto(source)
-    if (version !== photoSelectionVersion) return
-    file.value = result.file
-    if (result.compressed)
-      ElMessage.success('照片已在本机重新编码并移除元数据：' + photoSizeLabel(result.originalBytes) +
-        ' → ' + photoSizeLabel(result.file.size))
-  } catch (error) {
-    if (version === photoSelectionVersion)
-      ElMessage.warning(error instanceof Error ? error.message : '照片处理失败，请重新选择')
-  } finally {
-    if (version === photoSelectionVersion) preparingPhoto.value = false
-  }
+}
+function photoPrepared(redacted: File) {
+  if (!photoSource.value) return
+  file.value = redacted
+  photoSource.value = null
+  photoPrivacyOpen.value = false
+  preparingPhoto.value = false
+  ElMessage.success('已在本机裁剪/遮挡并重新编码，仅使用处理后的图片：' + photoSizeLabel(redacted.size))
+}
+function photoReviewCanceled() {
+  photoSource.value = null
+  photoPrivacyOpen.value = false
+  preparingPhoto.value = false
 }
 async function findFoods(query: string) {
   if (!query.trim()) return
@@ -167,9 +171,9 @@ async function save() {
       <label>📷 餐食照片 <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" @change="fileChanged" /></label>
       <button :disabled="busy || confirming || preparingPhoto || (!text.trim() && !file)" @click="plan">{{ preparingPhoto ? '照片压缩中…' : busy ? '识别中…' : 'AI 生成草稿' }}</button>
     </div>
-    <small v-if="preparingPhoto" role="status">正在本机处理照片，请稍候…</small>
+    <small v-if="preparingPhoto" role="status">图片待本地检查，确认后才可交给 AI 识别。</small>
     <small v-if="file">选中图片：{{ file.name }}（{{ photoSizeLabel(file.size) }}）</small>
-    <p class="capture-note">上传外卖截图前，请在相册中遮挡姓名、电话、收货地址、订单号及支付信息。图片在本机去除元数据后发送给所选 AI 服务商，PRP 不保存原图；仅确认后的饮食数据参与统计。AI 服务商的数据处理规则请参考其隐私条款。</p>
+    <p class="capture-note">每张图片都需要先在本机检查；可裁剪和用实心黑块遮挡收货信息。仅处理后的图片可进入 AI 草稿识别，PRP 不保存原图。黑块遮挡不是自动识别隐私文字。</p>
     <p v-if="error" role="alert" class="capture-error">{{ error }}</p>
     <div v-if="draft" class="capture-draft">
       <strong>{{ draft.description }}</strong>
@@ -242,6 +246,12 @@ async function save() {
       </div>
     </div>
     </template>
+    <el-dialog v-model="photoPrivacyOpen" title="本地检查餐食图片隐私" append-to-body
+      :width="'min(96vw,900px)'" :close-on-click-modal="false" destroy-on-close
+      @close="photoReviewCanceled">
+      <MealPhotoPrivacyEditor v-if="photoSource" :source="photoSource"
+        @prepared="photoPrepared" @cancel="photoReviewCanceled" />
+    </el-dialog>
     <router-link v-if="done" :to="done">✅ 已完成，打开当天健康中心 →</router-link>
   </section>
 </template>
