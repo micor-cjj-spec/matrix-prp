@@ -8,6 +8,11 @@
       "reason": "Secret management is reserved for interactive settings UI"
     },
     {
+      "route": "DELETE /api/goals/{id}",
+      "status": "excluded",
+      "reason": "Goal deletion soft-deletes the owned goal and invalidates dependent assertions; excluded from model-facing tools pending separately approved T-006 write drafts."
+    },
+    {
       "route": "DELETE /api/push/subscriptions/{id}",
       "status": "excluded",
       "reason": "Push device removal requires interactive device management"
@@ -52,6 +57,21 @@
       "status": "partial",
       "tool": "prp_finance_month",
       "reason": "MCP returns only first 10 transactions for selected month"
+    },
+    {
+      "route": "GET /api/goals",
+      "status": "excluded",
+      "reason": "Goal listing needs an explicit prp.goals.read scope and owner-only tool; excluded from the initial first-party REST MVP until T-006 tests and OAuth allowlist are reviewed."
+    },
+    {
+      "route": "GET /api/goals/{id}",
+      "status": "excluded",
+      "reason": "Goal detail may contain private career/learning targets; require prp.goals.read and T-006 end-to-end tool authorization before MCP exposure."
+    },
+    {
+      "route": "GET /api/goals/{id}/context",
+      "status": "excluded",
+      "reason": "Goal context includes personal memory relationship evidence; new MCP retrieval must separately authorize goal scope and memory-source scope under T-006."
     },
     {
       "route": "GET /api/health",
@@ -155,6 +175,11 @@
       "reason": "Read daily structured summary"
     },
     {
+      "route": "PATCH /api/goals/{id}/status",
+      "status": "excluded",
+      "reason": "Goal lifecycle mutations require owner confirmation and transition checks; no automatic MCP write until an immutable approval draft and T-006 scope are reviewed."
+    },
+    {
       "route": "PATCH /api/tasks/{id}/status",
       "status": "partial",
       "tool": "prp_prepare_task_update",
@@ -200,6 +225,11 @@
       "status": "mapped",
       "tool": "prp_prepare_finance",
       "reason": "Finance transaction is a draft requiring explicit owner approval"
+    },
+    {
+      "route": "POST /api/goals",
+      "status": "excluded",
+      "reason": "Goal creation changes the user's plan; initial route is first-party only, with any MCP write requiring a separately approved user-confirmed draft in T-006."
     },
     {
       "route": "POST /api/mcp/approval/drafts/{id}/approve",
