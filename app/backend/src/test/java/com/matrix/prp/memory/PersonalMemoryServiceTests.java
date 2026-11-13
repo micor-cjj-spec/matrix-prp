@@ -2,7 +2,8 @@ package com.matrix.prp.memory;
 
 import static com.matrix.prp.ontology.PersonalOntology.NodeType.*;
 import static com.matrix.prp.ontology.PersonalOntology.Relation.*;
-import static com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.*;
+import static com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.USER_INPUT;
+import com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -44,7 +45,7 @@ class PersonalMemoryServiceTests {
     @Test void crossUserEvidenceAndEndpointsUseReferenceGuardBeforeDatabaseWrite() {
         user(7);
         var proposed=new PersonalMemoryService.Proposed(
-            PERSON,"7",HAS_EVENT_RECORD,RECORD,"99",null,RECORD,"99",
+            PERSON,"7",HAS_EVENT_RECORD,RECORD,"99",null,EvidenceSource.RECORD,"99",
             null,null,"memory_req_0002");
         doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND))
             .when(references).requireOwned(RECORD,"99");
