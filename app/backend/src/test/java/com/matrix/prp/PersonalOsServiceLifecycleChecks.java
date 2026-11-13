@@ -74,6 +74,8 @@ final class PersonalOsServiceLifecycleChecks {
             memories.confirm(restricted.id());
             assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
                 .doesNotContain(restricted.id());
+            assertThat(memories.listPrivate()).extracting(PersonalMemoryService.Memory::id)
+                .contains(restricted.id());
 
             PersonalMemoryService.Proposed initial = new PersonalMemoryService.Proposed(
                 PERSON, "970001", DECLARES_SKILL, LITERAL, null, "Synthetic Java skill",
@@ -87,6 +89,8 @@ final class PersonalOsServiceLifecycleChecks {
             assertThat(memories.confirm(first.id()).status()).isEqualTo("CONFIRMED");
             assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
                 .contains(first.id());
+            assertThat(memories.listPrivate()).extracting(PersonalMemoryService.Memory::id)
+                .doesNotContain(first.id());
 
             // Revision must preserve subject+predicate, and is not live until confirmed.
             var revision = memories.proposeReplacement(first.id(),
@@ -143,6 +147,8 @@ final class PersonalOsServiceLifecycleChecks {
                 .doesNotContain(revision.id());
 
             authenticate(970002, "personal_os_ci_b");
+            assertThat(memories.listPrivate()).extracting(PersonalMemoryService.Memory::id)
+                .doesNotContain(restricted.id());
             assertHttp(HttpStatus.NOT_FOUND, () -> goals.get(goal.id()));
             assertHttp(HttpStatus.NOT_FOUND, () -> memories.get(restricted.id()));
             assertHttp(HttpStatus.NOT_FOUND, () -> memories.erase(restricted.id()));
