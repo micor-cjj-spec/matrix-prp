@@ -77,6 +77,16 @@
       "tables": [
         "prp_mcp_oidc_link_flows"
       ]
+    },
+    {
+      "version": 30,
+      "file": "V30__wellness_analysis_details.sql",
+      "sha256": "e850188272319500407134e02141dee9a15b47c3c781896dfa9e013b3ca73f95",
+      "mode": "create-empty",
+      "tables": [
+        "prp_wellness_meal_analyses",
+        "prp_wellness_meal_item_nutrients"
+      ]
     }
   ]
 }

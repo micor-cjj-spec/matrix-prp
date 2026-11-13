@@ -2,6 +2,7 @@
 from contextlib import redirect_stdout
 from io import StringIO
 import json
+import hashlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -48,6 +49,46 @@ class ReviewOnlyJarSqlTests(unittest.TestCase):
                 exit_code = m.main(["--jar", str(jar), "--source", str(source)])
             self.assertEqual(exit_code, 4)
             self.assertNotIn(str(root), sink.getvalue())
+
+    def test_v30_requires_exact_create_empty_policy_and_is_never_approval(self):
+        with TemporaryDirectory() as d:
+            root = Path(d)
+            source, sql = self.setup_fixture(root)
+            future_name = "V30__new_table.sql"
+            future_sql = b"CREATE TABLE prp_ci_new (id BIGINT PRIMARY KEY);\\n"
+            sql[future_name] = future_sql
+            (source / future_name).write_bytes(future_sql)
+            jar = root / "candidate.jar"
+            self.create_jar(jar, sql)
+            policy = root / "migration-policy.json"
+            rule = {"schema_version": 1, "rules": [{
+                "version": 30,
+                "file": future_name,
+                "mode": "create-empty",
+                "sha256": hashlib.sha256(future_sql).hexdigest(),
+                "tables": ["prp_ci_new"],
+            }]}
+            policy.write_text(json.dumps(rule), encoding="utf-8")
+            result = m.validate(jar, source, policy)
+            self.assertEqual(result["decision"],
+                "CANDIDATE_JAR_SOURCE_MIGRATIONS_IDENTICAL_REVIEW_ONLY")
+            self.assertEqual(result["source_migrations"], 30)
+            self.assertEqual(result["jar_migrations"], 30)
+            self.assertEqual(result["reviewed_future_versions"], [30])
+            self.assertIs(result["deployment_permitted"], False)
+
+            rule["rules"][0]["sha256"] = "0" * 64
+            policy.write_text(json.dumps(rule), encoding="utf-8")
+            self.assertEqual(m.validate(jar, source, policy)["reason"],
+                             "FUTURE_MIGRATION_POLICY_DIGEST_DRIFT")
+            rule["rules"][0]["sha256"] = hashlib.sha256(future_sql).hexdigest()
+            rule["rules"][0]["mode"] = "alter-data"
+            policy.write_text(json.dumps(rule), encoding="utf-8")
+            self.assertEqual(m.validate(jar, source, policy)["reason"],
+                             "FUTURE_MIGRATION_NOT_CREATE_EMPTY")
+            policy.unlink()
+            self.assertEqual(m.validate(jar, source, policy)["reason"],
+                             "FUTURE_MIGRATION_POLICY_UNTRUSTED")
 
     def test_one_byte_change_is_blocked(self):
         with TemporaryDirectory() as d:

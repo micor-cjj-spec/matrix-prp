@@ -315,6 +315,17 @@ public class WellnessAiDraftService {
             reconcileExplicitIngredients(verified,input);
             applyUserCalorieEstimate(verified,input);
         }
+        if ("meal.create".equals(action)) {
+            // Do not persist free-form vision notes; a screenshot may contain
+            // personal delivery details that the model copied into prose.
+            if (bytes != null) verified.put("note",
+                "图片辅助识别；已核对的食用量和热量以最终确认记录为准");
+            // Immutable allowlisted initial interpretation only. SourceContext
+            // label values remain unverified candidates, never daily totals.
+            verified.put("_initialExtraction",
+                WellnessNutritionEvidence.initialSnapshot(verified,
+                    output.path("sourceContext"),bytes!=null));
+        }
         String description=description(action,verified);
         String id=UUID.randomUUID().toString();
         LocalDateTime expiry=LocalDateTime.now().plusMinutes(15);
@@ -415,6 +426,13 @@ public class WellnessAiDraftService {
                 "只能创建三种记录: meal.create、exercise.create、metric.create。"+
                 "JSON meal.create: {action, date:yyyy-MM-dd, mealType:BREAKFAST/LUNCH/DINNER/SNACK, "+
                 "items:[{name:食物中文名称,grams:克数}],note:备注}；"+
+                "如提供图片，可选输出 sourceContext:{kind:FOOD_PHOTO/ORDER_SCREENSHOT/NUTRITION_LABEL,"+
+                "merchantName:商家名,lineItems:[{name:菜品名称,purchasedQuantity:订单购买份数,"+
+                "portionLabel:包装规格,packageGrams:包装净含量克数,"+
+                "labelPer100g:{caloriesKcal,proteinG,carbsG,fatG,sugarG,fiberG,sodiumMg}}]}。"+
+                "只填写图片中可直接辨认的信息，订单购买份数与实际吃下份数是两回事；"+
+                "包装营养标签必须确认每100克而不是每份，无法确定或看不清就不提供该字段。"+
+                "不要输出OCR全文、订单号、地址、收货人、电话、支付账号或图片内容的Base64。"+
                 "exercise.create: {action,date,name,durationMinutes,estimatedKcal,note}；"+
                 "metric.create: {action,date,weightKg,bodyFatPct,waistCm}。"+
                 "若日期未指定用"+today()+"。餐次类型按时间与语义判断；文字只有数量时，只有常见明确份量可保守换算：鸡蛋可食部约50g/个、全麦面包约30g/片、牛奶约1g/ml；请在note明确写估算及份量，其他未知克重输出0不可伪造；照片可粗略估量分量（克）但务必提示用户核对，"+
@@ -598,6 +616,8 @@ public class WellnessAiDraftService {
                 for(JsonNode item:items){
                     String name=item.path("name").asText("").trim();
                     if(name.isBlank()||name.length()>120)throw invalid("Food name missing");
+                    if(!name.equals(WellnessNutritionEvidence.safeFoodName(name)))
+                        throw invalid("食物名称包含疑似收货信息或订单隐私，请遮挡后重试");
                     BigDecimal grams=decimal(item,"grams",false);
                     if(grams==null)grams=BigDecimal.ZERO;
                     if(grams.compareTo(BigDecimal.valueOf(3000))>0)
@@ -718,7 +738,7 @@ public class WellnessAiDraftService {
         if(changes==null||!changes.isObject()||changes.toString().length()>5000)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid draft corrections");
         List<Map<String,Object>> rows=db.queryForList(
-            "SELECT action_type,status,expires_at,model_used FROM prp_wellness_ai_drafts " +
+            "SELECT action_type,status,expires_at,model_used,payload_json FROM prp_wellness_ai_drafts " +
             "WHERE id=? AND user_id=? FOR UPDATE",draftId,user);
         if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Draft not found");
         var row=rows.get(0);
@@ -728,6 +748,20 @@ public class WellnessAiDraftService {
         String action=String.valueOf(row.get("action_type"));
         var safe=((com.fasterxml.jackson.databind.node.ObjectNode)changes.deepCopy()).put("action",action);
         Map<String,Object> checked=verify(safe,true);
+        if ("meal.create".equals(action)) {
+            // Edits may adjust confirmed food amounts, not rewrite initial AI evidence.
+            try {
+                JsonNode previous=json.readTree(String.valueOf(row.get("payload_json")));
+                JsonNode first=previous.path("_initialExtraction");
+                if (first.isObject()) {
+                    checked.put("_initialExtraction",
+                        json.convertValue(first,Map.class));
+                }
+            } catch(com.fasterxml.jackson.core.JsonProcessingException ex) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Original AI draft could not be verified");
+            }
+        }
         String description=description(action,checked);
         try {
             int updated=db.update("UPDATE prp_wellness_ai_drafts SET payload_json=?,description=? " +
@@ -746,7 +780,7 @@ public class WellnessAiDraftService {
         if(draftId==null||!draftId.matches("[0-9a-fA-F-]{36}"))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid draft");
         List<Map<String,Object>> rows=db.queryForList(
-            "SELECT action_type,payload_json,status,expires_at FROM prp_wellness_ai_drafts "+
+            "SELECT action_type,payload_json,status,expires_at,model_used FROM prp_wellness_ai_drafts "+
             "WHERE id=? AND user_id=? FOR UPDATE",draftId,user);
         if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Draft not found");
         Map<String,Object> row=rows.get(0);
@@ -964,6 +998,13 @@ public class WellnessAiDraftService {
                         waist.isBlank()?null:new BigDecimal(waist)));
                 }
                 default -> throw invalid("Invalid draft action");
+            }
+            // Persist confirmed meal and structured evidence in the SAME transaction.
+            // Legacy drafts without an initial extraction remain compatible.
+            if ("meal.create".equals(action) && saved instanceof Meal meal) {
+                WellnessNutritionEvidence.saveConfirmed(db,json,meal,
+                    data.path("_initialExtraction"),
+                    row.get("model_used")==null?null:String.valueOf(row.get("model_used")));
             }
             // New action links always target the actual rows. Same transaction as the write
             // and CONSUMED transition; uncertain responses can be inspected safely later.

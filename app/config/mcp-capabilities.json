@@ -84,6 +84,36 @@
       "reason": "Identity linking status is sensitive control-plane state"
     },
     {
+      "route": "GET /api/practice/banks/{bankId}/play",
+      "status": "partial",
+      "tool": "prp_practice_questions",
+      "reason": "MCP returns at most 10 published questions with bounded previews, never full text when truncated; correct answers remain hidden"
+    },
+    {
+      "route": "GET /api/practice/statistics",
+      "status": "mapped",
+      "tool": "prp_practice_statistics",
+      "reason": "Shared PracticeService.statistics result scoped to authenticated owner, same fields as REST"
+    },
+    {
+      "route": "GET /api/practice/subjects",
+      "status": "partial",
+      "tool": "prp_practice_subjects",
+      "reason": "MCP retrieves at most 50 of the same owner-scoped subjects; REST allows unrestricted list"
+    },
+    {
+      "route": "GET /api/practice/subjects/{subjectId}/banks",
+      "status": "partial",
+      "tool": "prp_practice_banks",
+      "reason": "MCP limits the owned subject's bank list to 30; REST returns full list"
+    },
+    {
+      "route": "GET /api/practice/wrong-questions",
+      "status": "partial",
+      "tool": "prp_practice_wrong_questions",
+      "reason": "MCP returns at most 10 latest incorrect published questions with bounded previews, compared with up to 100 in REST"
+    },
+    {
       "route": "GET /api/push/subscriptions",
       "status": "excluded",
       "reason": "Device push endpoints are sensitive connection metadata"
@@ -172,6 +202,11 @@
       "status": "partial",
       "tool": "prp_wellness_list",
       "reason": "MCP meal list is limited to 50 records"
+    },
+    {
+      "route": "GET /api/wellness/meals/{id}/analysis",
+      "status": "excluded",
+      "reason": "Owner-scoped extraction text: first-party details only, pending separately reviewed MCP projection and scope tests"
     },
     {
       "route": "GET /api/wellness/summary/daily",
