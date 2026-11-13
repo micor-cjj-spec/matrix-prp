@@ -25,6 +25,11 @@ public final class GoalController {
     public ApiResponse<GoalService.Goal> create(@RequestBody GoalService.Create request) {
         return ApiResponse.success(service.create(request));
     }
+    @PutMapping("/{id}")
+    public ApiResponse<GoalService.Goal> revise(
+        @PathVariable long id, @RequestBody GoalService.Revision request) {
+        return ApiResponse.success(service.revise(id, request));
+    }
     @PatchMapping("/{id}/status")
     public ApiResponse<GoalService.Goal> status(@PathVariable long id, @RequestParam String status) {
         return ApiResponse.success(service.changeStatus(id, status));
