@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { loadTaskResources } from '../src/utils/taskLoading.ts'
 import assert from 'node:assert/strict'
 import {
   filterAndRankTasks, getNextTask, taskProgress, moduleTaskProgress,
@@ -55,4 +56,49 @@ test('module progress is scoped to task records, excluding canceled tasks', () =
   assert.deepEqual(moduleTaskProgress(sample).map(m=>[m.moduleCode,m.total,m.done,m.inProgress]),[
     ['work',5,1,1],['learning',1,0,0],
   ])
+})
+
+test('task view resource loader preserves tasks when optional summary request fails', async () => {
+  const tasks = [mk(1)]
+  const modules = [{ code: 'work', name: '工作' }]
+  const result = await loadTaskResources(
+    async () => tasks,
+    async () => { throw new Error('summary service unavailable') },
+    async () => modules,
+  )
+  assert.deepEqual(result.taskItems, tasks)
+  assert.equal(result.summaryResult.status, 'rejected')
+  assert.deepEqual(result.moduleResult, { status: 'fulfilled', value: modules })
+})
+
+test('task view resource loader preserves tasks when optional module request fails', async () => {
+  const tasks = [mk(2)]
+  const summary = { openCount: 1 }
+  const result = await loadTaskResources(
+    async () => tasks,
+    async () => summary,
+    async () => { throw new Error('module directory unavailable') },
+  )
+  assert.deepEqual(result.taskItems, tasks)
+  assert.deepEqual(result.summaryResult, { status: 'fulfilled', value: summary })
+  assert.equal(result.moduleResult.status, 'rejected')
+})
+
+test('task view resource loader tolerates simultaneous optional failures', async () => {
+  const result = await loadTaskResources(
+    async () => [mk(3)],
+    async () => { throw new Error('summary unavailable') },
+    async () => { throw new Error('modules unavailable') },
+  )
+  assert.equal(result.taskItems.length, 1)
+  assert.equal(result.summaryResult.status, 'rejected')
+  assert.equal(result.moduleResult.status, 'rejected')
+})
+
+test('task view resource loader rejects when the task list itself fails', async () => {
+  await assert.rejects(loadTaskResources(
+    async () => { throw new Error('task API unavailable') },
+    async () => ({ openCount: 0 }),
+    async () => [{ code: 'work' }],
+  ), /task API unavailable/)
 })
