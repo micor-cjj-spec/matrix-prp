@@ -100,6 +100,12 @@
       "reason": "MCP list is capped at 20 tasks and supports narrower filtering than REST"
     },
     {
+      "route": "GET /api/tasks/summary",
+      "status": "mapped",
+      "tool": "prp_tasks_summary",
+      "reason": "Shared TaskService.summary, same per-owner aggregate as REST"
+    },
+    {
       "route": "GET /api/video/items/{id}/playback",
       "status": "excluded",
       "reason": "Playback credentials or ticket material must not be returned to models"
@@ -126,6 +132,12 @@
       "reason": "MCP body metric list supports 1-90 days, maximum 50 records"
     },
     {
+      "route": "GET /api/wellness/dishes",
+      "status": "partial",
+      "tool": "prp_wellness_dishes",
+      "reason": "MCP returns only first 20 dish templates; REST can return up to 100"
+    },
+    {
       "route": "GET /api/wellness/exercises",
       "status": "partial",
       "tool": "prp_wellness_list",
@@ -138,6 +150,18 @@
       "reason": "MCP requires query and limits results to 30"
     },
     {
+      "route": "GET /api/wellness/foods/frequent",
+      "status": "mapped",
+      "tool": "prp_wellness_frequent_foods",
+      "reason": "Shared WellnessService.frequentFoods, naturally at most 12 items"
+    },
+    {
+      "route": "GET /api/wellness/goals",
+      "status": "partial",
+      "tool": "prp_wellness_goals",
+      "reason": "MCP exposes only the latest 20 goals; REST may return all historical goals"
+    },
+    {
       "route": "GET /api/wellness/meals",
       "status": "partial",
       "tool": "prp_wellness_list",
@@ -148,6 +172,12 @@
       "status": "mapped",
       "tool": "prp_wellness_daily",
       "reason": "Read daily structured summary"
+    },
+    {
+      "route": "GET /api/wellness/summary/trends",
+      "status": "mapped",
+      "tool": "prp_wellness_trends",
+      "reason": "Same WellnessService.trends with same 1-90 day bound"
     },
     {
       "route": "PATCH /api/tasks/{id}/status",

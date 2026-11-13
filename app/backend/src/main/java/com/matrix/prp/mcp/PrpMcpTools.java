@@ -261,6 +261,41 @@ public class PrpMcpTools {
         return drafts.approveFromChatgptUi(draftId, decision);
     }
 
+    // Phase 2 read-only capabilities are opt-in at the registry boundary.
+    // Never directly expose these based on OAuth scope alone in existing deployments.
+    @McpTool(name="prp_tasks_summary", description="Read only your own task summary counts. No tasks or other-user data are exposed.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object tasksSummary() {
+        scopes.require("prp.tasks.read");
+        return tasks.summary();
+    }
+
+    @McpTool(name="prp_wellness_trends", description="Read 1-90 days of your personal daily health trends. At most 90 points. Never reads another account.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object wellnessTrends(@McpToolParam(description="Number of days, 1-90; defaults to 30", required=false) Integer days) {
+        scopes.require("prp.wellness.read");
+        int selected = days == null ? 30 : days;
+        if (selected < 1 || selected > 90) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Days must be 1-90");
+        return wellness.trends(selected);
+    }
+
+    @McpTool(name="prp_wellness_goals", description="Read up to 20 of your latest health goals, newest first. Older goals beyond the limit are omitted.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object wellnessGoals() {
+        scopes.require("prp.wellness.read");
+        return wellness.goals().stream().limit(20).toList();
+    }
+
+    @McpTool(name="prp_wellness_frequent_foods", description="Read up to 12 of your frequently eaten food references. Read only, owner-scoped.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object wellnessFrequentFoods() {
+        scopes.require("prp.wellness.read");
+        return wellness.frequentFoods().stream().limit(12).toList();
+    }
+
+    @McpTool(name="prp_wellness_dishes", description="Search up to 20 of your own reusable personal dish templates. No cross-user or public catalog writes.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))
+    public Object wellnessDishes(@McpToolParam(description="Optional dish or merchant name, maximum 100 characters", required=false) String query) {
+        scopes.require("prp.wellness.read");
+        if (query != null && query.length() > 100) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Query too long");
+        return wellness.dishTemplates(query).stream().limit(20).toList();
+    }
+
     private static LocalDate optionalDate(String value) {
         return value == null || value.isBlank() ? null : localDate(value);
     }

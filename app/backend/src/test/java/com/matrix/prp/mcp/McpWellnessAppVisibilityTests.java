@@ -27,7 +27,7 @@ class McpWellnessAppVisibilityTests {
         when(grants.getObject()).thenReturn(mock(McpClientGrantService.class));
         return new McpToolConfiguration().prpMcpSpecifications(
             tools, mock(McpScopeGuard.class), grants, drafts,
-            "https://micor.top/api/mcp", true, SCOPES, true, uiEnabled);
+            "https://micor.top/api/mcp", true, SCOPES, true, uiEnabled, false);
     }
 
     @Test void appOnlyApprovalIsAbsentWhenDisabled() {

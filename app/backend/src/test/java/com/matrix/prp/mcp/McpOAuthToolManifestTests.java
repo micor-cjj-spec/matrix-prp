@@ -38,6 +38,19 @@ class McpOAuthToolManifestTests {
     }
 
     @Test
+    void phaseTwoReadCapabilitiesAreExplicitOptInOnly() {
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read,prp.wellness.read", false))
+            .doesNotContain("prp_tasks_summary", "prp_wellness_trends", "prp_wellness_goals",
+                "prp_wellness_frequent_foods", "prp_wellness_dishes");
+        assertThat(McpToolConfiguration.exposedNames("prp.tasks.read", false, true))
+            .containsExactlyInAnyOrder("prp_tasks_list", "prp_task_get", "prp_tasks_summary");
+        assertThat(McpToolConfiguration.exposedNames("prp.wellness.read", false, true))
+            .containsExactlyInAnyOrder("prp_wellness_daily", "prp_wellness_list",
+                "prp_wellness_get", "prp_wellness_foods", "prp_wellness_trends",
+                "prp_wellness_goals", "prp_wellness_frequent_foods", "prp_wellness_dishes");
+    }
+
+    @Test
     void unexpectedScopeNeverEnablesAnyMcpTool() {
         assertThatThrownBy(() -> McpToolConfiguration.exposedNames("*", true))
             .isInstanceOf(IllegalArgumentException.class);
