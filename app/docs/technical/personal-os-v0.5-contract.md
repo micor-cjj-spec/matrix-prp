@@ -91,22 +91,23 @@
 - T-005：仅对已授权、有效的声明建立 bounded context，不因关系存在而泄露被引用业务记录。
 - T-006：新增 MCP Scope 与受控工具契约需经过 OAuth 白名单和独立安全评审；写入沿用草稿审批，不直接调用修改 API。
 
-## 7. V30 迁移阻塞项（不能绕过）
+## 7. V30 增量迁移与保护门槛
 
-当前 main 到 V29，`app/deploy/migration-policy.json` 存储受哈希校验的 `create-empty` 迁移清单；
-`app/scripts/verify-db-migrations.mjs` 校验实际迁移文件集；
-`FlywayV28ToV29IT`、`IsolatedV28BackupRestoreMcpV29IT` 和部分 OCI 工具存在 V29 固定范围假设。
+Draft PR #190 已在**未合并的独立分支**增补 `V30__personal_os_goals_and_assertions.sql`。迁移仅创建两张空表，没有数据回填、触发器、ALTER 或生产执行路径。
+- SQL SHA-256（LF/UTF-8）：`e9da502ffef9bd8cf3fa4e6256658de078a610a5694270f1b9124238e00fab0b`
+- 对应 `app/deploy/migration-policy.json` 的 `create-empty` 规则，显式声明两张表。
+- 原 V1–V29 文件和哈希保持不变；旧的 V28→V29 合成测试固定 `target=29`，不会误执行 V30。
+- OCI 检验升级为严格验证 V1–V30 的完整连续版本集合及二进制字节一致性；不放宽额外文件/修改字节/重复 ZIP 条目的拒绝逻辑。
+- 历史生产元数据审查工具仍只认可 V24/V28/V29 的既定历史终态，**没有**将 V30 自动提升为历史生产验收许可。
+- CI Flyway 测试使用一次性合成用户、事务回滚，检查 V30 新表、所有者 FK、请求幂等键以及跨用户 `supersedes_id` 的复合外键拒绝。该测试不能替代真实恢复演练。
 
-**本 Draft PR 只提交可编译语义词汇、测试和审查契约；不创建可执行的 V30 迁移文件。**
-
-正式增加 V30 时必须在独立审查下：
-1. 重新确认最新 main 和所有开放 PR 的迁移版本；审查 CREATE-EMPTY 合法性。
-2. 创建 V30（仅新建两张空表），计算确切 SHA-256 并登记 policy；不得修改 V1–V29。
-3. 将历史 V28→V29 专项测试明确限定到目标 V29，而不是关闭测试或放宽安全断言。
-4. 评审 OCI/发布验证工具的版本约束，确保新 V30 校验可用且不削弱 V29 遗留安全验收。
-5. 在隔离 MySQL 上跑 Flyway fresh / V29→V30 / schema validate / rollback-readiness 和跨用户测试。
-6. CI 和安全审查通过后，仍不得据此直接迁移生产。
+需要独立完成的门禁：
+1. 检查所有实际开放 PR 和生产服务器状态是否有 V30 版本冲突；PR 创建时的 main 锚点为 `2b8ca609`。
+2. 运行 GitHub 全量 CI，包括迁移政策/控制器兼容性、V28→V29 历史验证、V30 CI MySQL、Docker OCI 验证。
+3. 补充单独的隔离 V29→V30 populated-data 证据，特别验证旧表主键/字段/行指纹保持不变。
+4. 实现业务层端点实体解析、当前用户所有权与 `LITERAL` 数据审查；数据库 FK 只保证 owner 和 supersedes 的部分约束，**不**自动保证 polymorphic object 引用的归属。
+5. 发布前需要独立授权的备份/恢复演练和生产检查。此 Draft PR 不构成 main 合并、发布或生产迁移批准。
 
 ## 8. T-001 完成门槛
 
-本阶段的词汇代码可以独立合并评审，但 **T-001 不得标记 DONE**，直到 V30 迁移、实体/所有权校验实现和自动化安全测试全部通过。禁止将 PR 创建或 Java 编译通过视为 T-001 完成。
+在完整实体解析、所有权校验、V30 隔离 MySQL 升级回归及上述安全检查通过前，T-001 继续标记为 **IN PROGRESS**。不得把 Draft PR、编译或 CI 单项通过等同于功能和生产验收完成。
