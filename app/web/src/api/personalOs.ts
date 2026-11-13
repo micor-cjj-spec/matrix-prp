@@ -108,6 +108,13 @@ export async function proposePersonalMemory(input: MemoryProposal) {
   return data.data
 }
 
+export async function replacePersonalMemory(id: number, input: MemoryProposal) {
+  const { data } = await apiClient.post<ApiResponse<PersonalMemory>>(
+    `/memory/${id}/replacement`, input,
+  )
+  return data.data
+}
+
 export async function confirmPersonalMemory(id: number) {
   const { data } = await apiClient.post<ApiResponse<PersonalMemory>>(`/memory/${id}/confirm`)
   return data.data
