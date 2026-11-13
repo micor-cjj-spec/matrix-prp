@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import {
   AI_PHOTO_MAX_BYTES, AI_PHOTO_TARGET_BYTES, AI_PHOTO_MAX_SOURCE_BYTES,
   photoDisposition, prepareMealPhoto, photoSizeLabel, scaledPhotoDimensions,
-  paintPrivateMealPhoto,
+  paintPrivateMealPhoto, remapPrivateMealMasks,
 } from '../src/utils/mealPhoto.ts'
 
 test('all accepted images are redrawn, including those below 3MB', () => {
@@ -147,7 +147,7 @@ test('opaque black masks are applied to the cropped pixels before JPEG encode', 
   assert.deepEqual(calls, [
     { op: 'fill', color: '#ffffff', args: [0, 0, 600, 400] },
     { op: 'source', args: [photo, 120, 200, 600, 400, 0, 0, 600, 400] },
-    { op: 'fill', color: '#000000', args: [150, 40, 180, 60] },
+    { op: 'fill', color: '#000000', args: [148, 38, 184, 64] },
   ])
 })
 
@@ -177,4 +177,39 @@ test('both upload entrypoints require explicit local privacy-review confirmation
   assert.match(editor, /paintPrivateMealPhoto\(context, image/)
   assert.match(editor, /prepareMealPhoto\(rendered\)/)
   assert.match(editor, /emit\('prepared', prepared\.file\)/)
+})
+
+test('cropping after redaction retains intersecting masks and discards only outside ones', () => {
+  const crop = { x: 0.25, y: 0.2, width: 0.5, height: 0.5 }
+  const result = remapPrivateMealMasks(crop, [
+    { x: 0.4, y: 0.3, width: 0.2, height: 0.3 },
+    { x: 0, y: 0, width: 0.1, height: 0.1 },
+    { x: 0.1, y: 0.15, width: 0.2, height: 0.2 },
+  ])
+  assert.equal(result.length, 2)
+  for (const [value, expected] of [
+    [result[0].x, 0.3], [result[0].y, 0.2],
+    [result[0].width, 0.4], [result[0].height, 0.6],
+    [result[1].x, 0], [result[1].y, 0],
+    [result[1].width, 0.1], [result[1].height, 0.3],
+  ]) assert.ok(Math.abs(value - expected) < 1e-9)
+  assert.throws(() => remapPrivateMealMasks(crop,
+    [{ x: 0.8, y: 0.9, width: 0.3, height: 0.3 }]), /区域无效/)
+})
+
+test('blackout masks fill outward to pixel boundaries and stay opaque at crop edges', () => {
+  const calls = []
+  let color = ''
+  paintPrivateMealPhoto({
+    set fillStyle(x) { color = x },
+    fillRect: (...args) => calls.push({ color, args }),
+    drawImage: () => {},
+  }, {}, 100, 100, 100, 100,
+  { x: 0, y: 0, width: 1, height: 1 },
+  [{ x: 0, y: 0, width: 0.1, height: 0.1 },
+   { x: 0.95, y: 0.95, width: 0.05, height: 0.05 }])
+  assert.deepEqual(calls.filter(x => x.color === '#000000'), [
+    { color: '#000000', args: [0, 0, 12, 12] },
+    { color: '#000000', args: [93, 93, 7, 7] },
+  ])
 })
