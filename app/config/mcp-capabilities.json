@@ -8,6 +8,16 @@
       "reason": "Secret management is reserved for interactive settings UI"
     },
     {
+      "route": "DELETE /api/goals/{id}",
+      "status": "excluded",
+      "reason": "Goal deletion soft-deletes the owned goal and invalidates dependent assertions; excluded from model-facing tools pending separately approved T-006 write drafts."
+    },
+    {
+      "route": "DELETE /api/memory/{id}",
+      "status": "excluded",
+      "reason": "Private-memory permanent erasure requires an explicitly authenticated owner action and lifecycle cleanup; MCP writes stay disabled until separate T-006 draft and approval security review."
+    },
+    {
       "route": "DELETE /api/push/subscriptions/{id}",
       "status": "excluded",
       "reason": "Push device removal requires interactive device management"
@@ -54,6 +64,21 @@
       "reason": "MCP returns only first 10 transactions for selected month"
     },
     {
+      "route": "GET /api/goals",
+      "status": "excluded",
+      "reason": "Goal listing needs an explicit prp.goals.read scope and owner-only tool; excluded from the initial first-party REST MVP until T-006 tests and OAuth allowlist are reviewed."
+    },
+    {
+      "route": "GET /api/goals/{id}",
+      "status": "excluded",
+      "reason": "Goal detail may contain private career/learning targets; require prp.goals.read and T-006 end-to-end tool authorization before MCP exposure."
+    },
+    {
+      "route": "GET /api/goals/{id}/context",
+      "status": "excluded",
+      "reason": "Goal context includes personal memory relationship evidence; new MCP retrieval must separately authorize goal scope and memory-source scope under T-006."
+    },
+    {
       "route": "GET /api/health",
       "status": "excluded",
       "reason": "Internal readiness diagnostic is not a business capability"
@@ -82,6 +107,26 @@
       "route": "GET /api/mcp/identity",
       "status": "excluded",
       "reason": "Identity linking status is sensitive control-plane state"
+    },
+    {
+      "route": "GET /api/memory",
+      "status": "excluded",
+      "reason": "Personal confirmed memories are sensitive profile data; MCP read must wait for a separately consented prp.memory.read scope, per-source filtering, and T-006 tool-call coverage."
+    },
+    {
+      "route": "GET /api/memory/{id}",
+      "status": "excluded",
+      "reason": "Single memory record may contain sensitive/private provenance and unconfirmed claims; defer model-facing access pending explicit T-006 scope and owner-evidence audit."
+    },
+    {
+      "route": "GET /api/memory/candidates",
+      "status": "excluded",
+      "reason": "Unconfirmed AI or user candidate facts are private approval workflow state, not verified memories; never publish them to model-facing MCP tools by default."
+    },
+    {
+      "route": "GET /api/memory/private",
+      "status": "excluded",
+      "reason": "Authenticated first-party owner-only view of sensitive and restricted confirmed memories; never expose to MCP or general AI context. Fetch only after a deliberate UI interaction and audit privacy."
     },
     {
       "route": "GET /api/practice/banks/{bankId}/play",
@@ -204,6 +249,11 @@
       "reason": "MCP meal list is limited to 50 records"
     },
     {
+      "route": "GET /api/wellness/meals/{id}/analysis",
+      "status": "excluded",
+      "reason": "Owner-scoped raw extraction and AI analysis can contain sensitive meal text; first-party details only until separately reviewed MCP projection and scope tests"
+    },
+    {
       "route": "GET /api/wellness/summary/daily",
       "status": "mapped",
       "tool": "prp_wellness_daily",
@@ -214,6 +264,11 @@
       "status": "mapped",
       "tool": "prp_wellness_trends",
       "reason": "Same WellnessService.trends with same 1-90 day bound"
+    },
+    {
+      "route": "PATCH /api/goals/{id}/status",
+      "status": "excluded",
+      "reason": "Goal lifecycle mutations require owner confirmation and transition checks; no automatic MCP write until an immutable approval draft and T-006 scope are reviewed."
     },
     {
       "route": "PATCH /api/tasks/{id}/status",
@@ -261,6 +316,11 @@
       "status": "mapped",
       "tool": "prp_prepare_finance",
       "reason": "Finance transaction is a draft requiring explicit owner approval"
+    },
+    {
+      "route": "POST /api/goals",
+      "status": "excluded",
+      "reason": "Goal creation changes the user's plan; initial route is first-party only, with any MCP write requiring a separately approved user-confirmed draft in T-006."
     },
     {
       "route": "POST /api/mcp/approval/drafts/{id}/approve",
@@ -311,6 +371,26 @@
       "route": "POST /api/mcp/link",
       "status": "excluded",
       "reason": "OAuth account linking endpoint is an identity trust boundary"
+    },
+    {
+      "route": "POST /api/memory/{id}/confirm",
+      "status": "excluded",
+      "reason": "Human approval of personal memory must not be represented as a model tool; first-party confirmation UI only until an independently verified user-action channel exists."
+    },
+    {
+      "route": "POST /api/memory/{id}/invalidate",
+      "status": "excluded",
+      "reason": "Invalidating or revoking memories requires an authenticated owner action and audit; no autonomous model-side manipulation is permitted."
+    },
+    {
+      "route": "POST /api/memory/{id}/replacement",
+      "status": "excluded",
+      "reason": "Replacement of personal facts is a sensitive two-stage workflow; model tools must not replace or implicitly confirm private facts without the T-006 approval contract."
+    },
+    {
+      "route": "POST /api/memory/candidates",
+      "status": "excluded",
+      "reason": "Memory candidate writes require a separate model-scoped draft and immutable proposal review design; this authenticated first-party form route is excluded pending T-006."
     },
     {
       "route": "POST /api/push/subscriptions",
@@ -401,6 +481,11 @@
       "route": "PUT /api/ai/settings/providers/{provider}/key",
       "status": "excluded",
       "reason": "Secrets must never be accepted through an AI tool"
+    },
+    {
+      "route": "PUT /api/goals/{id}",
+      "status": "excluded",
+      "reason": "Goal detail edits require an authenticated first-party owner request with revision and status checks; MCP update needs a separately reviewed approval-draft tool and scope under T-006."
     },
     {
       "route": "PUT /api/tasks/{id}",
