@@ -89,9 +89,9 @@ for expected in (
 print("PASS OCI BACKEND: full OAuth identity/permissions/task tool classes, V28 lease, V29 OIDC and fail-closed defaults")
 PY
 # Check the assembled JAR INSIDE THE FINAL UNSTARTED OCI IMAGE, not
-# Maven's build directory: all 29 original/additive SQL resources must
-# be byte-for-byte identical to the reviewed Git source. Exit 4 means
-# source/JAR parity only; this is still NOT release permission.
+# Read the final unstarted JAR. Historical V1-V29 stay byte-identical;
+# any V30+ migration must match the independently reviewed create-empty
+# file digest in app/deploy/migration-policy.json. Exit 4 is review ONLY.
 set +e
 python3 app/deploy/mcp-staging/verify_oci_migration_jar.py \
   --jar "$tmp/runtime-app.jar" \
@@ -108,10 +108,12 @@ import json, sys
 with open(sys.argv[1], encoding="utf-8") as stream:
     result = json.load(stream)
 assert result["decision"] == "CANDIDATE_JAR_SOURCE_MIGRATIONS_IDENTICAL_REVIEW_ONLY"
-assert result["source_migrations"] == result["jar_migrations"] == 29
+future = result["reviewed_future_versions"]
+assert isinstance(future, list) and future == list(range(30,30+len(future)))
+assert result["source_migrations"] == result["jar_migrations"] == 29 + len(future)
 assert result["identical_raw_bytes"] is True and result["deployment_permitted"] is False
 PY
-echo "PASS OCI BACKEND: final image JAR V1-V29 migration bytes equal source, REVIEW_ONLY"
+echo "PASS OCI BACKEND: final image JAR SQL bytes equal source; V30+ require create-empty SHA256 policy; REVIEW_ONLY"
 test "$(docker image inspect -f '{{.Config.User}}' "$api_img")" = prp
 echo 'PASS OCI BACKEND: non-root runtime user; Java service never started'
 

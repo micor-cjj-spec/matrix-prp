@@ -24,7 +24,7 @@ const categories = computed(() => groupOrder.filter(group => entries.value.some(
 const icons: Record<string, Component> = {
   learning: Reading, wellness: Food, life: House, finance: Money,
   videos: VideoCamera, practice: Collection, knowledge: Notebook, vocal: Headset,
-  tasks: Tickets, records: Document, reviews: EditPen, tags: CollectionTag,
+  tasks: Tickets, records: Document, reviews: EditPen, tags: CollectionTag, 'personal-os': Notebook,
   notifications: Bell,
 }
 function iconFor(item: AppEntry): Component { return icons[item.code] ?? Grid }

@@ -315,6 +315,12 @@ public class WellnessAiDraftService {
             reconcileExplicitIngredients(verified,input);
             applyUserCalorieEstimate(verified,input);
         }
+        if ("meal.create".equals(action)) {
+            // Immutable, allowlisted first interpretation. Never copy the photo,
+            // original user prompt, model response or full delivery-order OCR.
+            verified.put("_initialExtraction",
+                WellnessNutritionEvidence.initialSnapshot(verified,bytes!=null));
+        }
         String description=description(action,verified);
         String id=UUID.randomUUID().toString();
         LocalDateTime expiry=LocalDateTime.now().plusMinutes(15);
@@ -718,7 +724,7 @@ public class WellnessAiDraftService {
         if(changes==null||!changes.isObject()||changes.toString().length()>5000)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid draft corrections");
         List<Map<String,Object>> rows=db.queryForList(
-            "SELECT action_type,status,expires_at,model_used FROM prp_wellness_ai_drafts " +
+            "SELECT action_type,status,expires_at,model_used,payload_json FROM prp_wellness_ai_drafts " +
             "WHERE id=? AND user_id=? FOR UPDATE",draftId,user);
         if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Draft not found");
         var row=rows.get(0);
@@ -728,6 +734,20 @@ public class WellnessAiDraftService {
         String action=String.valueOf(row.get("action_type"));
         var safe=((com.fasterxml.jackson.databind.node.ObjectNode)changes.deepCopy()).put("action",action);
         Map<String,Object> checked=verify(safe,true);
+        if ("meal.create".equals(action)) {
+            // Edits may adjust confirmed food amounts, not rewrite initial AI evidence.
+            try {
+                JsonNode previous=json.readTree(String.valueOf(row.get("payload_json")));
+                JsonNode first=previous.path("_initialExtraction");
+                if (first.isObject()) {
+                    checked.put("_initialExtraction",
+                        json.convertValue(first,Map.class));
+                }
+            } catch(com.fasterxml.jackson.core.JsonProcessingException ex) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Original AI draft could not be verified");
+            }
+        }
         String description=description(action,checked);
         try {
             int updated=db.update("UPDATE prp_wellness_ai_drafts SET payload_json=?,description=? " +
@@ -746,7 +766,7 @@ public class WellnessAiDraftService {
         if(draftId==null||!draftId.matches("[0-9a-fA-F-]{36}"))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid draft");
         List<Map<String,Object>> rows=db.queryForList(
-            "SELECT action_type,payload_json,status,expires_at FROM prp_wellness_ai_drafts "+
+            "SELECT action_type,payload_json,status,expires_at,model_used FROM prp_wellness_ai_drafts "+
             "WHERE id=? AND user_id=? FOR UPDATE",draftId,user);
         if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Draft not found");
         Map<String,Object> row=rows.get(0);
@@ -964,6 +984,13 @@ public class WellnessAiDraftService {
                         waist.isBlank()?null:new BigDecimal(waist)));
                 }
                 default -> throw invalid("Invalid draft action");
+            }
+            // Persist confirmed meal and structured evidence in the SAME transaction.
+            // Legacy drafts without an initial extraction remain compatible.
+            if ("meal.create".equals(action) && saved instanceof Meal meal) {
+                WellnessNutritionEvidence.saveConfirmed(db,json,meal,
+                    data.path("_initialExtraction"),
+                    row.get("model_used")==null?null:String.valueOf(row.get("model_used")));
             }
             // New action links always target the actual rows. Same transaction as the write
             // and CONSUMED transition; uncertain responses can be inspected safely later.
