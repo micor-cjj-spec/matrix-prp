@@ -142,6 +142,13 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
                     expired.close()
             stage = "G0_BROWSER_REQUEST_ALLOWLIST"
             require_review_coverage(route_audit)
+            if os.environ.get("MCP_E2E_PERSONAL_OS") == "true":
+                # The POS walkthrough runs only on an explicit CI feature
+                # flag after the OAuth request-review baseline is validated.
+                # No production browser, private user data or extra MCP scope.
+                stage = "PERSONAL_OS_FIRST_PARTY_UI"
+                from ci_personal_os_chromium import run as run_personal_os
+                run_personal_os(page, PRP)
         except Exception:
             # Never log the raw browser URL or OAuth requests. Report only
             # static stage, first-party start response class and current host.
