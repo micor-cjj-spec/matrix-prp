@@ -14,6 +14,7 @@ import {
   type TaskSummary,
 } from '@/api/tasks'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { loadTaskResources } from '@/utils/taskLoading'
 import { moduleLabel, priorityLabel } from '@/utils/labels'
 import {
   filterAndRankTasks, getNextTask, taskProgress, moduleTaskProgress, type TaskSortOrder,
@@ -33,6 +34,7 @@ const summary = ref<TaskSummary>({
 const modules = ref<ModuleItem[]>(fallbackDomainModules)
 const loading = ref(false)
 const apiOnline = ref(false)
+const summaryAvailable = ref(false)
 const editDialogVisible = ref(false)
 const editingTaskId = ref<number | null>(null)
 const keyword = ref('')
@@ -111,17 +113,27 @@ const editForm = reactive({
 async function loadTasks() {
   loading.value = true
   try {
-    const [taskItems, taskSummary, domainModules] = await Promise.all([
-      fetchTasks(),
-      fetchTaskSummary(),
-      fetchDomainModules(),
-    ])
+    const { taskItems, summaryResult, moduleResult } = await loadTaskResources(
+      fetchTasks, fetchTaskSummary, fetchDomainModules,
+    )
     tasks.value = taskItems
-    summary.value = taskSummary
-    modules.value = domainModules.filter((module) => module.enabled)
     apiOnline.value = true
+
+    if (summaryResult.status === 'fulfilled') {
+      summary.value = summaryResult.value
+      summaryAvailable.value = true
+    } else {
+      summaryAvailable.value = false
+      ElMessage.warning('任务统计暂不可用，任务列表仍可操作')
+    }
+    if (moduleResult.status === 'fulfilled') {
+      modules.value = moduleResult.value.filter((module) => module.enabled)
+    } else {
+      ElMessage.warning('模块目录暂不可用，已保留当前模块选项')
+    }
   } catch {
     apiOnline.value = false
+    summaryAvailable.value = false
     tasks.value = []
     ElMessage.error('任务读取失败，请稍后重试')
   } finally {
@@ -240,7 +252,8 @@ watch(() => route.query.focus, async () => { await loadTasks(); focusFromRoute()
       </div>
     </header>
 
-    <section class="metric-grid">
+    <p v-if="!summaryAvailable && apiOnline" class="tasks-result-count">任务统计暂不可用，列表数据和操作不受影响。</p>
+    <section v-if="summaryAvailable" class="metric-grid">
       <article class="metric-card">
         <span>未完成</span>
         <strong>{{ summary.openCount }}</strong>
