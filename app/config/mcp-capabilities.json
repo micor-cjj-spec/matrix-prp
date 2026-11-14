@@ -287,6 +287,11 @@
       "reason": "Server execution is intentionally disabled and administrator-only"
     },
     {
+      "route": "POST /api/ai/personal-os/goals/{goalId}/preview",
+      "status": "excluded",
+      "reason": "T-005 first-party career planning evidence preview returns owner-only personal facts; no model/MCP scope or third-party export authorization. T-006 separate review required."
+    },
+    {
       "route": "POST /api/ai/settings/providers/{provider}/test",
       "status": "excluded",
       "reason": "Provider credential validation stays in interactive settings UI"
