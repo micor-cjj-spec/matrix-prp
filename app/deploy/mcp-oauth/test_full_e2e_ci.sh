@@ -363,7 +363,18 @@ java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
 backend_pid="$!"
 
 # Only generic PASS/failure step names are printed by the browser driver.
-python3 app/deploy/mcp-oauth/ci_pkce_browser.py
+# If isolated readiness fails, emit only bounded non-secret diagnostics:
+# Keycloak container state and HTTP status of synthetic public OIDC discovery.
+# Never print Docker logs, realm payloads, tokens, credentials or response bodies.
+if ! python3 app/deploy/mcp-oauth/ci_pkce_browser.py; then
+  kc_state="$(docker inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' prp-ci-real-keycloak 2>/dev/null || true)"
+  [[ -n "$kc_state" ]] || kc_state="unavailable"
+  echo "E2E_DIAG_KEYCLOAK_CONTAINER=$kc_state" >&2
+  kc_https_status="$(curl --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' --connect-timeout 3 --max-time 8 --cacert "$MCP_E2E_CA_CERT" 'https://auth-e2e.localhost/realms/prp-mcp/.well-known/openid-configuration' 2>/dev/null || true)"
+  [[ "$kc_https_status" =~ ^[0-9]{3}$ ]] || kc_https_status="000"
+  echo "E2E_DIAG_KEYCLOAK_HTTPS_STATUS=$kc_https_status" >&2
+  exit 1
+fi
 echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP protocol."
 
 # Exercise an independent first-party public S256 pairing client on the
