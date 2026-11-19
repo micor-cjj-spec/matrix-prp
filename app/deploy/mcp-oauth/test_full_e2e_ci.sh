@@ -29,9 +29,13 @@ trap cleanup EXIT
 # Disposable runner hosts file only; no external DNS changes.
 echo '127.0.0.1 auth-e2e.localhost prp-e2e.localhost' | sudo tee -a /etc/hosts >/dev/null
 
+# OpenSSL/Python strict X.509 validation requires the disposable CA to
+# explicitly permit certificate signing. Never weaken client TLS verification.
 openssl req -x509 -new -newkey rsa:2048 -nodes -days 1 \
   -keyout "$tmp/certs/ca.key" -out "$tmp/certs/ca.pem" \
-  -subj '/CN=PRP-E2E-Disposable-CA' >/dev/null 2>&1
+  -subj '/CN=PRP-E2E-Disposable-CA' \
+  -addext 'basicConstraints=critical,CA:TRUE' \
+  -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
 openssl req -new -newkey rsa:2048 -nodes -keyout "$tmp/certs/leaf.key" \
   -out "$tmp/certs/leaf.csr" -subj '/CN=auth-e2e.localhost' >/dev/null 2>&1
 printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
