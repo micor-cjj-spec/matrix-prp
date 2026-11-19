@@ -134,6 +134,10 @@ def wait_ready(opener, url, max_seconds=150):
             reason_errno = getattr(reason, "errno", None)
             if isinstance(reason_errno, int):
                 last_error_type += ":" + str(reason_errno)
+            verify_code = getattr(reason, "verify_code", None)
+            if isinstance(verify_code, int):
+                # OpenSSL X509_V_ERR_* numeric code only, never certificate text.
+                last_error_type += ":x509=" + str(verify_code)
         time.sleep(3)
     stage = "Keycloak" if "auth-" in url else "PRP"
     print("E2E_DIAG_PYTHON_READY stage=" + stage
