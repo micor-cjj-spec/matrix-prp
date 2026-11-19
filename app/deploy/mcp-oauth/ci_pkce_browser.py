@@ -127,7 +127,13 @@ def wait_ready(opener, url, max_seconds=150):
         except (OSError, ValueError, ssl.SSLError) as error:
             # Diagnostic data is deliberately restricted to the exception class.
             # Never log exception text, response bodies, URLs or credentials.
-            last_error_type = type(error).__name__
+            reason = getattr(error, "reason", error)
+            # URLError wraps the underlying OS/DNS/TLS exception. Keep just
+            # its class and numeric errno, never the raw exception message.
+            last_error_type = type(error).__name__ + ":" + type(reason).__name__
+            reason_errno = getattr(reason, "errno", None)
+            if isinstance(reason_errno, int):
+                last_error_type += ":" + str(reason_errno)
         time.sleep(3)
     stage = "Keycloak" if "auth-" in url else "PRP"
     print("E2E_DIAG_PYTHON_READY stage=" + stage
