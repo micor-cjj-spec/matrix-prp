@@ -113,14 +113,28 @@ def json_response(response, stage):
 
 def wait_ready(opener, url, max_seconds=150):
     until = time.monotonic() + max_seconds
+    attempts = 0
+    last_http_status = "none"
+    last_error_type = "none"
     while time.monotonic() < until:
+        attempts += 1
         try:
-            if request(opener, url)[0] == 200:
+            status = request(opener, url)[0]
+            last_http_status = str(status)
+            last_error_type = "none"
+            if status == 200:
                 return
-        except (OSError, ValueError, ssl.SSLError):
-            pass
+        except (OSError, ValueError, ssl.SSLError) as error:
+            # Diagnostic data is deliberately restricted to the exception class.
+            # Never log exception text, response bodies, URLs or credentials.
+            last_error_type = type(error).__name__
         time.sleep(3)
-    raise RuntimeError("Temporary environment not healthy: " + ("Keycloak" if "auth-" in url else "PRP"))
+    stage = "Keycloak" if "auth-" in url else "PRP"
+    print("E2E_DIAG_PYTHON_READY stage=" + stage
+          + " attempts=" + str(attempts)
+          + " last_http=" + last_http_status
+          + " last_error_type=" + last_error_type, file=sys.stderr)
+    raise RuntimeError("Temporary environment not healthy: " + stage)
 
 
 def add_user(opener, admin_password, username, password):
