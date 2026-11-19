@@ -43,6 +43,10 @@ printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
 openssl x509 -req -in "$tmp/certs/leaf.csr" \
   -CA "$tmp/certs/ca.pem" -CAkey "$tmp/certs/ca.key" -CAcreateserial \
   -out "$tmp/certs/leaf.pem" -days 1 -extfile "$tmp/certs/leaf.ext" >/dev/null 2>&1
+# Regressions in CA keyUsage must fail before starting disposable services.
+# Strict path validation matches the Python/OpenSSL verification requirements.
+openssl verify -x509_strict -purpose sslserver \
+  -CAfile "$tmp/certs/ca.pem" "$tmp/certs/leaf.pem" >/dev/null
 
 cat > "$tmp/nginx/default.conf" <<'NGINX'
 server {
