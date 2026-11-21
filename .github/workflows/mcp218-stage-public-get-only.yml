@@ -32,9 +32,21 @@ jobs:
           # proxies/redirects, response size caps and no credentials.
           # Failure denotes UNVERIFIED here, never proof of live outage.
           echo STAGING_METADATA_AUDIT=GET_ONLY_NO_SECRETS
-          python3 -B app/deploy/mcp-oauth/ci_public_readonly_probe.py
-          python3 -B app/deploy/mcp-oauth/chatgpt_cimd_preflight.py
-          echo PUBLIC_METADATA_VERIFIED_FROM_THIS_RUNNER=YES
+          # Execute both independent checks even if the resource scope
+          # contract fails, so CIMD discovery has a separate verdict.
+          # Preserve exit failure; never accept an overbroad stage surface.
+          status=0
+          if ! python3 -B app/deploy/mcp-oauth/ci_public_readonly_probe.py; then
+            status=2
+          fi
+          if ! python3 -B app/deploy/mcp-oauth/chatgpt_cimd_preflight.py; then
+            status=2
+          fi
           echo REAL_CHATGPT_OAUTH_LOGIN=NOT_TESTED
           echo REAL_OWNER_CONSENT=NOT_TESTED
           echo G0_B2_DEPLOYMENT_PERMISSION=NOT_GRANTED
+          if [[ "$status" -ne 0 ]]; then
+            echo PUBLIC_METADATA_ACCEPTANCE=NO_GO
+            exit "$status"
+          fi
+          echo PUBLIC_METADATA_ACCEPTANCE=PASS
