@@ -165,7 +165,7 @@ async function submitLabelReview() {
     })
     labelReview.mealItemId = 0
     ElMessage.success('已按实际食用克数计算营养，并保存人工核实版本')
-    await loadDay()
+    await Promise.all([loadDay(), loadTrend()])
   } catch (error) {
     const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
     ElMessage.error(message || '营养标签核实失败，请核对字段和包装信息')
