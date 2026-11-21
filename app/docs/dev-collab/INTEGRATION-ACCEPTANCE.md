@@ -36,9 +36,9 @@
 
 | 来源和确切 head | 观察到的证据 | 对 T-005 的结论 |
 | --- | --- | --- |
-| 源候选 [#138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)，8fdd189e26a7b5b044b0b98efef22c7812bd54bc | [协作契约 #44901620609](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44901620609) **178/178 成功**；[Feature Impact #44901620559](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44901620559) 成功；[完整 CI #44901620594](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44901620594) **28/30，失败 2 个临时 Keycloak PKCE E2E** | **NO-GO**，不可用绿色子集替代全绿 |
-| 独立测试环境修复 [#213](https://github.com/micor-cjj-spec/matrix-prp/pull/213)，c2a468359ffd623b46a39b3c06d66aad485b01ac | [CI #44434350947](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44434350947) 在其自身 head **30/30 成功**；仅两个测试环境文件 | 不能证明已集成源代码成功 |
-| 组合验证 [#240](https://github.com/micor-cjj-spec/matrix-prp/pull/240)，8a3c04cef545c15a5fa1c88e9cd2163f7311e753 | 在 #138 后叠加 #213 的两个确切 blob；GitHub compare 仅新增 2 个文件改动；[CI #44907308326](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308326)、[契约 #44907308220](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308220)、[Impact #44907308239](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308239) 已触发，**在编写此证据时排队中** | **待结果**；此组合 PR 也不是可直接合并的任务 PR |
+| 源候选 [#138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)，8fdd189e26a7b5b044b0b98efef22c7812bd54bc | [协作契约 #44901620609](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44901620609) **178/178 成功**；[Feature Impact #44901620559](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44901620559) 成功；[完整 CI #44901620594](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44901620594) **32/34，失败 2 个临时 Keycloak PKCE E2E** | **NO-GO**，不可用绿色子集替代全绿 |
+| 独立测试环境修复 [#213](https://github.com/micor-cjj-spec/matrix-prp/pull/213)，c2a468359ffd623b46a39b3c06d66aad485b01ac | [CI #44434350947](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44434350947) 在其自身 head **34/34 成功**；仅两个测试环境文件 | 不能证明已集成源代码成功 |
+| 组合验证 [#240](https://github.com/micor-cjj-spec/matrix-prp/pull/240)，8a3c04cef545c15a5fa1c88e9cd2163f7311e753 | 在 #138 后叠加 #213 的两个确切 blob；GitHub compare 仅新增 2 个文件改动；[CI #44907308326](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308326)、[契约 #44907308220](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308220)、[Impact #44907308239](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308239) 已触发，**第一次运行已结束：33/34 成功，仅 Chromium E2E 失败；对应 Job 在 Maven 打包阶段提前退出，详细构建日志未进入 Actions 输出；已对该失败 Job 发起第 2 次重试，当前仍排队中** | **待结果**；此组合 PR 也不是可直接合并的任务 PR |
 
 不可把 #138、#213 或其它分支的绿色结果套用到 #240 或未来的受保护集成分支。必须在目标 exact head 重新检查 required CI、状态与可信 workflow provenance。
 
@@ -63,7 +63,7 @@
 | --- | --- | --- |
 | integration branch / protected Ruleset | 精确分支、Ruleset ID、被保护状态和验证时间 | **未验证** |
 | task PR → trusted merge | PR #、submitted head SHA、target branch、merge SHA、required checks、reviewer | **未验证** |
-| #240 combined CI | 3 个 workflow 的完成状态和准确 Job 成败、最终 head SHA | **等待 exact-head CI** |
+| #240 combined CI | 3 个 workflow 的完成状态和准确 Job 成败、最终 head SHA | **33/34，Chromium 单项重试排队；完整 CI 尚未全绿** |
 | real owner Issue probe | Issue #、run ID、App installation 范围、V0 前后 SHA | **未执行** |
 | pinned V0→V1 migration | 明确 owner 授权、独立 reviewer、提案/旧/新 SHA、App receipt | **未授权／未执行** |
 | two conversations / collision recovery | 每次 request UUID、run ID、成功或拒绝原因、状态版本、远端 SHA | **未执行** |
