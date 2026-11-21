@@ -2,8 +2,6 @@ name: PRP ChatGPT CIMD contract (offline)
 on:
   push:
     branches: [fix/mcp-cimd-readonly-audit-20261024, test/mcp-authcode-privatejwt-refresh-20261024]
-  pull_request:
-    branches: [feat/mcp-public-acceptance-20261024]
 permissions:
   contents: read
 jobs:

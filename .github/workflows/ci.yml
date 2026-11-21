@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/multi-user-foundation]
+    branches: [main]
   pull_request:
     branches: [main, fix/mcp-v24-lineage-conflict-20261022]
 

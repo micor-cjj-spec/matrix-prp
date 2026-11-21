@@ -2,7 +2,7 @@ name: PRP public OAuth route preflight (read-only)
 run-name: PRP public OAuth preflight · ${{ github.sha }}
 on:
   push:
-    branches: [feat/mcp-public-acceptance-20261024, test/mcp-authcode-privatejwt-refresh-20261024]
+    branches: [test/mcp-authcode-privatejwt-refresh-20261024]
     paths:
       - "app/deploy/mcp-oauth/public_route_preflight.py"
       - "app/deploy/mcp-oauth/test_public_route_preflight.py"
