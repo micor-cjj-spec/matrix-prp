@@ -432,17 +432,36 @@ public class WellnessService {
     }
     @Transactional
     public Meal copyMeal(long id,LocalDate date) {
+        return copyMeal(id,date,null);
+    }
+
+    /** A new event needs a new token; a network retry reuses the same token. */
+    @Transactional
+    public Meal copyMeal(long id,LocalDate date,String idempotencyKey) {
         Meal existing=meal(id);
+        String requestKey=idempotencyKey==null || idempotencyKey.isBlank()
+            ?UUID.randomUUID().toString():idempotencyKey;
+        if(requestKey.length()>80) throw new IllegalArgumentException("Invalid copy idempotency key");
+        // Keep retries local to this source meal, separate from normal meal creation.
+        String key=UUID.nameUUIDFromBytes(("meal-copy:"+id+":"+requestKey)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        Meal copy;
         if(existing.items().stream().anyMatch(i->i.foodId()<=0)) {
             List<AiMealItem> snapshots=existing.items().stream()
                 .map(i->i.foodId()>0
                     ?new AiMealItem(i.foodId(),null,i.grams(),null)
                     :new AiMealItem(null,i.foodName(),i.grams(),i.calories())).toList();
-            return addAiMeal(date,existing.mealType(),existing.note(),snapshots,
-                UUID.randomUUID().toString());
+            copy=addAiMeal(date,existing.mealType(),existing.note(),snapshots,key);
+        } else {
+            List<ItemInput> copies=existing.items().stream()
+                .map(i->new ItemInput(i.foodId(),i.grams())).toList();
+            copy=addMeal(new MealInput(date,existing.mealType(),existing.note(),copies,key));
         }
-        List<ItemInput> copies=existing.items().stream().map(i->new ItemInput(i.foodId(),i.grams())).toList();
-        return addMeal(new MealInput(date,existing.mealType(),existing.note(),copies,null));
+        if(!copy.mealDate().equals(date) || !copy.mealType().equals(existing.mealType()))
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.CONFLICT,
+                "复制幂等键已用于其他日期或餐次");
+        return copy;
     }
 
     public List<Exercise> exercises(LocalDate date) {
