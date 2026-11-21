@@ -74,6 +74,19 @@ function trendDescription(point: TrendPoint): string {
 const foods = ref<Food[]>([])
 const frequentFoods = ref<Food[]>([])
 const profile = reactive<Profile>({ heightCm: null, timezone: 'Asia/Shanghai' })
+// A long-lived PWA session may cross midnight, and the user's health-day
+// timezone may differ from their device timezone. Resolve at click time.
+function wellnessToday(): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: profile.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date())
+    const fields = new Map(parts.map(part => [part.type, part.value]))
+    return `${fields.get('year')}-${fields.get('month')}-${fields.get('day')}`
+  } catch {
+    return localDate()
+  }
+}
 const selectedGoal = computed(() => summary.value?.goal)
 const calories = computed(() => summary.value?.calories === null || summary.value?.calories === undefined ? null : Number(summary.value.calories))
 const dailyGoal = computed(() => Number(selectedGoal.value?.dailyCalories || 0))
@@ -327,7 +340,7 @@ const copyingMealId = ref<number | null>(null)
 const copyRetryKeys = new Map<string, string>()
 async function copyMeal(meal: Meal) {
   if (copyingMealId.value !== null) return
-  const targetDate = today
+  const targetDate = wellnessToday()
   const request = `${meal.id}:${targetDate}`
   const key = copyRetryKeys.get(request) ?? crypto.randomUUID()
   copyRetryKeys.set(request, key)
