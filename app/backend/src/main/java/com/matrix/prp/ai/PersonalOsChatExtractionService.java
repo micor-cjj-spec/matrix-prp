@@ -56,7 +56,8 @@ public final class PersonalOsChatExtractionService {
     public record Approved(String extractionToken) {}
     public record Suggested(Relation predicate, String value, String evidenceQuote,
                             Sensitivity sensitivity, String requestKey) {}
-    public record Extraction(String provider, String model, List<Suggested> candidates,
+    public record Extraction(String conversationId, long messageId,
+                             String provider, String model, List<Suggested> candidates,
                              boolean saved, String limitation) {}
     private record Grant(long owner, String conversationId, long messageId,
                          String messageText, String provider, String model, long expiresAtMillis) {}
@@ -153,8 +154,9 @@ public final class PersonalOsChatExtractionService {
                 OUTPUT_TOKENS,ignored -> {});
             List<Suggested> suggestions=validate(result.answer(),grant.messageText());
             conversations.completed(owner,month,result.inputTokens(),result.outputTokens());
-            return new Extraction(grant.provider(),grant.model(),suggestions,false,
-                "仅提取待核对知识；未保存、未确认，也未检索其他聊天或私人记忆。提交后仍需在个人记忆中确认。");
+            return new Extraction(grant.conversationId(),grant.messageId(),
+                grant.provider(),grant.model(),suggestions,false,
+                "仅提取待核对知识；未保存、未确认。提交时会核对原始消息引用；仍需在个人记忆中单独确认。");
         } catch (Exception error) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                 "Knowledge extraction failed or the model output did not pass validation");

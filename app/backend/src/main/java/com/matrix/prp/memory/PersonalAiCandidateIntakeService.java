@@ -25,8 +25,19 @@ public class PersonalAiCandidateIntakeService {
         this.memories = memories;
     }
 
+    /** Inspect previously suggested facts without writing or exporting existing private values. */
+    public List<PersonalMemoryService.AiInspection> inspect(List<AiCandidate> candidates) {
+        validateBatch(candidates);
+        return candidates.stream().map(memories::inspectAiCandidate).toList();
+    }
+
     @Transactional
     public List<Memory> submit(List<AiCandidate> candidates) {
+        validateBatch(candidates);
+        return candidates.stream().map(memories::proposeAiCandidate).toList();
+    }
+
+    private void validateBatch(List<AiCandidate> candidates) {
         CurrentUser.id();
         if (candidates == null || candidates.isEmpty() || candidates.size() > MAX_BATCH)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -41,6 +52,5 @@ public class PersonalAiCandidateIntakeService {
                     "Missing, invalid or duplicate AI candidate request key");
             }
         }
-        return candidates.stream().map(memories::proposeAiCandidate).toList();
     }
 }

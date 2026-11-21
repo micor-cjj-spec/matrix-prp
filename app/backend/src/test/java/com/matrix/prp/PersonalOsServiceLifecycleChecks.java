@@ -173,6 +173,77 @@ final class PersonalOsServiceLifecycleChecks {
             assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
                 .doesNotContain(revision.id());
 
+            // T-008c: real disposable MySQL assertions test pending-only AI
+            // origin, exact normalized dedup, and the separate confirmation step.
+            var aiOne = memories.proposeAiCandidate(new PersonalMemoryService.AiCandidate(
+                DECLARES_SKILL, "Synthetic FDE Knowledge", null, null,
+                NORMAL, "pos_ai_candidate_key_01"));
+            assertThat(aiOne.origin()).isEqualTo("AI_CANDIDATE");
+            assertThat(aiOne.status()).isEqualTo("PENDING");
+            assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
+                .doesNotContain(aiOne.id());
+            assertHttp(HttpStatus.CONFLICT, () -> memories.proposeAiCandidate(
+                new PersonalMemoryService.AiCandidate(DECLARES_SKILL,
+                    "synthetic fde knowledge", null, null, NORMAL, "pos_ai_candidate_key_02")));
+            assertThat(memories.confirm(aiOne.id()).status()).isEqualTo("CONFIRMED");
+            assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
+                .contains(aiOne.id());
+            assertHttp(HttpStatus.CONFLICT, () -> memories.proposeAiCandidate(
+                new PersonalMemoryService.AiCandidate(DECLARES_SKILL,
+                    "SYNTHETIC FDE KNOWLEDGE", null, null, NORMAL, "pos_ai_candidate_key_03")));
+            assertThat(memories.listNormalHistory()).extracting(PersonalMemoryService.Memory::id)
+                .contains(aiOne.id());
+            assertThat(memories.invalidate(aiOne.id()).status()).isEqualTo("INVALID");
+            var revived = memories.proposeAiCandidate(new PersonalMemoryService.AiCandidate(
+                DECLARES_SKILL, "Synthetic FDE Knowledge", null, null,
+                NORMAL, "pos_ai_candidate_key_04"));
+            assertThat(revived.id()).isNotEqualTo(aiOne.id());
+            assertThat(revived.status()).isEqualTo("PENDING");
+            assertThat(memories.listNormalHistory()).extracting(PersonalMemoryService.Memory::id)
+                .contains(aiOne.id());
+            System.out.println("CI_PERSONAL_OS_AI_CANDIDATE_NORMALIZED_DEDUP_MYSQL=PASS");
+
+
+            // Chat provenance remains a pointer, never a copied raw transcript.
+            String conversationId = "00000000-0000-0000-0000-000000970001";
+            assertThat(db.update("""
+                INSERT INTO prp_ai_conversations
+                  (id,user_id,title,created_at,updated_at)
+                VALUES (?,970001,'Synthetic source only',NOW(6),NOW(6))
+                """,conversationId)).isEqualTo(1);
+            assertThat(db.update("""
+                INSERT INTO prp_ai_messages
+                  (conversation_id,role,content,created_at)
+                VALUES (?,'user','I have tested a synthetic RAG workflow',NOW(6))
+                """,conversationId)).isEqualTo(1);
+            Long sourceId=db.queryForObject("SELECT LAST_INSERT_ID()",Long.class);
+            assertThat(sourceId).isNotNull().isPositive();
+            references.requireOwnedChatQuote(sourceId.toString(),"synthetic RAG");
+            assertHttp(HttpStatus.BAD_REQUEST, () ->
+                references.requireOwnedChatQuote(sourceId.toString(),"imaginary mastery"));
+            var chatFact=memories.proposeAiCandidate(new PersonalMemoryService.AiCandidate(
+                DECLARES_SKILL,"tested a synthetic RAG workflow",null,null,NORMAL,
+                "pos_source_verified_001",sourceId,"synthetic RAG"));
+            assertThat(chatFact.sourceType().name()).isEqualTo("CHAT_MESSAGE");
+            assertThat(chatFact.sourceRef()).isEqualTo(sourceId.toString());
+            assertThat(chatFact.status()).isEqualTo("PENDING");
+            assertThat(memories.confirm(chatFact.id()).status()).isEqualTo("CONFIRMED");
+            assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
+                .contains(chatFact.id());
+            // Soft-delete source conversation; keep owner history manageable while
+            // removing invalidated evidence from the default AI retrieval path.
+            assertThat(db.update("""
+                INSERT INTO prp_ai_conversation_meta
+                   (conversation_id,deleted_at)
+                VALUES (?,NOW(6))
+                """,conversationId)).isEqualTo(1);
+            assertThat(memories.listCurrent()).extracting(PersonalMemoryService.Memory::id)
+                .doesNotContain(chatFact.id());
+            assertThat(memories.listNormalHistory()).extracting(PersonalMemoryService.Memory::id)
+                .contains(chatFact.id());
+            assertHttp(HttpStatus.NOT_FOUND, () -> memories.sourcePreview(chatFact.id()));
+            assertThat(memories.invalidate(chatFact.id()).status()).isEqualTo("INVALID");
+
             authenticate(970002, "personal_os_ci_b");
             assertThat(memories.listPrivate()).extracting(PersonalMemoryService.Memory::id)
                 .doesNotContain(restricted.id());

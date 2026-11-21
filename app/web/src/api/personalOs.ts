@@ -143,10 +143,44 @@ export interface PersonalAiKnowledgeCandidate {
   validTo: null
   sensitivity: 'RESTRICTED'
   requestKey: string
+  sourceMessageId?: number
+  evidenceQuote?: string
 }
 export async function submitPersonalAiKnowledgeCandidates(items: PersonalAiKnowledgeCandidate[]) {
   const { data } = await apiClient.post<ApiResponse<PersonalMemory[]>>(
     '/memory/ai-candidates', items,
   )
   return data.data
+}
+
+/** Explicit authenticated user-click read; never fetched for default model context. */
+export interface ChatEvidenceSource {
+  messageId: number
+  messageText: string
+  sentAt: string
+}
+export async function fetchMemoryChatSource(assertionId: number) {
+  return (await apiClient.get<ApiResponse<ChatEvidenceSource>>(
+    `/memory/${assertionId}/source-preview`,
+  )).data.data
+}
+
+/** Private, owner-scoped, read-only preflight; no raw existing fact values are returned. */
+export type AiKnowledgeDisposition = 'NEW' | 'DUPLICATE' | 'POSSIBLY_RELATED' | 'REVIEW_REQUIRED'
+export interface AiKnowledgeInspection {
+  requestKey: string
+  disposition: AiKnowledgeDisposition
+}
+export async function inspectPersonalAiKnowledgeCandidates(items: PersonalAiKnowledgeCandidate[]) {
+  const { data } = await apiClient.post<ApiResponse<AiKnowledgeInspection[]>>(
+    '/memory/ai-candidates/inspect', items,
+  )
+  return data.data
+}
+
+/** Requested only by a deliberate owner action, never as normal AI context. */
+export async function fetchNormalMemoryHistory() {
+  return (await apiClient.get<ApiResponse<PersonalMemory[]>>(
+    '/memory/history/normal',
+  )).data.data
 }

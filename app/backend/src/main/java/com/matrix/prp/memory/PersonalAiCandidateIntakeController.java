@@ -23,6 +23,13 @@ public final class PersonalAiCandidateIntakeController {
         this.service = service;
     }
 
+    @PostMapping("/inspect")
+    public ResponseEntity<ApiResponse<List<PersonalMemoryService.AiInspection>>> inspect(
+            @RequestBody List<AiCandidate> candidates) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+            .body(ApiResponse.success(service.inspect(candidates)));
+    }
+
     @PostMapping
     public ResponseEntity<ApiResponse<List<Memory>>> submit(
             @RequestBody List<AiCandidate> candidates) {
