@@ -44,8 +44,9 @@ const trendName = computed(() => ({
   calories: '热量', proteinG: '蛋白质', carbsG: '碳水', fatG: '脂肪',
 })[trendMetric.value])
 function trendValue(point: TrendPoint): number | null {
-  const raw = trendMetric.value === 'calories'
-    ? point.calories : nutrientByDate.value.get(point.date)?.[trendMetric.value]
+  const metric = trendMetric.value
+  const raw = metric === 'calories'
+    ? point.calories : nutrientByDate.value.get(point.date)?.[metric]
   return raw == null ? null : Number(raw)
 }
 const selectedTrendMax = computed(() =>
@@ -885,7 +886,7 @@ async function saveProfile() {
 .empty{padding:24px;text-align:center;color:var(--el-text-color-secondary);background:var(--el-fill-color-light);border-radius:10px}
 .trend-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
 .trend-controls :deep(.el-radio-group){display:flex;flex-wrap:wrap}
-.bars{height:175px;display:flex;align-items:end;gap:7px;padding-top:12px}.bar-column{height:100%;min-width:0;flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
+.bars{height:175px;display:flex;align-items:end;gap:7px;padding-top:12px;overflow-x:auto;overflow-y:hidden}.bar-column{height:100%;min-width:9px;flex:1 0 9px;display:flex;flex-direction:column;align-items:center;gap:6px}
 .bar-track{width:100%;height:148px;display:flex;align-items:end;background:var(--el-fill-color-lighter);border-radius:5px;overflow:hidden}
 .bar-value{background:var(--el-color-primary);width:100%;border-radius:4px 4px 0 0}.bar-column small{color:var(--el-text-color-secondary)}
 .form-panel{max-width:640px}.form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
