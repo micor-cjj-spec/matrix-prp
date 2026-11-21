@@ -52,3 +52,10 @@ test('synthetic Python OAuth browser ignores hosted-runner proxy for localhost-o
   assert.match(pkceBrowser, /wait_ready\(opener, ISSUER \+ "\/\.well-known\/openid-configuration"\)/)
   assert.match(pkceBrowser, /wait_ready\(opener, "https:\/\/prp-e2e\.localhost\/api\/health"\)/)
 })
+
+test('disposable PKCE CA works with strict X509 verification, never weakening TLS checks', () => {
+  assert.match(pkceShell, /-addext 'basicConstraints=critical,CA:TRUE'/)
+  assert.match(pkceShell, /-addext 'keyUsage=critical,keyCertSign,cRLSign'/)
+  assert.match(pkceShell, /openssl verify -x509_strict -CAfile "\$tmp\/certs\/ca\.pem" "\$tmp\/certs\/leaf\.pem"/)
+  assert.doesNotMatch(pkceShell, /curl[^\n]*--insecure|curl[^\n]*\s-k\s/)
+})
