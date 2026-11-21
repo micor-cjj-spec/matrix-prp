@@ -22,7 +22,8 @@ class CallbackBoundaryTests(unittest.TestCase):
         with patch.object(flow.ssl, "create_default_context") as trust:
             opener = flow.disposable_https_opener("/tmp/ci-disposable-ca.pem")
         trust.assert_called_once_with(cafile="/tmp/ci-disposable-ca.pem")
-        proxy = next(h for h in opener.handlers if isinstance(h, flow.ProxyHandler))
-        self.assertEqual(proxy.proxies, {})
+        # urllib skips registering a ProxyHandler({}) because it supplies no
+        # proxy_open methods; absence of any proxy handler is the safe outcome.
+        self.assertFalse(any(isinstance(h, flow.ProxyHandler) for h in opener.handlers))
         self.assertTrue(any(isinstance(h, flow.SafeRedirect) for h in opener.handlers))
         self.assertTrue(any(isinstance(h, flow.HTTPCookieProcessor) for h in opener.handlers))
