@@ -38,7 +38,8 @@ const trend = ref<TrendPoint[]>([])
 const nutritionTrend = ref<NutritionTrendPoint[]>([])
 const trendDays = ref(14)
 const trendMetric = ref<'calories'|'proteinG'|'carbsG'|'fatG'>('calories')
-const nutrientByDate = computed(() => new Map(nutritionTrend.value.map(day => [day.date, day])))
+const nutrientByDate = computed(() => new Map<string, NutritionTrendPoint>(
+  nutritionTrend.value.map(day => [day.date, day] as const)))
 const trendUnit = computed(() => trendMetric.value === 'calories' ? 'kcal' : 'g')
 const trendName = computed(() => ({
   calories: '热量', proteinG: '蛋白质', carbsG: '碳水', fatG: '脂肪',
