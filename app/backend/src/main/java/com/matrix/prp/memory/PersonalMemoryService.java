@@ -115,6 +115,19 @@ public class PersonalMemoryService {
             + " ORDER BY id DESC LIMIT 100", MAPPER, owner);
     }
 
+    /**
+     * Explicit first-party owner management, never default AI context or MCP.
+     * Include archived and source-revoked NORMAL facts so owners can correct or
+     * erase their data after a linked chat has been deleted.
+     */
+    public List<Memory> listNormalHistory() {
+        long owner=CurrentUser.id();
+        return db.query("SELECT "+COLS+" FROM prp_personal_assertions WHERE user_id=?"
+            + " AND sensitivity='NORMAL'"
+            + " AND status IN ('CONFIRMED','SUPERSEDED','INVALID')"
+            + " ORDER BY id DESC LIMIT 100",MAPPER,owner);
+    }
+
     /** Candidate queue is intentionally separate from retrieval for AI context. */
     public List<Memory> pending() {
         long owner=CurrentUser.id();
