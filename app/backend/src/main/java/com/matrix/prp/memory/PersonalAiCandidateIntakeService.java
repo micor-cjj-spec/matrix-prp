@@ -17,7 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @Service
 @Profile("!test")
-public final class PersonalAiCandidateIntakeService {
+public class PersonalAiCandidateIntakeService {
     private static final int MAX_BATCH = 5;
     private final PersonalMemoryService memories;
 
