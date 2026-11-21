@@ -289,11 +289,17 @@ async function copyMeal(meal: Meal) {
   copyingMealId.value = meal.id
   try {
     await wellnessApi.copyMeal(meal.id, targetDate, key)
+    // The write succeeded. Do not suggest retrying the mutation if a
+    // subsequent refresh fails; that would be a *new* intentional event.
     copyRetryKeys.delete(request)
     date.value = targetDate
-    await Promise.all([loadDay(), loadTrend()])
-    ElMessage.success('已复制到今天')
-  } catch { ElMessage.error('复制失败，请重试；不会重复创建已保存的加餐') }
+    try {
+      await Promise.all([loadDay(), loadTrend()])
+      ElMessage.success('已复制到今天')
+    } catch {
+      ElMessage.warning('餐食已保存，但刷新失败；请刷新页面查看')
+    }
+  } catch { ElMessage.error('复制请求未确认，请重试；已保存的加餐不会重复创建') }
   finally { copyingMealId.value = null }
 }
 async function loadTrend() { trend.value = await wellnessApi.trends(trendDays.value) }
