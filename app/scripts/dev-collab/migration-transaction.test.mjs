@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {execFileSync,spawnSync} from 'node:child_process'
-import {mkdtempSync,mkdirSync,writeFileSync,cpSync,rmSync} from 'node:fs'
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,cpSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -71,7 +71,7 @@ function setup(){
   'case "$2" in',
   ' */pulls/144) cat "$PRP_MOCK_PR" ;;',
   ' */pulls/144/files*) cat "$PRP_MOCK_FILES" ;;',
-  ' */pulls/144/reviews*) cat "$PRP_MOCK_REVIEWS" ;;',
+  ' */pulls/144/reviews*) if [[ "${PRP_MOCK_REVOKE_SECOND_REVIEW:-}" == "1" ]]; then n=$(cat "$PRP_MOCK_REVIEW_READ_COUNT" 2>/dev/null || echo 0); n=$((n+1)); printf "%s\\n" "$n" > "$PRP_MOCK_REVIEW_READ_COUNT"; if (( n >= 2 )); then cat "$PRP_MOCK_REVOKED_REVIEWS"; else cat "$PRP_MOCK_REVIEWS"; fi; else cat "$PRP_MOCK_REVIEWS"; fi ;;',
   ' */rulesets/26294671) [[ "${GH_TOKEN:-}" == "local-test-read-token" || "${GH_TOKEN:-}" == "local-test-write-token" ]] || exit 4; cat "$PRP_MOCK_RULE" ;;',
   ' installation/repositories) cat "$PRP_MOCK_APP" ;;',
   " *) echo UNEXPECTED_API >&2; exit 2 ;;",
@@ -80,7 +80,8 @@ function setup(){
  writeFileSync(join(bin,'gh'),mock,{mode:0o755})
  const temp=join(root,'temp');mkdirSync(temp)
  const names={pr:join(root,'pr.json'),files:join(root,'files.json'),reviews:join(root,'reviews.json'),
-  rule:join(root,'rule.json'),app:join(root,'app.json')}
+  rule:join(root,'rule.json'),app:join(root,'app.json'),
+  revokedReviews:join(root,'revoked-reviews.json'),reviewReads:join(root,'review-reads.txt')}
  const pr={number:144,state:'open',draft:true,changed_files:1,
   user:{login:'micor-cjj-spec',id:123868412},
   base:{ref:'prp-collab-state',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
@@ -106,7 +107,9 @@ function setup(){
   COLLAB_MIGRATION_MODE:'verify',COLLAB_APPROVAL_PHRASE:'',
   COLLAB_APP_TOKEN:'local-test-read-token',GH_TOKEN:'read-only',
   PRP_MOCK_PR:names.pr,PRP_MOCK_FILES:names.files,PRP_MOCK_REVIEWS:names.reviews,
-  PRP_MOCK_RULE:names.rule,PRP_MOCK_APP:names.app}
+  PRP_MOCK_RULE:names.rule,PRP_MOCK_APP:names.app,
+  PRP_MOCK_REVOKED_REVIEWS:names.revokedReviews,
+  PRP_MOCK_REVIEW_READ_COUNT:names.reviewReads}
  return {root,names,pr,save,
   execute:(override={})=>spawnSync('bash',['app/scripts/dev-collab/migration-transaction.sh'],
    {cwd:runner,encoding:'utf8',timeout:15000,env:{...env,...override}}),
@@ -169,5 +172,29 @@ test('isolated Git preview is read only; simulated authorized apply commits once
   const replay=f.execute()
   assert.notEqual(replay.status,0)
   assert.match(replay.stderr,/STATE_MOVED_OR_MIGRATED/)
+ }finally{f.cleanup()}
+})
+
+test('isolated Git: dismissed approval between migration preflight and final check denies the state push',
+ {timeout:45000},()=>{
+ const f=setup()
+ try{
+  const before=f.state()
+  f.pr.draft=false;f.save(f.names.pr,f.pr)
+  const approval={id:17,user:{login:'independent-reviewer',id:999,type:'User'},
+   author_association:'COLLABORATOR',state:'APPROVED',commit_id:f.pr.head.sha,
+   submitted_at:'2026-11-01T03:00:00Z'}
+  f.save(f.names.reviews,[approval])
+  f.save(f.names.revokedReviews,[{...approval,state:'DISMISSED'}])
+  const result=f.execute({
+   COLLAB_MIGRATION_MODE:'apply',COLLAB_APP_TOKEN:'local-test-write-token',
+   COLLAB_APPROVAL_PHRASE:'APPLY-REQ-20261031-001-V1',
+   PRP_MOCK_REVOKE_SECOND_REVIEW:'1'
+  })
+  assert.notEqual(result.status,0,'must reject dismissed approval')
+  assert.match(result.stderr,/MIGRATION_INDEPENDENT_REVIEW_REQUIRED/)
+  assert.equal(Number(readFileSync(f.names.reviewReads,'utf8').trim()),2,
+   'first guard saw approval and final guard saw its dismissal')
+  assert.equal(f.state(),before,'no V0 state write permitted')
  }finally{f.cleanup()}
 })
