@@ -115,7 +115,7 @@ test('source dependency reordering requires exactly the approved T-003 prerequis
  const missingReview=proposedMigration();missingReview.tasks[2].depends_on=['T-001','T-009']
  assertMigrationFails(before,missingReview,'T003_DEPENDENCIES')
  const unexpected=proposedMigration();unexpected.tasks[2].title='tampered'
- assertMigrationFails(before,unexpected,'T003_DEPENDENCIES')
+ assertMigrationFails(before,unexpected,'HISTORIC_TASK_MODIFIED')
 })
 test('migration must be versioned with unchanged request history',()=>{
  const s=proposedMigration();s.version=0
