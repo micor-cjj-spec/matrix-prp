@@ -391,15 +391,22 @@ async function changeModel(id: string) {
   await persistModel(previous)
 }
 async function persistModel(previous: { provider: string; model: string }) {
+  const generation = chatAuthGeneration
   savingModel.value = true
   preview.value = null // preview binds to the selected provider + model
   resetKnowledgeReview()
-  try { settings.value = await setAiSelection(provider.value, model.value) }
-  catch {
+  try {
+    const selected = await setAiSelection(provider.value, model.value)
+    if (generation !== chatAuthGeneration) return
+    settings.value = selected
+  } catch {
+    if (generation !== chatAuthGeneration) return
     provider.value = previous.provider
     model.value = previous.model
     ElMessage.error('切换模型失败，请检查配置')
-  } finally { savingModel.value = false }
+  } finally {
+    if (generation === chatAuthGeneration) savingModel.value = false
+  }
 }
 
 async function refresh(restoreLatest = false) {
