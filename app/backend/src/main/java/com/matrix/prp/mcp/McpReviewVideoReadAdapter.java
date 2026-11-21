@@ -43,10 +43,8 @@ public final class McpReviewVideoReadAdapter {
         if (periodStart != null && periodEnd != null && periodStart.isAfter(periodEnd)) {
             throw new IllegalArgumentException("periodStart must not be after periodEnd");
         }
-        // The existing MyBatis review repository scopes to CurrentUser.id().
-        // This is a response cap, not a DB query cap; activation requires
-        // a separate review of query cost and possible SQL-side LIMIT.
-        return reviews.list(new ReviewFilter(type, module, periodStart, periodEnd))
+        // The repository filters CurrentUser.id() and applies an SQL-side LIMIT.
+        return reviews.listLimited(new ReviewFilter(type, module, periodStart, periodEnd), size)
             .stream().limit(size)
             .map(McpReviewVideoReadAdapter::preview)
             .toList();
@@ -55,7 +53,7 @@ public final class McpReviewVideoReadAdapter {
     /** Folder names and IDs only, never storage paths or upload session data. */
     public List<FolderPreview> listFolderPreviews(Integer limit) {
         int size = validateLimit(limit, MAX_FOLDERS, 20);
-        return video.folders().stream().limit(size)
+        return video.foldersLimited(size).stream().limit(size)
             .map(folder -> new FolderPreview(
                 folder.id(), folder.parentId(), clipped(folder.name(), 120)))
             .toList();
@@ -68,7 +66,7 @@ public final class McpReviewVideoReadAdapter {
             throw new IllegalArgumentException("folderId must be positive");
         }
         // VideoLibraryService verifies folder ownership and filters user_id.
-        return video.videos(folderId).stream().limit(size)
+        return video.videosLimited(folderId, size).stream().limit(size)
             .map(item -> new VideoPreview(item.id(), item.folderId(),
                 clipped(item.title(), 160),
                 item.positionSeconds(), item.durationSeconds()))
