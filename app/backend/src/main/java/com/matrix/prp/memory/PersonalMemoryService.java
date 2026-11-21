@@ -136,7 +136,7 @@ public class PersonalMemoryService {
     @Transactional
     public Memory proposeAiCandidate(AiCandidate suggestion) {
         long owner=CurrentUser.id();
-        if (suggestion==null ||
+        if (suggestion==null || suggestion.predicate()==null ||
                 !Set.of(Relation.DECLARES_SKILL,Relation.PREFERS,Relation.HAS_BACKGROUND)
                     .contains(suggestion.predicate()) ||
                 suggestion.value()==null || suggestion.value().isBlank() ||
@@ -220,7 +220,7 @@ public class PersonalMemoryService {
         return get(key.longValue());
     }
 
-    private static Memory matchingReplay(Memory prior, Proposed proposal, Long supersedes, String origin) {
+    static Memory matchingReplay(Memory prior, Proposed proposal, Long supersedes, String origin) {
         if (!Objects.equals(prior.origin(),origin)
                 || prior.subjectType()!=proposal.subjectType()
                 || !Objects.equals(prior.subjectRef(),proposal.subjectRef())
