@@ -177,11 +177,16 @@ async function submitLabelReview() {
       userVerified: true,
     })
     labelReview.mealItemId = 0
+    // A confirmed label verification is not undone by a failed readback.
     ElMessage.success('已按实际食用克数计算营养，并保存人工核实版本')
-    await Promise.all([loadDay(), loadTrend()])
+    try {
+      await Promise.all([loadDay(true), loadTrend()])
+    } catch {
+      ElMessage.warning('营养标签已核实，但页面刷新失败；请刷新页面查看，勿重复提交')
+    }
   } catch (error) {
     const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
-    ElMessage.error(message || '营养标签核实失败，请核对字段和包装信息')
+    ElMessage.error(message || '营养标签核实请求未确认，请刷新页面核对后再重试')
   } finally {
     labelSaving.value = false
   }
@@ -331,8 +336,19 @@ async function saveMeal() {
 }
 async function deleteMeal(meal: Meal) {
   try { await ElMessageBox.confirm('确定删除这条' + label(meal.mealType) + '记录吗？', '确认删除') } catch { return }
-  try { await wellnessApi.deleteMeal(meal.id); await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已删除') }
-  catch { ElMessage.error('删除失败') }
+  try {
+    await wellnessApi.deleteMeal(meal.id)
+  } catch {
+    ElMessage.error('删除请求未确认，请刷新页面核对后再重试')
+    return
+  }
+  // HTTP deletion already succeeded; an optional readback failure is separate.
+  ElMessage.success('已删除')
+  try {
+    await Promise.all([loadDay(true), loadTrend()])
+  } catch {
+    ElMessage.warning('餐食已删除，但页面刷新失败；请刷新页面核对，勿重复删除')
+  }
 }
 const copyingMealId = ref<number | null>(null)
 // A lost HTTP acknowledgement must not create a second snack on retry.
