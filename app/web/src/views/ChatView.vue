@@ -868,13 +868,13 @@ onBeforeUnmount(() => { controller?.abort(); resetKnowledgeReview() })
         </p>
         <p v-else-if="!knowledgeResult.candidates.length">这条消息没有可可靠提取的自述事实。不会创建空记录。</p>
         <div v-else class="chat-knowledge-list">
-          <label v-for="item in knowledgeResult.candidates" :key="item.requestKey" class="chat-knowledge-item">
-            <el-checkbox v-model="knowledgeSelected" :label="item.requestKey" :disabled="knowledgeSaving || knowledgeSaved" />
+          <div v-for="item in knowledgeResult.candidates" :key="item.requestKey" class="chat-knowledge-item">
+            <el-checkbox v-model="knowledgeSelected" :value="item.requestKey" :disabled="knowledgeSaving || knowledgeSaved">选择</el-checkbox>
             <span class="chat-knowledge-details">
               <strong>{{ item.predicate === 'DECLARES_SKILL' ? '技能自述' : item.predicate === 'PREFERS' ? '偏好' : '背景经历' }}：{{ item.value }}</strong>
               <small>原话证据：“{{ item.evidenceQuote }}” · 受限 · AI 提议未核实</small>
             </span>
-          </label>
+          </div>
         </div>
         <p class="chat-consent-explain">知识提交时将记录为 AI 提议，尚不保留独立的逐句来源引用；如要更正请在审核前处理。</p>
       </template>
