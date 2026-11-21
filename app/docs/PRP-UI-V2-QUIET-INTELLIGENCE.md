@@ -11,7 +11,7 @@
 2. Homepage gets a responsive daily-focus hero with existing task content and direct links to Task, Chat, Wellness, Video while preserving all original metric cards, task controls, domain cards, and quick actions.
 3. Wellness gets an overview summary for **selected date** and native existing quick actions (AI record, meal, exercise, body metrics). Six existing tabs remain; no nutrition data is invented or treated as zero.
 4. Learning adds the course→practice→notes→review quick path while preserving original video / practice / vocal / notes / admin-only knowledge features.
-5. Apps, Chat, Me and other registered modules share the visual theme without changing their underlying scripts.
+5. Apps now displays the existing registered modules in the original five category groups (学习/健康/生活/财务/更多工具); it preserves dynamic entries, search, category filters and per-user favorites. Chat, Me and other registered modules retain their scripts and share the visual theme.
 6. Existing `app/mobile` uni-app palette aligned, without editing page map.
 7. The web build now runs `ui-v2-feature-preservation.test.mjs` in addition to the existing four-tab contract test.
 
@@ -28,3 +28,12 @@
 - [ ] Chat iOS keyboard, bottom tab interaction, consent and history.
 - [ ] Admin-only features remain subject to original authorization.
 - [ ] No functional regressions; no production release without explicit approval.
+
+
+## 2026-11-21 UI acceptance update
+- Apps is now grouped by `groupOrder` and `filtered` instead of a single ungrouped grid. Grouped rendering never changes `getAppEntries`, feature visibility, the favorite key or application routes.
+- Accessible secondary text has been darkened (typical contrast approximately 5.2:1–5.8:1 for the evaluated surfaces); direct browser audits remain required.
+- Existing four-tab layout, health tabs and backend interaction code have not been removed or replaced.
+- Source-level regression tests have been extended to check the grouped app list, mobile chat viewport and category/favorites behavior.
+- GitHub Actions CI jobs were still queued when this update was prepared. Do not describe queued/pending jobs as passed.
+- The repository currently has no `dev` branch. PR #229 remains a **Draft** against `main` for review only; **do not merge it into main**. If enforcing the user's dev→main policy, establish the designated integration branch through a separate reviewed governance step, then retarget this PR. No production publication is authorized.
