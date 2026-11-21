@@ -205,6 +205,7 @@ export async function confirmGoalModelSharing(id: number, previewId: string) {
 export async function suggestGoalModelAdvice(id: number, modelToken: string) {
   const { data } = await apiClient.post<ApiResponse<PlanningModelAdvice>>(
     `/ai/personal-os/goals/${id}/model/suggest`, { modelToken },
+    { timeout: 155000 }, // Model streaming is server-side; keep the rest of the API at 8s.
   )
   return data.data
 }
