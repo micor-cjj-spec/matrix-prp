@@ -140,7 +140,9 @@ class PersonalOsChatExtractionServiceTest {
     @Test void modelReceivesExactlySelectedUserMessageAsUntrustedDataOnly() throws Exception {
         String grant=token();
         when(gateway.stream(any(),anyList(),anyInt(),any()))
-            .thenReturn(new DeepSeekClient.Result("{\\"candidates\\":[]}",0,1));
+            .thenReturn(new DeepSeekClient.Result("""
+                {"candidates":[]}
+                """,0,1));
         var extracted=service.extract(grant);
         assertThat(extracted.candidates()).isEmpty();
         verify(gateway).stream(any(),argThat(messages ->
