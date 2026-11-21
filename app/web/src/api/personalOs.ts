@@ -177,3 +177,10 @@ export async function inspectPersonalAiKnowledgeCandidates(items: PersonalAiKnow
   )
   return data.data
 }
+
+/** Requested only by a deliberate owner action, never as normal AI context. */
+export async function fetchNormalMemoryHistory() {
+  return (await apiClient.get<ApiResponse<PersonalMemory[]>>(
+    '/memory/history/normal',
+  )).data.data
+}
