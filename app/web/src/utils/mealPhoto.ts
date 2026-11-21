@@ -7,7 +7,7 @@ const DIRECT_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const CONVERT_MIMES = new Set(['image/heic', 'image/heif'])
 const ALL_MIMES = new Set([...DIRECT_MIMES, ...CONVERT_MIMES])
 type PhotoLike = Pick<File, 'name' | 'size' | 'type'>
-type Disposition = 'keep' | 'convert'
+type Disposition = 'convert'
 
 function mimeOf(file: PhotoLike): string {
   if (ALL_MIMES.has(file.type.toLowerCase())) return file.type.toLowerCase()
@@ -26,7 +26,8 @@ export function photoDisposition(file: PhotoLike): Disposition {
   if (file.size < 1) throw new Error('照片为空，请重新选择')
   if (file.size > AI_PHOTO_MAX_SOURCE_BYTES)
     throw new Error('原始照片超过 25 MB，请先在相册中缩小图片后重试')
-  if (DIRECT_MIMES.has(mimeOf(file)) && file.size <= AI_PHOTO_MAX_BYTES) return 'keep'
+  // Always redraw, even small JPG/PNG/WebP. Passing the original can leak
+  // EXIF/GPS, original filenames and other embedded metadata to the model.
   return 'convert'
 }
 
@@ -40,12 +41,12 @@ export function scaledPhotoDimensions(width: number, height: number, maxEdge: nu
 export interface PreparedMealPhoto { file: File; compressed: boolean; originalBytes: number }
 
 /**
- * Canvas-based conversion keeps the actual POST below 3,000,000 bytes, without
- * uploading the original image or retaining EXIF/GPS metadata. No third-party JS.
+ * Always canvas-redraw before upload: even <=3 MB originals can contain
+ * EXIF/GPS. The output contains only re-encoded pixels and a generic filename.
+ * No persistent storage, original upload or third-party JavaScript.
  */
 export async function prepareMealPhoto(source: File): Promise<PreparedMealPhoto> {
-  const disposition = photoDisposition(source)
-  if (disposition === 'keep') return { file: source, compressed: false, originalBytes: source.size }
+  photoDisposition(source)
 
   const objectUrl = URL.createObjectURL(source)
   const image = new Image()
@@ -56,7 +57,8 @@ export async function prepareMealPhoto(source: File): Promise<PreparedMealPhoto>
       image.src = objectUrl
     })
     const width = image.naturalWidth, height = image.naturalHeight
-    if (width <= 0 || height <= 0) throw new Error('图片尺寸无效')
+    if (width <= 0 || height <= 0 || width * height > 60_000_000)
+      throw new Error('图片尺寸无效或像素过大，请先缩小后重试')
     const canvas = document.createElement('canvas')
     const context = canvas.getContext('2d', { alpha: false })
     if (!context) throw new Error('此浏览器不支持图片压缩，请使用 JPG 照片')
@@ -75,9 +77,8 @@ export async function prepareMealPhoto(source: File): Promise<PreparedMealPhoto>
         })
         if (!smallest || blob.size < smallest.size) smallest = blob
         if (blob.size <= AI_PHOTO_TARGET_BYTES) {
-          const base = source.name.replace(/\.[^.]+$/, '').slice(0, 80) || 'food'
           return {
-            file: new File([blob], base + '-prp.jpg', { type: 'image/jpeg', lastModified: Date.now() }),
+            file: new File([blob], 'prp-meal.jpg', { type: 'image/jpeg', lastModified: Date.now() }),
             compressed: true,
             originalBytes: source.size,
           }
@@ -85,9 +86,8 @@ export async function prepareMealPhoto(source: File): Promise<PreparedMealPhoto>
       }
     }
     if (smallest && smallest.size <= AI_PHOTO_MAX_BYTES) {
-      const base = source.name.replace(/\.[^.]+$/, '').slice(0, 80) || 'food'
       return {
-        file: new File([smallest], base + '-prp.jpg', { type: 'image/jpeg', lastModified: Date.now() }),
+        file: new File([smallest], 'prp-meal.jpg', { type: 'image/jpeg', lastModified: Date.now() }),
         compressed: true,
         originalBytes: source.size,
       }
