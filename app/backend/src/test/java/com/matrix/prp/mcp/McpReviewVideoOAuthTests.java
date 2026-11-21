@@ -158,6 +158,21 @@ class McpReviewVideoOAuthTests {
         verifyNoInteractions(reviews,videos);
     }
 
+    @Test void revokingOwnerConsentImmediatelyBlocksSubsequentVideoReads() throws Exception {
+        when(videos.foldersLimited(2)).thenReturn(List.of(new Folder(9,null,"Owned study",0)));
+        var first=rpc("prp_video_folders",Map.of("limit",2));
+        assertThat(first.getResponse().getStatus()).isEqualTo(200);
+        assertThat(first.getResponse().getContentAsString()).contains("Owned study");
+        verify(videos,times(1)).foldersLimited(2);
+
+        // The same still-valid JWT may no longer read after PRP owner revokes consent.
+        when(grants.grantedScopes(2,CLIENT)).thenReturn(Set.of());
+        var revoked=rpc("prp_video_folders",Map.of("limit",2));
+        assertThat(revoked.getResponse().getStatus()).isEqualTo(401);
+        verify(videos,times(1)).foldersLimited(2);
+        verifyNoMoreInteractions(videos);
+    }
+
     @Test void unexpectedOAuthClientCannotReadReviewOrVideo() throws Exception {
         identity(2,"https://client.example.test/oauth/client.json",
             "prp.reviews.read prp.video.read",Set.of("prp.reviews.read","prp.video.read"));
