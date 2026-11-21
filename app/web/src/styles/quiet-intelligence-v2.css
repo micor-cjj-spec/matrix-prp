@@ -283,9 +283,24 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
   .prp-shell .prp-apps-grid {gap:11px}
   .prp-shell .prp-app-card {min-height:94px;padding:13px}
   .prp-shell .prp-profile-card {padding:24px 19px}
-  .prp-shell-chat {padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
+  /* Preserve chat's constrained flex viewport even though ordinary pages use display:block. */
+  .prp-shell.prp-shell-chat {
+    position:fixed;inset:0;z-index:10;width:100%;
+    display:flex;flex-direction:column;
+    height:var(--prp-chat-viewport-height,100dvh);
+    min-height:0;max-height:100dvh;overflow:hidden;
+    overscroll-behavior:none;
+    padding-bottom:calc(68px + env(safe-area-inset-bottom,0px));
+  }
+  .prp-shell.prp-shell-chat .prp-mobile-tabs {position:absolute;bottom:0}
+  .prp-shell.prp-shell-chat .prp-workspace-chat {
+    display:flex;flex:1 1 auto;height:auto;min-height:0;overflow:hidden;padding:0
+  }
+  .prp-shell.prp-shell-chat .prp-page-chat {display:flex;flex:1 1 auto;height:auto;min-height:0;overflow:hidden}
+  .prp-shell.prp-shell-chat.prp-keyboard-open {padding-bottom:0}
+  .prp-shell.prp-shell-chat.prp-keyboard-open .prp-mobile-tabs {display:none}
   .prp-shell-chat .prp-workspace-chat {padding:0}
-  .prp-shell-chat.prp-keyboard-open {padding-bottom:0}
+  /* chat keyboard-specific overrides are above */
 }
 @media (max-width:390px){
   .prp-shell .prp-workspace {padding-left:12px;padding-right:12px}
