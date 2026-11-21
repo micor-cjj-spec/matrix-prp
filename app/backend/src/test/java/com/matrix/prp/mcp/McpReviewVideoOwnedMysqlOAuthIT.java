@@ -12,7 +12,6 @@ import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -155,12 +154,8 @@ class McpReviewVideoOwnedMysqlOAuthIT {
         db.update("INSERT INTO prp_video_assets (user_id,folder_id,title,storage_key,size_bytes) "+
                 "VALUES (?,?,?,?,?)",b.id(),folderB.id(),"OWNER_B_VIDEO",UUID.randomUUID().toString(),16L);
 
-        token("ci-rv-a-"+UUID.randomUUID(),aSubject,"prp.reviews.read prp.video.read");
-        token("ci-rv-b-"+UUID.randomUUID(),bSubject,"prp.reviews.read prp.video.read");
-
-        String bearerA="ci-rv-a-"; // find the actual token from the known test value below
-        // Use fresh stable signed-identity fixtures to make each assertion independent.
-        bearerA="ci-rv-owner-a-"+UUID.randomUUID();
+        // The mocked decoder supplies verified claims; other CI jobs validate real signatures.
+        String bearerA="ci-rv-owner-a-"+UUID.randomUUID();
         String bearerB="ci-rv-owner-b-"+UUID.randomUUID();
         token(bearerA,aSubject,"prp.reviews.read prp.video.read");
         token(bearerB,bSubject,"prp.reviews.read prp.video.read");
@@ -192,7 +187,7 @@ class McpReviewVideoOwnedMysqlOAuthIT {
 
         String crossOwner=rpc(bearerB,"prp_video_progress",
             Map.of("folderId",folderA.id())).getResponse().getContentAsString();
-        assertThat(crossOwner).doesNotContain("OWNER_A_VIDEO");
+        assertThat(crossOwner).contains("\"isError\":true").doesNotContain("OWNER_A_VIDEO");
 
         // A valid token does not survive real PRP owner-client grant revocation.
         firstParty(a);
