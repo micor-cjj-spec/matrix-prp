@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { Bell, ChatDotRound, DataAnalysis, Grid, User } from '@element-plus/icons-vue'
+import { ArrowLeft, Bell, ChatDotRound, DataAnalysis, Grid, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { domains, features } from '@/generated/features'
 
@@ -88,7 +88,13 @@ const currentTitle = computed(() => {
 
     <div class="workspace prp-workspace" :class="{ 'prp-workspace-chat': activeMain === 'chat' }">
       <div v-if="activeMain !== 'chat'" class="prp-topbar">
-        <div class="prp-topbar-title"><span class="prp-mobile-mark">M</span><span>{{ currentTitle }}</span></div>
+        <div class="prp-topbar-title">
+          <RouterLink v-if="activeMain === 'apps' && route.path !== '/apps'" to="/apps"
+            class="prp-back-to-apps" aria-label="返回应用中心" title="返回应用中心">
+            <el-icon><ArrowLeft /></el-icon><span>应用</span>
+          </RouterLink>
+          <span class="prp-mobile-mark">M</span><span class="prp-current-page-title">{{ currentTitle }}</span>
+        </div>
         <div class="prp-topbar-actions">
           <RouterLink to="/notifications" class="prp-icon-link" aria-label="消息与提醒">
             <el-icon><Bell /></el-icon>
