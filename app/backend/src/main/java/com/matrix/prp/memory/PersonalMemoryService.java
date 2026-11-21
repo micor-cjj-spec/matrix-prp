@@ -182,7 +182,12 @@ public class PersonalMemoryService {
      */
     @Transactional
     public Memory proposeAiCandidate(AiCandidate suggestion) {
-        return proposeWithParent(checkedAiProposal(suggestion),null,"AI_CANDIDATE");
+        Proposed validated=checkedAiProposal(suggestion);
+        validate(validated);
+        // Transaction-scoped owner row lock closes the cross-request-key
+        // check-then-insert race among parallel Personal OS AI submissions.
+        lockOwnerForAiMutation();
+        return proposeWithParent(validated,null,"AI_CANDIDATE");
     }
 
     /** Read-only preflight; never sends prior private facts back to the caller. */
@@ -339,6 +344,14 @@ public class PersonalMemoryService {
         Memory m=get(id);
         if("CONFIRMED".equals(m.status())) return m;
         if(!"PENDING".equals(m.status())) throw conflict("Memory is no longer pending");
+        if ("AI_CANDIDATE".equals(m.origin())) {
+            // Lock before re-reading state and checking peers; no two AI
+            // confirmations for the same owner can commit duplicate facts.
+            lockOwnerForAiMutation();
+            m=get(id);
+            if (!"PENDING".equals(m.status()))
+                throw conflict("Memory changed concurrently");
+        }
         assertions.requireValid(toCandidate(m));
         // A previously safe AI suggestion can become a duplicate while awaiting review.
         if ("AI_CANDIDATE".equals(m.origin()))
@@ -457,6 +470,19 @@ public class PersonalMemoryService {
 
     static Sensitivity effectiveSensitivity(Proposed proposed) {
         return proposed.sensitivity()==null ? Sensitivity.RESTRICTED : proposed.sensitivity();
+    }
+
+    /**
+     * Reuses the existing PRP user row as the narrowest shared InnoDB mutex.
+     * Must be called from public @Transactional entrypoints ONLY. The lock is
+     * released by the DB on commit/rollback; never use GET_LOCK on pooled sessions.
+     */
+    private void lockOwnerForAiMutation() {
+        long owner=CurrentUser.id();
+        Long locked=db.queryForObject(
+            "SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,owner);
+        if (locked==null || locked.longValue()!=owner)
+            throw conflict("Personal knowledge owner is no longer available");
     }
 
     private static PersonalOntologyAssertionGuard.Candidate toCandidate(Memory m) {
