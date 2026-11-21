@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs'
 
 const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')
 const deploy = readFileSync(new URL('../../.github/workflows/deploy-prp.yml', import.meta.url), 'utf8')
+const impact = readFileSync(new URL('../../.github/workflows/feature-impact.yml', import.meta.url), 'utf8')
+const pkceShell = readFileSync(new URL('../deploy/mcp-oauth/test_full_e2e_ci.sh', import.meta.url), 'utf8')
 
 test('stale PR runs cancel within their PR, but main push and other PRs remain independent', () => {
   assert.match(ci, /concurrency:\s*\n\s*group: prp-ci-.*github\.event\.pull_request\.number \|\| github\.ref/)
@@ -25,4 +27,19 @@ test('production workflow does not run on PR CI completion', () => {
   assert.match(deploy, /github\.event\.workflow_run\.event == 'push'/)
   assert.match(deploy, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/)
   assert.match(deploy, /cancel-in-progress: false/)
+})
+
+test('required Feature Impact job cancels stale runs within the same PR only', () => {
+  assert.match(impact, /pull_request:\s*\n\s*branches: \[main\]/)
+  assert.match(impact, /group: prp-impact-\$\{\{ github\.event\.pull_request\.number \}\}/)
+  assert.match(impact, /cancel-in-progress: true/)
+  assert.match(impact, /\n  impact-report:\n/)
+})
+
+test('Keycloak diagnostics only inspect disposable localhost, never dump authentication payloads', () => {
+  assert.match(pkceShell, /--noproxy '\*'/)
+  assert.match(pkceShell, /--output \/dev\/null/)
+  assert.match(pkceShell, /https:\/\/auth-e2e\.localhost\/realms\/prp-mcp\/\.well-known\/openid-configuration/)
+  assert.match(pkceShell, /http:\/\/127\.0\.0\.1:18080\/realms\/prp-mcp\/\.well-known\/openid-configuration/)
+  assert.doesNotMatch(pkceShell, /docker logs/)
 })

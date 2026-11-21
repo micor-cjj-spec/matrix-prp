@@ -23,6 +23,22 @@ backend_pid=""
 cleanup() {
   local result=$?
   if (( result != 0 )); then
+    # Probe ONLY synthetic local discovery endpoints. Never emit response
+    # bodies, URLs with query parameters, tokens, passwords or raw logs.
+    local label code
+    for label in nginx-https keycloak-loopback; do
+      local -a ca_flags=()
+      local endpoint
+      if [[ "$label" == nginx-https ]]; then
+        endpoint="https://auth-e2e.localhost/realms/prp-mcp/.well-known/openid-configuration"
+        ca_flags=(--cacert "$MCP_E2E_CA_CERT")
+      else
+        endpoint="http://127.0.0.1:18080/realms/prp-mcp/.well-known/openid-configuration"
+      fi
+      code="$(curl --silent --noproxy '*' --max-time 5 --output /dev/null --write-out '%{http_code}' "${ca_flags[@]}" "$endpoint" 2>/dev/null || true)"
+      [[ "$code" =~ ^[0-9]{3}$ ]] || code="000"
+      echo "E2E failure: synthetic OIDC discovery via ${label}, HTTP ${code}" >&2
+    done
     # Only container lifecycle facts, never raw logs/credentials/tokens.
     for container in prp-ci-real-keycloak prp-ci-real-nginx prp-ci-real-mysql; do
       if docker inspect "$container" >/dev/null 2>&1; then
