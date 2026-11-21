@@ -10,7 +10,10 @@ import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
 import ChatConversationPanel from '@/components/ai/ChatConversationPanel.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
 import { fetchUsage, pageConversations, renameConversation, deleteConversation, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, prepareInlineHealthDraft, confirmPendingHealthDraft, AiStreamHttpError,
+  previewChatKnowledge, approveChatKnowledgePreview, extractChatKnowledge,
+  type PersonalChatKnowledgePreview, type ChatKnowledgeExtraction,
   type AiUsage, type ChatMessage, type AiMessageBlock, type Conversation, type AiContextPreview } from '@/api/ai'
+import { submitPersonalAiKnowledgeCandidates } from '@/api/personalOs'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 import { isMealCardRequest } from '@/utils/mealCardIntent'
@@ -73,6 +76,102 @@ const savingModel = ref(false)
 const selectedScopes = ref<string[]>([])
 const mentionOpen = ref(false)
 const mentionQuery = ref('')
+// Enabled explicitly only in a reviewed first-party PRP environment.
+const knowledgeCaptureEnabled = import.meta.env.VITE_PERSONAL_OS_CHAT_EXTRACTION === 'true'
+const knowledgeVisible = ref(false)
+const knowledgePreview = ref<PersonalChatKnowledgePreview | null>(null)
+const knowledgeResult = ref<ChatKnowledgeExtraction | null>(null)
+const knowledgeSelected = ref<string[]>([])
+const knowledgeLoading = ref(false)
+const knowledgeSaving = ref(false)
+const knowledgeSaved = ref(false)
+let knowledgeGeneration = 0
+
+function resetKnowledgeReview() {
+  ++knowledgeGeneration
+  knowledgeVisible.value = false
+  knowledgePreview.value = null
+  knowledgeResult.value = null
+  knowledgeSelected.value = []
+  knowledgeLoading.value = false
+  knowledgeSaving.value = false
+  knowledgeSaved.value = false
+}
+async function startKnowledgeReview(message: ChatMessage) {
+  if (!knowledgeCaptureEnabled || sending.value || knowledgeLoading.value
+      || message.role !== 'user' || message.id <= 0 || !selectedId.value) return
+  if (!message.content.trim() || message.content.length > 2000) {
+    ElMessage.warning('目前仅支持 2000 字以内的纯文字用户消息')
+    return
+  }
+  resetKnowledgeReview()
+  const ticket = knowledgeGeneration
+  const conversationId = selectedId.value
+  knowledgeLoading.value = true
+  try {
+    const review = await previewChatKnowledge(conversationId, message.id)
+    if (ticket !== knowledgeGeneration || selectedId.value !== conversationId) return
+    knowledgePreview.value = review
+    knowledgeVisible.value = true
+  } catch {
+    if (ticket === knowledgeGeneration)
+      ElMessage.error('无法预览这条消息，可能消息已删除或该功能尚未启用')
+  } finally {
+    if (ticket === knowledgeGeneration) knowledgeLoading.value = false
+  }
+}
+async function approveKnowledgeExtraction() {
+  const review = knowledgePreview.value
+  if (!review || knowledgeLoading.value || knowledgeResult.value) return
+  const ticket = knowledgeGeneration
+  knowledgeLoading.value = true
+  try {
+    const approved = await approveChatKnowledgePreview(review.previewId)
+    if (ticket !== knowledgeGeneration) return
+    const result = await extractChatKnowledge(approved.extractionToken)
+    if (ticket !== knowledgeGeneration) return
+    knowledgeResult.value = result
+    knowledgePreview.value = null
+    knowledgeSelected.value = []
+  } catch {
+    if (ticket === knowledgeGeneration) {
+      knowledgePreview.value = null
+      ElMessage.error('知识提取失败或授权已失效，请重新从聊天消息发起')
+    }
+  } finally {
+    if (ticket === knowledgeGeneration) knowledgeLoading.value = false
+  }
+}
+async function saveKnowledgeCandidates() {
+  const result = knowledgeResult.value
+  if (!result || knowledgeSaving.value || knowledgeSaved.value) return
+  const chosen = result.candidates.filter(item => knowledgeSelected.value.includes(item.requestKey))
+  if (!chosen.length) {
+    ElMessage.warning('请先勾选要提交审核的知识候选')
+    return
+  }
+  const ticket = knowledgeGeneration
+  knowledgeSaving.value = true
+  try {
+    await submitPersonalAiKnowledgeCandidates(chosen.map(item => ({
+      predicate: item.predicate,
+      value: item.value,
+      validFrom: null,
+      validTo: null,
+      sensitivity: 'RESTRICTED' as const,
+      requestKey: item.requestKey,
+    })))
+    if (ticket !== knowledgeGeneration) return
+    knowledgeSaved.value = true
+    knowledgeSelected.value = []
+    ElMessage.success('候选已存入待确认队列，尚未成为长期事实')
+  } catch {
+    if (ticket === knowledgeGeneration)
+      ElMessage.error('提交候选失败；可保留当前选择并重新尝试，系统会按请求键避免重复')
+  } finally {
+    if (ticket === knowledgeGeneration) knowledgeSaving.value = false
+  }
+}
 const preview = ref<AiContextPreview | null>(null)
 const previewVisible = ref(false)
 const previewing = ref(false)
@@ -196,6 +295,7 @@ async function changeModel(id: string) {
 async function persistModel(previous: { provider: string; model: string }) {
   savingModel.value = true
   preview.value = null // preview binds to the selected provider + model
+  resetKnowledgeReview()
   try { settings.value = await setAiSelection(provider.value, model.value) }
   catch {
     provider.value = previous.provider
@@ -321,6 +421,7 @@ async function select(id: string, automaticRestore = false) {
     input.value = ''
     selectedScopes.value = []
     preview.value = null
+    resetKnowledgeReview()
     ++photoSelectionVersion
     chatPhoto.value = null
     preparingPhoto.value = false
@@ -368,6 +469,7 @@ function newChat() {
   input.value = ''
   selectedScopes.value = []
   preview.value = null
+  resetKnowledgeReview()
   ++photoSelectionVersion
   chatPhoto.value = null
   preparingPhoto.value = false
@@ -589,7 +691,7 @@ async function send(contextToken?: string) {
   }
 }
 onMounted(() => { void refresh(true); void loadSettings() })
-onBeforeUnmount(() => controller?.abort())
+onBeforeUnmount(() => { controller?.abort(); resetKnowledgeReview() })
 </script>
 
 <template>
