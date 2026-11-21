@@ -132,6 +132,31 @@ public class PersonalMemoryService {
             .stream().findFirst().orElseThrow(PersonalMemoryService::notFound);
     }
 
+    /** Owner-initiated, first-party-only source preview; never for MCP or AI context. */
+    public record ChatSource(long messageId, String messageText, LocalDateTime sentAt) {}
+
+    public ChatSource sourcePreview(long assertionId) {
+        Memory memory=get(assertionId); // owner-scoped even for pending/private
+        if (memory.sourceType()!=EvidenceSource.CHAT_MESSAGE
+                || memory.sourceRef()==null)
+            throw notFound();
+        references.requireOwnedChatMessage(memory.sourceRef());
+        long messageId;
+        try { messageId=Long.parseLong(memory.sourceRef()); }
+        catch (NumberFormatException invalid) { throw notFound(); }
+        long owner=CurrentUser.id();
+        return db.query("""
+            SELECT m.content,m.created_at FROM prp_ai_messages m
+            JOIN prp_ai_conversations c ON c.id=m.conversation_id
+            LEFT JOIN prp_ai_conversation_meta meta ON meta.conversation_id=c.id
+            WHERE m.id=? AND c.user_id=? AND m.role='user'
+              AND meta.deleted_at IS NULL LIMIT 1
+            """,(rs,n)->new ChatSource(messageId,
+                rs.getString(1).length()>2000 ? rs.getString(1).substring(0,2000) : rs.getString(1),
+                rs.getTimestamp(2).toLocalDateTime()),messageId,owner)
+            .stream().findFirst().orElseThrow(PersonalMemoryService::notFound);
+    }
+
     @Transactional
     public Memory propose(Proposed proposal) {
         return proposeWithParent(proposal,null,null);
