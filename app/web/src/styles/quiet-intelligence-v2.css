@@ -5,7 +5,7 @@
  */
 :root {
   --prp-ink:#233c32;
-  --prp-muted:#7c8d82;
+  --prp-muted:#526b57;
   --prp-line:#e3e9e0;
   --prp-surface:#ffffff;
   --prp-shadow:0 18px 46px rgba(34,69,51,.075);
@@ -27,7 +27,7 @@
   --el-fill-color-lighter:#f8faf6;
   --el-text-color-primary:#263d32;
   --el-text-color-regular:#53695a;
-  --el-text-color-secondary:#839187;
+  --el-text-color-secondary:#5c7060;
   --el-bg-color:#fff;
 }
 html { scroll-behavior:smooth; }
@@ -68,7 +68,7 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .nav-caption {color:#96a59a;letter-spacing:1.55px;margin:0 15px 13px}
 .prp-shell .prp-main-nav {gap:7px}
 .prp-shell .prp-nav-link {
-  border-radius:14px;min-height:50px;color:#718576;font-size:14px;
+  border-radius:14px;min-height:50px;color:#526b57;font-size:14px;
   font-weight:600;padding:0 16px;gap:13px;
   transition:background-color .18s,color .18s,transform .18s;
 }
@@ -106,10 +106,10 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .page-header,.prp-shell .prp-section-header {padding:0 0 4px}
 .prp-shell .page-header h1,.prp-shell .prp-section-header h1 {color:var(--prp-ink);letter-spacing:-.9px;font-weight:710}
 .prp-shell .page-header p,.prp-shell .prp-section-header p:last-child {color:var(--prp-muted)}
-.prp-shell .eyebrow {color:#7e9b80;font-size:11px;letter-spacing:1.65px;font-weight:750}
+.prp-shell .eyebrow {color:#4c7053;font-size:11px;letter-spacing:1.65px;font-weight:750}
 /* Home: retain every metric, cross-domain destination, task operation & quick link. */
 .prp-shell .home-heading {align-items:center;margin-bottom:26px}
-.prp-shell .home-heading .home-date {letter-spacing:1px;font-weight:650;color:#799583;font-size:12px}
+.prp-shell .home-heading .home-date {letter-spacing:1px;font-weight:650;color:#4f7157;font-size:12px}
 .prp-shell .home-heading h1 {color:#254534;font-size:clamp(26px,2.9vw,39px);font-weight:670;letter-spacing:-1.45px;margin:8px 0 9px}
 .prp-shell .home-heading p {color:#879a8c}
 .prp-shell .home-plan-link {background:#fff;border:1px solid #dfe7dc;border-radius:14px;color:#4a7258;padding:13px 18px}
@@ -117,9 +117,9 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .home-metrics {gap:15px;margin:0 0 18px}
 .prp-shell .home-metric {min-height:158px;border:1px solid rgba(230,236,227,.95);border-radius:20px;padding:23px;box-shadow:0 9px 23px rgba(35,74,46,.035);gap:10px}
 .prp-shell .home-metric:hover,.prp-shell .home-domain-card:hover,.prp-shell .domain-tool-card:not(.is-upcoming):hover {transform:translateY(-3px);box-shadow:0 17px 34px rgba(32,75,50,.11)}
-.prp-shell .home-metric-top {color:#6b8471}
+.prp-shell .home-metric-top {color:#526b57}
 .prp-shell .home-metric strong {color:#284735;font-weight:710;letter-spacing:-.9px}
-.prp-shell .home-metric small {color:#819486;font-size:12px}
+.prp-shell .home-metric small {color:#526b57;font-size:12px}
 .prp-shell .metric-tasks {background:linear-gradient(130deg,#e9f0e6,#f5f8f0)}
 .prp-shell .metric-learning {background:linear-gradient(125deg,#edf1e6,#f8f8f0)}
 .prp-shell .metric-health {background:linear-gradient(130deg,#deede2,#f0f6e9)}
@@ -133,7 +133,7 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .home-panel-heading a,.prp-shell .home-panel-footer a {color:#527c5c}
 .prp-shell .home-task {padding:15px 1px;border-bottom:1px solid #f0f2ed}
 .prp-shell .home-task-copy strong {font-size:14px;color:#405749;font-weight:650}
-.prp-shell .home-task-copy small {color:#96a698;font-size:11px}
+.prp-shell .home-task-copy small {color:#5a725e;font-size:11px}
 .prp-shell .home-task-tag {background:#e8f1e5;color:#618363}
 .prp-shell .home-task-tag.is-late {background:#fff0ea;color:#ab6b57}
 .prp-shell .home-domain-card {border-radius:17px;min-height:149px;transition:transform .2s,box-shadow .2s}
@@ -145,10 +145,10 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .color-health .home-domain-icon {background:#5b9274}
 .prp-shell .color-life .home-domain-icon {background:#b49a72}
 .prp-shell .color-finance .home-domain-icon {background:#8c9d87}
-.prp-shell .home-domain-card p {color:#7e927f}
+.prp-shell .home-domain-card p {color:#526b57}
 .prp-shell .home-quick-card {border-radius:17px;border-color:#e5ebe2;box-shadow:0 7px 19px rgba(28,55,31,.025);color:#57816b;min-height:85px}
 .prp-shell .home-quick-card strong {color:#315541;font-size:14px}
-.prp-shell .home-quick-card span {color:#92a396}
+.prp-shell .home-quick-card span {color:#526b57}
 .prp-shell .home-quick-card:hover {border-color:#c3d8c5;background:#f9fbf7;transform:translateY(-2px)}
 /* Learning hub: all video, practice, vocal, notes, admin knowledge, task and review links stay present. */
 .prp-shell .domain-page .domain-hero {
@@ -160,7 +160,7 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .domain-life .domain-hero {background:linear-gradient(120deg,#f4eddf,#faf8f1)}
 .prp-shell .domain-life .domain-hero-icon {background:#a78c63}
 .prp-shell .domain-hero h1 {color:#294535;letter-spacing:-1px;font-weight:690}
-.prp-shell .domain-hero p:last-child {color:#748879}
+.prp-shell .domain-hero p:last-child {color:#526b57}
 .prp-shell .domain-section-heading h2 {color:#2d4d3a}
 .prp-shell .domain-tool-grid {gap:17px}
 .prp-shell .domain-tool-card {border-radius:21px;border-color:#e7ede5;min-height:163px;padding:25px;background:linear-gradient(145deg,#fff,#fcfdfa)}
@@ -173,7 +173,7 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .tool-green {background:#e7f2e6;color:#60936b}
 .prp-shell .domain-help-panel {border-radius:20px;border-color:#e6ece1;padding:27px 30px;background:#fff}
 .prp-shell .domain-help-panel h2 {color:#2a4b39}
-.prp-shell .domain-help-panel p {color:#7f9083}
+.prp-shell .domain-help-panel p {color:#526b57}
 .prp-shell .domain-mini-links a {color:#50745e}
 .prp-shell .domain-tool-card:focus-visible,.prp-shell .home-domain-card:focus-visible,.prp-shell .prp-app-card:focus-visible {outline:3px solid #9fbea0;outline-offset:2px}
 /* Wellness: original AI, overview, meals, exercise, metrics & goal tabs and actions stay accessible. */
@@ -210,10 +210,10 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .prp-app-card {border-color:#e4ebe0;background:linear-gradient(140deg,#fff,#fdfefa);min-height:108px;padding:20px;border-radius:19px;box-shadow:0 5px 20px rgba(34,63,39,.025);transition:all .2s}
 .prp-shell .prp-app-card:hover {transform:translateY(-3px);border-color:#a6c6a6;box-shadow:0 15px 30px rgba(36,76,46,.095)}
 .prp-shell .prp-app-card-copy strong {color:#305040;font-size:15px}
-.prp-shell .prp-app-card-copy small {color:#8d9d91}
+.prp-shell .prp-app-card-copy small {color:#526b57}
 .prp-shell .prp-app-icon {background:#e8f1e5;color:#4a7758;border-radius:15px}
 .prp-shell .prp-favorite-button.selected {color:#987747;background:#f6f0e1}
-.prp-shell .prp-apps-note {color:#8e9c90}
+.prp-shell .prp-apps-note {color:#526b57}
 .prp-shell .prp-apps-empty {border-color:#dbe7d9}
 /* Me: profile, settings, access grants, invitations, admin tools all stay in place. */
 .prp-shell .prp-profile-card {border-radius:24px;background:linear-gradient(115deg,#e3eee1,#f7f8ee);border:1px solid #e0e9dc;padding:32px 34px}
