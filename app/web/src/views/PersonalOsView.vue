@@ -199,6 +199,10 @@ async function loadData() {
     records.value = recordData
     await refreshPrivateIfOpen()
     if (generation !== loadGeneration || activeTab.value !== tab) return
+    // The owner explicitly opened normal history. Keep it accurate after
+    // corrections/invalidations/erasure; never fetch it on a closed panel.
+    if (tab === 'memory' && normalHistoryOpen.value) await toggleNormalHistory(true)
+    if (generation !== loadGeneration || activeTab.value !== tab) return
     if (selectedGoalId.value !== null && !goalData.some(item => item.id === selectedGoalId.value)) {
       ++goalContextGeneration
       selectedGoalId.value = null
