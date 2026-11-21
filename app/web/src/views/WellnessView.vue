@@ -38,6 +38,7 @@ const trend = ref<TrendPoint[]>([])
 const nutritionTrend = ref<NutritionTrendPoint[]>([])
 const trendDays = ref(14)
 const trendMetric = ref<'calories'|'proteinG'|'carbsG'|'fatG'>('calories')
+const selectedTrendDay = ref<string | null>(null)
 const nutrientByDate = computed(() => new Map<string, NutritionTrendPoint>(
   nutritionTrend.value.map(day => [day.date, day] as const)))
 const trendUnit = computed(() => trendMetric.value === 'calories' ? 'kcal' : 'g')
@@ -52,6 +53,10 @@ function trendValue(point: TrendPoint): number | null {
 }
 const selectedTrendMax = computed(() =>
   Math.max(1, ...trend.value.map(point => trendValue(point) ?? 0)))
+const selectedTrendText = computed(() => {
+  const point = trend.value.find(day => day.date === selectedTrendDay.value)
+  return point ? trendDescription(point) : ''
+})
 function trendDescription(point: TrendPoint): string {
   const value = trendValue(point)
   if (trendMetric.value === 'calories')
@@ -537,10 +542,15 @@ async function saveProfile() {
             </div>
             <p class="muted">每日{{ trendName }}（{{ trendUnit }}）。没有记录为留白；当某项营养素缺失时，不将已知部分当作全天总量，也不将未知显示为 0。</p>
             <p v-if="nutritionTrendUnavailable && trendMetric !== 'calories'" class="coverage-tip" role="status">营养趋势接口暂不可用；可切换回热量趋势查看已记录摄入。</p>
-            <p class="muted">图中底部的细线表示已核实的 0，空白表示缺失或未记录；逐日明细可点击或长按查看。</p>
+            <p class="muted">图中底部的细线表示已知 0，空白表示缺失或未记录；点击或轻触柱条可查看逐日数值。</p>
             <div v-if="!trend.length" class="empty">趋势暂时无法显示，请重试。</div>
             <div v-else class="bars" role="group" :aria-label="'近' + trendDays + '天' + trendName + '趋势'">
-              <div v-for="(point, idx) in trend" :key="point.date" class="bar-column" :title="trendDescription(point)" :aria-label="trendDescription(point)">
+              <div v-for="(point, idx) in trend" :key="point.date" class="bar-column"
+                role="button" tabindex="0" :aria-pressed="selectedTrendDay === point.date"
+                :title="trendDescription(point)" :aria-label="trendDescription(point)"
+                @click="selectedTrendDay = point.date"
+                @keydown.enter.prevent="selectedTrendDay = point.date"
+                @keydown.space.prevent="selectedTrendDay = point.date">
                 <div class="bar-track">
                   <div v-if="trendValue(point) !== null" class="bar-value"
                     :class="{ 'bar-zero': trendValue(point) === 0 }"
@@ -549,6 +559,7 @@ async function saveProfile() {
                 <small v-if="trendDays <= 14 || idx === trend.length - 1 || idx % Math.ceil(trendDays / 8) === 0">{{ point.date.slice(5) }}</small>
               </div>
             </div>
+            <p v-if="selectedTrendText" class="muted trend-selection" role="status">{{ selectedTrendText }}</p>
           </section>
         </el-tab-pane>
 
@@ -890,6 +901,7 @@ async function saveProfile() {
 .trend-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
 .trend-controls :deep(.el-radio-group){display:flex;flex-wrap:wrap}
 .bars{height:175px;display:flex;align-items:end;gap:7px;padding-top:12px;overflow-x:auto;overflow-y:hidden}.bar-column{height:100%;min-width:9px;flex:1 0 9px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.bar-column{cursor:pointer}.bar-column:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:2px}.trend-selection{margin-top:10px}
 .bar-track{width:100%;height:148px;display:flex;align-items:end;background:var(--el-fill-color-lighter);border-radius:5px;overflow:hidden}
 .bar-value{background:var(--el-color-primary);width:100%;border-radius:4px 4px 0 0}.bar-zero{background:var(--el-color-success)}.bar-column small{color:var(--el-text-color-secondary)}
 .form-panel{max-width:640px}.form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
