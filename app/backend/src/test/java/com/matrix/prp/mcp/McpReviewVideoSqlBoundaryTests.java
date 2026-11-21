@@ -1,5 +1,9 @@
 package com.matrix.prp.mcp;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import com.matrix.prp.reviews.entity.ReviewEntity;
 import com.matrix.prp.auth.model.UserProfile;
 import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.reviews.mapper.ReviewMapper;
@@ -28,6 +32,14 @@ class McpReviewVideoSqlBoundaryTests {
     private VideoLibraryService video;
     private MediaTicketService tickets;
     private VideoStorage storage;
+
+    @BeforeAll
+    static void initializeMyBatisLambdaMapping() {
+        // The production mapper registers TableInfo during MyBatis startup;
+        // Mockito-only repository tests must initialize the same mapping.
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(
+            new MybatisConfiguration(), "ci-synthetic-review-repository"), ReviewEntity.class);
+    }
 
     @BeforeEach
     void setup() {
