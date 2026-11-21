@@ -113,11 +113,21 @@ def check_viewport(browser, width, height):
     context = browser.new_context(
         viewport={"width": width, "height": height}, device_scale_factor=2 if mobile else 1,
         is_mobile=mobile, has_touch=mobile, locale="zh-CN", reduced_motion="reduce",
+        service_workers="block",
     )
-    # Token is fake. All API traffic is intercepted before any network call.
+    # Keep requests deterministic across engines: broadly intercept all requests,
+    # then only fulfill the synthetic /api/ URLs. Asset requests are continued.
+    # Do not allow an installed PWA worker to bypass test-only API interception.
     context.add_init_script("localStorage.setItem('matrix-prp-token', 'synthetic-ui-smoke-only')")
-    state = {"completed": False, "writes": 0, "api_calls": []}
-    context.route("**/api/**", lambda route: mock_api(route, state))
+    state = {"completed": False, "writes": 0, "api_calls": [], "seen_api": []}
+    def intercept(route):
+        url = urlsplit(route.request.url)
+        if "/api/" in url.path:
+            state["seen_api"].append(route.request.method + " " + url.path)
+            mock_api(route, state)
+        else:
+            route.continue_()
+    context.route("**/*", intercept)
     page = context.new_page()
     exceptions = []
     console_errors = []
@@ -165,6 +175,7 @@ def check_viewport(browser, width, height):
                   + " writes=" + str(state["writes"])
                   + " completed=" + str(state["completed"])
                   + " api_calls=" + repr(state["api_calls"][-25:])
+                  + " intercepted=" + repr(state["seen_api"][-25:])
                   + " button_count=" + str(button.count())
                   + " button_disabled=" + str(button.is_disabled())
                   + " button_text=" + repr(button.inner_text()[:100])
