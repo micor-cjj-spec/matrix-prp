@@ -4,8 +4,8 @@ Tracking: #218 (child of #170). This branch does not add live MCP tools. No depl
 
 ## Existing data sources
 
-- Review: `ReviewService.list(ReviewFilter)` calls the existing `MyBatisReviewRepository`, which filters by `CurrentUser.id()` and supports reviewType/moduleCode/period bounds.
-- Video: `VideoLibraryService.folders()` and `videos(folderId)` filter by the current owner. The latter validates folder ownership before returning items.
+- Review: `ReviewService.listLimited(ReviewFilter, limit)` calls the existing `MyBatisReviewRepository` owner-scoped filter and enforces an SQL `LIMIT` (1–20). Original `list` behavior for REST is unchanged.
+- Video: new `VideoLibraryService.foldersLimited(limit)` and `videosLimited(folderId, limit)` use `CurrentUser.id()`, bind a parameterized SQL `LIMIT`, and reject foreign folders. Original REST methods are unchanged.
 - Reuse those services; do not query other tenants, accept a caller-provided userId, fetch playback URLs, issue media tickets, read raw MP4 data, or expose uploading state.
 
 ## Phase 1 implementation — deliberately not enumerable by MCP
@@ -24,7 +24,7 @@ Review contents such as highlights, problems and next actions are intentionally 
 
 ## Before Phase 2 integration (explicit separate review)
 
-1. Add a SQL-side bounded review query (the present response limit is **not** a database query limit); review date filtering/retention as needed. The current video listing likewise fetches all owned rows and caps only the returned response.
+1. **Implemented in this Draft PR:** SQL-side bounded review query and parameterized video listing. **Still required:** executable MySQL owner-isolation and date-filter acceptance against the final schema; review query plans/indexes and result-order stability on representative synthetic data.
 2. Introduce **separate**, explicitly approved `prp.reviews.read` and `prp.video.read` scopes, and keep them disabled by default. Align the authoritative scope catalog, OAuth resource metadata, owner-client grants, expanded account allowlist, tool manifest, optional-read gate, and any production allowlist in one reviewed integration change. Do not borrow write or finance scopes.
 3. Register three read-only MCP tools with `readOnlyHint=true`, a fixed per-tool scope, server-side principal recovery, no owner ID arguments, and strict limits. Keep the currently published health nine-tool manifest unchanged.
 4. Run disposable synthetic OAuth `tools/list` + `tools/call` coverage: unauthorized / unknown client / revoked grant / missing scope / cross-owner data / wrong folder / expired consent / no video ticket / input caps / response truncation. Add actual MySQL tests for the owner-scoped queries and bounded SQL.
@@ -35,7 +35,7 @@ Review contents such as highlights, problems and next actions are intentionally 
 Run in `app/backend`:
 
 ```bash
-mvn -Dtest=McpReviewVideoReadAdapterTests test
+mvn -Dtest=McpReviewVideoReadAdapterTests,McpReviewVideoSqlBoundaryTests test
 ```
 
-These tests use only synthetic Mockito services and verify projections, filtering, caps, input refusal and lack of playback/write invocation; they do **not** prove actual OAuth or cross-user E2E security.
+Tests use synthetic Mockito services and verify projections, filtering, caps, refusal and no playback/write calls; the SQL boundary tests check owner predicates and limits. They do **not** replace actual OAuth, real MySQL, or cross-owner E2E security verification.
