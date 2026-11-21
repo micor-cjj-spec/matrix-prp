@@ -87,6 +87,20 @@ class McpOAuthToolManifestTests {
     }
 
     @Test
+    void reviewAndVideoScopesRemainSeparateAndAreNeverDefaultExposed() {
+        assertThat(McpToolConfiguration.exposedNames("prp.reviews.read,prp.video.read", false))
+            .isEmpty();
+        assertThat(McpToolConfiguration.exposedNames("prp.reviews.read", false, true))
+            .containsExactly("prp_reviews_list");
+        assertThat(McpToolConfiguration.exposedNames("prp.video.read", false, true))
+            .containsExactlyInAnyOrder("prp_video_folders", "prp_video_progress");
+        assertThat(McpToolConfiguration.exposedNames("prp.wellness.read", false, true))
+            .doesNotContain("prp_reviews_list", "prp_video_folders", "prp_video_progress");
+        assertThat(McpToolConfiguration.exposedNames("prp.reviews.read,prp.video.read", false, true))
+            .containsExactlyInAnyOrder("prp_reviews_list", "prp_video_folders", "prp_video_progress");
+    }
+
+    @Test
     void unexpectedScopeNeverEnablesAnyMcpTool() {
         assertThatThrownBy(() -> McpToolConfiguration.exposedNames("*", true))
             .isInstanceOf(IllegalArgumentException.class);
