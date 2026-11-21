@@ -164,3 +164,16 @@ export async function fetchMemoryChatSource(assertionId: number) {
     `/memory/${assertionId}/source-preview`,
   )).data.data
 }
+
+/** Private, owner-scoped, read-only preflight; no raw existing fact values are returned. */
+export type AiKnowledgeDisposition = 'NEW' | 'DUPLICATE' | 'POSSIBLY_RELATED' | 'REVIEW_REQUIRED'
+export interface AiKnowledgeInspection {
+  requestKey: string
+  disposition: AiKnowledgeDisposition
+}
+export async function inspectPersonalAiKnowledgeCandidates(items: PersonalAiKnowledgeCandidate[]) {
+  const { data } = await apiClient.post<ApiResponse<AiKnowledgeInspection[]>>(
+    '/memory/ai-candidates/inspect', items,
+  )
+  return data.data
+}
