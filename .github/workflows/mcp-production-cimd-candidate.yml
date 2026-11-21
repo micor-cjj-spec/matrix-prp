@@ -1,0 +1,27 @@
+name: PRP production CIMD candidate (no deployment)
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/deploy/mcp-production-cimd/pom.xml
+      - name: Compile native CIMD and test scope persistence and metadata refusals
+        run: mvn -B -ntp -f app/deploy/mcp-production-cimd/pom.xml verify
+      - name: Preserve original production health policy contracts
+        run: |
+          python3 -m unittest discover -s app/deploy/mcp-production-health -p 'test_contract.py' -v
+          mvn -B -ntp -f app/deploy/mcp-production-health/auth-policy/pom.xml verify
