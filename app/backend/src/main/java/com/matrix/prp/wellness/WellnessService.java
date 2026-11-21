@@ -443,9 +443,13 @@ public class WellnessService {
     @Transactional
     public Meal copyMeal(long id,LocalDate date,String idempotencyKey) {
         Meal existing=meal(id);
-        String key=idempotencyKey==null || idempotencyKey.isBlank()
+        String requestKey=idempotencyKey==null || idempotencyKey.isBlank()
             ?UUID.randomUUID().toString():idempotencyKey;
-        if(key.length()>80) throw new IllegalArgumentException("Invalid copy idempotency key");
+        if(requestKey.length()>80) throw new IllegalArgumentException("Invalid copy idempotency key");
+        // The persisted key is scoped to the source meal and operation. A token
+        // used for a different source or a normal meal create cannot hijack this copy.
+        String key=UUID.nameUUIDFromBytes(("meal-copy:"+id+":"+requestKey)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
         Meal copy;
         if(existing.items().stream().anyMatch(i->i.foodId()<=0)) {
             List<AiMealItem> snapshots=existing.items().stream()
