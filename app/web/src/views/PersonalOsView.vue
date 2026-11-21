@@ -628,7 +628,7 @@ onMounted(async () => {
               <el-tag v-if="item.origin === 'AI_CANDIDATE'" size="small" type="danger">AI 提议 · 未核实</el-tag>
               <el-tag size="small" type="warning">{{ item.sensitivity === 'NORMAL' ? '普通' : '受限/敏感' }}</el-tag></div>
             <p>{{ describeMemory(item) }}</p>
-            <small>来源 {{ item.sourceType === 'CHAT_MESSAGE' ? '已核对的本人聊天消息' : item.origin === 'AI_CANDIDATE' ? 'AI 候选（无关联聊天来源）' : item.sourceType }}{{ item.sourceRef ? ' #' + item.sourceRef : '' }} · {{ item.createdAt.slice(0, 10) }}</small>
+            <small>来源 {{ item.sourceType === 'CHAT_MESSAGE' ? '本人聊天消息（仅核验来源，内容待确认）' : item.origin === 'AI_CANDIDATE' ? 'AI 候选（无关联聊天来源）' : item.sourceType }}{{ item.sourceRef ? ' #' + item.sourceRef : '' }} · {{ item.createdAt.slice(0, 10) }}</small>
             <div class="os-card-actions">
               <el-button v-if="item.sourceType === 'CHAT_MESSAGE'" size="small" :disabled="chatSourceBusy" @click="openChatSource(item)">查看聊天来源</el-button>
               <el-button size="small" type="primary" :disabled="actionBusy" @click="confirmCandidate(item)">确认事实</el-button>
@@ -694,7 +694,7 @@ onMounted(async () => {
                 {{ privateOpen ? '收起并清除本页内容' : '主动查看并管理' }}
               </el-button>
             </div>
-            <p class="os-help">默认不读取这些事实。只有点击查看才会向后端请求；不会发送给 AI 或 MCP。</p>
+            <p class="os-help">受限/敏感的已确认及历史事实默认不读取，只有主动展开才会请求；待确认候选仍显示在上方审核队列。此管理列表不会发送给 AI 或 MCP。</p>
             <template v-if="privateOpen">
               <el-empty v-if="!privateFacts.length" description="没有可管理的受限/敏感记忆" />
               <article v-for="item in privateFacts" :key="item.id" class="os-memory-card">

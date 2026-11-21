@@ -40,6 +40,27 @@ This is bounded history management, **not** an exhaustive ancestry graph or a ch
 - `PersonalOsAiConcurrencyDatabaseIT` is run by the existing disposable `video-db-integration` workflow, using a unique synthetic PRP user. Two threads submit the same normalized fact with **different keys**; one should succeed, the other return HTTP 409, and the DB should contain one pending row. A second race on two synthetic legacy PENDING duplicates checks that competing confirmations cannot both become CONFIRMED. The CI job requires `GITHUB_ACTIONS=true`, `RUNNER_OS=Linux`, and the exact local `matrix_prp` MySQL database; it is not an authorized production migration or test.
 - Workflow waits for all tests and security gates on the exact PR head. Mockito-only tests are not proof of actual transaction isolation.
 
+## Owner-facing acceptance matrix (manual gate remains OPEN)
+
+Automated evidence: current exact-head `7bdca1a5` [CI 44923556606](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44923556606) completed 30/30 jobs successfully; [Feature Impact 44923556608](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44923556608) succeeded. This verifies synthetic CI behavior **only**, not a signed-off human review of the real UI.
+
+Execute the following on a disposable, authenticated review environment with **synthetic accounts and messages**; do not use real health, finance or personal chat material. All cases below remain **manual / not yet attested** until a reviewer records observed results and evidence.
+
+| ID | Deliberate owner action / negative path | Required visible and data outcome |
+| --- | --- | --- |
+| U01 | Open PRP Chat with the default production-like flags, then navigate between messages | No extraction action is exposed; server has a separate default-OFF gate; no unsolicited model request |
+| U02 | In an explicitly enabled disposable environment, choose one authored message and open extraction preview; cancel | Entire outbound excerpt plus selected provider/model must be visible before consent; cancellation sends no model request or candidate |
+| U03 | Consent once, review suggestions, select none or reject | AI output is marked unverified; no confirmed memory exists; no unselected candidate is saved |
+| U04 | Select and submit one candidate, open Personal OS and explicitly confirm | Pending status and RESTRICTED sensitivity shown; **only a separate owner confirmation** can make the assertion CONFIRMED; confirmed restricted facts stay out of default AI context |
+| U05 | Inspect NEW / DUPLICATE / POSSIBLY_RELATED / REVIEW_REQUIRED results, then try repeats and overlapping dates | Duplicates blocked at both inspection and server write; related content requires owner judgment; no auto-supersession or private old-value leakage |
+| U06 | Open source-preview, close it, switch account/tab, or navigate away | Exact owner-authored quote source available on deliberate click only, no-store; original transcript clears from this page when dismissed; other accounts receive denial |
+| U07 | Delete an original chat after confirming a sourced fact; revisit normal history and private management | Revoked source is excluded from default AI/current fact retrieval, but old fact remains explicitly manageable; source preview fails safely; erasure removes displayed copy on refresh |
+| U08 | Open NORMAL history or SENSITIVE/RESTRICTED management, close, change login and return | Private/history data fetched only by deliberate panel action, cleared on close/tab/token changes; PENDING review queue separately displays its candidates (including restricted candidates) |
+| U09 | Repeated quick confirm/duplicate submission from two sessions on the same synthetic owner | Exactly one equivalent current AI fact survives; no second confirmed fact or silent merge; UI presents server 409/conflict as non-success |
+| U10 | Review consent and AI limits on mobile viewport | One-message-only sharing, external provider identity, 3-minute single-use consent and candidate-not-fact semantics remain legible; user can cancel without saving |
+
+**Release stop conditions:** missing provider disclosure, unconsented message transmission, cross-account view, revoked source in default model context, auto-confirmed fact, or residual private UI data after explicit close/account switch. Do not merge T-008a/b/c or deploy simply because CI is green. T-008d/e and separate owner authorization remain outside this checkpoint.
+
 ## Verification gates
 
 Synthetic JUnit checks: owned quote succeeds; invented quote/foreign owner fails; source type is validated; source references are checked during normal retrieval; deleting source excludes fact; same normalized effective fact produces 409; read-only preflight distinguishes duplicate/related/new; owner-only source preview. Existing AI extraction/security/OAuth/MCP tests and actual MySQL/Flyway tests on **exact head SHA** must pass. Browser confirmation, sensitive data visibility, source deletion, race conditions, and independent privacy review remain unverified until CI/staging acceptance.
