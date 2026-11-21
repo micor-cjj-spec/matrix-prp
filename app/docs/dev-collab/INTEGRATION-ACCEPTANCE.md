@@ -64,6 +64,9 @@
 
 ## 4. 待完成的强制门禁（全部未打勾）
 
+**独立高权限审查材料包（2026-11-21）：** [安全审查 #147 的精确文件/权限/门禁清单](https://github.com/micor-cjj-spec/matrix-prp/issues/147#issuecomment-7066169638) 已覆盖 #236 全部 17 个治理文件、#251 四文件修复和 #259 实际来源：**12/17 个原样同 SHA；4/17 个精确采用 #251 修复 blob；剩余 1 个为两条迁移入口的动态测试扩展**，额外的健康时区测试从独立 #235 原样拷贝。只读 GitHub API 已核实 `main` Ruleset #24968649 生效且**无绕过者**，状态 Ruleset #26294671 生效且仅指定 App Integration `5561446` 绕过；当前受保护 `prp-collab-state` 仍位于 `062036f7021e215ffbfdcbf5689d207a0549b68b`，V0 / 5 READY / 0 claims；#144 提案相对原 V0 为 3 次提交、仅 1 个 JSON 文件变更。**Ruleset 配置可只读证明，但 Environment 配置无法由当前连接访问，真实 App 权限/写入与独立 APPROVED 审查仍不能证明。** 此材料不属于可信人工批准，G2/G5/G7 仍不满足。
+
+
 - [ ] **G1 · source review**：每个任务 PR 的真实 diff / base / head / allowed_paths / rename 路径经过独立审查；源变更只进入已批准的受保护 **integrate/REQ-20261031-001** 分支，不能未经授权合并 main。
 - [ ] **G2 · privileged security**：独立审查 #236 的 17 个治理文件、Issue 来源和重读校验、App 令牌最小权限、Ruleset/Environment、迁移精确 SHA、身份伪造和回放/CAS 攻击；安全审查 Issue [#147](https://github.com/micor-cjj-spec/matrix-prp/issues/147) 未关闭。
 - [ ] **G3 · full CI**：组合候选及最终集成 exact-head 的全部 required checks 成功；PKCE readonly/crud 都通过，不能放宽 TLS/认证、跳过失败测试或伪造状态。
@@ -84,6 +87,7 @@
 | integration branch / protected Ruleset | 精确分支、Ruleset ID、被保护状态和验证时间 | **未验证** |
 | task PR → trusted merge | PR #、submitted head SHA、target branch、merge SHA、required checks、reviewer | **未验证** |
 | #240 combined CI | 3 个 workflow 的完成状态和准确 Job 成败、最终 head SHA | **#240 最终 CI 34/34（第二次仅重试 Chromium Job 后成功），Contract 178/178、Impact 成功；候选 #246 也为 CI 34/34、Contract 178/178、Impact 成功。正式 T-005 仍 NO-GO** |
+| #259 最终安全+健康测试组合 | #259 精确 head `b68fb40daf29ffdaefd73ba1a4bff2f35157e235`、完整 CI、两条模拟审批撤销负例 | **[CI #44925979041](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44925979041) 34/34，首次通过；[Contract #44925979126](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44925979126) 182/182；[Impact #44925979063](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44925979063) 成功。仅限代码候选，G2/G5/G7 等仍 NO-GO** |
 | real owner Issue probe | Issue #、run ID、App installation 范围、V0 前后 SHA | **未执行** |
 | pinned V0→V1 migration | 明确 owner 授权、独立 reviewer、提案/旧/新 SHA、App receipt | **未授权／未执行** |
 | two conversations / collision recovery | 每次 request UUID、run ID、成功或拒绝原因、状态版本、远端 SHA | **未执行** |
