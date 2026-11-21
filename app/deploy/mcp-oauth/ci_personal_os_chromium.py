@@ -124,7 +124,7 @@ def run(page, origin):
     page.locator(".os-panel .el-radio").filter(has_text="普通").click()
     page.get_by_role("button", name="保存为待确认候选").click()
     normal_candidate = page.locator(".os-list-panel > article.os-memory-card").filter(
-        has_text=normal_text)
+        has_text=normal_text).filter(has=page.get_by_role("button", name="确认事实"))
     normal_candidate.wait_for(state="visible", timeout=15000)
     normal_candidate.get_by_role("button", name="确认事实").click()
     page.locator(".el-message-box").get_by_role(
