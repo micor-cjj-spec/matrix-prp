@@ -276,9 +276,25 @@ async function deleteMeal(meal: Meal) {
   try { await wellnessApi.deleteMeal(meal.id); await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已删除') }
   catch { ElMessage.error('删除失败') }
 }
+const copyingMealId = ref<number | null>(null)
+// Retain the same key after a timeout or uncertain network response, but
+// allocate a new event key after a confirmed successful copy.
+const copyRetryKeys = new Map<string, string>()
 async function copyMeal(meal: Meal) {
-  try { await wellnessApi.copyMeal(meal.id, today); date.value = today; await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已复制到今天') }
-  catch { ElMessage.error('复制失败') }
+  if (copyingMealId.value !== null) return
+  const targetDate = today
+  const request = `${meal.id}:${targetDate}`
+  const key = copyRetryKeys.get(request) ?? crypto.randomUUID()
+  copyRetryKeys.set(request, key)
+  copyingMealId.value = meal.id
+  try {
+    await wellnessApi.copyMeal(meal.id, targetDate, key)
+    copyRetryKeys.delete(request)
+    date.value = targetDate
+    await Promise.all([loadDay(), loadTrend()])
+    ElMessage.success('已复制到今天')
+  } catch { ElMessage.error('复制失败，请重试；不会重复创建已保存的加餐') }
+  finally { copyingMealId.value = null }
 }
 async function loadTrend() { trend.value = await wellnessApi.trends(trendDays.value) }
 
@@ -508,7 +524,7 @@ async function saveProfile() {
               <div class="entry-actions"><el-button link type="primary" @click="openAnalysis(meal)">分析详情</el-button>
                 <el-button link type="primary" @click="openAiChange('meal',meal.id)">AI 变更</el-button>
                  <el-button link type="primary" @click="openMeal(meal.mealType,meal)">编辑</el-button>
-                <el-button link @click="copyMeal(meal)">复制到今天</el-button>
+                <el-button link :disabled="copyingMealId !== null" :loading="copyingMealId === meal.id" @click="copyMeal(meal)">复制到今天</el-button>
                 <el-button link type="danger" @click="deleteMeal(meal)">删除</el-button></div>
             </div>
           </section>
