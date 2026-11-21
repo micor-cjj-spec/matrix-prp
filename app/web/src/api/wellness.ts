@@ -179,7 +179,9 @@ export const wellnessApi = {
     put<Meal>('/wellness/meals/' + id + '/snapshots', form),
   updateMeal: (id: number, form: MealInput) => put<Meal>('/wellness/meals/' + id, form),
   deleteMeal: (id: number) => del('/wellness/meals/' + id),
-  copyMeal: (id: number, date: string) => post<Meal>('/wellness/meals/' + id + '/copy?date=' + encodeURIComponent(date), {}),
+  copyMeal: (id: number, date: string, idempotencyKey?: string) =>
+    post<Meal>('/wellness/meals/' + id + '/copy?date=' + encodeURIComponent(date) +
+      (idempotencyKey ? '&idempotencyKey=' + encodeURIComponent(idempotencyKey) : ''), {}),
   exercises: (date: string) => get<Exercise[]>('/wellness/exercises', { date }),
   addExercise: (form: ExerciseInput) => post<Exercise>('/wellness/exercises', form),
   updateExercise: (id: number, form: ExerciseInput) => put<Exercise>('/wellness/exercises/' + id, form),
