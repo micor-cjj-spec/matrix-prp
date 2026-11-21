@@ -13,7 +13,7 @@ import { fetchUsage, pageConversations, renameConversation, deleteConversation, 
   previewChatKnowledge, approveChatKnowledgePreview, extractChatKnowledge,
   type PersonalChatKnowledgePreview, type ChatKnowledgeExtraction,
   type AiUsage, type ChatMessage, type AiMessageBlock, type Conversation, type AiContextPreview } from '@/api/ai'
-import { submitPersonalAiKnowledgeCandidates } from '@/api/personalOs'
+import { submitPersonalAiKnowledgeCandidates, inspectPersonalAiKnowledgeCandidates, type AiKnowledgeDisposition } from '@/api/personalOs'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 import { isMealCardRequest } from '@/utils/mealCardIntent'
@@ -82,6 +82,9 @@ const knowledgeVisible = ref(false)
 const knowledgePreview = ref<PersonalChatKnowledgePreview | null>(null)
 const knowledgeResult = ref<ChatKnowledgeExtraction | null>(null)
 const knowledgeSelected = ref<string[]>([])
+const knowledgeInspections = ref<Record<string, AiKnowledgeDisposition>>({})
+const knowledgeInspectError = ref('')
+const knowledgeInspecting = ref(false)
 const knowledgeLoading = ref(false)
 const knowledgeSaving = ref(false)
 const knowledgeSaved = ref(false)
@@ -93,6 +96,9 @@ function resetKnowledgeReview() {
   knowledgePreview.value = null
   knowledgeResult.value = null
   knowledgeSelected.value = []
+  knowledgeInspections.value = {}
+  knowledgeInspectError.value = ''
+  knowledgeInspecting.value = false
   knowledgeLoading.value = false
   knowledgeSaving.value = false
   knowledgeSaved.value = false
@@ -120,6 +126,31 @@ async function startKnowledgeReview(message: ChatMessage) {
     if (ticket === knowledgeGeneration) knowledgeLoading.value = false
   }
 }
+async function inspectKnowledgeSuggestions(result: ChatKnowledgeExtraction, ticket: number) {
+  if (knowledgeInspecting.value || !result.candidates.length) return
+  knowledgeInspecting.value = true
+  knowledgeInspectError.value = ''
+  try {
+    const insights = await inspectPersonalAiKnowledgeCandidates(result.candidates.map(item => ({
+      predicate: item.predicate,
+      value: item.value,
+      validFrom: null,
+      validTo: null,
+      sensitivity: 'RESTRICTED' as const,
+      requestKey: item.requestKey,
+      sourceMessageId: result.messageId,
+      evidenceQuote: item.evidenceQuote,
+    })))
+    if (ticket !== knowledgeGeneration) return
+    knowledgeInspections.value = Object.fromEntries(insights.map(x => [x.requestKey, x.disposition]))
+  } catch {
+    if (ticket === knowledgeGeneration)
+      knowledgeInspectError.value = '检查已有个人知识失败，本次暂不提交，请重试查重'
+  } finally {
+    if (ticket === knowledgeGeneration) knowledgeInspecting.value = false
+  }
+}
+
 async function approveKnowledgeExtraction() {
   const review = knowledgePreview.value
   if (!review || knowledgeLoading.value || knowledgeResult.value) return
@@ -133,6 +164,7 @@ async function approveKnowledgeExtraction() {
     knowledgeResult.value = result
     knowledgePreview.value = null
     knowledgeSelected.value = []
+    await inspectKnowledgeSuggestions(result, ticket)
   } catch {
     if (ticket === knowledgeGeneration) {
       knowledgePreview.value = null
@@ -145,7 +177,14 @@ async function approveKnowledgeExtraction() {
 async function saveKnowledgeCandidates() {
   const result = knowledgeResult.value
   if (!result || knowledgeSaving.value || knowledgeSaved.value) return
-  const chosen = result.candidates.filter(item => knowledgeSelected.value.includes(item.requestKey))
+  if (knowledgeInspecting.value || knowledgeInspectError.value ||
+      Object.keys(knowledgeInspections.value).length !== result.candidates.length) {
+    ElMessage.warning('需要先完成本次已存在知识的检查')
+    return
+  }
+  const chosen = result.candidates.filter(item => knowledgeSelected.value.includes(item.requestKey) &&
+    knowledgeInspections.value[item.requestKey] !== 'DUPLICATE' &&
+    knowledgeInspections.value[item.requestKey] !== 'REVIEW_REQUIRED')
   if (!chosen.length) {
     ElMessage.warning('请先勾选要提交审核的知识候选')
     return
@@ -167,9 +206,13 @@ async function saveKnowledgeCandidates() {
     knowledgeSaved.value = true
     knowledgeSelected.value = []
     ElMessage.success('候选已存入待确认队列，尚未成为长期事实')
-  } catch {
-    if (ticket === knowledgeGeneration)
-      ElMessage.error('提交候选失败；可保留当前选择并重新尝试，系统会按请求键避免重复')
+  } catch (error) {
+    if (ticket === knowledgeGeneration) {
+      const maybe = error as { response?: { status?: number } }
+      ElMessage.error(maybe.response?.status === 409
+        ? '检测到已有重复知识，未写入本批次。请检查旧事实或重新提取。'
+        : '提交候选失败；当前选择已保留，可稍后重试')
+    }
   } finally {
     if (ticket === knowledgeGeneration) knowledgeSaving.value = false
   }
@@ -873,21 +916,34 @@ onBeforeUnmount(() => { controller?.abort(); resetKnowledgeReview() })
         <p v-else-if="!knowledgeResult.candidates.length">这条消息没有可可靠提取的自述事实。不会创建空记录。</p>
         <div v-else class="chat-knowledge-list">
           <div v-for="item in knowledgeResult.candidates" :key="item.requestKey" class="chat-knowledge-item">
-            <el-checkbox v-model="knowledgeSelected" :value="item.requestKey" :disabled="knowledgeSaving || knowledgeSaved">选择</el-checkbox>
+            <el-checkbox v-model="knowledgeSelected" :value="item.requestKey"
+              :disabled="knowledgeSaving || knowledgeSaved || knowledgeInspecting ||
+                knowledgeInspections[item.requestKey] === 'DUPLICATE' ||
+                knowledgeInspections[item.requestKey] === 'REVIEW_REQUIRED'">选择</el-checkbox>
             <span class="chat-knowledge-details">
               <strong>{{ item.predicate === 'DECLARES_SKILL' ? '技能自述' : item.predicate === 'PREFERS' ? '偏好' : '背景经历' }}：{{ item.value }}</strong>
               <small>原话证据：“{{ item.evidenceQuote }}” · 受限 · AI 提议未核实</small>
+              <small v-if="knowledgeInspections[item.requestKey] === 'DUPLICATE'">已有相同有效知识，已禁止重复提交</small>
+              <small v-else-if="knowledgeInspections[item.requestKey] === 'POSSIBLY_RELATED'">发现可能相近的记录，请人工核对；不代表一定矛盾</small>
+              <small v-else-if="knowledgeInspections[item.requestKey] === 'REVIEW_REQUIRED'">历史事实较多，请到个人智能系统人工检查</small>
+              <small v-else-if="knowledgeInspections[item.requestKey] === 'NEW'">当前未发现明显重复</small>
             </span>
           </div>
         </div>
-        <p class="chat-consent-explain">知识提交时将记录为 AI 提议，尚不保留独立的逐句来源引用；如要更正请在审核前处理。</p>
+        <p v-if="knowledgeInspecting" class="chat-consent-explain" role="status">正在检查已有个人知识…</p>
+        <p v-if="knowledgeInspectError" class="chat-consent-explain" role="alert">{{ knowledgeInspectError }}</p>
+        <p class="chat-consent-explain">提交时会重新核对原话，并记录来源消息 ID；不在知识库复制整段聊天。若删除原聊天，该来源的可信引用将失效。</p>
       </template>
       <template #footer>
         <el-button :disabled="knowledgeSaving" @click="resetKnowledgeReview">关闭 / 取消</el-button>
         <el-button v-if="knowledgePreview" type="primary" :loading="knowledgeLoading"
           @click="approveKnowledgeExtraction">仅本次发送给模型提取</el-button>
-        <el-button v-else-if="knowledgeResult && !knowledgeSaved && knowledgeResult.candidates.length"
-          type="primary" :loading="knowledgeSaving" :disabled="!knowledgeSelected.length"
+        <el-button v-if="knowledgeResult && knowledgeInspectError && !knowledgeSaved"
+          :loading="knowledgeInspecting" @click="inspectKnowledgeSuggestions(knowledgeResult, knowledgeGeneration)">重试检查重复知识</el-button>
+        <el-button v-if="knowledgeResult && !knowledgeSaved && knowledgeResult.candidates.length"
+          type="primary" :loading="knowledgeSaving"
+          :disabled="!knowledgeSelected.length || knowledgeInspecting || !!knowledgeInspectError ||
+            Object.keys(knowledgeInspections).length !== knowledgeResult.candidates.length"
           @click="saveKnowledgeCandidates">选中提交待审核（{{ knowledgeSelected.length }}）</el-button>
       </template>
     </el-dialog>
