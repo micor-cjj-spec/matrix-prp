@@ -42,7 +42,7 @@ This is bounded history management, **not** an exhaustive ancestry graph or a ch
 
 ## Owner-facing acceptance matrix (manual gate remains OPEN)
 
-Automated evidence: current exact-head `7bdca1a5` [CI 44923556606](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44923556606) completed 30/30 jobs successfully; [Feature Impact 44923556608](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44923556608) succeeded. This verifies synthetic CI behavior **only**, not a signed-off human review of the real UI.
+Automated evidence from the previous, fully verified baseline `7bdca1a5`: [CI 44923556606](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44923556606) completed 30/30 jobs successfully; [Feature Impact 44923556608](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44923556608) succeeded. This verifies synthetic CI behavior **only**, not a signed-off human review of the real UI.
 
 Execute the following on a disposable, authenticated review environment with **synthetic accounts and messages**; do not use real health, finance or personal chat material. All cases below remain **manual / not yet attested** until a reviewer records observed results and evidence.
 
