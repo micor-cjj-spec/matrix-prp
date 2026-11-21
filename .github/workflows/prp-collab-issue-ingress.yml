@@ -1,0 +1,93 @@
+name: PRP Collaboration Auto Requests
+
+# Owner-created GitHub Issue is the no-click request entrypoint.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: prp-collab-auto-state
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  apply-owner-request:
+    if: >-
+      github.event.action == 'opened' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == github.repository_owner &&
+      github.event.repository.owner.id == 123868412 &&
+      github.event.sender.id == 123868412 &&
+      github.event.issue.user.login == github.repository_owner &&
+      github.event.issue.title == '[PRP-COLLAB-REQUEST]' &&
+      github.event.issue.author_association == 'OWNER' &&
+      github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: prp-collab-automation
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Validate original GitHub event against current Issue
+        id: validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.issue.number }}" > "$RUNNER_TEMP/prp-issue-current.json"
+          node app/scripts/dev-collab/issue-ingress.mjs "$GITHUB_EVENT_PATH" "$RUNNER_TEMP/prp-issue-current.json"
+          node -e 'const fs=require("node:fs");const x=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/prp-collab-validated-request.json","utf8"));if(!x.command||typeof x.command.type!=="string")process.exit(2);process.stdout.write("app_contents_permission="+(x.oneShotProbe===true?"read":"write")+"\n")' >> "$GITHUB_OUTPUT"
+      - name: Mint repository-scoped App token after event validation
+        id: writer
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          client-id: ${{ vars.PRP_COLLAB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PRP_COLLAB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: matrix-prp
+          permission-contents: ${{ steps.validate.outputs.app_contents_permission }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          token: ${{ steps.writer.outputs.token }}
+          persist-credentials: true
+      - name: Execute one strict Git CAS transaction
+        id: transaction
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          COLLAB_APP_TOKEN: ${{ steps.writer.outputs.token }}
+          COLLAB_APP_ID: ${{ vars.PRP_COLLAB_APP_ID }}
+          COLLAB_RULESET_ID: ${{ vars.PRP_COLLAB_RULESET_ID }}
+        shell: bash
+        run: node app/scripts/dev-collab/issue-transaction.mjs
+      - name: Post redacted success receipt
+        if: steps.transaction.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh issue comment "${{ github.event.issue.number }}" --body-file "$RUNNER_TEMP/prp-issue-receipt.md"
+      - name: Post generic failure status
+        if: failure() && steps.transaction.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" --body             "PRP collaboration request was rejected or failed. Review the [Actions run](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}). No successful state update is asserted."
