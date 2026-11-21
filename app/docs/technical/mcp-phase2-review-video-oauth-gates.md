@@ -30,7 +30,7 @@ The currently reviewed `production-wellness-only` production guard continues to 
 1. Both PR heads are explicitly pinned and checked for exact branch ancestry and file scope; #225 is CI-only.
 2. All required feature-impact/backend tests pass **on exact SHA** (not merely on an earlier commit).
 3. Real isolated MySQL tests verify query limits, owner isolation, foreign-folder rejection, deleted review visibility, stable order, and no unbounded ORM SELECT.
-4. Real disposable OAuth tests verify read-only `tools/list` and `tools/call`, missing/expired/revoked scope/owner grants, official-client identity restriction, case sensitivity, unknown scope rejection, and separate read-only hints.
+4. Synthetic OAuth MockMvc tests verify read-only `tools/list` and `tools/call`, missing/revoked scope/owner grants, client identity restriction, and separate read-only hints. New `McpReviewVideoOwnedMysqlOAuthIT` runs against disposable MySQL 8.4 with **real PRP client grants, identity-link rows, SQL reads and MCP HTTP dispatch** for two synthetic owners, including owner revocation and missing token scope. The signed JWT decoder is deliberately mocked in that test: it does not replace independent cryptographic issuer/PKCE/Keycloak E2E, which remains required.
 5. Confirm production health-only start/consent rejects both new scopes and the preexisting nine-tool visibility remains unchanged.
 6. Any activation in testing or production requires a separate reviewed configuration change, human approval, rollback and live acceptance; no automatic deploy or direct `main` push.
 
@@ -44,3 +44,12 @@ node --test scripts/mcp-scopes.test.mjs
 ```
 
 These tests use synthetic identities and mocks for several boundaries. They are necessary, not sufficient, for real OAuth, MySQL and production readiness.
+
+Real MySQL + mocked-issuer HTTP acceptance (only inside the existing disposable `video-db-integration` CI job):
+
+```bash
+cd app/backend
+./mvnw -B -Dtest=ReviewVideoReadDatabaseIT,McpReviewVideoOwnedMysqlOAuthIT test
+```
+
+The test creates random synthetic users and records in CI's `matrix_prp` database only. It must never be pointed at production MySQL, production OAuth credentials or real users.
