@@ -51,7 +51,14 @@ public class PersonalMemoryService {
      * accept a principal ID, entity reference, evidence claim or confirmation.
      */
     public record AiCandidate(Relation predicate, String value, LocalDate validFrom,
-                              LocalDate validTo, Sensitivity sensitivity, String requestKey) {}
+                              LocalDate validTo, Sensitivity sensitivity, String requestKey,
+                              Long sourceMessageId, String evidenceQuote) {
+        // Previous first-party synthetic candidate submissions stay unsourced.
+        public AiCandidate(Relation predicate, String value, LocalDate validFrom,
+                           LocalDate validTo, Sensitivity sensitivity, String requestKey) {
+            this(predicate,value,validFrom,validTo,sensitivity,requestKey,null,null);
+        }
+    }
 
     private static final String COLS="id,subject_type,subject_ref,predicate,object_type,"
         + "object_ref,object_value,source_type,source_ref,origin,status,sensitivity,"
@@ -70,9 +77,11 @@ public class PersonalMemoryService {
 
     private final JdbcTemplate db;
     private final PersonalOntologyAssertionGuard assertions;
+    private final PersonalOntologyReferenceGuard references;
 
     public PersonalMemoryService(JdbcTemplate db,PersonalOntologyReferenceGuard references) {
         this.db=db;
+        this.references=references;
         this.assertions=new PersonalOntologyAssertionGuard(references);
     }
 
@@ -106,6 +115,19 @@ public class PersonalMemoryService {
             + " ORDER BY id DESC LIMIT 100", MAPPER, owner);
     }
 
+    /**
+     * Explicit first-party owner management, never default AI context or MCP.
+     * Include archived and source-revoked NORMAL facts so owners can correct or
+     * erase their data after a linked chat has been deleted.
+     */
+    public List<Memory> listNormalHistory() {
+        long owner=CurrentUser.id();
+        return db.query("SELECT "+COLS+" FROM prp_personal_assertions WHERE user_id=?"
+            + " AND sensitivity='NORMAL'"
+            + " AND status IN ('CONFIRMED','SUPERSEDED','INVALID')"
+            + " ORDER BY id DESC LIMIT 100",MAPPER,owner);
+    }
+
     /** Candidate queue is intentionally separate from retrieval for AI context. */
     public List<Memory> pending() {
         long owner=CurrentUser.id();
@@ -123,6 +145,31 @@ public class PersonalMemoryService {
             .stream().findFirst().orElseThrow(PersonalMemoryService::notFound);
     }
 
+    /** Owner-initiated, first-party-only source preview; never for MCP or AI context. */
+    public record ChatSource(long messageId, String messageText, LocalDateTime sentAt) {}
+
+    public ChatSource sourcePreview(long assertionId) {
+        Memory memory=get(assertionId); // owner-scoped even for pending/private
+        if (memory.sourceType()!=EvidenceSource.CHAT_MESSAGE
+                || memory.sourceRef()==null)
+            throw notFound();
+        references.requireOwnedChatMessage(memory.sourceRef());
+        long messageId;
+        try { messageId=Long.parseLong(memory.sourceRef()); }
+        catch (NumberFormatException invalid) { throw notFound(); }
+        long owner=CurrentUser.id();
+        return db.query("""
+            SELECT m.content,m.created_at FROM prp_ai_messages m
+            JOIN prp_ai_conversations c ON c.id=m.conversation_id
+            LEFT JOIN prp_ai_conversation_meta meta ON meta.conversation_id=c.id
+            WHERE m.id=? AND c.user_id=? AND m.role='user'
+              AND meta.deleted_at IS NULL LIMIT 1
+            """,(rs,n)->new ChatSource(messageId,
+                rs.getString(1).length()>2000 ? rs.getString(1).substring(0,2000) : rs.getString(1),
+                rs.getTimestamp(2).toLocalDateTime()),messageId,owner)
+            .stream().findFirst().orElseThrow(PersonalMemoryService::notFound);
+    }
+
     @Transactional
     public Memory propose(Proposed proposal) {
         return proposeWithParent(proposal,null,null);
@@ -135,7 +182,42 @@ public class PersonalMemoryService {
      */
     @Transactional
     public Memory proposeAiCandidate(AiCandidate suggestion) {
-        long owner=CurrentUser.id();
+        CurrentUser.id();
+        validateAiShape(suggestion); // reject malformed requests without touching MySQL
+        // Acquire the lock BEFORE even reading chat-source evidence: otherwise
+        // an ordinary SELECT can create a stale REPEATABLE READ transaction snapshot.
+        lockOwnerForKnowledgeMutation();
+        Proposed validated=checkedAiProposal(suggestion);
+        return proposeWithParent(validated,null,"AI_CANDIDATE");
+    }
+
+    /** Read-only preflight; never sends prior private facts back to the caller. */
+    public record AiInspection(String requestKey, String disposition) {}
+
+    public AiInspection inspectAiCandidate(AiCandidate suggestion) {
+        Proposed p=checkedAiProposal(suggestion);
+        validate(p); // owner, relation and chat evidence must all still be current
+        List<ComparableFact> existing=comparableFacts(CurrentUser.id(),p.subjectRef(),
+            p.predicate(),0L,true);
+        if (existing.size()>200) return new AiInspection(p.requestKey(),"REVIEW_REQUIRED");
+        String value=normalizedLiteral(p.objectValue());
+        boolean related=false;
+        for (ComparableFact old:existing) {
+            if (old.value()==null || !overlaps(p.validFrom(),p.validTo(),old.from(),old.to())
+                    || !comparableSourceIsValid(old))
+                continue;
+            String prior=normalizedLiteral(old.value());
+            if (value.equals(prior)) return new AiInspection(p.requestKey(),"DUPLICATE");
+            // A containment hint is not evidence of a contradiction or supersession.
+            String shorter=value.length()<=prior.length()?value:prior;
+            String longer=value.length()>prior.length()?value:prior;
+            if (shorter.length()>=5 && longer.contains(shorter)
+                    && shorter.length()*2>=longer.length()) related=true;
+        }
+        return new AiInspection(p.requestKey(),related?"POSSIBLY_RELATED":"NEW");
+    }
+
+    private static void validateAiShape(AiCandidate suggestion) {
         if (suggestion==null || suggestion.predicate()==null ||
                 !Set.of(Relation.DECLARES_SKILL,Relation.PREFERS,Relation.HAS_BACKGROUND)
                     .contains(suggestion.predicate()) ||
@@ -145,11 +227,34 @@ public class PersonalMemoryService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "AI candidate must be a bounded self-reported skill, preference or background");
         }
-        Proposed p=new Proposed(NodeType.PERSON,Long.toString(owner),
+        boolean hasId=suggestion.sourceMessageId()!=null;
+        boolean hasQuote=suggestion.evidenceQuote()!=null;
+        if (hasId!=hasQuote)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Chat evidence must include both a message ID and exact quotation");
+        if (hasId && suggestion.sourceMessageId()<=0)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid chat source ID");
+        if (hasQuote && (suggestion.evidenceQuote().isBlank()
+                || suggestion.evidenceQuote().length()>200))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Invalid chat evidence quotation");
+    }
+
+    private Proposed checkedAiProposal(AiCandidate suggestion) {
+        long owner=CurrentUser.id();
+        validateAiShape(suggestion);
+        boolean hasId=suggestion.sourceMessageId()!=null;
+        String sourceRef=null;
+        EvidenceSource sourceType=EvidenceSource.USER_INPUT;
+        if (hasId) {
+            sourceRef=Long.toString(suggestion.sourceMessageId());
+            references.requireOwnedChatQuote(sourceRef,suggestion.evidenceQuote());
+            sourceType=EvidenceSource.CHAT_MESSAGE;
+        }
+        return new Proposed(NodeType.PERSON,Long.toString(owner),
             suggestion.predicate(),NodeType.LITERAL,null,suggestion.value().strip(),
-            EvidenceSource.USER_INPUT,null,suggestion.validFrom(),suggestion.validTo(),
+            sourceType,sourceRef,suggestion.validFrom(),suggestion.validTo(),
             suggestion.sensitivity(),suggestion.requestKey());
-        return proposeWithParent(p,null,"AI_CANDIDATE");
     }
 
     @Transactional
@@ -174,6 +279,10 @@ public class PersonalMemoryService {
             + " WHERE user_id=? AND request_key=? LIMIT 1",
             (rs,row)->rs.getLong(1),owner,p.requestKey());
         if (!priorIds.isEmpty()) return matchingReplay(get(priorIds.get(0)),p,supersedes,origin);
+        // Avoid obvious duplicates before any AI-suggested memory can be queued.
+        if ("AI_CANDIDATE".equals(origin))
+            requireNoExactDuplicate(owner,p.subjectRef(),p.predicate(),p.objectValue(),
+                p.validFrom(),p.validTo(),0L,true);
         var keys=new GeneratedKeyHolder();
         var now=LocalDateTime.now();
         Sensitivity sensitivity=effectiveSensitivity(p);
@@ -242,10 +351,18 @@ public class PersonalMemoryService {
     /** Confirmation re-checks both endpoints and the source; no inferred grants. */
     @Transactional
     public Memory confirm(long id) {
+        positive(id);
+        // Before ANY consistent-read SELECT: otherwise REPEATABLE READ can
+        // retain a stale snapshot from before waiting for the owner lock.
+        lockOwnerForKnowledgeMutation();
         Memory m=get(id);
         if("CONFIRMED".equals(m.status())) return m;
         if(!"PENDING".equals(m.status())) throw conflict("Memory is no longer pending");
         assertions.requireValid(toCandidate(m));
+        // A previously safe AI suggestion can become a duplicate while awaiting review.
+        if ("AI_CANDIDATE".equals(m.origin()))
+            requireNoExactDuplicate(CurrentUser.id(),m.subjectRef(),m.predicate(),m.objectValue(),
+                m.validFrom(),m.validTo(),m.id(),false);
         long owner=CurrentUser.id();
         if(m.supersedesId()!=null) {
             // Lock predecessor in the same transaction; never overwrite a
@@ -292,8 +409,86 @@ public class PersonalMemoryService {
             id,owner)!=1) throw conflict("Memory changed concurrently");
     }
 
+    /** Exact normalized duplicates only; different statements are not called conflicts. */
+    private record ComparableFact(String value, LocalDate from, LocalDate to,
+                                  String sourceType, String sourceRef) {}
+    private static String normalizedLiteral(String value) {
+        return java.text.Normalizer.normalize(value.strip(),java.text.Normalizer.Form.NFKC)
+            .replaceAll("\\s+"," ").toLowerCase(java.util.Locale.ROOT);
+    }
+    private static boolean overlaps(LocalDate from,LocalDate to,LocalDate otherFrom,LocalDate otherTo) {
+        return (to==null || otherFrom==null || !to.isBefore(otherFrom))
+            && (otherTo==null || from==null || !otherTo.isBefore(from));
+    }
+
+    private List<ComparableFact> comparableFacts(long owner,String subjectRef,Relation predicate,
+            long excludeId,boolean includePending) {
+        String statuses=includePending ? "IN ('CONFIRMED','PENDING')" : "='CONFIRMED'";
+        // Only these server-owned, hardcoded status fragments enter the SQL.
+        String sql="SELECT object_value,valid_from,valid_to,source_type,source_ref FROM prp_personal_assertions"
+            + " WHERE user_id=? AND subject_type='PERSON' AND subject_ref=?"
+            + " AND predicate=? AND object_type='LITERAL' AND status "+statuses
+            + " AND id<>? ORDER BY id DESC LIMIT 201";
+        return db.query(sql,(rs,n)->new ComparableFact(rs.getString(1),
+                rs.getDate(2)==null?null:rs.getDate(2).toLocalDate(),
+                rs.getDate(3)==null?null:rs.getDate(3).toLocalDate(),
+                rs.getString(4),rs.getString(5)),
+            owner,subjectRef,predicate.name(),excludeId);
+    }
+
+    /**
+     * Invalidated source references cannot make a dead assertion block a
+     * newly verified statement. Existing owner history retains that row.
+     */
+    private boolean comparableSourceIsValid(ComparableFact fact) {
+        try {
+            if (fact.sourceType()==null) return false;
+            if ("USER_INPUT".equals(fact.sourceType()))
+                return fact.sourceRef()==null;
+            switch (EvidenceSource.valueOf(fact.sourceType())) {
+                case CHAT_MESSAGE -> references.requireOwnedChatMessage(fact.sourceRef());
+                case RECORD -> references.requireOwned(NodeType.RECORD,fact.sourceRef());
+                case TASK -> references.requireOwned(NodeType.TASK,fact.sourceRef());
+                case REVIEW -> references.requireOwned(NodeType.REVIEW,fact.sourceRef());
+                case USER_INPUT -> { }
+            }
+            return true;
+        } catch (ResponseStatusException | IllegalArgumentException revoked) {
+            return false;
+        }
+    }
+
+    private void requireNoExactDuplicate(long owner,String subjectRef,Relation predicate,
+            String literal,LocalDate from,LocalDate to,long excludeId,boolean includePending) {
+        if (literal==null) return;
+        List<ComparableFact> existing=comparableFacts(owner,subjectRef,predicate,
+            excludeId,includePending);
+        if (existing.size()>200)
+            throw conflict("Too many facts to verify duplicates safely; review existing memories");
+        String normalized=normalizedLiteral(literal);
+        if (existing.stream().anyMatch(old->old.value()!=null
+            && normalized.equals(normalizedLiteral(old.value()))
+            && overlaps(from,to,old.from(),old.to())
+            && comparableSourceIsValid(old))) {
+            throw conflict("Equivalent knowledge is already pending or confirmed");
+        }
+    }
+
     static Sensitivity effectiveSensitivity(Proposed proposed) {
         return proposed.sensitivity()==null ? Sensitivity.RESTRICTED : proposed.sensitivity();
+    }
+
+    /**
+     * Reuses the existing PRP user row as the narrowest shared InnoDB mutex.
+     * Must be called from public @Transactional entrypoints ONLY. The lock is
+     * released by the DB on commit/rollback; never use GET_LOCK on pooled sessions.
+     */
+    private void lockOwnerForKnowledgeMutation() {
+        long owner=CurrentUser.id();
+        Long locked=db.queryForObject(
+            "SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,owner);
+        if (locked==null || locked.longValue()!=owner)
+            throw conflict("Personal knowledge owner is no longer available");
     }
 
     private static PersonalOntologyAssertionGuard.Candidate toCandidate(Memory m) {

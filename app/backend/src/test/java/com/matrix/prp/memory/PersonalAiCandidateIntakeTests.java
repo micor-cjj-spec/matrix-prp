@@ -90,6 +90,9 @@ class PersonalAiCandidateIntakeTests {
 
     @Test void modelCandidateIsPersistedWithAiOriginRestrictedDefaultAndPendingState() throws Exception {
         owner(7);
+        when(db.queryForObject(
+            "SELECT id FROM prp_users WHERE id=? FOR UPDATE", Long.class, 7L))
+            .thenReturn(7L);
         doAnswer(invocation -> {
             PreparedStatementCreator creator = invocation.getArgument(0);
             Connection connection=mock(Connection.class);
