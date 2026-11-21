@@ -8,7 +8,7 @@ import {
   changePersonalGoalStatus, confirmPersonalMemory, createPersonalGoal,
   erasePersonalMemory, fetchConfirmedMemories, fetchMemoryCandidates,
   fetchPersonalGoalContext, fetchPersonalGoals, fetchPrivateMemories, invalidatePersonalMemory,
-  proposePersonalMemory, replacePersonalMemory, fetchMemoryChatSource,
+  proposePersonalMemory, replacePersonalMemory, fetchMemoryChatSource, fetchNormalMemoryHistory,
   type ChatEvidenceSource, type GoalStatus, type MemoryPredicate, type MemorySensitivity,
   type PersonalGoal, type PersonalGoalLink, type PersonalMemory,
 } from '@/api/personalOs'
@@ -28,6 +28,39 @@ const privateFacts = ref<PersonalMemory[]>([])
 const privateOpen = ref(false)
 const privateLoading = ref(false)
 let privateRequestGeneration = 0
+const normalHistory = ref<PersonalMemory[]>([])
+const normalHistoryOpen = ref(false)
+const normalHistoryBusy = ref(false)
+let normalHistoryGeneration = 0
+
+async function toggleNormalHistory(forceRefresh = false) {
+  if (normalHistoryOpen.value && !forceRefresh) {
+    ++normalHistoryGeneration
+    normalHistoryOpen.value = false
+    normalHistory.value = []
+    normalHistoryBusy.value = false
+    return
+  }
+  const generation = ++normalHistoryGeneration
+  const identity = auth.token
+  normalHistoryBusy.value = true
+  try {
+    const items = await fetchNormalMemoryHistory()
+    if (generation !== normalHistoryGeneration || identity !== auth.token
+        || activeTab.value !== 'memory') return
+    normalHistory.value = items
+    normalHistoryOpen.value = true
+  } catch {
+    if (generation === normalHistoryGeneration) {
+      normalHistoryOpen.value = false
+      normalHistory.value = []
+      ElMessage.error('历史记忆加载失败，请检查当前账号权限')
+    }
+  } finally {
+    if (generation === normalHistoryGeneration) normalHistoryBusy.value = false
+  }
+}
+
 const records = ref<RecordItem[]>([])
 const timelineDomain = ref('life')
 const selectedGoalId = ref<number | null>(null)
@@ -387,6 +420,11 @@ watch(() => auth.token, (next, prior) => {
   ++loadGeneration
   ++goalContextGeneration
   ++privateRequestGeneration
+  ++normalHistoryGeneration
+  normalHistoryOpen.value = false
+  normalHistory.value = []
+  normalHistoryBusy.value = false
+  clearChatSource()
   goals.value = []
   context.value = []
   selectedGoalId.value = null
@@ -410,6 +448,10 @@ watch(activeTab, (next) => {
   ++loadGeneration
   if (next !== 'memory') {
     ++privateRequestGeneration
+    ++normalHistoryGeneration
+    normalHistoryOpen.value = false
+    normalHistory.value = []
+    normalHistoryBusy.value = false
     privateOpen.value = false
     privateFacts.value = []
     candidates.value = []
@@ -431,6 +473,9 @@ onUnmounted(() => {
   ++loadGeneration
   ++goalContextGeneration
   ++privateRequestGeneration
+  ++normalHistoryGeneration
+  normalHistoryOpen.value = false
+  normalHistory.value = []
   clearChatSource()
   contextLoading.value = false
   privateOpen.value = false
@@ -597,6 +642,40 @@ onMounted(async () => {
               <el-button size="small" text type="danger" :disabled="actionBusy" @click="eraseMemory(item)">永久删除</el-button>
             </div>
           </article>
+
+
+          <section class="os-private" aria-label="普通记忆历史管理">
+            <div class="os-section-heading os-secondary-heading">
+              <h2>普通记忆历史与失效来源</h2>
+              <el-button :loading="normalHistoryBusy" @click="toggleNormalHistory()">
+                {{ normalHistoryOpen ? '收起并清除本页历史' : '主动查看历史' }}
+              </el-button>
+            </div>
+            <p class="os-help">旧版本、作废记录以及聊天来源失效的普通事实不会进入默认 AI 检索。只有你主动查看时才加载，仍可更正或删除。</p>
+            <template v-if="normalHistoryOpen">
+              <el-button size="small" :loading="normalHistoryBusy" @click="toggleNormalHistory(true)">刷新历史</el-button>
+              <el-empty v-if="!normalHistory.length" description="没有可管理的普通记忆历史" />
+              <article v-for="item in normalHistory" :key="item.id" class="os-memory-card">
+                <div class="os-memory-heading">
+                  <strong>{{ relationLabels[item.predicate] || item.predicate }}</strong>
+                  <el-tag size="small" :type="item.status === 'CONFIRMED' ? 'success' : 'info'">
+                    {{ item.status === 'CONFIRMED' ? '已确认（来源可能已失效）' :
+                      item.status === 'SUPERSEDED' ? '旧版本' : '已作废' }}
+                  </el-tag>
+                </div>
+                <p>{{ describeMemory(item) }}</p>
+                <small>事实 #{{ item.id }} · {{ item.supersedesId ? '替代事实 #' + item.supersedesId + ' · ' : '' }}
+                  来源 {{ item.sourceType }}{{ item.sourceRef ? ' #' + item.sourceRef : '' }} · {{ item.createdAt.slice(0, 10) }}</small>
+                <div class="os-card-actions">
+                  <el-button v-if="item.sourceType === 'CHAT_MESSAGE'" size="small" @click="openChatSource(item)">查看聊天来源</el-button>
+                  <el-button v-if="item.status === 'CONFIRMED' && item.objectType === 'LITERAL'" size="small"
+                    :disabled="actionBusy" @click="openCorrection(item)">更正</el-button>
+                  <el-button v-if="item.status === 'CONFIRMED'" size="small" :disabled="actionBusy" @click="invalidateCandidate(item)">作废</el-button>
+                  <el-button size="small" type="danger" text :disabled="actionBusy" @click="eraseMemory(item)">永久删除</el-button>
+                </div>
+              </article>
+            </template>
+          </section>
 
           <section class="os-private" aria-label="受限记忆管理">
             <div class="os-section-heading os-secondary-heading">
