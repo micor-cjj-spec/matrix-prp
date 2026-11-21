@@ -117,7 +117,7 @@ class ReviewVideoReadDatabaseIT {
                 a.id(),folder.id(),"A Lesson "+i,UUID.randomUUID().toString(),100L);
         }
         long firstVideo=jdbc.queryForObject(
-            "SELECT id FROM prp_video_assets WHERE user_id=? AND folder_id=? ORDER BY id LIMIT 1",
+            "SELECT id FROM prp_video_assets WHERE user_id=? AND folder_id=? ORDER BY id DESC LIMIT 1",
             Long.class,a.id(),folder.id());
         videos.saveProgress(firstVideo,new Progress(42.0,120.0));
         for(int i=0;i<55;i++) {
@@ -128,12 +128,10 @@ class ReviewVideoReadDatabaseIT {
         assertThat(videos.videosLimited(null,30))
             .allSatisfy(v -> assertThat(v.title()).startsWith("A Lesson"));
         var preview=videos.videosLimited(folder.id(),30);
-        assertThat(preview).anySatisfy(v -> {
-            if(v.id()==firstVideo) {
-                assertThat(v.positionSeconds()).isEqualTo(42.0);
-                assertThat(v.durationSeconds()).isEqualTo(120.0);
-            }
-        });
+        var saved=preview.stream().filter(v -> v.id()==firstVideo).toList();
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).positionSeconds()).isEqualTo(42.0);
+        assertThat(saved.get(0).durationSeconds()).isEqualTo(120.0);
 
         as(b);
         var bFolder=videos.createFolder(new FolderRequest(null,"B Study"));
