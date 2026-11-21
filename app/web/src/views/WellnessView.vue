@@ -8,7 +8,7 @@ import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 import PersonalDishManager from '@/components/wellness/PersonalDishManager.vue'
 import {
   wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type MealSnapshotItem, type Exercise, type ExerciseInput,
-  type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint, type MealAnalysisDetails,
+  type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint, type NutritionTrendPoint, type MealAnalysisDetails,
   type Goal, type Profile,
 } from '@/api/wellness'
 
@@ -35,7 +35,35 @@ const exercises = ref<Exercise[]>([])
 const metrics = ref<BodyMetric[]>([])
 const goals = ref<Goal[]>([])
 const trend = ref<TrendPoint[]>([])
+const nutritionTrend = ref<NutritionTrendPoint[]>([])
 const trendDays = ref(14)
+const trendMetric = ref<'calories'|'proteinG'|'carbsG'|'fatG'>('calories')
+const nutrientByDate = computed(() => new Map(nutritionTrend.value.map(day => [day.date, day])))
+const trendUnit = computed(() => trendMetric.value === 'calories' ? 'kcal' : 'g')
+const trendName = computed(() => ({
+  calories: '热量', proteinG: '蛋白质', carbsG: '碳水', fatG: '脂肪',
+})[trendMetric.value])
+function trendValue(point: TrendPoint): number | null {
+  const raw = trendMetric.value === 'calories'
+    ? point.calories : nutrientByDate.value.get(point.date)?.[trendMetric.value]
+  return raw == null ? null : Number(raw)
+}
+const selectedTrendMax = computed(() =>
+  Math.max(1, ...trend.value.map(point => trendValue(point) ?? 0)))
+function trendDescription(point: TrendPoint): string {
+  const value = trendValue(point)
+  if (trendMetric.value === 'calories')
+    return point.date + '：' + (value === null ? '没有记录热量' : value.toFixed(0) + ' kcal')
+  const day = nutrientByDate.value.get(point.date)
+  if (!day?.foodItemCount) return point.date + '：没有餐食记录'
+  const known = ({
+    proteinG: day.knownProteinCount,
+    carbsG: day.knownCarbsCount,
+    fatG: day.knownFatCount,
+  })[trendMetric.value as 'proteinG' | 'carbsG' | 'fatG']
+  return point.date + '：' + (value === null ? '营养信息不完整' : value.toFixed(1) + ' g') +
+    '；已知 ' + known + '/' + day.foodItemCount + ' 项食物'
+}
 const foods = ref<Food[]>([])
 const frequentFoods = ref<Food[]>([])
 const profile = reactive<Profile>({ heightCm: null, timezone: 'Asia/Shanghai' })
@@ -43,7 +71,6 @@ const selectedGoal = computed(() => summary.value?.goal)
 const calories = computed(() => summary.value?.calories === null || summary.value?.calories === undefined ? null : Number(summary.value.calories))
 const dailyGoal = computed(() => Number(selectedGoal.value?.dailyCalories || 0))
 const pct = computed(() => dailyGoal.value && calories.value !== null ? Math.min(100, Math.round(calories.value / dailyGoal.value * 100)) : 0)
-const maxTrend = computed(() => Math.max(1, ...trend.value.map(x => Number(x.calories || 0))))
 const weightHistory = computed(() => trend.value.filter(x => x.weightKg !== null))
 const weightChart = computed(() => {
   const points = weightHistory.value
@@ -185,7 +212,7 @@ async function loadAll() {
     loadDay(),
     wellnessApi.metrics(90).then(x => { metrics.value = x }),
     wellnessApi.goals().then(x => { goals.value = x }),
-    wellnessApi.trends(14).then(x => { trend.value = x }),
+    loadTrend(),
     wellnessApi.foods().then(x => { foods.value = x }),
     wellnessApi.frequent().then(x => { frequentFoods.value = x }),
     wellnessApi.profile().then(x => { Object.assign(profile, x) }),
@@ -280,7 +307,24 @@ async function copyMeal(meal: Meal) {
   try { await wellnessApi.copyMeal(meal.id, today); date.value = today; await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已复制到今天') }
   catch { ElMessage.error('复制失败') }
 }
-async function loadTrend() { trend.value = await wellnessApi.trends(trendDays.value) }
+let trendRequestVersion = 0
+async function loadTrend() {
+  const version = ++trendRequestVersion
+  const days = trendDays.value
+  try {
+    const [energy, nutrients] = await Promise.all([
+      wellnessApi.trends(days), wellnessApi.nutritionTrends(days),
+    ])
+    if (version !== trendRequestVersion) return
+    trend.value = energy
+    nutritionTrend.value = nutrients
+  } catch {
+    if (version !== trendRequestVersion) return
+    trend.value = []
+    nutritionTrend.value = []
+    ElMessage.warning('营养趋势暂时无法加载，请稍后重试')
+  }
+}
 
 const usdaDialog = ref(false)
 const usdaQuery = ref('')
@@ -482,11 +526,23 @@ async function saveProfile() {
               <el-option :value="7" label="近7天"/><el-option :value="14" label="近14天"/>
               <el-option :value="30" label="近30天"/><el-option :value="90" label="近90天"/>
             </el-select></div>
-            <p class="muted">未记录不计为 0；不同天数可切换趋势窗口。</p>
-            <div class="bars">
-              <div v-for="point in trend" :key="point.date" class="bar-column" :title="point.date + ': ' + (point.calories === null ? '未记录' : n(point.calories) + ' kcal')">
-                <div class="bar-track"><div v-if="point.calories !== null" class="bar-value" :style="{ height: Math.max(3, Number(point.calories) / maxTrend * 100) + '%' }"></div></div>
-                <small>{{ point.date.slice(8) }}</small>
+            <div class="trend-controls">
+              <el-radio-group v-model="trendMetric" size="small" aria-label="趋势指标">
+                <el-radio-button label="热量" value="calories" />
+                <el-radio-button label="蛋白质" value="proteinG" />
+                <el-radio-button label="碳水" value="carbsG" />
+                <el-radio-button label="脂肪" value="fatG" />
+              </el-radio-group>
+            </div>
+            <p class="muted">每日{{ trendName }}（{{ trendUnit }}）。没有记录为留白；当某项营养素缺失时，不将已知部分当作全天总量，也不将未知显示为 0。</p>
+            <div v-if="!trend.length" class="empty">趋势暂时无法显示，请重试。</div>
+            <div v-else class="bars" role="group" :aria-label="'近' + trendDays + '天' + trendName + '趋势'">
+              <div v-for="(point, idx) in trend" :key="point.date" class="bar-column" :title="trendDescription(point)" :aria-label="trendDescription(point)">
+                <div class="bar-track">
+                  <div v-if="trendValue(point) !== null" class="bar-value"
+                    :style="{ height: trendValue(point) === 0 ? '0%' : Math.max(3, Number(trendValue(point)) / selectedTrendMax * 100) + '%' }"></div>
+                </div>
+                <small v-if="trendDays <= 14 || idx === trend.length - 1 || idx % Math.ceil(trendDays / 8) === 0">{{ point.date.slice(5) }}</small>
               </div>
             </div>
           </section>
@@ -827,6 +883,8 @@ async function saveProfile() {
 .actions{justify-content:flex-start;margin:18px 0;flex-wrap:wrap}.panel{margin:14px 0}.panel h2{font-size:17px;margin:0 0 12px}.panel h3{font-size:15px;margin:20px 0}
 .entry{border-top:1px solid var(--el-border-color-lighter);padding:13px 0}.entry p{margin:4px 0;line-height:1.5}.grow{flex:1;min-width:0}.entry-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .empty{padding:24px;text-align:center;color:var(--el-text-color-secondary);background:var(--el-fill-color-light);border-radius:10px}
+.trend-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.trend-controls :deep(.el-radio-group){display:flex;flex-wrap:wrap}
 .bars{height:175px;display:flex;align-items:end;gap:7px;padding-top:12px}.bar-column{height:100%;min-width:0;flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
 .bar-track{width:100%;height:148px;display:flex;align-items:end;background:var(--el-fill-color-lighter);border-radius:5px;overflow:hidden}
 .bar-value{background:var(--el-color-primary);width:100%;border-radius:4px 4px 0 0}.bar-column small{color:var(--el-text-color-secondary)}
