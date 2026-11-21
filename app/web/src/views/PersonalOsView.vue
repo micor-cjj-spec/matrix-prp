@@ -275,7 +275,9 @@ async function confirmCandidate(item: PersonalMemory) {
   if (actionBusy.value) return
   try {
     await ElMessageBox.confirm(
-      '确认后会成为已确认的个人事实。请核对内容、来源和敏感级别。',
+      item.origin === 'AI_CANDIDATE'
+        ? `此内容由 AI 提议，并非独立核实的事实。请逐字核对；${item.sensitivity === 'NORMAL' ? '确认后可进入普通记忆和后续授权的 AI 检索。' : '确认后仍属于受限/敏感记忆，不进入默认 AI 检索。'}`
+        : '确认后会成为已确认的个人事实。请核对内容、来源和敏感级别。',
       '确认个人记忆',
       { confirmButtonText: '我已核对，确认', cancelButtonText: '暂不确认', type: 'warning' },
     )
@@ -537,9 +539,10 @@ onMounted(async () => {
           <el-empty v-if="!candidates.length" description="暂无待确认的记忆" />
           <article v-for="item in candidates" :key="item.id" class="os-memory-card">
             <div class="os-memory-heading"><strong>{{ relationLabels[item.predicate] || item.predicate }}</strong>
+              <el-tag v-if="item.origin === 'AI_CANDIDATE'" size="small" type="danger">AI 提议 · 未核实</el-tag>
               <el-tag size="small" type="warning">{{ item.sensitivity === 'NORMAL' ? '普通' : '受限/敏感' }}</el-tag></div>
             <p>{{ describeMemory(item) }}</p>
-            <small>来源 {{ item.sourceType }}{{ item.sourceRef ? ' #' + item.sourceRef : '' }} · {{ item.createdAt.slice(0, 10) }}</small>
+            <small>来源 {{ item.origin === 'AI_CANDIDATE' ? 'AI 整理的对话候选（尚未经独立核实）' : item.sourceType }}{{ item.sourceRef ? ' #' + item.sourceRef : '' }} · {{ item.createdAt.slice(0, 10) }}</small>
             <div class="os-card-actions">
               <el-button size="small" type="primary" :disabled="actionBusy" @click="confirmCandidate(item)">确认事实</el-button>
               <el-button size="small" :disabled="actionBusy" @click="invalidateCandidate(item)">不采纳</el-button>

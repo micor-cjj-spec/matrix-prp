@@ -46,6 +46,13 @@ public class PersonalMemoryService {
                          LocalDate validFrom, LocalDate validTo, Long supersedesId,
                          LocalDateTime createdAt) {}
 
+    /**
+     * Model-suggested facts are not user-authored facts. This payload does not
+     * accept a principal ID, entity reference, evidence claim or confirmation.
+     */
+    public record AiCandidate(Relation predicate, String value, LocalDate validFrom,
+                              LocalDate validTo, Sensitivity sensitivity, String requestKey) {}
+
     private static final String COLS="id,subject_type,subject_ref,predicate,object_type,"
         + "object_ref,object_value,source_type,source_ref,origin,status,sensitivity,"
         + "valid_from,valid_to,supersedes_id,created_at";
@@ -118,7 +125,31 @@ public class PersonalMemoryService {
 
     @Transactional
     public Memory propose(Proposed proposal) {
-        return proposeWithParent(proposal,null);
+        return proposeWithParent(proposal,null,null);
+    }
+
+    /**
+     * T-008a: narrow AI candidate intake, NEVER a confirmation. The owner identity,
+     * source type and relation endpoints are resolved server-side; nothing in the
+     * AI payload may select a different owner or assert independent verification.
+     */
+    @Transactional
+    public Memory proposeAiCandidate(AiCandidate suggestion) {
+        long owner=CurrentUser.id();
+        if (suggestion==null || suggestion.predicate()==null ||
+                !Set.of(Relation.DECLARES_SKILL,Relation.PREFERS,Relation.HAS_BACKGROUND)
+                    .contains(suggestion.predicate()) ||
+                suggestion.value()==null || suggestion.value().isBlank() ||
+                suggestion.value().length()>256 ||
+                suggestion.value().chars().anyMatch(Character::isISOControl)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "AI candidate must be a bounded self-reported skill, preference or background");
+        }
+        Proposed p=new Proposed(NodeType.PERSON,Long.toString(owner),
+            suggestion.predicate(),NodeType.LITERAL,null,suggestion.value().strip(),
+            EvidenceSource.USER_INPUT,null,suggestion.validFrom(),suggestion.validTo(),
+            suggestion.sensitivity(),suggestion.requestKey());
+        return proposeWithParent(p,null,"AI_CANDIDATE");
     }
 
     @Transactional
@@ -131,19 +162,20 @@ public class PersonalMemoryService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "Memory replacement must describe the same subject and predicate");
         }
-        return proposeWithParent(proposal,oldId);
+        return proposeWithParent(proposal,oldId,null);
     }
 
-    private Memory proposeWithParent(Proposed p,Long supersedes) {
+    private Memory proposeWithParent(Proposed p,Long supersedes,String forcedOrigin) {
         validate(p);
+        String origin=forcedOrigin!=null?forcedOrigin:
+            p.sourceType()==EvidenceSource.USER_INPUT?"USER_CONFIRMED":"BUSINESS_REFERENCE";
         long owner=CurrentUser.id();
         List<Long> priorIds = db.query("SELECT id FROM prp_personal_assertions"
             + " WHERE user_id=? AND request_key=? LIMIT 1",
             (rs,row)->rs.getLong(1),owner,p.requestKey());
-        if (!priorIds.isEmpty()) return matchingReplay(get(priorIds.get(0)),p,supersedes);
+        if (!priorIds.isEmpty()) return matchingReplay(get(priorIds.get(0)),p,supersedes,origin);
         var keys=new GeneratedKeyHolder();
         var now=LocalDateTime.now();
-        String origin=p.sourceType()==EvidenceSource.USER_INPUT?"USER_CONFIRMED":"BUSINESS_REFERENCE";
         Sensitivity sensitivity=effectiveSensitivity(p);
         try {
             db.update(con->{
@@ -180,7 +212,7 @@ public class PersonalMemoryService {
             List<Long> ids = db.query("SELECT id FROM prp_personal_assertions"
                 + " WHERE user_id=? AND request_key=? LIMIT 1",
                 (rs,row)->rs.getLong(1),owner,p.requestKey());
-            if (!ids.isEmpty()) return matchingReplay(get(ids.get(0)),p,supersedes);
+            if (!ids.isEmpty()) return matchingReplay(get(ids.get(0)),p,supersedes,origin);
             throw race;
         }
         Number key=keys.getKey();
@@ -188,8 +220,9 @@ public class PersonalMemoryService {
         return get(key.longValue());
     }
 
-    private static Memory matchingReplay(Memory prior, Proposed proposal, Long supersedes) {
-        if (prior.subjectType()!=proposal.subjectType()
+    static Memory matchingReplay(Memory prior, Proposed proposal, Long supersedes, String origin) {
+        if (!Objects.equals(prior.origin(),origin)
+                || prior.subjectType()!=proposal.subjectType()
                 || !Objects.equals(prior.subjectRef(),proposal.subjectRef())
                 || prior.predicate()!=proposal.predicate()
                 || prior.objectType()!=proposal.objectType()

@@ -114,11 +114,6 @@
       "reason": "Personal confirmed memories are sensitive profile data; MCP read must wait for a separately consented prp.memory.read scope, per-source filtering, and T-006 tool-call coverage."
     },
     {
-      "route": "GET /api/memory/{id}",
-      "status": "excluded",
-      "reason": "Single memory record may contain sensitive/private provenance and unconfirmed claims; defer model-facing access pending explicit T-006 scope and owner-evidence audit."
-    },
-    {
       "route": "GET /api/memory/candidates",
       "status": "excluded",
       "reason": "Unconfirmed AI or user candidate facts are private approval workflow state, not verified memories; never publish them to model-facing MCP tools by default."
@@ -127,6 +122,11 @@
       "route": "GET /api/memory/private",
       "status": "excluded",
       "reason": "Authenticated first-party owner-only view of sensitive and restricted confirmed memories; never expose to MCP or general AI context. Fetch only after a deliberate UI interaction and audit privacy."
+    },
+    {
+      "route": "GET /api/memory/{id}",
+      "status": "excluded",
+      "reason": "Single memory record may contain sensitive/private provenance and unconfirmed claims; defer model-facing access pending explicit T-006 scope and owner-evidence audit."
     },
     {
       "route": "GET /api/practice/banks/{bankId}/play",
@@ -373,6 +373,16 @@
       "reason": "OAuth account linking endpoint is an identity trust boundary"
     },
     {
+      "route": "POST /api/memory/ai-candidates",
+      "status": "excluded",
+      "reason": "Owner-only first-party AI knowledge suggestions remain PENDING; external MCP submission needs separately approved scope, provenance and consent flow."
+    },
+    {
+      "route": "POST /api/memory/candidates",
+      "status": "excluded",
+      "reason": "Memory candidate writes require a separate model-scoped draft and immutable proposal review design; this authenticated first-party form route is excluded pending T-006."
+    },
+    {
       "route": "POST /api/memory/{id}/confirm",
       "status": "excluded",
       "reason": "Human approval of personal memory must not be represented as a model tool; first-party confirmation UI only until an independently verified user-action channel exists."
@@ -386,11 +396,6 @@
       "route": "POST /api/memory/{id}/replacement",
       "status": "excluded",
       "reason": "Replacement of personal facts is a sensitive two-stage workflow; model tools must not replace or implicitly confirm private facts without the T-006 approval contract."
-    },
-    {
-      "route": "POST /api/memory/candidates",
-      "status": "excluded",
-      "reason": "Memory candidate writes require a separate model-scoped draft and immutable proposal review design; this authenticated first-party form route is excluded pending T-006."
     },
     {
       "route": "POST /api/push/subscriptions",
