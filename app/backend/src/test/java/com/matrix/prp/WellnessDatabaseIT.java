@@ -51,6 +51,78 @@ class WellnessDatabaseIT {
         return postJson("/api/auth/login",null,Map.of("username",username,"password",password))
                 .path("token").asText();
     }
+    @Test void copiedSnacksAreRetrySafeButIndependentEatingEventsRemainAllowed() throws Exception {
+        String token=login("video_admin","video-test-admin-password-2026");
+        String date="2026-07-07";
+        String sourceKey="snack-copy-source-"+UUID.randomUUID();
+        JsonNode source=postJson("/api/wellness/meals/snapshots",token,Map.of(
+            "mealDate",date,"mealType","SNACK","note","Fixture: one snack",
+            "idempotencyKey",sourceKey,
+            "items",List.of(Map.of("name","Test single snack", "grams",100, "calories",125))));
+        long sourceId=source.path("id").asLong();
+        assertThat(sourceId).isPositive();
+
+        String retryKey="snack-copy-"+UUID.randomUUID();
+        String endpoint="/api/wellness/meals/"+sourceId+"/copy?date="+date+
+            "&idempotencyKey="+retryKey;
+        long first=postJson(endpoint,token,Map.of()).path("id").asLong();
+        long retried=postJson(endpoint,token,Map.of()).path("id").asLong();
+        assertThat(retried).isEqualTo(first);
+
+        // A separate explicit copy is another actual snack, not a network retry.
+        long second=postJson("/api/wellness/meals/"+sourceId+
+            "/copy?date="+date+"&idempotencyKey=snack-copy-"+UUID.randomUUID(),
+            token,Map.of()).path("id").asLong();
+        assertThat(second).isNotEqualTo(first);
+        JsonNode saved=getData("/api/wellness/meals?date="+date,token);
+        assertThat(saved.size()).isEqualTo(3);
+        assertThat(getData("/api/wellness/summary/daily?date="+date,token)
+            .path("calories").decimalValue()).isEqualByComparingTo("375");
+
+        // A token for one event cannot silently return another date's record.
+        mvc.perform(auth(post("/api/wellness/meals/"+sourceId+
+            "/copy?date=2026-07-08&idempotencyKey="+retryKey),token))
+            .andExpect(status().isConflict());
+        assertThat(getData("/api/wellness/meals?date=2026-07-08",token).size()).isZero();
+
+        // Reusing the client's retry token with another source must not return
+        // a copy of the previous source or silently skip a legitimate event.
+        long anotherSource=postJson("/api/wellness/meals/snapshots",token,Map.of(
+            "mealDate",date,"mealType","SNACK","note","Different source meal",
+            "idempotencyKey","another-source-"+UUID.randomUUID(),
+            "items",List.of(Map.of("name","Test second source", "grams",100,
+                "calories",90)))).path("id").asLong();
+        long copiedOther=postJson("/api/wellness/meals/"+anotherSource+
+            "/copy?date="+date+"&idempotencyKey="+retryKey,token,Map.of())
+            .path("id").asLong();
+        assertThat(copiedOther).isNotEqualTo(first);
+        assertThat(getData("/api/wellness/meals?date="+date,token).size()).isEqualTo(5);
+        assertThat(getData("/api/wellness/summary/daily?date="+date,token)
+            .path("calories").decimalValue()).isEqualByComparingTo("555");
+    }
+
+    @Test void catalogSnackCopyAlsoReplaysOnlyOnce() throws Exception {
+        String token=login("video_admin","video-test-admin-password-2026");
+        String day="2026-07-09";
+        long foodId=postJson("/api/wellness/foods",token,Map.of(
+            "name","Test retry-safe snack "+UUID.randomUUID(),
+            "preparation","cooked", "calories100g",80,
+            "protein100g",1,"carbs100g",15,"fat100g",2,
+            "sourceNote","synthetic test")).path("id").asLong();
+        long source=postJson("/api/wellness/meals",token,Map.of(
+            "mealDate",day,"mealType","SNACK","note","Test catalog copy",
+            "items",List.of(Map.of("foodId",foodId,"grams",100)),
+            "idempotencyKey","snack-catalog-source-"+UUID.randomUUID()))
+            .path("id").asLong();
+        String endpoint="/api/wellness/meals/"+source+"/copy?date="+day+
+            "&idempotencyKey=snack-catalog-copy-"+UUID.randomUUID();
+        long copied=postJson(endpoint,token,Map.of()).path("id").asLong();
+        assertThat(postJson(endpoint,token,Map.of()).path("id").asLong()).isEqualTo(copied);
+        assertThat(getData("/api/wellness/meals?date="+day,token).size()).isEqualTo(2);
+        assertThat(getData("/api/wellness/summary/daily?date="+day,token)
+            .path("calories").decimalValue()).isEqualByComparingTo("160");
+    }
+
     @Test void mealNutritionSnapshotIdempotencyAndTenantIsolation() throws Exception {
         String a=login("video_admin","video-test-admin-password-2026");
         mvc.perform(get("/api/wellness/meals?date=2026-10-11")).andExpect(status().isUnauthorized());
