@@ -310,9 +310,30 @@ async function deleteMeal(meal: Meal) {
   try { await wellnessApi.deleteMeal(meal.id); await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已删除') }
   catch { ElMessage.error('删除失败') }
 }
+const copyingMealId = ref<number | null>(null)
+// A lost HTTP acknowledgement must not create a second snack on retry.
+// A confirmed copy releases the token for a deliberate subsequent meal.
+const copyRetryKeys = new Map<string, string>()
 async function copyMeal(meal: Meal) {
-  try { await wellnessApi.copyMeal(meal.id, today); date.value = today; await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已复制到今天') }
-  catch { ElMessage.error('复制失败') }
+  if (copyingMealId.value !== null) return
+  const targetDate = today
+  const request = `${meal.id}:${targetDate}`
+  const key = copyRetryKeys.get(request) ?? crypto.randomUUID()
+  copyRetryKeys.set(request, key)
+  copyingMealId.value = meal.id
+  try {
+    await wellnessApi.copyMeal(meal.id, targetDate, key)
+    copyRetryKeys.delete(request)
+    date.value = targetDate
+    ElMessage.success('已复制到今天')
+    // UI refresh never starts a second write. The H2 macro trend and daily
+    // consumption are read back together following the confirmed copy.
+    await Promise.all([loadDay(), loadTrend()])
+  } catch {
+    ElMessage.error('复制请求未确认，请重试；已保存的加餐不会重复创建')
+  } finally {
+    copyingMealId.value = null
+  }
 }
 let trendRequestVersion = 0
 const nutritionTrendUnavailable = ref(false)
@@ -579,7 +600,7 @@ async function saveProfile() {
               <div class="entry-actions"><el-button link type="primary" @click="openAnalysis(meal)">分析详情</el-button>
                 <el-button link type="primary" @click="openAiChange('meal',meal.id)">AI 变更</el-button>
                  <el-button link type="primary" @click="openMeal(meal.mealType,meal)">编辑</el-button>
-                <el-button link @click="copyMeal(meal)">复制到今天</el-button>
+                <el-button link :disabled="copyingMealId !== null" :loading="copyingMealId === meal.id" @click="copyMeal(meal)">复制到今天</el-button>
                 <el-button link type="danger" @click="deleteMeal(meal)">删除</el-button></div>
             </div>
           </section>
