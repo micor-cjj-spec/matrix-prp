@@ -212,3 +212,28 @@ test('migration preflight distinguishes App bypass verification from a redacted 
  const denied=input();delete denied.rule.bypass_actors;denied.rule.current_user_can_bypass='never'
  assert.throws(()=>verifyMigrationEvidence(denied),e=>e.code==='RULESET_APP_BYPASS_NOT_VERIFIED')
 })
+
+test('manual apply rereads reviewer approval, PR identity and App scope after commit and before push',()=>{
+ const sh=readFileSync(new URL('./migration-transaction.sh',import.meta.url),'utf8')
+ const commit=sh.indexOf('git -C "$state_worktree" commit')
+ const push=sh.indexOf('git -C "$state_worktree" push origin HEAD:refs/heads/prp-collab-state')
+ const guard='node "$root/app/scripts/dev-collab/migration-guard.mjs"'
+ const guardPositions=[...sh.matchAll(/node "\$root\/app\/scripts\/dev-collab\/migration-guard\.mjs"/g)]
+   .map(m=>m.index)
+ assert.equal(guardPositions.length,2)
+ const recheck=guardPositions[1]
+ assert.ok(commit>=0&&recheck>commit&&push>recheck)
+ const phase=sh.slice(commit,recheck)
+ for(const fragment of [
+  'gh api "repos/$GITHUB_REPOSITORY/pulls/144"',
+  'gh api "repos/$GITHUB_REPOSITORY/pulls/144/files?per_page=100"',
+  'gh api "repos/$GITHUB_REPOSITORY/pulls/144/reviews?per_page=100"',
+  'gh api "repos/$GITHUB_REPOSITORY/rulesets/$COLLAB_RULESET_ID"',
+  'gh api installation/repositories'
+ ])assert.ok(phase.includes(fragment),fragment)
+ const last=sh.slice(recheck,push)
+ for(const fragment of ['MAIN_HEAD_RACE','STATE_RACE','PROPOSAL_RACE'])
+  assert.ok(last.includes(fragment),fragment)
+ const run=spawnSync('bash',['-n',new URL('./migration-transaction.sh',import.meta.url).pathname],{encoding:'utf8'})
+ assert.equal(run.status,0,run.stderr)
+})
