@@ -3,7 +3,6 @@ package com.matrix.prp.ai;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.matrix.prp.auth.security.CurrentUser;
-import com.matrix.prp.memory.PersonalMemoryService;
 import com.matrix.prp.ontology.PersonalOntology.Relation;
 import com.matrix.prp.ontology.PersonalOntology.Sensitivity;
 import java.time.YearMonth;
@@ -97,7 +96,8 @@ public final class PersonalOsChatExtractionService {
         AiStore.Message message=ownedMessage(owner,conversationId,messageId);
         if (message.content()==null || message.content().isBlank()
                 || message.content().length()>MAX_MESSAGE
-                || message.content().chars().anyMatch(Character::isISOControl)) {
+                || message.content().chars().anyMatch(ch -> Character.isISOControl(ch)
+                    && ch != '\n' && ch != '\r' && ch != '\t')) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "Select a nonempty text-only user message up to 2000 characters");
         }
@@ -184,7 +184,7 @@ public final class PersonalOsChatExtractionService {
             if (!ALLOWED.contains(predicate) || value.isBlank() || value.length()>256
                     || value.chars().anyMatch(Character::isISOControl)
                     || quote.isBlank() || quote.length()>200 || !message.contains(quote)
-                    || !unique.add(predicate.name()+"\u0000"+value)) {
+                    || !unique.add(predicate.name()+"|"+value)) {
                 throw new IllegalArgumentException("Unverified knowledge claim or duplicate");
             }
             result.add(new Suggested(predicate,value,quote,Sensitivity.RESTRICTED,
