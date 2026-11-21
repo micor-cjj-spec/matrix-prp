@@ -202,11 +202,11 @@ class PersonalOsPlanningAdviceServiceTest {
         when(previews.preview(51, false)).thenReturn(snapshot("Goal"));
         var token = advice.confirm(51, advice.preview(51, false).previewId()).modelToken();
         when(gateway.stream(any(), anyList(), anyInt(), any())).thenReturn(
-            new DeepSeekClient.Result(
-                "{\\"proposals\\":[{\\"title\\":\\"Create a task\\",\\"rationale\\":\\"Trust me\\","
-                    + "\\"evidenceRefs\\":[\\"goal:51\\"],\\"assumptions\\":[],"
-                    + "\\"unauthorizedAction\\":\\"createTask\\"}]}",
-                1, 1));
+            new DeepSeekClient.Result("""
+                {"proposals":[{"title":"Create a task","rationale":"Trust me",
+                "evidenceRefs":["goal:51"],"assumptions":[],
+                "unauthorizedAction":"createTask"}]}
+                """, 1, 1));
         assertThatThrownBy(() -> advice.suggest(51, token))
             .isInstanceOf(ResponseStatusException.class)
             .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
