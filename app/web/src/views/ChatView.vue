@@ -459,6 +459,7 @@ async function loadMoreConversations() {
 }
 async function renameSelectedConversation(item: Conversation) {
   if (sending.value || managingConversation.value) return
+  const generation = chatAuthGeneration
   try {
     const { value } = await ElMessageBox.prompt('请输入新的会话标题', '重命名会话', {
       inputValue: item.title,
@@ -468,32 +469,43 @@ async function renameSelectedConversation(item: Conversation) {
       confirmButtonText: '保存',
       cancelButtonText: '取消',
     })
+    if (generation !== chatAuthGeneration) return
     managingConversation.value = true
     const title = String(value).trim()
     await renameConversation(item.id, title)
+    if (generation !== chatAuthGeneration) return
     conversations.value = conversations.value.map(c => c.id === item.id ? { ...c, title } : c)
     ElMessage.success('已重命名')
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error('重命名失败，请重试')
-  } finally { managingConversation.value = false }
+    if (generation === chatAuthGeneration && error !== 'cancel' && error !== 'close')
+      ElMessage.error('重命名失败，请重试')
+  } finally {
+    if (generation === chatAuthGeneration) managingConversation.value = false
+  }
 }
 async function deleteSelectedConversation(item: Conversation) {
   if (sending.value || managingConversation.value || loadingOlder.value) return
+  const generation = chatAuthGeneration
   try {
     await ElMessageBox.confirm(
       '确认删除“' + item.title + '”？删除后不再显示此聊天，也不能继续在此会话发送消息。已经保存到健康中心等应用的数据不会删除。',
       '删除会话', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
         confirmButtonClass: 'chat-delete-confirm' },
     )
+    if (generation !== chatAuthGeneration) return
     managingConversation.value = true
     await deleteConversation(item.id)
+    if (generation !== chatAuthGeneration) return
     conversations.value = conversations.value.filter(c => c.id !== item.id)
     if (selectedId.value === item.id) newChat()
     ElMessage.success('会话已删除')
     void refresh()
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error('删除失败，会话仍然保留')
-  } finally { managingConversation.value = false }
+    if (generation === chatAuthGeneration && error !== 'cancel' && error !== 'close')
+      ElMessage.error('删除失败，会话仍然保留')
+  } finally {
+    if (generation === chatAuthGeneration) managingConversation.value = false
+  }
 }
 function onMessagesScroll() {
   const el = scroller.value
