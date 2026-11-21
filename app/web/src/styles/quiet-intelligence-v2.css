@@ -111,7 +111,7 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .home-heading {align-items:center;margin-bottom:26px}
 .prp-shell .home-heading .home-date {letter-spacing:1px;font-weight:650;color:#4f7157;font-size:12px}
 .prp-shell .home-heading h1 {color:#254534;font-size:clamp(26px,2.9vw,39px);font-weight:670;letter-spacing:-1.45px;margin:8px 0 9px}
-.prp-shell .home-heading p {color:#879a8c}
+.prp-shell .home-heading p {color:#526b57}
 .prp-shell .home-plan-link {background:#fff;border:1px solid #dfe7dc;border-radius:14px;color:#4a7258;padding:13px 18px}
 .prp-shell .home-plan-link:hover {background:#edf4e9;color:#2e5840;border-color:#c6dac4}
 .prp-shell .home-metrics {gap:15px;margin:0 0 18px}
@@ -129,7 +129,7 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .home-main-grid {gap:17px}
 .prp-shell .home-panel {border:1px solid #e9eee6;background:#fff;border-radius:21px;padding:25px;box-shadow:0 10px 30px rgba(38,66,43,.035)}
 .prp-shell .home-panel-heading h2 {color:#2d4939;font-size:18px;font-weight:720}
-.prp-shell .home-panel-heading p {color:#9aa99c}
+.prp-shell .home-panel-heading p {color:#526b57}
 .prp-shell .home-panel-heading a,.prp-shell .home-panel-footer a {color:#527c5c}
 .prp-shell .home-task {padding:15px 1px;border-bottom:1px solid #f0f2ed}
 .prp-shell .home-task-copy strong {font-size:14px;color:#405749;font-weight:650}
@@ -165,7 +165,7 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .domain-tool-grid {gap:17px}
 .prp-shell .domain-tool-card {border-radius:21px;border-color:#e7ede5;min-height:163px;padding:25px;background:linear-gradient(145deg,#fff,#fcfdfa)}
 .prp-shell .domain-tool-card h3 {color:#33513e;font-weight:710}
-.prp-shell .domain-tool-card p {color:#839588;line-height:1.65}
+.prp-shell .domain-tool-card p {color:#526b57;line-height:1.65}
 .prp-shell .tool-action {color:#4b7958}
 .prp-shell .tool-blue {background:#e6f0e7;color:#5a8262}
 .prp-shell .tool-violet {background:#f0ede3;color:#99815e}
@@ -180,7 +180,7 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .wellness-page {padding:0 0 42px;max-width:1310px}
 .prp-shell .wellness-page .head {margin:0 0 23px;gap:18px}
 .prp-shell .wellness-page .head h1 {font-size:clamp(27px,3vw,35px);letter-spacing:-1px;color:#274838;font-weight:700}
-.prp-shell .wellness-page .head p {color:#879a8a;font-size:14px}
+.prp-shell .wellness-page .head p {color:#526b57;font-size:14px}
 .prp-shell .wellness-page .wellness-tabs {margin-top:12px}
 .prp-shell .wellness-page .el-tabs__header {margin-bottom:22px}
 .prp-shell .wellness-page .tile,.prp-shell .wellness-page .panel {border:1px solid #e4ece3;background:#fff;border-radius:19px;box-shadow:0 8px 25px rgba(39,79,46,.035)}
@@ -243,14 +243,14 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .prp-profile-card {border-radius:24px;background:linear-gradient(115deg,#e3eee1,#f7f8ee);border:1px solid #e0e9dc;padding:32px 34px}
 .prp-shell .prp-profile-avatar {border-radius:22px;background:linear-gradient(140deg,#36624b,#799c7f)}
 .prp-shell .prp-profile-copy h2 {color:#2a4a38}
-.prp-shell .prp-profile-copy p {color:#839685}
+.prp-shell .prp-profile-copy p {color:#526b57}
 .prp-shell .prp-profile-role {background:#e9f2e6;color:#517359}
 .prp-shell .prp-me-menu {border-radius:20px;border-color:#e6ece2;box-shadow:0 8px 24px rgba(34,65,36,.035)}
 .prp-shell .prp-me-menu-item {border-bottom:1px solid #edf1e9;padding:20px 23px;transition:background-color .17s}
 .prp-shell .prp-me-menu-item:hover {background:#f5f8f2}
 .prp-shell .prp-me-menu-icon {background:#ecf3e9;color:#5c8463}
 .prp-shell .prp-me-menu-text strong {color:#31513c;font-size:14px}
-.prp-shell .prp-me-menu-text small {color:#95a396}
+.prp-shell .prp-me-menu-text small {color:#526b57}
 .prp-shell .prp-me-admin {border-radius:18px;border-color:#e5ece1}
 .prp-shell .prp-detail-sheet {border-radius:20px;border-color:#e3eadf}
 /* AI chat: only presentation changes; no consent, streaming, history, model switch or attachment semantics touched. */
@@ -392,14 +392,14 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 }
 .prp-shell .wellness-v2-intro::after {content:"";position:absolute;width:160px;height:160px;border:1px solid #83a38b29;border-radius:50%;top:-95px;right:9%;pointer-events:none}
 .prp-shell .wellness-v2-intro-info {position:relative;z-index:1;min-width:0}
-.prp-shell .wellness-v2-kicker {font-size:11px;letter-spacing:1.4px;color:#6e9678;font-weight:730}
+.prp-shell .wellness-v2-kicker {font-size:11px;letter-spacing:1.4px;color:#48674c;font-weight:730}
 .prp-shell .wellness-v2-intro h2 {font-size:clamp(18px,2.1vw,23px);letter-spacing:-.5px;color:#2d5239;margin:10px 0 7px}
-.prp-shell .wellness-v2-intro p {font-size:12px;line-height:1.65;color:#799081;margin:0}
+.prp-shell .wellness-v2-intro p {font-size:12px;line-height:1.65;color:#4b6850;margin:0}
 .prp-shell .wellness-v2-intro-actions {display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;max-width:380px;position:relative;z-index:1}
 .prp-shell .wellness-v2-intro-actions .el-button {margin:0}
 .prp-shell .learning-v2-path {display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.35fr);gap:27px;align-items:center;border:1px solid #e5ece2;background:#fff;border-radius:22px;padding:27px;margin:0 0 28px;box-shadow:0 8px 25px rgba(29,68,35,.033)}
 .prp-shell .learning-v2-path-intro h2 {font-size:20px;font-weight:700;letter-spacing:-.5px;color:#2e4a38;line-height:1.45;margin:9px 0}
-.prp-shell .learning-v2-path-intro p:last-child {font-size:12px;color:#829584;line-height:1.7;margin:0}
+.prp-shell .learning-v2-path-intro p:last-child {font-size:12px;color:#526b57;line-height:1.7;margin:0}
 .prp-shell .learning-v2-steps {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .prp-shell .learning-v2-steps a {display:flex;align-items:center;gap:11px;border-radius:13px;background:#f2f7f0;padding:13px;text-decoration:none;color:#436a4d;min-width:0;transition:transform .18s,background-color .18s}
 .prp-shell .learning-v2-steps a:hover {background:#e6f1e4;transform:translateY(-2px)}
