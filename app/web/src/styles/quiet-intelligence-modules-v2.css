@@ -156,3 +156,57 @@
   .prp-shell .prp-page-content .tasks-module-item,
   .prp-shell .prp-page-content .playlist-item {transition:none}
 }
+
+
+/* Account entry and registration keep the exact existing form + validation. */
+.login-page {
+  background:radial-gradient(ellipse at 82% 18%,#e4eee0 0%,#f6f8f3 43%,#f5f7f1 100%);
+  min-height:100dvh;padding:clamp(20px,4vw,45px)
+}
+.login-panel {
+  width:min(480px,100%);background:rgba(255,255,255,.96);
+  border:1px solid #e0e9de;border-radius:25px;padding:clamp(25px,4vw,38px);
+  box-shadow:0 26px 75px rgba(36,76,46,.10)
+}
+.login-brand {margin-bottom:32px;gap:14px}
+.login-brand .brand-mark {
+  border-radius:15px;background:linear-gradient(145deg,#294c38,#658d6f);
+  width:47px;height:47px;box-shadow:0 9px 20px rgba(30,82,47,.17);
+  font-family:Georgia,serif;font-weight:500;font-size:26px
+}
+.login-brand strong {color:#2c4938;font-weight:750}
+.login-brand span {color:#94a496}
+.login-copy .eyebrow {color:#70957b;letter-spacing:1.6px}
+.login-copy h1 {color:#264535;letter-spacing:-.8px;font-size:clamp(24px,3vw,30px)}
+.login-copy p:last-child {color:#87988b;line-height:1.7}
+.login-panel .el-form-item__label {color:#54705d;font-weight:650}
+.login-panel .el-button--primary {min-height:45px}
+
+/* Notifications, reminders, device-push diagnostics and existing controls. */
+.prp-shell .prp-page-content .notification-grid {gap:19px}
+.prp-shell .prp-page-content .notification-grid .el-card {border-radius:20px;border-color:#e5ece2}
+.prp-shell .prp-page-content .notification-entry {border-bottom-color:#e8eee5;border-radius:10px;padding:15px 9px;transition:background-color .16s}
+.prp-shell .prp-page-content .notification-entry:hover {background:#f4f9f2}
+.prp-shell .prp-page-content .notification-entry small {color:#8b9b8f}
+.prp-shell .prp-page-content .push-warning {border-radius:13px;background:#fff8ee;border-color:#ecd4b3}
+.prp-shell .prp-page-content .notification-actions {gap:9px}
+
+/* Base lists and tables retain all their actions even in narrow viewports. */
+.prp-shell .prp-page-content .el-table {
+  --el-table-header-bg-color:#f3f7f1;--el-table-row-hover-bg-color:#f6faf4;
+  --el-table-border-color:#e6ece3;--el-table-text-color:#405946;
+  --el-table-header-text-color:#54755b;border-radius:12px;overflow:hidden
+}
+.prp-shell .prp-page-content .el-tag {border-radius:8px;font-weight:600}
+.prp-shell .prp-page-content .el-pagination {gap:6px}
+.prp-shell .prp-page-content .el-descriptions__label {color:#738b77}
+.prp-shell .prp-page-content .api-status {border-radius:9px}
+.prp-shell .prp-page-content .api-status.online {background:#e6f3e7;color:#41804e}
+.prp-shell .prp-page-content .filter-row {gap:12px}
+.prp-shell .prp-page-content .item-actions .el-button {margin-left:0}
+@media (max-width:660px) {
+  .login-page {align-items:center;padding:18px}
+  .login-panel {padding:25px 21px;border-radius:21px}
+  .prp-shell .prp-page-content .notification-grid {gap:13px}
+  .prp-shell .prp-page-content .el-dialog {max-width:calc(100vw - 20px)}
+}
