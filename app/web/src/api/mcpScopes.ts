@@ -2,6 +2,8 @@ export const mcpScopes = [
   { value: 'prp.tasks.read', label: '读取任务' },
   { value: 'prp.records.read', label: '读取个人记录摘要' },
   { value: 'prp.practice.read', label: '读取学习题库和练习统计' },
+  { value: 'prp.reviews.read', label: '读取复盘摘要' },
+  { value: 'prp.video.read', label: '读取视频目录和学习进度' },
   { value: 'prp.finance.read', label: '读取财务' },
   { value: 'prp.wellness.read', label: '读取健康记录' },
   { value: 'prp.write.create', label: '生成待确认草稿' },

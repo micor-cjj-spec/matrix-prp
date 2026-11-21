@@ -63,7 +63,10 @@ public class McpToolConfiguration {
         Map.entry("prp_practice_banks", "prp.practice.read"),
         Map.entry("prp_practice_questions", "prp.practice.read"),
         Map.entry("prp_practice_wrong_questions", "prp.practice.read"),
-        Map.entry("prp_practice_statistics", "prp.practice.read")
+        Map.entry("prp_practice_statistics", "prp.practice.read"),
+        Map.entry("prp_reviews_list", "prp.reviews.read"),
+        Map.entry("prp_video_folders", "prp.video.read"),
+        Map.entry("prp_video_progress", "prp.video.read")
     );
     // Extra read tools remain invisible unless the operator explicitly opts in.
     // This protects the existing production nine-tool health manifest.
@@ -72,7 +75,8 @@ public class McpToolConfiguration {
         "prp_wellness_frequent_foods", "prp_wellness_dishes",
         "prp_tasks_search", "prp_records_search",
         "prp_practice_subjects", "prp_practice_banks", "prp_practice_questions",
-        "prp_practice_wrong_questions", "prp_practice_statistics");
+        "prp_practice_wrong_questions", "prp_practice_statistics",
+            "prp_reviews_list", "prp_video_folders", "prp_video_progress");
 
     static Set<String> exposedNames(String configured, boolean writeEnabled) {
         return exposedNames(configured, writeEnabled, false);
@@ -106,7 +110,8 @@ public class McpToolConfiguration {
             "prp_wellness_frequent_foods", "prp_wellness_dishes",
             "prp_tasks_search", "prp_records_search",
             "prp_practice_subjects", "prp_practice_banks", "prp_practice_questions",
-            "prp_practice_wrong_questions", "prp_practice_statistics");
+            "prp_practice_wrong_questions", "prp_practice_statistics",
+            "prp_reviews_list", "prp_video_folders", "prp_video_progress");
         var actual = definitions.stream().map(spec -> spec.tool().name()).collect(java.util.stream.Collectors.toSet());
         if (!REQUIRED_SCOPE.keySet().equals(expected)) {
             throw new IllegalStateException("PRP MCP scope-to-tool registry mismatch");
