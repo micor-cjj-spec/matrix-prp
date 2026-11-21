@@ -110,14 +110,19 @@ class WellnessDatabaseIT {
         assertThat(missing.path("foodItemCount").asInt()).isZero();
         assertThat(missing.path("proteinG").isNull()).isTrue();
 
-        JsonNode other=getData("/api/wellness/summary/nutrition-trends?days=7",admin);
+        String outsider=postJson("/api/auth/register",null,Map.of(
+            "username","nutrition_other_"+UUID.randomUUID().toString().substring(0,8),
+            "password","trend-other-password-2026","displayName","No meal fixtures",
+            "invitationCode",invite)).path("token").asText();
+        JsonNode other=getData("/api/wellness/summary/nutrition-trends?days=7",outsider);
         assertThat(other.size()).isEqualTo(7);
-        // The owner's private food items must not inflate the other account.
-        JsonNode otherKnown=null;
-        for(JsonNode day:other)if(day.path("date").asText().equals(knownDay))otherKnown=day;
-        assertThat(otherKnown).isNotNull();
-        // Distinct owner has no synthetic fixture; scoped row count cannot match ours.
-        assertThat(otherKnown.path("foodItemCount").asInt()).isZero();
+        // A second freshly registered owner has no copied private food rows.
+        for(JsonNode day:other) {
+            assertThat(day.path("foodItemCount").asInt()).isZero();
+            assertThat(day.path("proteinG").isNull()).isTrue();
+            assertThat(day.path("carbsG").isNull()).isTrue();
+            assertThat(day.path("fatG").isNull()).isTrue();
+        }
 
         for(int days:new int[]{1,30,90}) {
             assertThat(getData("/api/wellness/summary/nutrition-trends?days="+days,owner).size())
