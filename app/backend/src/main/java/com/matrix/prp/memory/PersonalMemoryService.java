@@ -169,6 +169,35 @@ public class PersonalMemoryService {
      */
     @Transactional
     public Memory proposeAiCandidate(AiCandidate suggestion) {
+        return proposeWithParent(checkedAiProposal(suggestion),null,"AI_CANDIDATE");
+    }
+
+    /** Read-only preflight; never sends prior private facts back to the caller. */
+    public record AiInspection(String requestKey, String disposition) {}
+
+    public AiInspection inspectAiCandidate(AiCandidate suggestion) {
+        Proposed p=checkedAiProposal(suggestion);
+        validate(p); // owner, relation and chat evidence must all still be current
+        List<ComparableFact> existing=comparableFacts(CurrentUser.id(),p.subjectRef(),
+            p.predicate(),0L,true);
+        if (existing.size()>200) return new AiInspection(p.requestKey(),"REVIEW_REQUIRED");
+        String value=normalizedLiteral(p.objectValue());
+        boolean related=false;
+        for (ComparableFact old:existing) {
+            if (old.value()==null || !overlaps(p.validFrom(),p.validTo(),old.from(),old.to()))
+                continue;
+            String prior=normalizedLiteral(old.value());
+            if (value.equals(prior)) return new AiInspection(p.requestKey(),"DUPLICATE");
+            // A containment hint is not evidence of a contradiction or supersession.
+            String shorter=value.length()<=prior.length()?value:prior;
+            String longer=value.length()>prior.length()?value:prior;
+            if (shorter.length()>=5 && longer.contains(shorter)
+                    && shorter.length()*2>=longer.length()) related=true;
+        }
+        return new AiInspection(p.requestKey(),related?"POSSIBLY_RELATED":"NEW");
+    }
+
+    private Proposed checkedAiProposal(AiCandidate suggestion) {
         long owner=CurrentUser.id();
         if (suggestion==null || suggestion.predicate()==null ||
                 !Set.of(Relation.DECLARES_SKILL,Relation.PREFERS,Relation.HAS_BACKGROUND)
@@ -179,8 +208,6 @@ public class PersonalMemoryService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "AI candidate must be a bounded self-reported skill, preference or background");
         }
-        // A paired message ID + exact quote establishes verifiable provenance.
-        // Model-provided URLs, arbitrary source references and owners are not trusted.
         boolean hasId=suggestion.sourceMessageId()!=null;
         boolean hasQuote=suggestion.evidenceQuote()!=null;
         if (hasId!=hasQuote)
@@ -195,11 +222,10 @@ public class PersonalMemoryService {
             references.requireOwnedChatQuote(sourceRef,suggestion.evidenceQuote());
             sourceType=EvidenceSource.CHAT_MESSAGE;
         }
-        Proposed p=new Proposed(NodeType.PERSON,Long.toString(owner),
+        return new Proposed(NodeType.PERSON,Long.toString(owner),
             suggestion.predicate(),NodeType.LITERAL,null,suggestion.value().strip(),
             sourceType,sourceRef,suggestion.validFrom(),suggestion.validTo(),
             suggestion.sensitivity(),suggestion.requestKey());
-        return proposeWithParent(p,null,"AI_CANDIDATE");
     }
 
     @Transactional
@@ -361,20 +387,25 @@ public class PersonalMemoryService {
             && (otherTo==null || from==null || !otherTo.isBefore(from));
     }
 
-    private void requireNoExactDuplicate(long owner,String subjectRef,Relation predicate,
-            String literal,LocalDate from,LocalDate to,long excludeId,boolean includePending) {
-        if (literal==null) return;
+    private List<ComparableFact> comparableFacts(long owner,String subjectRef,Relation predicate,
+            long excludeId,boolean includePending) {
         String statuses=includePending ? "IN ('CONFIRMED','PENDING')" : "='CONFIRMED'";
-        // SQL text is chosen exclusively from these two server-side constants.
+        // Only these server-owned, hardcoded status fragments enter the SQL.
         String sql="SELECT object_value,valid_from,valid_to FROM prp_personal_assertions"
             + " WHERE user_id=? AND subject_type='PERSON' AND subject_ref=?"
             + " AND predicate=? AND object_type='LITERAL' AND status "+statuses
             + " AND id<>? ORDER BY id DESC LIMIT 201";
-        List<ComparableFact> existing=db.query(sql,(rs,n)->new ComparableFact(
-                rs.getString(1),
+        return db.query(sql,(rs,n)->new ComparableFact(rs.getString(1),
                 rs.getDate(2)==null?null:rs.getDate(2).toLocalDate(),
                 rs.getDate(3)==null?null:rs.getDate(3).toLocalDate()),
             owner,subjectRef,predicate.name(),excludeId);
+    }
+
+    private void requireNoExactDuplicate(long owner,String subjectRef,Relation predicate,
+            String literal,LocalDate from,LocalDate to,long excludeId,boolean includePending) {
+        if (literal==null) return;
+        List<ComparableFact> existing=comparableFacts(owner,subjectRef,predicate,
+            excludeId,includePending);
         if (existing.size()>200)
             throw conflict("Too many facts to verify duplicates safely; review existing memories");
         String normalized=normalizedLiteral(literal);
