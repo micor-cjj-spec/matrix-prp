@@ -164,4 +164,56 @@ class PersonalOsPlanningAdviceServiceTest {
             eq(700), any());
         verifyNoMoreInteractions(gateway);
     }
+    @Test void foreignOwnerCannotConsumeAnotherOwnersApproval() {
+        as(7);
+        selected(7);
+        when(previews.preview(51, false)).thenReturn(snapshot("Owner goal"));
+        var token = advice.confirm(51, advice.preview(51, false).previewId()).modelToken();
+        as(8);
+        assertThatThrownBy(() -> advice.suggest(51, token))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(gateway, store);
+        as(7);
+        // A wrong-user attempt must not spend the owner's single-use token.
+        when(gateway.stream(any(), anyList(), anyInt(), any()))
+            .thenAnswer(call -> new DeepSeekClient.Result(answer("goal:51"), 5, 5));
+        assertThat(advice.suggest(51, token).proposals()).hasSize(1);
+    }
+
+    @Test void completedGoalDoesNotGenerateActionAdvice() {
+        as(7);
+        selected(7);
+        var closed = new PersonalOsPlanningPreviewService.Preview(
+            51, "Closed goal", "COMPLETED", "Done",
+            snapshot("Closed goal").evidence(), List.of(), List.of(),
+            false, false, "No new actions");
+        when(previews.preview(51, false)).thenReturn(closed);
+        var token = advice.confirm(51, advice.preview(51, false).previewId()).modelToken();
+        assertThatThrownBy(() -> advice.suggest(51, token))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT));
+        verifyNoInteractions(gateway, store);
+    }
+
+    @Test void malformedProviderOutputIsRejectedAndCannotBeReplayed() throws Exception {
+        as(7);
+        selected(7);
+        when(previews.preview(51, false)).thenReturn(snapshot("Goal"));
+        var token = advice.confirm(51, advice.preview(51, false).previewId()).modelToken();
+        when(gateway.stream(any(), anyList(), anyInt(), any())).thenReturn(
+            new DeepSeekClient.Result(
+                "{\\"proposals\\":[{\\"title\\":\\"Create a task\\",\\"rationale\\":\\"Trust me\\","
+                    + "\\"evidenceRefs\\":[\\"goal:51\\"],\\"assumptions\\":[],"
+                    + "\\"unauthorizedAction\\":\\"createTask\\"}]}",
+                1, 1));
+        assertThatThrownBy(() -> advice.suggest(51, token))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_GATEWAY));
+        assertThatThrownBy(() -> advice.suggest(51, token))
+            .isInstanceOf(ResponseStatusException.class);
+        verify(gateway, times(1)).stream(any(), anyList(), anyInt(), any());
+    }
+
 }
