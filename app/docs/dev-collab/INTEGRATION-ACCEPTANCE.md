@@ -84,6 +84,7 @@
 
 | 字段 | 必要证据 | 当前 |
 | --- | --- | --- |
+| 现有 main / state Ruleset（只读核查） | 当前规则 IDs、精确目标、保护状态、必需检查、bypass 主体 | **PASS（仅此子项）**：main Ruleset `24968649` 为 active，严格要求 `backend-tests`、`web-build`、`mobile-build`、`db-migration-integration`、`video-db-integration`、`impact-report` 六项，均为 Integration `15368`，没有 bypass actor；状态 Ruleset `26294671` active，仅 Integration `5561446` 可 bypass，受保护状态仍 V0。**不能据此宣称 Environment 或专用 App Token 验收通过。** [安全审查记录](https://github.com/micor-cjj-spec/matrix-prp/issues/147#issuecomment-7066336192) |
 | integration branch / protected Ruleset | 精确分支、Ruleset ID、被保护状态和验证时间 | **未验证** |
 | task PR → trusted merge | PR #、submitted head SHA、target branch、merge SHA、required checks、reviewer | **未验证** |
 | #240 combined CI | 3 个 workflow 的完成状态和准确 Job 成败、最终 head SHA | **#240 最终 CI 34/34（第二次仅重试 Chromium Job 后成功），Contract 178/178、Impact 成功；候选 #246 也为 CI 34/34、Contract 178/178、Impact 成功。正式 T-005 仍 NO-GO** |
