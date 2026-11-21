@@ -83,6 +83,23 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .prp-topbar {height:80px;margin-bottom:30px;border-bottom:1px solid #e8ede6}
 .prp-shell .prp-topbar-title {color:#627e6b;font-weight:650;font-size:13px}
 .prp-shell .prp-topbar-title::before {content:"";height:7px;width:7px;border-radius:50%;background:#88aa8e;box-shadow:0 0 0 4px #e8f2e8}
+.prp-shell .prp-topbar-title {min-width:0}
+.prp-shell .prp-current-page-title {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prp-shell .prp-back-to-apps {
+  display:inline-flex;align-items:center;gap:5px;padding:8px 11px;
+  border:1px solid #dfe9da;border-radius:11px;background:#fff;
+  color:#557965;text-decoration:none;white-space:nowrap;font-size:12px;
+  transition:background-color .18s,transform .18s
+}
+.prp-shell .prp-back-to-apps:hover {background:#edf5e9;color:#345c42;transform:translateX(-2px)}
+.prp-shell .prp-back-to-apps .el-icon {font-size:15px}
+@media(max-width:860px) {
+  .prp-shell .prp-back-to-apps {padding:7px 9px;min-height:36px}
+  .prp-shell .prp-topbar-title {gap:9px}
+  .prp-shell .prp-current-page-title {max-width:45vw}
+  .prp-shell .prp-topbar-title:has(.prp-back-to-apps) .prp-mobile-mark {display:none}
+}
+
 .prp-shell .prp-icon-link {color:#627a6b;transition:background-color .2s,transform .2s}
 .prp-shell .prp-icon-link:hover {background:#e4efe1;color:#315b45;transform:translateY(-1px)}
 .prp-shell .prp-page-content {max-width:1440px}
