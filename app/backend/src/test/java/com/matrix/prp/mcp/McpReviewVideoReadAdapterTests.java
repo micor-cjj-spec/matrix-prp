@@ -37,7 +37,7 @@ class McpReviewVideoReadAdapterTests {
         var end = LocalDate.of(2026, 10, 31);
         String privateNote = "PRIVATE_HIGHLIGHTS_NOT_FOR_MCP";
         String tooLong = "A".repeat(250) + "PRIVATE_TRAILING_SUMMARY";
-        when(reviews.list(any(ReviewFilter.class)))
+        when(reviews.listLimited(any(ReviewFilter.class), anyInt()))
             .thenReturn(List.of(new ReviewItem(12, "monthly", "learning",
                 "  My\nReview  ", tooLong, privateNote, "PRIVATE_PROBLEM",
                 "PRIVATE_ACTION", start, end, OffsetDateTime.parse("2026-11-01T00:00:00Z"))));
@@ -52,7 +52,7 @@ class McpReviewVideoReadAdapterTests {
             "PRIVATE_TRAILING_SUMMARY", "PRIVATE_HIGHLIGHTS_NOT_FOR_MCP",
             "PRIVATE_PROBLEM", "PRIVATE_ACTION");
         var filter = ArgumentCaptor.forClass(ReviewFilter.class);
-        verify(reviews).list(filter.capture());
+        verify(reviews).listLimited(filter.capture(), eq(3));
         assertThat(filter.getValue())
             .isEqualTo(new ReviewFilter("monthly", "learning", start, end));
         verifyNoInteractions(video);
@@ -65,9 +65,9 @@ class McpReviewVideoReadAdapterTests {
             rows.add(new ReviewItem(i, "weekly", "work", "Review " + i, "",
                 "", "", "", null, null, OffsetDateTime.parse("2026-11-01T00:00:00Z")));
         }
-        when(reviews.list(any(ReviewFilter.class))).thenReturn(rows);
+        when(reviews.listLimited(any(ReviewFilter.class), anyInt())).thenReturn(rows);
         assertThat(adapter.listReviewPreviews(null, null, null, null, 20)).hasSize(20);
-        when(reviews.list(any(ReviewFilter.class))).thenReturn(List.of());
+        when(reviews.listLimited(any(ReviewFilter.class), anyInt())).thenReturn(List.of());
         assertThat(adapter.listReviewPreviews(null, null, null, null, null)).isEmpty();
     }
 
@@ -89,9 +89,9 @@ class McpReviewVideoReadAdapterTests {
 
     @Test
     void folderAndVideoPreviewsExcludePlaybackTicketsAndUploads() {
-        when(video.folders()).thenReturn(List.of(
+        when(video.foldersLimited(1)).thenReturn(List.of(
             new Folder(10, null, "Study", 0), new Folder(11, 10L, "Week 1", 1)));
-        when(video.videos(11L)).thenReturn(List.of(
+        when(video.videosLimited(11L, 1)).thenReturn(List.of(
             new Video(25, 11L, "Lesson 1", 50000,
                 LocalDateTime.of(2026, 11, 1, 8, 0), 95, 400)));
         var folders = adapter.listFolderPreviews(1);
@@ -103,8 +103,8 @@ class McpReviewVideoReadAdapterTests {
         assertThat(items.get(0).positionSeconds()).isEqualTo(95);
         assertThat(items.get(0).durationSeconds()).isEqualTo(400);
         assertThat(items.toString()).doesNotContain("ticket", "storageKey", "sizeBytes");
-        verify(video).folders();
-        verify(video).videos(11L);
+        verify(video).foldersLimited(1);
+        verify(video).videosLimited(11L, 1);
         verifyNoMoreInteractions(video);
         verifyNoInteractions(reviews);
     }
@@ -118,8 +118,8 @@ class McpReviewVideoReadAdapterTests {
             items.add(new Video(i, null, "Lesson " + i, 1,
                 LocalDateTime.of(2026, 11, 1, 8, 0), 0, 0));
         }
-        when(video.folders()).thenReturn(folders);
-        when(video.videos(null)).thenReturn(items);
+        when(video.foldersLimited(50)).thenReturn(folders);
+        when(video.videosLimited(null, 30)).thenReturn(items);
         assertThat(adapter.listFolderPreviews(50)).hasSize(50);
         assertThat(adapter.listVideoPreviews(null, 30)).hasSize(30);
     }
