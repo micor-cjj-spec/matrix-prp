@@ -94,6 +94,7 @@ class PersonalKnowledgeEvolutionTests {
                 RowMapper<Object> mapper=invocation.getArgument(1);
                 ResultSet rs=mock(ResultSet.class);
                 when(rs.getString(1)).thenReturn("  ＲＡＧ  ");
+                when(rs.getString(4)).thenReturn("USER_INPUT");
                 return List.of(mapper.mapRow(rs,0));
             });
         var proposed=new PersonalMemoryService.AiCandidate(
@@ -142,6 +143,7 @@ class PersonalKnowledgeEvolutionTests {
                 RowMapper<Object> mapper=invocation.getArgument(1);
                 ResultSet rs=mock(ResultSet.class);
                 when(rs.getString(1)).thenReturn("我正在学习 RAG 入门");
+                when(rs.getString(4)).thenReturn("USER_INPUT");
                 return List.of(mapper.mapRow(rs,0));
             });
         var related=new PersonalMemoryService.AiCandidate(
