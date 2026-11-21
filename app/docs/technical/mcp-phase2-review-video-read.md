@@ -24,13 +24,13 @@ Review contents such as highlights, problems and next actions are intentionally 
 
 ## Before Phase 2 integration (explicit separate review)
 
-1. **Implemented in this Draft PR:** SQL-side bounded review query and parameterized video listing. **Still required:** executable MySQL owner-isolation and date-filter acceptance against the final schema; review query plans/indexes and result-order stability on representative synthetic data.
+1. **Implemented in this Draft PR:** SQL-side bounded review query and parameterized video listing. **Added but not yet verified by completed CI:** disposable MySQL 8.4 owner-isolation, overlap/date filtering, soft-delete, row caps, foreign-folder and progress test (`ReviewVideoReadDatabaseIT`). Review query plans/indexes and final test results remain acceptance blockers.
 2. Introduce **separate**, explicitly approved `prp.reviews.read` and `prp.video.read` scopes, and keep them disabled by default. Align the authoritative scope catalog, OAuth resource metadata, owner-client grants, expanded account allowlist, tool manifest, optional-read gate, and any production allowlist in one reviewed integration change. Do not borrow write or finance scopes.
 3. Register three read-only MCP tools with `readOnlyHint=true`, a fixed per-tool scope, server-side principal recovery, no owner ID arguments, and strict limits. Keep the currently published health nine-tool manifest unchanged.
-4. Run disposable synthetic OAuth `tools/list` + `tools/call` coverage: unauthorized / unknown client / revoked grant / missing scope / cross-owner data / wrong folder / expired consent / no video ticket / input caps / response truncation. Add actual MySQL tests for the owner-scoped queries and bounded SQL.
+4. Run disposable synthetic OAuth `tools/list` + `tools/call` coverage: unauthorized / unknown client / revoked grant / missing scope / cross-owner data / wrong folder / expired consent / no video ticket / input caps / response truncation. The new disposable MySQL test must pass on the exact PR SHA; retain separate actual OAuth negative tests.
 5. Verify the current `main` CI and migrate/merge only with independent task integration review. A passing unit suite or Draft PR is not a production activation, OAuth approval, or authorization to merge/deploy.
 
-## Isolated unit test
+## Synthetic unit tests and disposable MySQL acceptance
 
 Run in `app/backend`:
 
@@ -38,4 +38,11 @@ Run in `app/backend`:
 mvn -Dtest=McpReviewVideoReadAdapterTests,McpReviewVideoSqlBoundaryTests test
 ```
 
-Tests use synthetic Mockito services and verify projections, filtering, caps, refusal and no playback/write calls; the SQL boundary tests check owner predicates and limits. They do **not** replace actual OAuth, real MySQL, or cross-owner E2E security verification.
+Synthetic tests verify projections, filters, bounds and SQL owner predicates. A separate `ReviewVideoReadDatabaseIT` performs real MySQL two-owner checks and runs within the existing CI `video-db-integration` job. **Commitment to run is not a test pass**; inspect the exact CI run before concluding. OAuth E2E remains a separate requirement.
+
+Disposable database test (requires the existing CI-provisioned MySQL 8.4 and `video-integration` profile):
+
+```bash
+cd app/backend
+./mvnw -B -Dtest=ReviewVideoReadDatabaseIT test
+```
