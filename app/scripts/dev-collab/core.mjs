@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { validateTaskScopeList } from './task-scope-policy.mjs'
 
 export class CollabError extends Error {
   constructor(code, message = code) {
@@ -51,37 +52,6 @@ function safePath(path) {
 function overlaps(a, b) {
   return a === b || (a.endsWith('/') && b.startsWith(a)) ||
     (b.endsWith('/') && a.startsWith(b))
-}
-
-// T-001 keeps the security boundary self-contained within its two-file task scope.
-// Ordinary tasks may never register governance workflows or state-writer scripts.
-const ORDINARY_TASK_SCOPE_ROOTS = Object.freeze([
- 'app/backend/src/main/java/',
- 'app/backend/src/test/java/',
- 'app/web/src/',
- 'app/mobile/src/',
- 'app/docs/ai-notes/',
- 'app/docs/api/',
- 'app/docs/bugs/',
- 'app/docs/data/',
- 'app/docs/decisions/',
- 'app/docs/features/',
- 'app/docs/product/',
- 'app/docs/releases/',
- 'app/docs/technical/',
- 'app/docs/README.md'
-])
-function validateTaskScopeList(paths) {
-  if (!Array.isArray(paths) || paths.length < 1 || paths.length > 20) return false
-  if (!paths.every(safePath)) return false
-  if (new Set(paths).size !== paths.length) return false
-  for (let i = 0; i < paths.length; i++) {
-    for (let j = i + 1; j < paths.length; j++) {
-      if (overlaps(paths[i], paths[j])) return false
-    }
-  }
-  return paths.every(path => ORDINARY_TASK_SCOPE_ROOTS.some(root =>
-    path === root || (root.endsWith('/') && path.startsWith(root))))
 }
 
 export function scopesOverlap(a, b) {
