@@ -44,7 +44,7 @@ function setup(){
  git(seed,'remote','add','origin',origin)
  const dest=join(seed,'app/scripts/dev-collab');mkdirSync(dest,{recursive:true})
  for(const n of ['core.mjs','task-scope-policy.mjs','bootstrap-audit.mjs','state-rule-policy.mjs',
-   'migration-guard.mjs','migration-transaction.sh'])
+   'migration-guard.mjs','migration-transaction.sh','issue-ingress.mjs','issue-migrate.mjs'])
    cpSync(join(source,n),join(dest,n))
  mkdirSync(join(seed,'app/deploy'),{recursive:true})
  writeFileSync(join(seed,'app/deploy/publication-hold.json'),
@@ -70,6 +70,7 @@ function setup(){
   '[[ "$1" == api ]] || exit 2',
   'case "$2" in',
   ' */pulls/144) cat "$PRP_MOCK_PR" ;;',
+  ' */issues/999) cat "$PRP_MOCK_ISSUE" ;;',
   ' */pulls/144/files*) cat "$PRP_MOCK_FILES" ;;',
   ' */pulls/144/reviews*) if [[ "${PRP_MOCK_REVOKE_SECOND_REVIEW:-}" == "1" ]]; then n=$(cat "$PRP_MOCK_REVIEW_READ_COUNT" 2>/dev/null || echo 0); n=$((n+1)); printf "%s\\n" "$n" > "$PRP_MOCK_REVIEW_READ_COUNT"; if (( n >= 2 )); then cat "$PRP_MOCK_REVOKED_REVIEWS"; else cat "$PRP_MOCK_REVIEWS"; fi; else cat "$PRP_MOCK_REVIEWS"; fi ;;',
   ' */rulesets/26294671) [[ "${GH_TOKEN:-}" == "local-test-read-token" || "${GH_TOKEN:-}" == "local-test-write-token" ]] || exit 4; cat "$PRP_MOCK_RULE" ;;',
@@ -81,7 +82,8 @@ function setup(){
  const temp=join(root,'temp');mkdirSync(temp)
  const names={pr:join(root,'pr.json'),files:join(root,'files.json'),reviews:join(root,'reviews.json'),
   rule:join(root,'rule.json'),app:join(root,'app.json'),
-  revokedReviews:join(root,'revoked-reviews.json'),reviewReads:join(root,'review-reads.txt')}
+  revokedReviews:join(root,'revoked-reviews.json'),reviewReads:join(root,'review-reads.txt'),
+  issue:join(root,'issue.json'),event:join(root,'issue-event.json')}
  const pr={number:144,state:'open',draft:true,changed_files:1,
   user:{login:'micor-cjj-spec',id:123868412},
   base:{ref:'prp-collab-state',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
@@ -109,8 +111,8 @@ function setup(){
   PRP_MOCK_PR:names.pr,PRP_MOCK_FILES:names.files,PRP_MOCK_REVIEWS:names.reviews,
   PRP_MOCK_RULE:names.rule,PRP_MOCK_APP:names.app,
   PRP_MOCK_REVOKED_REVIEWS:names.revokedReviews,
-  PRP_MOCK_REVIEW_READ_COUNT:names.reviewReads}
- return {root,names,pr,save,
+  PRP_MOCK_REVIEW_READ_COUNT:names.reviewReads,PRP_MOCK_ISSUE:names.issue}
+ return {root,names,pr,save,runner,origin,stateSha,proposalSha,env,
   execute:(override={})=>spawnSync('bash',['app/scripts/dev-collab/migration-transaction.sh'],
    {cwd:runner,encoding:'utf8',timeout:15000,env:{...env,...override}}),
   state:()=>git(root,'--git-dir',origin,'rev-parse','refs/heads/prp-collab-state'),
@@ -196,5 +198,65 @@ test('isolated Git: dismissed approval between migration preflight and final che
   assert.equal(Number(readFileSync(f.names.reviewReads,'utf8').trim()),2,
    'first guard saw approval and final guard saw its dismissal')
   assert.equal(f.state(),before,'no V0 state write permitted')
+ }finally{f.cleanup()}
+})
+
+test('isolated owner Issue: dismissed human approval denies V1 migration after preflight',
+ {timeout:45000},()=>{
+ const f=setup()
+ try{
+  const before=f.state()
+  f.pr.draft=false;f.save(f.names.pr,f.pr)
+  const approved={id:19,user:{login:'independent-reviewer',id:999,type:'User'},
+   author_association:'COLLABORATOR',state:'APPROVED',commit_id:f.proposalSha,
+   submitted_at:'2026-11-01T03:00:00Z'}
+  f.save(f.names.reviews,[approved])
+  f.save(f.names.revokedReviews,[{...approved,state:'DISMISSED'}])
+  // The production code retains fixed real commit pins. Only in disposable
+  // test copies substitute the synthetic local Git SHA pins, no logic changes.
+  const pinned=[
+   ['062036f7021e215ffbfdcbf5689d207a0549b68b',f.stateSha],
+   ['bf80d5c384d5f687cb980b6e04127fc42167d7a8',f.proposalSha]
+  ]
+  for(const name of ['issue-migrate.mjs','issue-ingress.mjs']){
+   const file=join(f.runner,'app/scripts/dev-collab',name)
+   let code=readFileSync(file,'utf8')
+   for(const [original,local] of pinned){
+    assert.ok(code.includes(original),name+' must contain the reviewed pin')
+    code=code.replaceAll(original,local)
+   }
+   writeFileSync(file,code)
+  }
+  const request={schema_version:1,action:'migrate_v1',
+   request_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   requirement_id:'REQ-20261031-001',
+   expected_state_sha:f.stateSha,expected_proposal_sha:f.proposalSha}
+  const issue={number:999,title:'[PRP-COLLAB-REQUEST]',state:'open',
+   user:{login:'micor-cjj-spec',id:123868412},author_association:'OWNER',
+   body:JSON.stringify(request)}
+  const event={action:'opened',sender:{login:'micor-cjj-spec',id:123868412,type:'User'},
+   repository:{full_name:'micor-cjj-spec/matrix-prp',default_branch:'main',
+    owner:{login:'micor-cjj-spec',id:123868412}},issue}
+  f.save(f.names.issue,issue);f.save(f.names.event,event)
+  const entry=[
+   "import {readFileSync} from 'node:fs'",
+   "import {validateIssueEvent} from './app/scripts/dev-collab/issue-ingress.mjs'",
+   "import {applyOwnerIssuedMigration} from './app/scripts/dev-collab/issue-migrate.mjs'",
+   "const event=JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'))",
+   "const validated=validateIssueEvent(process.env,event,event.issue)",
+   "applyOwnerIssuedMigration(validated,process.env)"
+  ].join('\n')
+  const result=spawnSync(process.execPath,['--input-type=module','--eval',entry],{
+   cwd:f.runner,encoding:'utf8',timeout:15000,
+   env:{...f.env,GITHUB_EVENT_NAME:'issues',GITHUB_EVENT_ACTION:'opened',
+    GITHUB_WORKFLOW_REF:'micor-cjj-spec/matrix-prp/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main',
+    GITHUB_EVENT_PATH:f.names.event,COLLAB_APP_TOKEN:'local-test-write-token',
+    PRP_MOCK_REVOKE_SECOND_REVIEW:'1'}
+  })
+  assert.notEqual(result.status,0,'revoked approval must block owner Issue migration')
+  assert.match(result.stderr,/MIGRATION_INDEPENDENT_REVIEW_REQUIRED/)
+  assert.equal(Number(readFileSync(f.names.reviewReads,'utf8').trim()),2,
+   'owner Issue must inspect approval before and after preparing its commit')
+  assert.equal(f.state(),before,'no owner migration may change local V0 state')
  }finally{f.cleanup()}
 })
