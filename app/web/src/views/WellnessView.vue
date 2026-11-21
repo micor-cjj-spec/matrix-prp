@@ -300,11 +300,20 @@ async function saveMeal() {
       if (editingMeal.value !== null) await wellnessApi.updateMeal(editingMeal.value, payload)
       else await wellnessApi.addMeal(payload)
     }
-    ElMessage.success('餐食已保存')
     mealSubmissionKey.value = null
     mealDialog.value = false; date.value = mealForm.mealDate
-    await Promise.all([loadDay(), wellnessApi.frequent().then(x => { frequentFoods.value = x }), loadTrend()])
-  } catch { ElMessage.error('餐食保存失败') } finally { saving.value = false }
+    // A failed readback is not a failed write. Never invite a duplicate
+    // resubmission after the server has acknowledged the meal.
+    try {
+      await Promise.all([loadDay(true), wellnessApi.frequent().then(x => { frequentFoods.value = x }), loadTrend()])
+      ElMessage.success('餐食已保存')
+    } catch {
+      ElMessage.warning('餐食已保存，但页面刷新失败；请刷新页面查看，勿重新提交')
+    }
+  } catch {
+    // For uncertain writes, preserve mealSubmissionKey for an idempotent retry.
+    ElMessage.error('餐食保存请求未确认，请重试；若已保存不会重复创建')
+  } finally { saving.value = false }
 }
 async function deleteMeal(meal: Meal) {
   try { await ElMessageBox.confirm('确定删除这条' + label(meal.mealType) + '记录吗？', '确认删除') } catch { return }
