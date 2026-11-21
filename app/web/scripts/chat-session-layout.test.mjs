@@ -364,3 +364,17 @@ test('wellness macro trends preserve old calorie data and refresh after label ve
   assert.match(view, /@keydown\.enter\.prevent="selectedTrendDay = point\.date"/)
   assert.match(view, /class="bar-value"\s+:class="\{ 'bar-zero': trendValue\(point\) === 0 \}"/)
 })
+
+
+test('wellness copy retry is one event while daily macro trends refresh after confirmed copy', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const api = readFileSync(new URL('../src/api/wellness.ts', import.meta.url), 'utf8')
+  assert.match(api, /copyMeal: \(id: number, date: string, idempotencyKey\?: string\)/)
+  assert.match(view, /const copyRetryKeys = new Map<string, string>\(\)/)
+  assert.match(view, /copyRetryKeys\.get\(request\) \?\? crypto\.randomUUID\(\)/)
+  assert.match(view, /await wellnessApi\.copyMeal\(meal\.id, targetDate, key\)/)
+  assert.match(view, /copyRetryKeys\.delete\(request\)/)
+  assert.match(view, /await Promise\.all\(\[loadDay\(\), loadTrend\(\)\]\)/)
+  assert.match(view, /:disabled="copyingMealId !== null"/)
+  assert.match(view, /const \[energy, nutrients\] = await Promise\.allSettled\(/)
+})
