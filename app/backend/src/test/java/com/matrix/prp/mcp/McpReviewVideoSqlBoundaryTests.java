@@ -1,6 +1,8 @@
 package com.matrix.prp.mcp;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -77,6 +80,29 @@ class McpReviewVideoSqlBoundaryTests {
                 && !preview.getSqlSelect().contains("problems")
                 && !preview.getSqlSelect().contains("next_actions")));
         verifyNoMoreInteractions(mapper);
+    }
+
+    @Test
+    void reviewQueriesBindTheAuthenticatedOwnerNotAnArbitraryId() {
+        when(mapper.selectList(any())).thenReturn(List.of());
+        var repository = new MyBatisReviewRepository(mapper);
+        repository.listLimited(null, 5);
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                new UserProfile(77, "second", "Synthetic second owner"), null, List.of()));
+        repository.listLimited(null, 5);
+
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        ArgumentCaptor<Wrapper<ReviewEntity>> captured =
+            ArgumentCaptor.forClass((Class) Wrapper.class);
+        verify(mapper, times(2)).selectList(captured.capture());
+        var queries = captured.getAllValues();
+        assertThat(((AbstractWrapper<?, ?, ?>) queries.get(0))
+            .getParamNameValuePairs().values()).contains(42L).doesNotContain(77L);
+        assertThat(((AbstractWrapper<?, ?, ?>) queries.get(1))
+            .getParamNameValuePairs().values()).contains(77L).doesNotContain(42L);
+        assertThat(queries.get(0).getSqlSegment()).contains("LIMIT 5");
+        assertThat(queries.get(1).getSqlSegment()).contains("LIMIT 5");
     }
 
     @Test
