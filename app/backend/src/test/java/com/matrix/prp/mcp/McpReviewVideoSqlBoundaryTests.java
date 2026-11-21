@@ -1,6 +1,5 @@
 package com.matrix.prp.mcp;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.matrix.prp.auth.model.UserProfile;
 import com.matrix.prp.common.api.ResourceNotFoundException;
 import com.matrix.prp.reviews.mapper.ReviewMapper;
@@ -52,7 +51,7 @@ class McpReviewVideoSqlBoundaryTests {
         var repository = new MyBatisReviewRepository(mapper);
         repository.listLimited(new ReviewFilter("weekly", "learning",
             LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 21)), 12);
-        verify(mapper).selectList(argThat((Wrapper<?> query) ->
+        verify(mapper).selectList(argThat(query ->
             query.getSqlSegment().contains("user_id")
                 && query.getSqlSegment().contains("LIMIT 12")
                 && query.getSqlSegment().contains("ORDER BY")));
