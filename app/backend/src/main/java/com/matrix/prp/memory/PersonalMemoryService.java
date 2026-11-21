@@ -182,11 +182,12 @@ public class PersonalMemoryService {
      */
     @Transactional
     public Memory proposeAiCandidate(AiCandidate suggestion) {
-        Proposed validated=checkedAiProposal(suggestion);
-        validate(validated);
-        // Transaction-scoped owner row lock closes the cross-request-key
-        // check-then-insert race among parallel Personal OS AI submissions.
+        CurrentUser.id();
+        validateAiShape(suggestion); // reject malformed requests without touching MySQL
+        // Acquire the lock BEFORE even reading chat-source evidence: otherwise
+        // an ordinary SELECT can create a stale REPEATABLE READ transaction snapshot.
         lockOwnerForKnowledgeMutation();
+        Proposed validated=checkedAiProposal(suggestion);
         return proposeWithParent(validated,null,"AI_CANDIDATE");
     }
 
@@ -216,8 +217,7 @@ public class PersonalMemoryService {
         return new AiInspection(p.requestKey(),related?"POSSIBLY_RELATED":"NEW");
     }
 
-    private Proposed checkedAiProposal(AiCandidate suggestion) {
-        long owner=CurrentUser.id();
+    private static void validateAiShape(AiCandidate suggestion) {
         if (suggestion==null || suggestion.predicate()==null ||
                 !Set.of(Relation.DECLARES_SKILL,Relation.PREFERS,Relation.HAS_BACKGROUND)
                     .contains(suggestion.predicate()) ||
@@ -232,11 +232,21 @@ public class PersonalMemoryService {
         if (hasId!=hasQuote)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "Chat evidence must include both a message ID and exact quotation");
+        if (hasId && suggestion.sourceMessageId()<=0)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid chat source ID");
+        if (hasQuote && (suggestion.evidenceQuote().isBlank()
+                || suggestion.evidenceQuote().length()>200))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Invalid chat evidence quotation");
+    }
+
+    private Proposed checkedAiProposal(AiCandidate suggestion) {
+        long owner=CurrentUser.id();
+        validateAiShape(suggestion);
+        boolean hasId=suggestion.sourceMessageId()!=null;
         String sourceRef=null;
         EvidenceSource sourceType=EvidenceSource.USER_INPUT;
         if (hasId) {
-            if (suggestion.sourceMessageId()<=0)
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid chat source ID");
             sourceRef=Long.toString(suggestion.sourceMessageId());
             references.requireOwnedChatQuote(sourceRef,suggestion.evidenceQuote());
             sourceType=EvidenceSource.CHAT_MESSAGE;
