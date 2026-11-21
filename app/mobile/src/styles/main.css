@@ -190,3 +190,31 @@ page {
 .logout-button {
   margin-top: 18px;
 }
+
+
+/* Quiet Intelligence V2 mobile visual parity — all uni-app routes and handlers retained */
+page { background:#f7f8f4;color:#284435;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+.screen {padding:25px 18px 40px}
+.brand-row {margin-bottom:29px;gap:14px}
+.brand-mark {background:linear-gradient(130deg,#284735,#59836b);box-shadow:0 8px 20px rgba(42,76,50,.16);border-radius:15px;width:48px;height:48px;font-family:Georgia,serif;font-weight:500;font-size:26px}
+.title {color:#2a4b39;font-weight:700;letter-spacing:-.75px;font-size:28px}
+.muted {color:#829687;font-size:12px}
+.panel,.card,.metric-card,.quick-card,.list-card {background:#fff;border:1px solid #e3ece1;border-radius:18px;box-shadow:0 7px 22px rgba(43,75,44,.035)}
+.panel,.card {padding:19px}
+.metric-grid {gap:11px;margin:20px 0}
+.metric-card {padding:17px;min-height:102px}
+.metric-card .value {color:#30533e;font-weight:720;font-size:24px;letter-spacing:-.6px}
+.quick-grid {gap:11px}
+.quick-card {padding:19px;min-height:104px}
+.quick-card text:first-child {color:#30513c;font-weight:700}
+.section {margin-top:27px}
+.section-title {color:#31523f;font-weight:700;font-size:18px;margin-bottom:15px}
+.list-card {padding:16px;margin-bottom:11px}
+.list-title {color:#33533f}
+.empty {background:#f1f6ef;border:1px dashed #d6e5d6;border-radius:15px;color:#879b89;padding:22px}
+.input,.textarea,.select {border:1px solid #dce8dc;background:#fff;border-radius:12px;min-height:45px}
+.button-primary,.button-secondary {min-height:46px;border-radius:13px;font-weight:650}
+.button-primary {background:#416d51;color:#fff}
+.button-secondary {background:#fff;border:1px solid #d4e4d4;color:#477359}
+.mini-button {background:#e5f0e3;color:#487451;border-radius:10px;min-width:72px;min-height:36px;line-height:36px}
+.logout-button {margin-top:22px}
