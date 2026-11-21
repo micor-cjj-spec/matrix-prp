@@ -111,15 +111,52 @@ def json_response(response, stage):
     return result
 
 
+def safe_keycloak_health_diagnostics(opener, last_https_status, last_exception):
+    """Log only categorical CI health signals. Never dump Keycloak logs or secrets."""
+    import subprocess
+
+    print("CI E2E DIAG Keycloak HTTPS: status=" + last_https_status
+          + ", exception=" + last_exception, file=sys.stderr)
+    try:
+        # Differentiate a broken TLS proxy from an unavailable Keycloak container.
+        direct_status = str(request(opener,
+            ADMIN + "/realms/prp-mcp/.well-known/openid-configuration")[0])
+    except Exception as error:
+        direct_status = type(error).__name__
+    print("CI E2E DIAG Keycloak direct loopback: " + direct_status, file=sys.stderr)
+    try:
+        result = subprocess.run([
+            "docker", "inspect", "--format",
+            "{{.State.Status}}|{{.State.ExitCode}}|{{.State.OOMKilled}}",
+            "prp-ci-real-keycloak"],
+            capture_output=True, text=True, timeout=8, check=False)
+        # Only fixed enums/numeric values are logged. Docker env, logs and
+        # command-line arguments may contain secrets and must not be dumped.
+        state = result.stdout.strip().split("|") if result.returncode == 0 else []
+        if (len(state) == 3 and state[0] in ("running", "created", "exited",
+                                            "restarting", "paused", "dead")
+                and state[1].isdigit() and state[2] in ("true", "false")):
+            print("CI E2E DIAG Keycloak container: state=" + state[0]
+                  + ", exit=" + state[1] + ", oom=" + state[2], file=sys.stderr)
+        else:
+            print("CI E2E DIAG Keycloak container: unavailable", file=sys.stderr)
+    except (OSError, subprocess.TimeoutExpired):
+        print("CI E2E DIAG Keycloak container: unavailable", file=sys.stderr)
+
+
 def wait_ready(opener, url, max_seconds=150):
     until = time.monotonic() + max_seconds
+    last_status, last_exception = "none", "none"
     while time.monotonic() < until:
         try:
-            if request(opener, url)[0] == 200:
+            last_status = str(request(opener, url)[0])
+            if last_status == "200":
                 return
-        except (OSError, ValueError, ssl.SSLError):
-            pass
+        except (OSError, ValueError, ssl.SSLError) as error:
+            last_exception = type(error).__name__
         time.sleep(3)
+    if "auth-" in url and os.environ.get("GITHUB_ACTIONS") == "true":
+        safe_keycloak_health_diagnostics(opener, last_status, last_exception)
     raise RuntimeError("Temporary environment not healthy: " + ("Keycloak" if "auth-" in url else "PRP"))
 
 
