@@ -78,8 +78,8 @@ public final class PersonalOntologyReferenceGuard {
         long owner=CurrentUser.id();
         long messageId=parseChatMessageId(reference);
         if (quote==null || quote.isBlank() || quote.length()>200
-                || quote.chars().anyMatch(c -> Character.isISOControl(c) && c!='\\n'
-                    && c!='\\r' && c!='\\t')) {
+                || quote.chars().anyMatch(c -> Character.isISOControl(c) && c!='\n'
+                    && c!='\r' && c!='\t')) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid conversation evidence quote");
         }
         List<String> messages=jdbc.queryForList("""
