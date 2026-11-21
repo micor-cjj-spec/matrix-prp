@@ -1,5 +1,5 @@
-name: MCP #218 staging public metadata audit (GET only, no release)
-run-name: MCP #218 staging GET-only · ${{ github.sha }}
+name: 'MCP 218 staging public metadata audit (GET only, no release)'
+run-name: "MCP 218 staging GET-only · ${{ github.sha }}"
 
 on:
   pull_request:
