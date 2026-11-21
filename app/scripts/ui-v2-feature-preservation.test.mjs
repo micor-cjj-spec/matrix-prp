@@ -20,6 +20,8 @@ const entry = source('web/src/main.ts')
 const theme = source('web/src/styles/quiet-intelligence-v2.css')
 const modulesTheme = source('web/src/styles/quiet-intelligence-modules-v2.css')
 const uniPages = JSON.parse(source('mobile/src/pages.json'))
+const mobileVideo = source('mobile/src/pages/video/index.vue')
+const mobileAi = source('mobile/src/pages/ai/index.vue')
 
 function assertEvery(text, fragments, context) {
   for (const fragment of fragments) assert.ok(text.includes(fragment), context + ': missing ' + fragment)
@@ -94,4 +96,16 @@ test('category grouping has a one-to-one source without dropping search or favor
     'groupNames[section.group]', 'filtered.length', 'v-model="query"',
     'v-for="group in categories"', 'toggleFavorite(item.code)', ':to="item.route"'
   ], 'grouped app directory')
+})
+
+
+test('native mobile video and AI interactions remain available after visual updates', () => {
+  assertEvery(mobileVideo, [
+    'selectFolder(', 'changeSpeed(', 'persistProgress', 'onVideoEnded',
+    'video-player-mobile', 'video-speed-button', 'v-for="entry in flatFolders"'
+  ], 'mobile video')
+  assertEvery(mobileAi, [
+    'newChat', 'openConversation(', 'send', 'chat-messages',
+    'chat-bubble', 'chat-input', 'history-button'
+  ], 'mobile AI')
 })
