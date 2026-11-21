@@ -51,6 +51,134 @@ class WellnessDatabaseIT {
         return postJson("/api/auth/login",null,Map.of("username",username,"password",password))
                 .path("token").asText();
     }
+    @Test void copiedSnacksAreRetrySafeButIndependentEatingEventsRemainAllowed() throws Exception {
+        String token=login("video_admin","video-test-admin-password-2026");
+        String date="2026-07-07";
+        String sourceKey="snack-copy-source-"+UUID.randomUUID();
+        JsonNode source=postJson("/api/wellness/meals/snapshots",token,Map.of(
+            "mealDate",date,"mealType","SNACK","note","Fixture: one snack",
+            "idempotencyKey",sourceKey,
+            "items",List.of(Map.of("name","Test single snack", "grams",100, "calories",125))));
+        long sourceId=source.path("id").asLong();
+        assertThat(sourceId).isPositive();
+
+        String retryKey="snack-copy-"+UUID.randomUUID();
+        String endpoint="/api/wellness/meals/"+sourceId+"/copy?date="+date+
+            "&idempotencyKey="+retryKey;
+        long first=postJson(endpoint,token,Map.of()).path("id").asLong();
+        long retried=postJson(endpoint,token,Map.of()).path("id").asLong();
+        assertThat(retried).isEqualTo(first);
+
+        // A separate explicit copy is another actual snack, not a network retry.
+        long second=postJson("/api/wellness/meals/"+sourceId+
+            "/copy?date="+date+"&idempotencyKey=snack-copy-"+UUID.randomUUID(),
+            token,Map.of()).path("id").asLong();
+        assertThat(second).isNotEqualTo(first);
+        JsonNode saved=getData("/api/wellness/meals?date="+date,token);
+        assertThat(saved.size()).isEqualTo(3);
+        assertThat(getData("/api/wellness/summary/daily?date="+date,token)
+            .path("calories").decimalValue()).isEqualByComparingTo("375");
+
+        // A token for one event cannot silently return another date's record.
+        mvc.perform(auth(post("/api/wellness/meals/"+sourceId+
+            "/copy?date=2026-07-08&idempotencyKey="+retryKey),token))
+            .andExpect(status().isConflict());
+        assertThat(getData("/api/wellness/meals?date=2026-07-08",token).size()).isZero();
+
+        // Reusing the client's retry token with another source must not return
+        // a copy of the previous source or silently skip a legitimate event.
+        long anotherSource=postJson("/api/wellness/meals/snapshots",token,Map.of(
+            "mealDate",date,"mealType","SNACK","note","Different source meal",
+            "idempotencyKey","another-source-"+UUID.randomUUID(),
+            "items",List.of(Map.of("name","Test second source", "grams",100,
+                "calories",90)))).path("id").asLong();
+        long copiedOther=postJson("/api/wellness/meals/"+anotherSource+
+            "/copy?date="+date+"&idempotencyKey="+retryKey,token,Map.of())
+            .path("id").asLong();
+        assertThat(copiedOther).isNotEqualTo(first);
+        assertThat(getData("/api/wellness/meals?date="+date,token).size()).isEqualTo(5);
+        assertThat(getData("/api/wellness/summary/daily?date="+date,token)
+            .path("calories").decimalValue()).isEqualByComparingTo("555");
+    }
+
+    @Test void catalogSnackCopyAlsoReplaysOnlyOnce() throws Exception {
+        String token=login("video_admin","video-test-admin-password-2026");
+        String day="2026-07-09";
+        long foodId=postJson("/api/wellness/foods",token,Map.of(
+            "name","Test retry-safe snack "+UUID.randomUUID(),
+            "preparation","cooked", "calories100g",80,
+            "protein100g",1,"carbs100g",15,"fat100g",2,
+            "sourceNote","synthetic test")).path("id").asLong();
+        long source=postJson("/api/wellness/meals",token,Map.of(
+            "mealDate",day,"mealType","SNACK","note","Test catalog copy",
+            "items",List.of(Map.of("foodId",foodId,"grams",100)),
+            "idempotencyKey","snack-catalog-source-"+UUID.randomUUID()))
+            .path("id").asLong();
+        String endpoint="/api/wellness/meals/"+source+"/copy?date="+day+
+            "&idempotencyKey=snack-catalog-copy-"+UUID.randomUUID();
+        long copied=postJson(endpoint,token,Map.of()).path("id").asLong();
+        assertThat(postJson(endpoint,token,Map.of()).path("id").asLong()).isEqualTo(copied);
+        assertThat(getData("/api/wellness/meals?date="+day,token).size()).isEqualTo(2);
+        assertThat(getData("/api/wellness/summary/daily?date="+day,token)
+            .path("calories").decimalValue()).isEqualByComparingTo("160");
+    }
+
+    @Test void repeatedSnackCopyKeepsCalorieAndMacroTrendsInSync() throws Exception {
+        String admin=login("video_admin","video-test-admin-password-2026");
+        String invite=postJson("/api/auth/invitations",admin,Map.of())
+            .path("code").asText();
+        String username="snack_trend_"+UUID.randomUUID().toString().substring(0,8);
+        String owner=postJson("/api/auth/register",null,Map.of(
+            "username",username,"password","snack-trend-test-2026",
+            "displayName","Snack trend synthetic user","invitationCode",invite))
+            .path("token").asText();
+        String date=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))
+            .minusDays(1).toString();
+
+        long food=postJson("/api/wellness/foods",owner,Map.of(
+            "name","Synthetic daily snack "+UUID.randomUUID(),
+            "preparation","cooked","calories100g",100,
+            "protein100g",10,"carbs100g",12,"fat100g",2,
+            "sourceNote","synthetic CI")).path("id").asLong();
+        long source=postJson("/api/wellness/meals",owner,Map.of(
+            "mealDate",date,"mealType","SNACK","note","Actual eaten snack",
+            "items",List.of(Map.of("foodId",food,"grams",100)),
+            "idempotencyKey","source-"+UUID.randomUUID())).path("id").asLong();
+
+        String retryKey="copy-"+UUID.randomUUID();
+        String endpoint="/api/wellness/meals/"+source+"/copy?date="+date+
+            "&idempotencyKey="+retryKey;
+        long copied=postJson(endpoint,owner,Map.of()).path("id").asLong();
+        assertThat(copied).isPositive().isNotEqualTo(source);
+        assertThat(postJson(endpoint,owner,Map.of()).path("id").asLong()).isEqualTo(copied);
+        assertThat(getData("/api/wellness/meals?date="+date,owner).size()).isEqualTo(2);
+        assertThat(getData("/api/wellness/summary/daily?date="+date,owner)
+            .path("calories").decimalValue()).isEqualByComparingTo("200");
+        JsonNode trends=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        JsonNode point=null;
+        for(JsonNode day:trends) if(date.equals(day.path("date").asText()))point=day;
+        assertThat(point).isNotNull();
+        assertThat(point.path("foodItemCount").asInt()).isEqualTo(2);
+        assertThat(point.path("knownProteinCount").asInt()).isEqualTo(2);
+        assertThat(point.path("proteinG").decimalValue()).isEqualByComparingTo("20");
+        assertThat(point.path("carbsG").decimalValue()).isEqualByComparingTo("24");
+        assertThat(point.path("fatG").decimalValue()).isEqualByComparingTo("4");
+
+        // A new intentional event is distinct from replay of the previous one.
+        long second=postJson("/api/wellness/meals/"+source+"/copy?date="+date+
+            "&idempotencyKey=copy-"+UUID.randomUUID(),owner,Map.of())
+            .path("id").asLong();
+        assertThat(second).isNotEqualTo(copied);
+        assertThat(getData("/api/wellness/summary/daily?date="+date,owner)
+            .path("calories").decimalValue()).isEqualByComparingTo("300");
+        JsonNode points=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        for(JsonNode day:points)if(date.equals(day.path("date").asText()))point=day;
+        assertThat(point.path("foodItemCount").asInt()).isEqualTo(3);
+        assertThat(point.path("proteinG").decimalValue()).isEqualByComparingTo("30");
+        assertThat(point.path("carbsG").decimalValue()).isEqualByComparingTo("36");
+        assertThat(point.path("fatG").decimalValue()).isEqualByComparingTo("6");
+    }
+
     @Test void approvedAiMealLabelAndDailyNutritionTrendReadBackAreConsistent() throws Exception {
         // Synthetic first-party flow only: create a private pending AI draft,
         // confirm it once, explicitly verify the label, then compare all three
@@ -128,6 +256,32 @@ class WellnessDatabaseIT {
         assertThat(trend.path("foodItemCount").asInt()).isEqualTo(1);
         assertThat(trend.path("knownProteinCount").asInt()).isEqualTo(1);
 
+        // Editing only the meal header must retain item IDs and verified V30
+        // nutrition; prior unconditional DELETE cascaded away USER_LABEL rows.
+        String noteOnlyPayload=mapper.writeValueAsString(Map.of(
+            "mealDate",day,"mealType","BREAKFAST","note","Only note edited",
+            "items",List.of(Map.of("foodId",0,"name","Synthetic label milk",
+                "grams",150,"calories",90))));
+        JsonNode noteOnlyResponse=mapper.readTree(mvc.perform(auth(
+            put("/api/wellness/meals/{id}/snapshots",mealId)
+                .contentType(MediaType.APPLICATION_JSON).content(noteOnlyPayload),owner))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+            .path("data");
+        assertThat(noteOnlyResponse.path("note").asText()).isEqualTo("Only note edited");
+        assertThat(noteOnlyResponse.path("items").get(0).path("id").asLong()).isEqualTo(itemId);
+        assertThat(noteOnlyResponse.path("items").get(0).path("proteinG").decimalValue())
+            .isEqualByComparingTo("4.50");
+        JsonNode retained=getData("/api/wellness/meals/"+mealId+"/analysis",owner);
+        assertThat(retained.path("nutrients").get(0).path("sourceType").asText())
+            .isEqualTo("USER_LABEL");
+        assertThat(retained.path("nutrients").get(0).path("mealItemId").asLong())
+            .isEqualTo(itemId);
+        assertThat(retained.path("analyses").size()).isEqualTo(2);
+        assertThat(getData("/api/wellness/summary/nutrition-trends?days=7",owner)
+            .findValuesAsText("date")).contains(day);
+        assertThat(getData("/api/wellness/summary/daily?date="+day,owner)
+            .path("proteinG").decimalValue()).isEqualByComparingTo("4.50");
+
         // Repeated writes must not generate a second meal or extra analysis.
         mvc.perform(auth(post("/api/wellness/ai/drafts/{id}/confirm",id),owner))
             .andExpect(status().isConflict());
@@ -138,6 +292,47 @@ class WellnessDatabaseIT {
             Long.class,mealId)).isEqualTo(2L);
         assertThat(getData("/api/wellness/summary/daily?date="+day,owner)
             .path("calories").decimalValue()).isEqualByComparingTo("90");
+
+        // Copying verified-label food is a new meal event but an exact snapshot:
+        // macros must NOT become unknown or be recomputed from the catalog.
+        String copiedDay=java.time.LocalDate.parse(day).plusDays(1).toString();
+        String copyUrl="/api/wellness/meals/"+mealId+"/copy?date="+copiedDay+
+            "&idempotencyKey=verified-label-copy-"+UUID.randomUUID();
+        long copiedId=postJson(copyUrl,owner,Map.of()).path("id").asLong();
+        assertThat(postJson(copyUrl,owner,Map.of()).path("id").asLong())
+            .isEqualTo(copiedId);
+        JsonNode copied=getData("/api/wellness/meals?date="+copiedDay,owner);
+        assertThat(copied.size()).isEqualTo(1);
+        JsonNode copiedItem=copied.get(0).path("items").get(0);
+        assertThat(copiedItem.path("calories").decimalValue()).isEqualByComparingTo("90");
+        assertThat(copiedItem.path("proteinG").decimalValue()).isEqualByComparingTo("4.50");
+        assertThat(copiedItem.path("carbsG").decimalValue()).isEqualByComparingTo("9");
+        assertThat(copiedItem.path("fatG").decimalValue()).isEqualByComparingTo("3");
+        JsonNode copiedDetails=getData("/api/wellness/meals/"+copiedId+"/analysis",owner);
+        assertThat(copiedDetails.path("nutrients").size()).isEqualTo(1);
+        assertThat(copiedDetails.path("nutrients").get(0).path("sourceType").asText())
+            .isEqualTo("COPIED_SNAPSHOT");
+        assertThat(copiedDetails.path("nutrients").get(0).path("confidenceLevel").asText())
+            .isEqualTo("COPIED");
+        assertThat(copiedDetails.path("nutrients").get(0).path("proteinG").decimalValue())
+            .isEqualByComparingTo("4.50");
+        JsonNode copiedTrends=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        for(JsonNode point:copiedTrends) if(copiedDay.equals(point.path("date").asText())) {
+            assertThat(point.path("foodItemCount").asInt()).isEqualTo(1);
+            assertThat(point.path("knownProteinCount").asInt()).isEqualTo(1);
+            assertThat(point.path("proteinG").decimalValue()).isEqualByComparingTo("4.50");
+        }
+
+        // Subsequent edits to the source meal must not mutate the copy.
+        Map<String,Object> corrected=new java.util.HashMap<>(verification);
+        corrected.put("consumedGrams",100);
+        postJson("/api/wellness/meals/"+mealId+"/label-verification",owner,corrected);
+        JsonNode copiedAfter=getData("/api/wellness/meals?date="+copiedDay,owner);
+        assertThat(copiedAfter.size()).isEqualTo(1);
+        assertThat(copiedAfter.get(0).path("items").get(0).path("calories").decimalValue())
+            .isEqualByComparingTo("90");
+        assertThat(copiedAfter.get(0).path("items").get(0).path("proteinG").decimalValue())
+            .isEqualByComparingTo("4.50");
     }
 
     @Test void nutritionTrendsDistinguishZeroUnknownMissingAndOwnerIsolation() throws Exception {
@@ -237,6 +432,20 @@ class WellnessDatabaseIT {
         assertThat(postJson("/api/wellness/meals",a,meal).path("id").asLong())
                 .isEqualTo(first.path("id").asLong());
         long mealId=first.path("id").asLong();
+        // Catalog entries also keep the original item identity on header-only edits.
+        JsonNode headerOnly=mapper.readTree(mvc.perform(auth(
+            put("/api/wellness/meals/{id}",mealId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of(
+                    "mealDate","2026-10-11","mealType","LUNCH",
+                    "note","Only changed catalog meal note",
+                    "items",List.of(validItem)))),a))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+            .path("data");
+        assertThat(headerOnly.path("items").get(0).path("id").asLong())
+            .isEqualTo(first.path("items").get(0).path("id").asLong());
+        assertThat(headerOnly.path("items").get(0).path("calories").decimalValue())
+            .isEqualByComparingTo("250");
         assertThat(getData("/api/wellness/foods/frequent",a).get(0).path("id").asLong()).isEqualTo(foodId);
         JsonNode summary=getData("/api/wellness/summary/daily?date=2026-10-11",a);
         assertThat(summary.path("calories").decimalValue()).isEqualByComparingTo("250.00");
