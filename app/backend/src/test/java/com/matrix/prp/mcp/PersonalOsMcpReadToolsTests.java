@@ -148,4 +148,32 @@ class PersonalOsMcpReadToolsTests {
         }
         verifyNoInteractions(memories);
     }
+    @Test void exactMcpProviderManifestHasReadOnlySecurityAnnotationsAndKeepsHealthIsolated() {
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<McpClientGrantService> grants =
+            mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(grants.getObject()).thenReturn(mock(McpClientGrantService.class));
+        var config=new McpToolConfiguration();
+        var exposed=config.prpMcpSpecifications(tools,guard,grants,
+            mock(McpDraftService.class),"https://micor.top/api/mcp",true,
+            "prp.personal_os.read",false,false,true,true,false);
+        assertThat(exposed).hasSize(3);
+        assertThat(exposed.stream().map(spec -> spec.tool().name()))
+            .containsExactlyInAnyOrder("prp_goals_list","prp_goal_context","prp_memory_search");
+        assertThat(exposed).allSatisfy(spec -> {
+            assertThat(spec.tool().annotations().readOnlyHint()).isTrue();
+            assertThat(spec.tool().annotations().destructiveHint()).isFalse();
+            assertThat(spec.tool().meta()).containsKey("securitySchemes");
+        });
+        var health=config.prpMcpSpecifications(tools,guard,grants,
+            mock(McpDraftService.class),"https://micor.top/api/mcp",true,
+            "prp.wellness.read",false,false,true,false,true);
+        assertThat(health.stream().map(spec -> spec.tool().name()))
+            .doesNotContain("prp_goals_list","prp_goal_context","prp_memory_search");
+        assertThatThrownBy(() -> config.prpMcpSpecifications(tools,guard,grants,
+            mock(McpDraftService.class),"https://micor.top/api/mcp",true,
+            "prp.personal_os.read",false,false,true,true,true))
+            .isInstanceOf(IllegalStateException.class);
+    }
+
 }
