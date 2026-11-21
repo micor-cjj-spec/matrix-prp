@@ -202,14 +202,15 @@ const nutritionCoverage = computed(() => {
   }
 })
 
-async function loadDay() {
+async function loadDay(strict = false) {
   loading.value = true
   try {
     const [a, b, c] = await Promise.all([
       wellnessApi.daily(date.value), wellnessApi.meals(date.value), wellnessApi.exercises(date.value),
     ])
     summary.value = a; meals.value = b; exercises.value = c
-  } catch {
+  } catch (error) {
+    if (strict) throw error
     ElMessage.error('获取健康记录失败，请确认服务器已执行健康模块数据库迁移')
   } finally { loading.value = false }
 }
@@ -325,10 +326,14 @@ async function copyMeal(meal: Meal) {
     await wellnessApi.copyMeal(meal.id, targetDate, key)
     copyRetryKeys.delete(request)
     date.value = targetDate
-    ElMessage.success('已复制到今天')
-    // UI refresh never starts a second write. The H2 macro trend and daily
-    // consumption are read back together following the confirmed copy.
-    await Promise.all([loadDay(), loadTrend()])
+    // A confirmed write and a subsequent read failure are different outcomes.
+    // Never invite a second mutation because the UI refresh failed.
+    try {
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('已复制到今天')
+    } catch {
+      ElMessage.warning('加餐已保存，但页面刷新失败；请刷新页面查看，勿重复复制')
+    }
   } catch {
     ElMessage.error('复制请求未确认，请重试；已保存的加餐不会重复创建')
   } finally {
