@@ -43,6 +43,8 @@ jobs:
         run: npm run build --prefix app/web
       - name: Browser QA (synthetic identity, intercepted API, no backend)
         env:
+          VITE_APP_BASE: /prp/
+          VITE_API_BASE: /api
           PRP_UI_SMOKE_URL: http://127.0.0.1:4173/prp/
           PRP_UI_SMOKE_DIR: ${{ runner.temp }}/prp-ui-v2-smoke
         run: |
