@@ -282,6 +282,14 @@ class WellnessDatabaseIT {
         assertThat(copiedItem.path("proteinG").decimalValue()).isEqualByComparingTo("4.50");
         assertThat(copiedItem.path("carbsG").decimalValue()).isEqualByComparingTo("9");
         assertThat(copiedItem.path("fatG").decimalValue()).isEqualByComparingTo("3");
+        JsonNode copiedDetails=getData("/api/wellness/meals/"+copiedId+"/analysis",owner);
+        assertThat(copiedDetails.path("nutrients").size()).isEqualTo(1);
+        assertThat(copiedDetails.path("nutrients").get(0).path("sourceType").asText())
+            .isEqualTo("COPIED_SNAPSHOT");
+        assertThat(copiedDetails.path("nutrients").get(0).path("confidenceLevel").asText())
+            .isEqualTo("COPIED");
+        assertThat(copiedDetails.path("nutrients").get(0).path("proteinG").decimalValue())
+            .isEqualByComparingTo("4.50");
         JsonNode copiedTrends=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
         for(JsonNode point:copiedTrends) if(copiedDay.equals(point.path("date").asText())) {
             assertThat(point.path("foodItemCount").asInt()).isEqualTo(1);
