@@ -423,8 +423,9 @@ public class PersonalMemoryService {
      */
     private boolean comparableSourceIsValid(ComparableFact fact) {
         try {
-            if (fact.sourceType()==null || "USER_INPUT".equals(fact.sourceType()))
-                return true; // null only for legacy/synthetic rows
+            if (fact.sourceType()==null) return false;
+            if ("USER_INPUT".equals(fact.sourceType()))
+                return fact.sourceRef()==null;
             switch (EvidenceSource.valueOf(fact.sourceType())) {
                 case CHAT_MESSAGE -> references.requireOwnedChatMessage(fact.sourceRef());
                 case RECORD -> references.requireOwned(NodeType.RECORD,fact.sourceRef());
