@@ -164,7 +164,7 @@ class PersonalOsPlanningAdviceServiceTest {
             eq(700), any());
         verifyNoMoreInteractions(gateway);
     }
-    @Test void foreignOwnerCannotConsumeAnotherOwnersApproval() {
+    @Test void foreignOwnerCannotConsumeAnotherOwnersApproval() throws Exception {
         as(7);
         selected(7);
         when(previews.preview(51, false)).thenReturn(snapshot("Owner goal"));
