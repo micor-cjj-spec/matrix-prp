@@ -129,6 +129,11 @@
       "reason": "Unconfirmed AI or user candidate facts are private approval workflow state, not verified memories; never publish them to model-facing MCP tools by default."
     },
     {
+      "route": "GET /api/memory/history/normal",
+      "status": "excluded",
+      "reason": "Owner-click-only normal memory history includes invalid, superseded and revoked-evidence facts; must never be used as AI/MCP default context."
+    },
+    {
       "route": "GET /api/memory/private",
       "status": "excluded",
       "reason": "Authenticated first-party owner-only view of sensitive and restricted confirmed memories; never expose to MCP or general AI context. Fetch only after a deliberate UI interaction and audit privacy."
