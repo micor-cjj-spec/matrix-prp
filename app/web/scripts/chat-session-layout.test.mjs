@@ -350,3 +350,17 @@ test('AI and manual meal editors support thirty items and pending card additions
   assert.match(dialog, /meal\.items\.length < 30/)
   assert.match(wellness, /draftItems\.value\.length > 30/)
 })
+
+
+test('wellness macro trends preserve old calorie data and refresh after label verification', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const api = readFileSync(new URL('../src/api/wellness.ts', import.meta.url), 'utf8')
+  assert.match(api, /nutritionTrends:.*get<NutritionTrendPoint\[\]>/)
+  assert.match(view, /const \[energy, nutrients\] = await Promise\.allSettled\(/)
+  assert.match(view, /trend\.value = energy\.status === 'fulfilled' \? energy\.value : \[\]/)
+  assert.match(view, /nutritionTrendUnavailable\.value = nutrients\.status === 'rejected'/)
+  assert.match(view, /ElMessage\.success\('已按实际食用克数计算营养，并保存人工核实版本'\)\s+await Promise\.all\(\[loadDay\(\), loadTrend\(\)\]\)/)
+  assert.match(view, /v-model="trendMetric"/)
+  assert.match(view, /@keydown\.enter\.prevent="selectedTrendDay = point\.date"/)
+  assert.match(view, /class="bar-value"\s+:class="\{ 'bar-zero': trendValue\(point\) === 0 \}"/)
+})
