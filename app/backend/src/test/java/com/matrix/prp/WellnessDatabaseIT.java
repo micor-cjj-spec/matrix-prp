@@ -84,6 +84,21 @@ class WellnessDatabaseIT {
             "/copy?date=2026-07-08&idempotencyKey="+retryKey),token))
             .andExpect(status().isConflict());
         assertThat(getData("/api/wellness/meals?date=2026-07-08",token).size()).isZero();
+
+        // Reusing the client's retry token with another source must not return
+        // a copy of the previous source or silently skip a legitimate event.
+        long anotherSource=postJson("/api/wellness/meals/snapshots",token,Map.of(
+            "mealDate",date,"mealType","SNACK","note","Different source meal",
+            "idempotencyKey","another-source-"+UUID.randomUUID(),
+            "items",List.of(Map.of("name","Test second source", "grams",100,
+                "calories",90)))).path("id").asLong();
+        long copiedOther=postJson("/api/wellness/meals/"+anotherSource+
+            "/copy?date="+date+"&idempotencyKey="+retryKey,token,Map.of())
+            .path("id").asLong();
+        assertThat(copiedOther).isNotEqualTo(first);
+        assertThat(getData("/api/wellness/meals?date="+date,token).size()).isEqualTo(5);
+        assertThat(getData("/api/wellness/summary/daily?date="+date,token)
+            .path("calories").decimalValue()).isEqualByComparingTo("555");
     }
 
     @Test void catalogSnackCopyAlsoReplaysOnlyOnce() throws Exception {
