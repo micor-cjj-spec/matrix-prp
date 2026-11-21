@@ -118,11 +118,34 @@ def check_viewport(browser, width, height):
     context.route("**/api/**", lambda route: mock_api(route, state))
     page = context.new_page()
     exceptions = []
-    page.on("pageerror", lambda error: exceptions.append(str(error)))
+    console_errors = []
+    failed_requests = []
+    bad_responses = []
+    page.on("pageerror", lambda error: exceptions.append(str(error)[:600]))
+    page.on("console", lambda msg: console_errors.append(msg.text[:450]) if msg.type == "error" else None)
+    page.on("requestfailed", lambda req: failed_requests.append(
+        (req.method + " " + req.url.split("?", 1)[0])[-240:]
+    ))
+    page.on("response", lambda res: bad_responses.append(
+        str(res.status) + " " + res.url.split("?", 1)[0][-200:]
+    ) if res.status >= 400 else None)
 
     try:
         page.goto(BASE, wait_until="domcontentloaded", timeout=30000)
-        page.locator(".home-v2-focus").wait_for(timeout=25000)
+        try:
+            page.locator(".home-v2-focus").wait_for(timeout=12000)
+        except Exception:
+            print("BOOT_DIAG viewport=" + str(width)
+                  + " url=" + page.url
+                  + " title=" + page.title()
+                  + " ready=" + str(page.evaluate("document.readyState"))
+                  + " app_text=" + repr(page.locator("#app").inner_text(timeout=1500)[:350])
+                  + " html_len=" + str(page.evaluate("document.documentElement.outerHTML.length"))
+                  + " errors=" + repr(exceptions[:5])
+                  + " console_errors=" + repr(console_errors[:5])
+                  + " request_failed=" + repr(failed_requests[:8])
+                  + " http_errors=" + repr(bad_responses[:8]), flush=True)
+            raise
         must(page.locator("nav.prp-main-nav a").count() == 4, "Desktop nav != 4")
         must(page.locator("nav.prp-mobile-tabs a").count() == 4, "Mobile nav != 4")
         must(page.locator("nav.prp-mobile-tabs").is_visible() == mobile, "Responsive tabbar visibility")
