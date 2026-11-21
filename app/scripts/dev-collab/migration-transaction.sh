@@ -80,6 +80,20 @@ git -C "$state_worktree" commit \
   -m "Proposal-head: $proposal_sha" \
   -m "Requested-by: $GITHUB_ACTOR" \
   -m "Actions-run: $GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" >/dev/null
+# Re-fetch review and PR metadata at the last possible boundary before push.
+# Dismissed approvals, Draft reversion, changed rules or a revoked App scope
+# must fail closed, not rely on the first preflight's historical snapshot.
+gh api "repos/$GITHUB_REPOSITORY/pulls/144" > "$dir/pr.json"
+gh api "repos/$GITHUB_REPOSITORY/pulls/144/files?per_page=100" > "$dir/pr-files.json"
+gh api "repos/$GITHUB_REPOSITORY/pulls/144/reviews?per_page=100" > "$dir/pr-reviews.json"
+GH_TOKEN="$COLLAB_APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/rulesets/$COLLAB_RULESET_ID" > "$dir/ruleset.json"
+GH_TOKEN="$COLLAB_APP_TOKEN" gh api installation/repositories > "$dir/app-repos.json"
+node "$root/app/scripts/dev-collab/migration-guard.mjs" \
+  "$dir/before.json" "$dir/after.json" "$dir/pr.json" \
+  "$dir/pr-files.json" "$dir/ruleset.json" "$dir/pr-reviews.json" "$dir/app-repos.json"
+[[ "$(git ls-remote --exit-code --refs origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]] || fail MAIN_HEAD_RACE
+[[ "$(git ls-remote --exit-code --refs origin refs/heads/prp-collab-state | cut -f1)" == "$state_sha" ]] || fail STATE_RACE
+[[ "$(git ls-remote --exit-code --refs origin refs/heads/proposal/prp-collab-state-scope-20261101 | cut -f1)" == "$proposal_sha" ]] || fail PROPOSAL_RACE
 git -C "$state_worktree" push origin HEAD:refs/heads/prp-collab-state || fail NON_FAST_FORWARD_OR_RULESET_DENIED
 local_applied_sha="$(git -C "$state_worktree" rev-parse HEAD)"
 remote_applied_sha="$(git ls-remote --exit-code --refs origin refs/heads/prp-collab-state | cut -f1)" || fail POST_PUSH_REF_UNAVAILABLE

@@ -85,6 +85,21 @@ export function applyOwnerIssuedMigration(validated,env){
  check(authorized.oneShotMigration===true &&
    authorized.command.request_id===validated.command.request_id,
    'MIGRATION_ISSUE_REVOKED')
+ // Immediately re-check the independent approval, PR identity and App scope.
+ // A review dismissal or Draft reversion between preflight and commit must
+ // fail closed; the original one-shot owner Issue is checked above.
+ const finalPr=gh('repos/'+REPO+'/pulls/144')
+ const finalFiles=gh('repos/'+REPO+'/pulls/144/files?per_page=100')
+ const finalReviews=gh('repos/'+REPO+'/pulls/144/reviews?per_page=100')
+ const finalRule=gh('repos/'+REPO+'/rulesets/'+env.COLLAB_RULESET_ID,env.COLLAB_APP_TOKEN)
+ const finalRepos=gh('installation/repositories',env.COLLAB_APP_TOKEN)
+ verifyMigrationEvidence({before,after,pr:finalPr,prFiles:finalFiles,
+   reviews:finalReviews,rule:finalRule,
+   appId:Number(env.COLLAB_APP_ID),ruleId:Number(env.COLLAB_RULESET_ID),
+   stateSha:BASE,proposalSha:PROPOSAL,mode:'apply',
+   approvalPhrase:'APPLY-REQ-20261031-001-V1',appInstallation:finalRepos})
+ check(getRemote(REF)===BASE&&getRemote(PROP_REF)===PROPOSAL&&
+   getRemote('refs/heads/main')===env.GITHUB_SHA,'MIGRATION_POST_REVIEW_RACE')
  git('-C',temp,'push','origin','HEAD:'+REF)
  const newSha=git('-C',temp,'rev-parse','HEAD')
  check(getRemote(REF)===newSha,'MIGRATION_POST_PUSH_SHA')
