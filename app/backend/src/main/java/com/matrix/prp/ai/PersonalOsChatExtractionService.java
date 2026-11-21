@@ -21,7 +21,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 /**
  * T-008b: explicitly selected, already-persisted OWNER USER message -> model
- * suggestions. No automatic chat capture; no DB write; no memory retrieval;
+ * suggestions. No automatic chat capture; no personal knowledge write; no memory retrieval;
  * no model tool access. Separate owner confirmation is needed to save candidates.
  */
 @Service
