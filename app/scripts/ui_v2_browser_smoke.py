@@ -214,14 +214,23 @@ def check_viewport(browser, width, height):
 
 
 def main():
+    engine = os.environ.get("PRP_UI_BROWSER", "chromium").lower()
+    if engine not in {"chromium", "webkit"}:
+        raise ValueError("Browser engine must be chromium or webkit")
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+        browser_type = getattr(p, engine)
+        # WebKit runs with its native Playwright sandbox. The Chromium runner
+        # uses a disposable GitHub-hosted CI container with no privileged access.
+        launch_options = {"headless": True}
+        if engine == "chromium":
+            launch_options["args"] = ["--no-sandbox"]
+        browser = browser_type.launch(**launch_options)
         try:
             for width, height in [(1280, 900), (768, 900), (390, 844)]:
                 check_viewport(browser, width, height)
         finally:
             browser.close()
-    print("PASS UI V2 synthetic Chromium smoke on all three viewports.", flush=True)
+    print(f"PASS UI V2 synthetic {engine} smoke on all three viewports.", flush=True)
 
 
 if __name__ == "__main__":
