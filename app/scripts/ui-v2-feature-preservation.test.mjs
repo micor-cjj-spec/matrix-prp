@@ -17,6 +17,9 @@ const wellness = source('web/src/views/WellnessView.vue')
 const chat = source('web/src/views/ChatView.vue')
 const me = source('web/src/views/MeView.vue')
 const entry = source('web/src/main.ts')
+const theme = source('web/src/styles/quiet-intelligence-v2.css')
+const modulesTheme = source('web/src/styles/quiet-intelligence-modules-v2.css')
+const uniPages = JSON.parse(source('mobile/src/pages.json'))
 
 function assertEvery(text, fragments, context) {
   for (const fragment of fragments) assert.ok(text.includes(fragment), context + ': missing ' + fragment)
@@ -55,4 +58,30 @@ test('learning module retains videos, practice, vocal, notes, knowledge and revi
 test('chat and me retain critical controls, consent and owner settings', () => {
   assertEvery(chat, ['<ChatConversationPanel', 'historyOpen', 'newChat', 'changeProvider', 'changeModel', 'photoSelected', 'send()', 'confirmShare', 'selectedScopes', 'streamChat'], 'chat')
   assertEvery(me, ["'/me/ai-settings'", "'/me/mcp-clients'", "'/notifications'", "'/me/settings'", "'/me/guide'", "'/me/about'", "'/me/agent-tasks'", "'/me/codex-jobs'", 'inviteFriend', 'logout'], 'me')
+})
+
+test('mobile chat viewport and original iOS keyboard behavior stay intact', () => {
+  assertEvery(layout, ['visualViewport', 'prepareMobileNavigation', 'prp-keyboard-open', '--prp-chat-viewport-height'], 'chat viewport')
+  assertEvery(theme, [
+    '.prp-shell.prp-shell-chat {',
+    'height:var(--prp-chat-viewport-height,100dvh)',
+    '.prp-shell.prp-shell-chat .prp-workspace-chat',
+    '.prp-shell.prp-shell-chat.prp-keyboard-open .prp-mobile-tabs {display:none}'
+  ], 'responsive chat theme')
+})
+
+test('v2 module styling loads and preserves the complete uni-app page registry', () => {
+  assert.ok(entry.includes("import './styles/quiet-intelligence-modules-v2.css'"))
+  assert.ok(modulesTheme.includes('.chat-conversation-panel'))
+  assert.ok(modulesTheme.includes('.tasks-module-item'))
+  assert.ok(modulesTheme.includes('.study-playlist'))
+  assert.deepEqual(uniPages.pages.map(page => page.path), [
+    'pages/login/index', 'pages/home/index', 'pages/record/index',
+    'pages/task/index', 'pages/finance/index', 'pages/video/index','pages/ai/index'
+  ])
+  assert.equal(uniPages.globalStyle.backgroundColor, '#f7f8f4')
+})
+
+test('module pages provide back-to-apps affordance, without replacing the main nav', () => {
+  assertEvery(layout, ['class="prp-back-to-apps"', 'route.path !== \'/apps\'', 'to="/apps"', 'class="nav-list prp-main-nav"'], 'app breadcrumb')
 })
