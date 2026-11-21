@@ -10,6 +10,7 @@ assert.ok(publish, 'The workflow must have a dedicated production publish job')
 
 test('release candidates originate only from successful main push CI', () => {
   assert.match(header, /workflow_run:\s*\n\s*workflows: \[CI\]/)
+  assert.match(header, /workflow_run:\s*\n\s*workflows: \[CI\]\s*\n\s*types: \[completed\]\s*\n(?:\s*#[^\n]*\n)*\s*branches: \[main\]/)
   assert.match(build, /github\.event\.workflow_run\.conclusion == 'success'/)
   assert.match(build, /github\.event\.workflow_run\.event == 'push'/)
   assert.match(build, /github\.event\.workflow_run\.head_branch == 'main'/)

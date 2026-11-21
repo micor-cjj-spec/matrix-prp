@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "description": "CI job inventory for tiered feedback, not execution skipping; every CI job remains fail-closed and mandatory on PRs targeting main.",
+  "levels": {
+    "L1": {
+      "purpose": "source/build/static and offline contract checks",
+      "jobs": [
+        "controller-compatibility",
+        "spring-ai-compatibility-spike",
+        "backend-tests",
+        "web-build",
+        "mobile-build",
+        "deployment-gate-tests",
+        "safe-deployment-diagnostics",
+        "mcp-write-proxy-regression"
+      ]
+    },
+    "L2": {
+      "purpose": "MySQL/Keycloak/OAuth/Chromium/migration and isolated integration checks",
+      "jobs": [
+        "video-db-integration",
+        "db-migration-integration",
+        "keycloak-oauth-ephemeral",
+        "nginx-oauth-ephemeral",
+        "mcp-staging-compose",
+        "mcp-staging-runtime",
+        "mcp-staging-tls",
+        "mcp-real-pkce-e2e",
+        "mcp-integrated-oauth-keycloak",
+        "mcp-integrated-draft-write-e2e",
+        "mcp-integrated-first-party-oidc",
+        "mcp-integrated-browser-chromium",
+        "mcp-integrated-exact-chatgpt-client",
+        "mcp-integrated-flyway-v28-v29",
+        "mcp-integrated-v28-restore-v29",
+        "mcp-integrated-v24-backup-restore",
+        "mcp-integrated-populated-v24-upgrade",
+        "mcp-integrated-legacy-baseline-upgrade",
+        "mcp-integrated-upstream-security",
+        "mcp-integrated-runtime-oci",
+        "mcp-integrated-first-party-nginx",
+        "mcp-integrated-owner-mysql",
+        "mcp-integrated-flyway-review-contract",
+        "mcp-production-health-auth"
+      ]
+    },
+    "L3": {
+      "purpose": "protected release approval and deployment, never a PR check",
+      "workflow": ".github/workflows/deploy-prp.yml"
+    }
+  },
+  "matrix_jobs": {
+    "mcp-real-pkce-e2e": 2,
+    "mcp-integrated-oauth-keycloak": 2
+  },
+  "required_status_contexts": [
+    "backend-tests",
+    "web-build",
+    "mobile-build",
+    "db-migration-integration",
+    "video-db-integration",
+    "impact-report"
+  ]
+}

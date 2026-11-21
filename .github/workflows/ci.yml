@@ -2,12 +2,18 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/multi-user-foundation]
+    branches: [main]
   pull_request:
     branches: [main, fix/mcp-v24-lineage-conflict-20261022]
 
 permissions:
   contents: read
+
+# Only supersede stale PR checks for the same pull request. Main push CI is
+# never auto-cancelled and different PRs remain independent.
+concurrency:
+  group: prp-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   controller-compatibility:
@@ -78,6 +84,8 @@ jobs:
         run: node app/scripts/check-text-encoding.mjs
       - name: Audit manual Codex Worker boundaries
         run: node --test app/scripts/codex-worker-contract.test.mjs
+      - name: Assert CI concurrency and production dispatch boundaries
+        run: node --test app/scripts/ci-workflow-contract.test.mjs
       - name: Verify /prp/ production path build
         working-directory: app/web
         env:

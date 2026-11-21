@@ -21,6 +21,31 @@ for secret in "$MCP_E2E_KC_ADMIN_PASSWORD" "$MCP_E2E_KC_USER_PASSWORD" "$MCP_E2E
 done
 backend_pid=""
 cleanup() {
+  local result=$?
+  if (( result != 0 )); then
+    # Probe ONLY synthetic local discovery endpoints. Never emit response
+    # bodies, URLs with query parameters, tokens, passwords or raw logs.
+    local label code
+    for label in nginx-https keycloak-loopback; do
+      local -a ca_flags=()
+      local endpoint
+      if [[ "$label" == nginx-https ]]; then
+        endpoint="https://auth-e2e.localhost/realms/prp-mcp/.well-known/openid-configuration"
+        ca_flags=(--cacert "$MCP_E2E_CA_CERT")
+      else
+        endpoint="http://127.0.0.1:18080/realms/prp-mcp/.well-known/openid-configuration"
+      fi
+      code="$(curl --silent --noproxy '*' --max-time 5 --output /dev/null --write-out '%{http_code}' "${ca_flags[@]}" "$endpoint" 2>/dev/null || true)"
+      [[ "$code" =~ ^[0-9]{3}$ ]] || code="000"
+      echo "E2E failure: synthetic OIDC discovery via ${label}, HTTP ${code}" >&2
+    done
+    # Only container lifecycle facts, never raw logs/credentials/tokens.
+    for container in prp-ci-real-keycloak prp-ci-real-nginx prp-ci-real-mysql; do
+      if docker inspect "$container" >/dev/null 2>&1; then
+        docker inspect --format 'E2E failure: {{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' "$container" >&2 || true
+      fi
+    done
+  fi
   docker rm -f prp-ci-real-keycloak prp-ci-real-nginx prp-ci-real-mysql >/dev/null 2>&1 || true
   if [[ -n "$backend_pid" ]]; then kill "$backend_pid" >/dev/null 2>&1 || true; fi
 }
@@ -31,7 +56,9 @@ echo '127.0.0.1 auth-e2e.localhost prp-e2e.localhost' | sudo tee -a /etc/hosts >
 
 openssl req -x509 -new -newkey rsa:2048 -nodes -days 1 \
   -keyout "$tmp/certs/ca.key" -out "$tmp/certs/ca.pem" \
-  -subj '/CN=PRP-E2E-Disposable-CA' >/dev/null 2>&1
+  -subj '/CN=PRP-E2E-Disposable-CA' \
+  -addext 'basicConstraints=critical,CA:TRUE' \
+  -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
 openssl req -new -newkey rsa:2048 -nodes -keyout "$tmp/certs/leaf.key" \
   -out "$tmp/certs/leaf.csr" -subj '/CN=auth-e2e.localhost' >/dev/null 2>&1
 printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
@@ -39,6 +66,13 @@ printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
 openssl x509 -req -in "$tmp/certs/leaf.csr" \
   -CA "$tmp/certs/ca.pem" -CAkey "$tmp/certs/ca.key" -CAcreateserial \
   -out "$tmp/certs/leaf.pem" -days 1 -extfile "$tmp/certs/leaf.ext" >/dev/null 2>&1
+# Python 3.13/OpenSSL strict verification rejects a CA without keyCertSign;
+# curl alone may still report HTTP 200. Keep certificate validation ON and
+# reject an invalid synthetic trust chain before starting E2E services.
+openssl verify -x509_strict -CAfile "$tmp/certs/ca.pem" "$tmp/certs/leaf.pem" >/dev/null || {
+  echo "FAIL E2E TLS: disposable CA/leaf chain rejected by strict X509 policy." >&2
+  exit 1
+}
 
 cat > "$tmp/nginx/default.conf" <<'NGINX'
 server {

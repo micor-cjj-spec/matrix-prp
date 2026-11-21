@@ -6,6 +6,8 @@ on:
   workflow_run:
     workflows: [CI]
     types: [completed]
+    # PR/feature-branch completions must not enqueue production workflows.
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
