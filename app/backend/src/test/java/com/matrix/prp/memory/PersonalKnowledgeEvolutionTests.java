@@ -84,6 +84,10 @@ class PersonalKnowledgeEvolutionTests {
             .isInstanceOf(ResponseStatusException.class)
             .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND));
+        var ordered=inOrder(db,references);
+        ordered.verify(db).queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",
+            Long.class,7L);
+        ordered.verify(references).requireOwnedChatQuote("91","我正在学习 RAG");
         verify(db,never()).update(any(org.springframework.jdbc.core.PreparedStatementCreator.class),
             any(org.springframework.jdbc.support.KeyHolder.class));
     }
