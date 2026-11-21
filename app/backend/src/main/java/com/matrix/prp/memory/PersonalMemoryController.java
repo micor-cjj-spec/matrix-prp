@@ -2,6 +2,8 @@ package com.matrix.prp.memory;
 
 import com.matrix.prp.common.api.ApiResponse;
 import java.util.List;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,6 +31,14 @@ public final class PersonalMemoryController {
     @GetMapping("/{id}") public ApiResponse<PersonalMemoryService.Memory> get(@PathVariable long id) {
         return ApiResponse.success(service.get(id));
     }
+    /** Explicit owner click only; no raw transcript in normal memory lists or MCP. */
+    @GetMapping("/{id}/source-preview")
+    public ResponseEntity<ApiResponse<PersonalMemoryService.ChatSource>> sourcePreview(
+            @PathVariable long id) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+            .body(ApiResponse.success(service.sourcePreview(id)));
+    }
+
     @PostMapping("/candidates")
     public ApiResponse<PersonalMemoryService.Memory> propose(
         @RequestBody PersonalMemoryService.Proposed input) {
