@@ -75,7 +75,7 @@ function payload(body){
      data.requirement_id==='REQ-20261031-001' &&
      exact(data,approved) && Object.keys(data).length===6 &&
      data.expected_state_sha==='062036f7021e215ffbfdcbf5689d207a0549b68b' &&
-     data.expected_proposal_sha==='fb57656dca6df5f12e083fc0430263b4d88e452d',
+     data.expected_proposal_sha==='bf80d5c384d5f687cb980b6e04127fc42167d7a8',
      'INGRESS_UNAPPROVED_MIGRATION')
    return data
  }

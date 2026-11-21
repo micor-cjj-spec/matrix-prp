@@ -70,6 +70,6 @@ jobs:
           COLLAB_EXPECTED_STATE_SHA: ${{ inputs.expected_state_sha }}
           COLLAB_EXPECTED_PROPOSAL_SHA: ${{ inputs.expected_proposal_sha }}
           COLLAB_APPROVED_STATE_SHA: '062036f7021e215ffbfdcbf5689d207a0549b68b'
-          COLLAB_APPROVED_PROPOSAL_SHA: 'fb57656dca6df5f12e083fc0430263b4d88e452d'
+          COLLAB_APPROVED_PROPOSAL_SHA: 'bf80d5c384d5f687cb980b6e04127fc42167d7a8'
           COLLAB_APPROVAL_PHRASE: ${{ inputs.approval_phrase }}
         run: bash app/scripts/dev-collab/migration-transaction.sh

@@ -21,13 +21,14 @@ const initial=()=>({schema_version:1,requirement_id:'REQ-20261031-001',issue_num
  ]})
 const candidate=()=>{
  const s=initial();s.version=1;s.updated_at='2026-11-01T02:42:00Z'
+ s.tasks[2].depends_on=['T-001','T-007','T-009']
  s.tasks[4].depends_on.push('T-006','T-007','T-008','T-009')
  s.tasks[4].allowed_paths=['app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md']
  for(const [id,issue,title,deps] of [
  ['T-006',141,'只读任务看板与 Issue 投影',['T-003']],
- ['T-007',142,'可信验收与 GitHub App 安全验证',['T-003']],
+ ['T-007',142,'可信验收与 GitHub App 安全验证',['T-001']],
  ['T-008',143,'CAS 并发及工作流边界测试',['T-003','T-007','T-009']],
- ['T-009',146,'GPT 会话任务恢复、持久化断点与授权接管',['T-003','T-007']]
+ ['T-009',146,'GPT 会话任务恢复、持久化断点与授权接管',['T-001','T-007']]
  ])s.tasks.push({task_id:id,issue_number:issue,title,status:'READY',
     depends_on:deps,allowed_paths:SCOPE_MIGRATION_FILES[id],claim:null})
  return s

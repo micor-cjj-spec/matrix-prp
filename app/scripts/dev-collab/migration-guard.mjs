@@ -21,9 +21,9 @@ const TITLES={
 const ISSUE={'T-006':141,'T-007':142,'T-008':143,'T-009':146}
 const DEPS={
  'T-006':['T-003'],
- 'T-007':['T-003'],
+ 'T-007':['T-001'],
  'T-008':['T-003','T-007','T-009'],
- 'T-009':['T-003','T-007']
+ 'T-009':['T-001','T-007']
 }
 function requireRule(ok,code){if(!ok)throw new Error('MIGRATION_'+code)}
 
@@ -68,6 +68,7 @@ export function verifyExactTaskDelta(before,after){
   const expected=JSON.parse(JSON.stringify(before))
   expected.version=1
   expected.updated_at=after.updated_at
+  expected.tasks[2].depends_on=['T-001','T-007','T-009']
   expected.tasks[4].allowed_paths=['app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md']
   expected.tasks[4].depends_on=['T-001','T-002','T-003','T-004','T-006','T-007','T-008','T-009']
   for(const id of ['T-006','T-007','T-008','T-009']){

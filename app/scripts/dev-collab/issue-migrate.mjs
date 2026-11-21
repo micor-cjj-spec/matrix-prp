@@ -8,7 +8,7 @@ import {validateIssueEvent} from './issue-ingress.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const BASE='062036f7021e215ffbfdcbf5689d207a0549b68b'
-const PROPOSAL='fb57656dca6df5f12e083fc0430263b4d88e452d'
+const PROPOSAL='bf80d5c384d5f687cb980b6e04127fc42167d7a8'
 const REF='refs/heads/prp-collab-state'
 const PROP_REF='refs/heads/proposal/prp-collab-state-scope-20261101'
 const FILE='requirements/REQ-20261031-001.json'

@@ -106,7 +106,7 @@
   "request_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   "requirement_id": "REQ-20261031-001",
   "expected_state_sha": "062036f7021e215ffbfdcbf5689d207a0549b68b",
-  "expected_proposal_sha": "fb57656dca6df5f12e083fc0430263b4d88e452d"
+  "expected_proposal_sha": "bf80d5c384d5f687cb980b6e04127fc42167d7a8"
 }
 ```
 

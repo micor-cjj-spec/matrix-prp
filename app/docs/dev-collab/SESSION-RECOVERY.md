@@ -39,7 +39,7 @@
 
 REQ-20261031-001 当前仍是 V0。用户明确要求迁移时，ChatGPT 才创建 owner-authored [PRP-COLLAB-REQUEST] Issue，执行 action=migrate_v1。
 
-该动作只允许固定的 V0 SHA 062036f7021e215ffbfdcbf5689d207a0549b68b 和固定提案 SHA fb57656dca6df5f12e083fc0430263b4d88e452d。工作流还必须验证 PR #144、九任务精确差异、状态分支 Ruleset、单仓库 App 范围、main 发布冻结和远端 SHA。此次 Issue 是一次性迁移的明确授权，不再要求额外 GitHub GUI approve；不支持任意版本升级或任意 schema 修改。
+该动作只允许固定的 V0 SHA 062036f7021e215ffbfdcbf5689d207a0549b68b 和固定提案 SHA bf80d5c384d5f687cb980b6e04127fc42167d7a8。工作流还必须验证 PR #144、九任务精确差异、状态分支 Ruleset、单仓库 App 范围、main 发布冻结和远端 SHA。此次 Issue 是一次性迁移的明确授权，不再要求额外 GitHub GUI approve；不支持任意版本升级或任意 schema 修改。
 
 “继续 PRP”或普通任务操作不自动代表同意执行 V0→V1 迁移。
 

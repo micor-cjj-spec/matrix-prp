@@ -70,11 +70,12 @@ const baselineMigration=()=>({
 const proposedMigration=()=> {
  const x=baselineMigration()
  x.version=1;x.updated_at='2026-11-01T01:42:57.795Z'
+ x.tasks[2].depends_on=['T-001','T-007','T-009']
  x.tasks[4].allowed_paths=['app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md']
  x.tasks[4].depends_on.push('T-006','T-007','T-008','T-009')
  for(const [tid,issue,deps] of [
-  ['T-006',141,['T-003']],['T-007',142,['T-003']],
-  ['T-008',143,['T-003','T-007','T-009']],['T-009',146,['T-003','T-007']]
+  ['T-006',141,['T-003']],['T-007',142,['T-001']],
+  ['T-008',143,['T-003','T-007','T-009']],['T-009',146,['T-001','T-007']]
  ]){
   x.tasks.push({task_id:tid,issue_number:issue,title:tid,status:'READY',
    depends_on:deps,allowed_paths:[...SCOPE_MIGRATION_FILES[tid]],claim:null})
@@ -106,6 +107,15 @@ test('existing task review artifact must be defined and all new task dependencie
  assertMigrationFails(baselineMigration(),s,'T005_SCOPE_OR_DEPENDENCIES')
  const t=proposedMigration();t.tasks[7].depends_on=[]
  assertMigrationFails(baselineMigration(),t,'UNAUTHORIZED_NEW_TASK_SCOPE')
+})
+test('source dependency reordering requires exactly the approved T-003 prerequisite set',()=>{
+ const before=baselineMigration()
+ const oldOrder=proposedMigration();oldOrder.tasks[2].depends_on=['T-001']
+ assertMigrationFails(before,oldOrder,'T003_DEPENDENCIES')
+ const missingReview=proposedMigration();missingReview.tasks[2].depends_on=['T-001','T-009']
+ assertMigrationFails(before,missingReview,'T003_DEPENDENCIES')
+ const unexpected=proposedMigration();unexpected.tasks[2].title='tampered'
+ assertMigrationFails(before,unexpected,'T003_DEPENDENCIES')
 })
 test('migration must be versioned with unchanged request history',()=>{
  const s=proposedMigration();s.version=0

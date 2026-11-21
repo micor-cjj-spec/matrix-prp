@@ -18,11 +18,12 @@ const state=()=>({
 })
 const newTasks=[
  ['T-006',141,'只读任务看板与 Issue 投影',['T-003']],
- ['T-007',142,'可信验收与 GitHub App 安全验证',['T-003']],
+ ['T-007',142,'可信验收与 GitHub App 安全验证',['T-001']],
  ['T-008',143,'CAS 并发及工作流边界测试',['T-003','T-007','T-009']],
- ['T-009',146,'GPT 会话任务恢复、持久化断点与授权接管',['T-003','T-007']]]
+ ['T-009',146,'GPT 会话任务恢复、持久化断点与授权接管',['T-001','T-007']]]
 const proposal=()=>{
  const a=state();a.version=1;a.updated_at='2026-11-01T02:00:00Z'
+ a.tasks[2].depends_on=['T-001','T-007','T-009']
  a.tasks[4].depends_on.push('T-006','T-007','T-008','T-009')
  a.tasks[4].allowed_paths=['app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md']
  for(const [id,issue,title,deps] of newTasks)
@@ -56,6 +57,13 @@ test('exact V0 to V1 preserves original claims and rejects hidden fields and app
  assert.throws(()=>verifyExactTaskDelta(state(),s),/MIGRATION_UNAPPROVED_TASK_DELTA/)
  s=proposal();s.tasks[0].status='DONE'
  assert.throws(()=>verifyExactTaskDelta(state(),s))
+})
+test('strict migration guard rejects stale T-003 dependencies and unrelated history edits',()=>{
+ const b=state()
+ const old=proposal();old.tasks[2].depends_on=['T-001']
+ assert.throws(()=>verifyExactTaskDelta(b,old),/SCOPE_MIGRATION_T003_DEPENDENCIES/)
+ const altered=proposal();altered.tasks[2].allowed_paths=['app/scripts/dev-collab/']
+ assert.throws(()=>verifyExactTaskDelta(b,altered),/SCOPE_MIGRATION_T003_DEPENDENCIES/)
 })
 test('verification is read-only, with no implicit permission for state updates',()=>{
  const report=verifyMigrationEvidence(input())
@@ -177,7 +185,7 @@ test('workflow only runs on reviewed main with owner, environment and App on app
  assert.match(sh,/UNAPPROVED_STATE_SHA/)
  assert.match(sh,/UNAPPROVED_PROPOSAL_SHA/)
  assert.match(w,/COLLAB_APPROVED_STATE_SHA: '062036f7021e215ffbfdcbf5689d207a0549b68b'/)
- assert.match(w,/COLLAB_APPROVED_PROPOSAL_SHA: 'fb57656dca6df5f12e083fc0430263b4d88e452d'/)
+ assert.match(w,/COLLAB_APPROVED_PROPOSAL_SHA: 'bf80d5c384d5f687cb980b6e04127fc42167d7a8'/)
  assert.match(sh,/ls-remote --refs origin refs\/heads\/prp-collab-state/)
  assert.match(sh,/git -C "\$state_worktree" push origin HEAD:refs\/heads\/prp-collab-state/)
  assert.doesNotMatch(sh,/git push .*--force|git push .* -f |kubectl |docker compose up|systemctl |sudo |ssh /)

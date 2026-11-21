@@ -124,7 +124,13 @@ export function verifyScopeMigrationProposal(before, after) {
       a.status==='READY' && a.claim===null &&
       b.task_id===a.task_id && b.status===a.status && b.claim===a.claim &&
       b.issue_number===a.issue_number && b.title===a.title,'HISTORIC_TASK_MODIFIED')
-    if(i!==4)requireMigration(exactly(b,a),'HISTORIC_TASK_MODIFIED')
+    if(i===2){
+      // T-003 imports T-007 review/ruleset and T-009 recovery modules.
+      // This single audited dependency adjustment is allowed; all other fields are immutable.
+      const expected={...a,depends_on:['T-001','T-007','T-009']}
+      requireMigration(exactly(a.depends_on,['T-001']) && exactly(b,expected),
+        'T003_DEPENDENCIES')
+    }else if(i!==4)requireMigration(exactly(b,a),'HISTORIC_TASK_MODIFIED')
     else {
       requireMigration(exactly(a.allowed_paths,[]) &&
         exactly(a.depends_on,['T-001','T-002','T-003','T-004']) &&
@@ -134,8 +140,8 @@ export function verifyScopeMigrationProposal(before, after) {
     }
   }
   const expectedIssues={'T-006':141,'T-007':142,'T-008':143,'T-009':146}
-  const expectedDeps={'T-006':['T-003'],'T-007':['T-003'],'T-008':['T-003','T-007','T-009'],
-    'T-009':['T-003','T-007']}
+  const expectedDeps={'T-006':['T-003'],'T-007':['T-001'],'T-008':['T-003','T-007','T-009'],
+    'T-009':['T-001','T-007']}
   for(let i=5;i<9;i++){
     const task=after.tasks[i],id='T-'+String(i+1).padStart(3,'0')
     requireMigration(task.task_id===id && task.issue_number===expectedIssues[id] &&

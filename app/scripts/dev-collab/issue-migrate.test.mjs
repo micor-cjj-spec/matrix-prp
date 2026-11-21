@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {authorizeOwnerIssuedMigration} from './issue-migrate.mjs'
 const state='062036f7021e215ffbfdcbf5689d207a0549b68b'
-const proposal='fb57656dca6df5f12e083fc0430263b4d88e452d'
+const proposal='bf80d5c384d5f687cb980b6e04127fc42167d7a8'
 const valid=()=>({oneShotMigration:true,actor:'micor-cjj-spec',
  command:{type:'migrate_v1',requirement_id:'REQ-20261031-001',
   request_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
