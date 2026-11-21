@@ -38,7 +38,9 @@
       "title": "共享状态协调器与 GitHub Actions",
       "status": "READY",
       "depends_on": [
-        "T-001"
+        "T-001",
+        "T-007",
+        "T-009"
       ],
       "allowed_paths": [
         "app/scripts/dev-collab/coordinator-cli.mjs",
@@ -109,7 +111,7 @@
       "title": "可信验收与 GitHub App 安全验证",
       "status": "READY",
       "depends_on": [
-        "T-003"
+        "T-001"
       ],
       "allowed_paths": [
         "app/scripts/dev-collab/activation-preflight.mjs",
@@ -152,7 +154,7 @@
       "title": "GPT 会话任务恢复、持久化断点与授权接管",
       "status": "READY",
       "depends_on": [
-        "T-003",
+        "T-001",
         "T-007"
       ],
       "allowed_paths": [
