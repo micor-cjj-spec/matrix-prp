@@ -765,7 +765,7 @@ onBeforeUnmount(() => { controller?.abort(); resetKnowledgeReview() })
             <div v-if="knowledgeCaptureEnabled && message.role === 'user' && message.id > 0"
               class="chat-knowledge-action">
               <button type="button" aria-label="从此消息提取知识候选"
-                :disabled="sending || knowledgeLoading || knowledgeSaving || message.content.length > 2000"
+                :disabled="sending || knowledgeLoading || knowledgeSaving"
                 @click="startKnowledgeReview(message)">提取知识候选</button>
             </div>
             <template v-for="(block, i) in blocksByMessage[message.id] ?? []" :key="message.id + '-' + i">
