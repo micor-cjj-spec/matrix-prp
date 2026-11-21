@@ -186,7 +186,7 @@ public class PersonalMemoryService {
         validate(validated);
         // Transaction-scoped owner row lock closes the cross-request-key
         // check-then-insert race among parallel Personal OS AI submissions.
-        lockOwnerForAiMutation();
+        lockOwnerForKnowledgeMutation();
         return proposeWithParent(validated,null,"AI_CANDIDATE");
     }
 
@@ -341,17 +341,13 @@ public class PersonalMemoryService {
     /** Confirmation re-checks both endpoints and the source; no inferred grants. */
     @Transactional
     public Memory confirm(long id) {
+        positive(id);
+        // Before ANY consistent-read SELECT: otherwise REPEATABLE READ can
+        // retain a stale snapshot from before waiting for the owner lock.
+        lockOwnerForKnowledgeMutation();
         Memory m=get(id);
         if("CONFIRMED".equals(m.status())) return m;
         if(!"PENDING".equals(m.status())) throw conflict("Memory is no longer pending");
-        if ("AI_CANDIDATE".equals(m.origin())) {
-            // Lock before re-reading state and checking peers; no two AI
-            // confirmations for the same owner can commit duplicate facts.
-            lockOwnerForAiMutation();
-            m=get(id);
-            if (!"PENDING".equals(m.status()))
-                throw conflict("Memory changed concurrently");
-        }
         assertions.requireValid(toCandidate(m));
         // A previously safe AI suggestion can become a duplicate while awaiting review.
         if ("AI_CANDIDATE".equals(m.origin()))
@@ -477,7 +473,7 @@ public class PersonalMemoryService {
      * Must be called from public @Transactional entrypoints ONLY. The lock is
      * released by the DB on commit/rollback; never use GET_LOCK on pooled sessions.
      */
-    private void lockOwnerForAiMutation() {
+    private void lockOwnerForKnowledgeMutation() {
         long owner=CurrentUser.id();
         Long locked=db.queryForObject(
             "SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,owner);
