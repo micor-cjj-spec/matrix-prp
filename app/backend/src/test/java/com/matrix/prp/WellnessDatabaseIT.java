@@ -110,10 +110,11 @@ class WellnessDatabaseIT {
         assertThat(missing.path("foodItemCount").asInt()).isZero();
         assertThat(missing.path("proteinG").isNull()).isTrue();
 
+        String secondInvite=postJson("/api/auth/invitations",admin,Map.of()).path("code").asText();
         String outsider=postJson("/api/auth/register",null,Map.of(
             "username","nutrition_other_"+UUID.randomUUID().toString().substring(0,8),
             "password","trend-other-password-2026","displayName","No meal fixtures",
-            "invitationCode",invite)).path("token").asText();
+            "invitationCode",secondInvite)).path("token").asText();
         JsonNode other=getData("/api/wellness/summary/nutrition-trends?days=7",outsider);
         assertThat(other.size()).isEqualTo(7);
         // A second freshly registered owner has no copied private food rows.
