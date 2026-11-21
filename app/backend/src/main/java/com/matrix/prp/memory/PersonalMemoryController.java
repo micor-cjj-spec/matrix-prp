@@ -28,6 +28,13 @@ public final class PersonalMemoryController {
     @GetMapping("/candidates") public ApiResponse<List<PersonalMemoryService.Memory>> pending() {
         return ApiResponse.success(service.pending());
     }
+    /** Explicitly requested owner management, not model-safe memory retrieval. */
+    @GetMapping("/history/normal")
+    public ResponseEntity<ApiResponse<List<PersonalMemoryService.Memory>>> normalHistory() {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+            .body(ApiResponse.success(service.listNormalHistory()));
+    }
+
     @GetMapping("/{id}") public ApiResponse<PersonalMemoryService.Memory> get(@PathVariable long id) {
         return ApiResponse.success(service.get(id));
     }
