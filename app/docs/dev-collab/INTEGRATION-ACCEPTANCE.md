@@ -32,6 +32,8 @@
 
 **2026-11-21 独立 PR / 总候选 blob 对账：** 在 T-001～T-004、T-006～T-009 的 50 个候选任务文件中，49 个与 #138 对应 blob 完全一致；仅 T-001 的 `core.mjs` 存在内置路径校验 vs 引用独立治理模块的结构差异。这个差异属于跨任务/治理集成边界，不能隐式覆盖 T-001 的两文件候选。已建立 [仅供集成审查的 Draft #245](https://github.com/micor-cjj-spec/matrix-prp/pull/245)，确切 head `eb001ea56a9da1fc6c38851770bc58b6749aa053`，在含治理模块的 [#236](https://github.com/micor-cjj-spec/matrix-prp/pull/236) 之上**只变更 1 个 `core.mjs` 文件**，使其 blob 与 #138 一致。两份路径安全规则的人工源码核查相近，但无独立运行时等价证据；**#245 不是普通工作任务 PR，也不意味着 T-001 被接受**。正式集成须显式审核此桥接及高权限治理依赖，不得将跨 scope 变更混入普通 worker 提交。
 
+**完整代码拼装一致性（2026-11-21）：** [Draft #248](https://github.com/micor-cjj-spec/matrix-prp/pull/248)，head `ed047c6d3b98982c046f5fc107f82d3a99ef1da2`，以集成兼容桥接 [#245](https://github.com/micor-cjj-spec/matrix-prp/pull/245) 为基底，按 GitHub 审计补入 T-002 3、T-004 12、T-006 9、T-008 5、两项 CI 测试修复，共 **31 个差异文件**。逐个文件与 V1 白名单比对无意外项；其完整 Git 树 SHA `c01250e04355a12d888fd72c3a0742436c9e0138` 与源+CI 组合 [#240](https://github.com/micor-cjj-spec/matrix-prp/pull/240) 的 Git 树 SHA **完全一致**。这证明文件内容与模式可确定性重组，**不构成相同 commit SHA、exact-head CI、受保护集成或独立审查的证明**。#248 保持 Draft、不得合并。
+
 任务依赖按 [#144](https://github.com/micor-cjj-spec/matrix-prp/pull/144) 的候选图核对：T-007 → T-001；T-009 → T-001/T-007；T-003 → T-001/T-007/T-009；T-004、T-006、T-008 后继；T-005 必须在其它八项都经过正式验收后才能处理。**代码堆叠关系不等于 GitHub 受保护集成分支的实际合并证据。**
 
 ## 3. CI 与复现证据（严格区分来源）
