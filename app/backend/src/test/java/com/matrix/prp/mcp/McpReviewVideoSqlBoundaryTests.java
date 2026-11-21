@@ -49,6 +49,7 @@ class McpReviewVideoSqlBoundaryTests {
     @Test
     void boundedReviewRepositoryKeepsOwnerPredicateAndSqlLimit() {
         var repository = new MyBatisReviewRepository(mapper);
+        when(mapper.selectList(any())).thenReturn(List.of());
         repository.listLimited(new ReviewFilter("weekly", "learning",
             LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 21)), 12);
         verify(mapper).selectList(argThat(query ->
