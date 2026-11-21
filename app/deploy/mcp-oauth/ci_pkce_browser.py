@@ -113,14 +113,22 @@ def json_response(response, stage):
 
 def wait_ready(opener, url, max_seconds=150):
     until = time.monotonic() + max_seconds
+    last_http = None
+    last_exception = None
     while time.monotonic() < until:
         try:
-            if request(opener, url)[0] == 200:
+            last_http = request(opener, url)[0]
+            if last_http == 200:
                 return
-        except (OSError, ValueError, ssl.SSLError):
-            pass
+        except (OSError, ValueError, ssl.SSLError) as error:
+            # Print only the error class, never request URLs, headers, bodies,
+            # cookies, credentials, tokens or exception text.
+            last_exception = type(error).__name__
         time.sleep(3)
-    raise RuntimeError("Temporary environment not healthy: " + ("Keycloak" if "auth-" in url else "PRP"))
+    stage = "Keycloak" if "auth-" in url else "PRP"
+    diagnostic = (" HTTP_" + str(last_http) if last_http is not None else "")
+    diagnostic += (" transport_" + last_exception if last_exception else "")
+    raise RuntimeError("Temporary environment not healthy: " + stage + diagnostic)
 
 
 def add_user(opener, admin_password, username, password):
