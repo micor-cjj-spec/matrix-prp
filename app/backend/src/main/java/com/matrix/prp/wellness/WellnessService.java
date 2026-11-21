@@ -435,33 +435,48 @@ public class WellnessService {
         return copyMeal(id,date,null);
     }
 
-    /** A new event needs a new token; a network retry reuses the same token. */
+    /** A new eating event needs a new token; a network retry reuses its token.
+     * Preserve the *recorded item nutrition snapshot* rather than recalculating
+     * the catalog or losing manually verified protein/carbs/fat in addAiMeal.
+     * A confirmed retry never rewrites a previously copied historical meal.
+     */
     @Transactional
     public Meal copyMeal(long id,LocalDate date,String idempotencyKey) {
-        Meal existing=meal(id);
+        if(date==null) throw new IllegalArgumentException("Missing copy date");
+        long user=CurrentUser.id();
+        lockMealOwner(user);
+        Meal existing=meal(id); // owner check inside the same serialized transaction
         String requestKey=idempotencyKey==null || idempotencyKey.isBlank()
             ?UUID.randomUUID().toString():idempotencyKey;
         if(requestKey.length()>80) throw new IllegalArgumentException("Invalid copy idempotency key");
-        // Keep retries local to this source meal, separate from normal meal creation.
         String key=UUID.nameUUIDFromBytes(("meal-copy:"+id+":"+requestKey)
             .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
-        Meal copy;
-        if(existing.items().stream().anyMatch(i->i.foodId()<=0)) {
-            List<AiMealItem> snapshots=existing.items().stream()
-                .map(i->i.foodId()>0
-                    ?new AiMealItem(i.foodId(),null,i.grams(),null)
-                    :new AiMealItem(null,i.foodName(),i.grams(),i.calories())).toList();
-            copy=addAiMeal(date,existing.mealType(),existing.note(),snapshots,key);
-        } else {
-            List<ItemInput> copies=existing.items().stream()
-                .map(i->new ItemInput(i.foodId(),i.grams())).toList();
-            copy=addMeal(new MealInput(date,existing.mealType(),existing.note(),copies,key));
+        List<Long> found=db.query(
+            "SELECT id FROM prp_wellness_meals WHERE user_id=? AND idempotency_key=?",
+            (r,n)->r.getLong("id"),user,key);
+        if(!found.isEmpty()) {
+            Meal replay=meal(found.getFirst());
+            if(!replay.mealDate().equals(date) ||
+               !replay.mealType().equals(existing.mealType()))
+                throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "复制幂等键已用于其他日期或餐次");
+            return replay;
         }
-        if(!copy.mealDate().equals(date) || !copy.mealType().equals(existing.mealType()))
-            throw new org.springframework.web.server.ResponseStatusException(
-                org.springframework.http.HttpStatus.CONFLICT,
-                "复制幂等键已用于其他日期或餐次");
-        return copy;
+        assertMealSlotFree(user,date,existing.mealType(),-1L);
+        long copiedId=insert(
+            "INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) "+
+            "VALUES (?,?,?,?,?)",
+            user,date,existing.mealType(),existing.note(),key);
+        // Clone exact stored values: nullable macronutrients remain unknown, a
+        // known 0g stays zero, and verified-label values are not discarded.
+        // This only selects items belonging to the already owner-checked meal.
+        db.update("INSERT INTO prp_wellness_meal_items "+
+            "(meal_id,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate) "+
+            "SELECT ?,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate "+
+            "FROM prp_wellness_meal_items WHERE meal_id=? ORDER BY id",
+            copiedId,id);
+        return meal(copiedId);
     }
 
     public List<Exercise> exercises(LocalDate date) {
