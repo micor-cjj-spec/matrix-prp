@@ -152,3 +152,15 @@ export async function submitPersonalAiKnowledgeCandidates(items: PersonalAiKnowl
   )
   return data.data
 }
+
+/** Explicit authenticated user-click read; never fetched for default model context. */
+export interface ChatEvidenceSource {
+  messageId: number
+  messageText: string
+  sentAt: string
+}
+export async function fetchMemoryChatSource(assertionId: number) {
+  return (await apiClient.get<ApiResponse<ChatEvidenceSource>>(
+    `/memory/${assertionId}/source-preview`,
+  )).data.data
+}
