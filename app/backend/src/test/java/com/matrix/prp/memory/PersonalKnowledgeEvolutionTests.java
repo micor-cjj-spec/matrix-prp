@@ -87,8 +87,6 @@ class PersonalKnowledgeEvolutionTests {
 
     @Test void normalizedDuplicateFromSameOwnerAndRelationRefusesNewCandidate() throws Exception {
         owner(7);
-        @SuppressWarnings("unchecked")
-        RowMapper<Object> unused=mock(RowMapper.class);
         when(db.query(contains("SELECT object_value,valid_from,valid_to"),
                 any(RowMapper.class),eq(7L),eq("7"),eq("DECLARES_SKILL"),eq(0L)))
             .thenAnswer(invocation -> {
@@ -135,4 +133,58 @@ class PersonalKnowledgeEvolutionTests {
         assertThat(memories.listCurrent()).isEmpty();
         verify(references).requireOwnedChatMessage("91");
     }
+    @Test void readOnlyInspectionMarksEquivalentAndMaybeRelatedButNeverDeclaresAConflict() throws Exception {
+        owner(7);
+        when(db.query(contains("SELECT object_value,valid_from,valid_to"),
+                any(RowMapper.class),eq(7L),eq("7"),eq("DECLARES_SKILL"),eq(0L)))
+            .thenAnswer(invocation -> {
+                @SuppressWarnings("unchecked")
+                RowMapper<Object> mapper=invocation.getArgument(1);
+                ResultSet rs=mock(ResultSet.class);
+                when(rs.getString(1)).thenReturn("我正在学习 RAG 入门");
+                return List.of(mapper.mapRow(rs,0));
+            });
+        var related=new PersonalMemoryService.AiCandidate(
+            DECLARES_SKILL,"学习 RAG",null,null,Sensitivity.RESTRICTED,"inspect-key-001");
+        assertThat(memories.inspectAiCandidate(related).disposition())
+            .isEqualTo("POSSIBLY_RELATED");
+        var newFact=new PersonalMemoryService.AiCandidate(
+            DECLARES_SKILL,"独立完成 Java 构建",null,null,Sensitivity.RESTRICTED,"inspect-key-002");
+        assertThat(memories.inspectAiCandidate(newFact).disposition())
+            .isEqualTo("NEW");
+        verify(db,never()).update(any(org.springframework.jdbc.core.PreparedStatementCreator.class),
+            any(org.springframework.jdbc.support.KeyHolder.class));
+    }
+
+    @Test void originalMessagePreviewIsOwnerOnlyAndRequiresExplicitSelectedAssertion() throws Exception {
+        owner(7);
+        var linked=new PersonalMemoryService.Memory(33L,PERSON,"7",DECLARES_SKILL,
+            LITERAL,null,"学习 RAG",CHAT_MESSAGE,"91","AI_CANDIDATE",
+            "PENDING","RESTRICTED",null,null,null,LocalDateTime.now());
+        when(db.query(contains("WHERE id=? AND user_id=? LIMIT 1"),
+            any(RowMapper.class),eq(33L),eq(7L))).thenReturn(List.of(linked));
+        when(db.query(contains("SELECT m.content,m.created_at"),
+            any(RowMapper.class),eq(91L),eq(7L))).thenAnswer(invocation -> {
+                @SuppressWarnings("unchecked")
+                RowMapper<Object> mapper=invocation.getArgument(1);
+                ResultSet rs=mock(ResultSet.class);
+                when(rs.getString(1)).thenReturn("我正在学习 RAG");
+                when(rs.getTimestamp(2)).thenReturn(
+                    java.sql.Timestamp.valueOf("2026-11-21 21:00:00"));
+                return List.of(mapper.mapRow(rs,0));
+            });
+        var preview=memories.sourcePreview(33L);
+        assertThat(preview.messageId()).isEqualTo(91L);
+        assertThat(preview.messageText()).isEqualTo("我正在学习 RAG");
+        verify(references).requireOwnedChatMessage("91");
+
+        owner(8);
+        assertThatThrownBy(() -> memories.sourcePreview(33L))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND));
+        verify(db,never()).query(contains("SELECT m.content,m.created_at"),
+            any(RowMapper.class),eq(91L),eq(8L));
+    }
+
 }
