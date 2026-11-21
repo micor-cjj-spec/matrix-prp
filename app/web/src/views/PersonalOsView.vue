@@ -36,6 +36,7 @@ let normalHistoryGeneration = 0
 async function toggleNormalHistory(forceRefresh = false) {
   if (normalHistoryOpen.value && !forceRefresh) {
     ++normalHistoryGeneration
+    clearChatSource()
     normalHistoryOpen.value = false
     normalHistory.value = []
     normalHistoryBusy.value = false
@@ -138,6 +139,7 @@ function describeMemory(item: PersonalMemory) {
 async function togglePrivateMemories() {
   if (privateOpen.value) {
     ++privateRequestGeneration
+    clearChatSource()
     privateOpen.value = false
     privateFacts.value = []
     return
@@ -217,6 +219,10 @@ async function loadData() {
     selectedGoalId.value = null
     contextLoading.value = false
     ++privateRequestGeneration
+    ++normalHistoryGeneration
+    normalHistoryOpen.value = false
+    normalHistory.value = []
+    clearChatSource()
     privateFacts.value = []
     privateOpen.value = false
     serviceError.value = '数据暂时无法加载。请确认 Personal OS 后端版本已部署且账号已登录。'
