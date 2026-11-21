@@ -9,6 +9,7 @@ import router from './router'
 import { useAuthStore } from './stores/auth'
 import { isFirstPartyOidcCallbackPath } from './utils/oidcCallbackPath'
 import './styles/main.css'
+import './styles/quiet-intelligence-v2.css'
 
 const app = createApp(App)
 const pinia = createPinia()
