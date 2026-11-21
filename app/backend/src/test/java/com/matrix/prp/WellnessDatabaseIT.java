@@ -51,6 +51,80 @@ class WellnessDatabaseIT {
         return postJson("/api/auth/login",null,Map.of("username",username,"password",password))
                 .path("token").asText();
     }
+    @Test void nutritionTrendsDistinguishZeroUnknownMissingAndOwnerIsolation() throws Exception {
+        String admin=login("video_admin","video-test-admin-password-2026");
+        String invite=postJson("/api/auth/invitations",admin,Map.of()).path("code").asText();
+        String owner=postJson("/api/auth/register",null,Map.of(
+            "username","nutrition_trend_"+UUID.randomUUID().toString().substring(0,8),
+            "password","trend-test-password-2026",
+            "displayName","Nutrition synthetic owner","invitationCode",invite))
+            .path("token").asText();
+
+        java.time.LocalDate today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        String partialDay=today.minusDays(2).toString();
+        String knownDay=today.minusDays(1).toString();
+        String missingDay=today.minusDays(3).toString();
+        long food=postJson("/api/wellness/foods",owner,Map.of(
+            "name","Synthetic nutrition trend sample "+UUID.randomUUID(),
+            "preparation","cooked","calories100g",100,
+            "protein100g",0,"carbs100g",20,"fat100g",1,
+            "sourceNote","test-only synthetic food")).path("id").asLong();
+
+        postJson("/api/wellness/meals",owner,Map.of(
+            "mealDate",partialDay,"mealType","BREAKFAST",
+            "items",List.of(Map.of("foodId",food,"grams",100)),
+            "idempotencyKey","partial-known-"+UUID.randomUUID()));
+        postJson("/api/wellness/meals/snapshots",owner,Map.of(
+            "mealDate",partialDay,"mealType","SNACK",
+            "items",List.of(Map.of("name","unknown-macros snack", "grams",0,
+                "calories",60)),"idempotencyKey","partial-unknown-"+UUID.randomUUID()));
+        postJson("/api/wellness/meals",owner,Map.of(
+            "mealDate",knownDay,"mealType","LUNCH",
+            "items",List.of(Map.of("foodId",food,"grams",100)),
+            "idempotencyKey","known-zero-"+UUID.randomUUID()));
+
+        JsonNode points=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        assertThat(points.size()).isEqualTo(7);
+        JsonNode partial=null,known=null,missing=null;
+        for(JsonNode point:points) {
+            String value=point.path("date").asText();
+            if(value.equals(partialDay))partial=point;
+            if(value.equals(knownDay))known=point;
+            if(value.equals(missingDay))missing=point;
+        }
+        assertThat(partial).isNotNull();
+        assertThat(partial.path("foodItemCount").asInt()).isEqualTo(2);
+        assertThat(partial.path("knownProteinCount").asInt()).isEqualTo(1);
+        assertThat(partial.path("knownCarbsCount").asInt()).isEqualTo(1);
+        assertThat(partial.path("knownFatCount").asInt()).isEqualTo(1);
+        assertThat(partial.path("proteinG").isNull()).isTrue();
+        assertThat(partial.path("carbsG").isNull()).isTrue();
+        assertThat(partial.path("fatG").isNull()).isTrue();
+        assertThat(known).isNotNull();
+        assertThat(known.path("foodItemCount").asInt()).isEqualTo(1);
+        assertThat(known.path("knownProteinCount").asInt()).isEqualTo(1);
+        assertThat(known.path("proteinG").decimalValue()).isEqualByComparingTo("0");
+        assertThat(known.path("carbsG").decimalValue()).isEqualByComparingTo("20");
+        assertThat(known.path("fatG").decimalValue()).isEqualByComparingTo("1");
+        assertThat(missing).isNotNull();
+        assertThat(missing.path("foodItemCount").asInt()).isZero();
+        assertThat(missing.path("proteinG").isNull()).isTrue();
+
+        JsonNode other=getData("/api/wellness/summary/nutrition-trends?days=7",admin);
+        assertThat(other.size()).isEqualTo(7);
+        // The owner's private food items must not inflate the other account.
+        JsonNode otherKnown=null;
+        for(JsonNode day:other)if(day.path("date").asText().equals(knownDay))otherKnown=day;
+        assertThat(otherKnown).isNotNull();
+        // Distinct owner has no synthetic fixture; scoped row count cannot match ours.
+        assertThat(otherKnown.path("foodItemCount").asInt()).isZero();
+
+        for(int days:new int[]{1,30,90}) {
+            assertThat(getData("/api/wellness/summary/nutrition-trends?days="+days,owner).size())
+                .isEqualTo(days);
+        }
+    }
+
     @Test void mealNutritionSnapshotIdempotencyAndTenantIsolation() throws Exception {
         String a=login("video_admin","video-test-admin-password-2026");
         mvc.perform(get("/api/wellness/meals?date=2026-10-11")).andExpect(status().isUnauthorized());
