@@ -185,6 +185,13 @@ class McpReviewVideoOwnedMysqlOAuthIT {
         assertThat(rpc(bearerB,"prp_video_progress",Map.of()).getResponse().getContentAsString())
             .contains("OWNER_B_VIDEO").doesNotContain("OWNER_A_VIDEO");
 
+        String reviewsOnly="ci-rv-reviews-only-"+UUID.randomUUID();
+        token(reviewsOnly,aSubject,"prp.reviews.read");
+        String missingScope=rpc(reviewsOnly,"prp_video_folders",Map.of())
+            .getResponse().getContentAsString();
+        assertThat(missingScope).contains("insufficient_scope","prp.video.read")
+            .doesNotContain("OWNER_A_FOLDER","OWNER_B_FOLDER");
+
         String crossOwner=rpc(bearerB,"prp_video_progress",
             Map.of("folderId",folderA.id())).getResponse().getContentAsString();
         assertThat(crossOwner).contains("\"isError\":true").doesNotContain("OWNER_A_VIDEO");
