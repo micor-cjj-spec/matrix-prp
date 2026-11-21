@@ -114,6 +114,9 @@ class McpReviewVideoOwnedMysqlOAuthIT {
     }
 
     private MvcResult rpc(String token,String tool,Map<String,Object> args) throws Exception {
+        // Do not let the first-party setup principal masquerade as bearer auth.
+        // Every MCP call below must reconstruct identity from its OAuth token.
+        SecurityContextHolder.clearContext();
         var request=new LinkedHashMap<String,Object>();
         request.put("jsonrpc","2.0");
         request.put("id",1);
