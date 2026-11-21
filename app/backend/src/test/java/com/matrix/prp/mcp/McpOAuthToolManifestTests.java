@@ -101,6 +101,14 @@ class McpOAuthToolManifestTests {
     }
 
     @Test
+    void productionHealthScopeAllowlistDoesNotContainReviewOrVideo() {
+        assertThat(McpProductionWellnessGuard.consentScopes(false))
+            .doesNotContain("prp.reviews.read", "prp.video.read");
+        assertThat(McpProductionWellnessGuard.consentScopes(true))
+            .doesNotContain("prp.reviews.read", "prp.video.read");
+    }
+
+    @Test
     void unexpectedScopeNeverEnablesAnyMcpTool() {
         assertThatThrownBy(() -> McpToolConfiguration.exposedNames("*", true))
             .isInstanceOf(IllegalArgumentException.class);
