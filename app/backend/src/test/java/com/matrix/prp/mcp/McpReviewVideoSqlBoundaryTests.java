@@ -97,12 +97,15 @@ class McpReviewVideoSqlBoundaryTests {
             ArgumentCaptor.forClass((Class) Wrapper.class);
         verify(mapper, times(2)).selectList(captured.capture());
         var queries = captured.getAllValues();
+        // MyBatis-Plus LambdaQueryWrapper materializes the SQL predicates and
+        // their bound parameter names lazily when getSqlSegment() is evaluated.
+        // Mocked mappers never trigger that evaluation by themselves.
+        assertThat(queries.get(0).getSqlSegment()).contains("user_id", "LIMIT 5");
+        assertThat(queries.get(1).getSqlSegment()).contains("user_id", "LIMIT 5");
         assertThat(((AbstractWrapper<?, ?, ?>) queries.get(0))
             .getParamNameValuePairs().values()).contains(42L).doesNotContain(77L);
         assertThat(((AbstractWrapper<?, ?, ?>) queries.get(1))
             .getParamNameValuePairs().values()).contains(77L).doesNotContain(42L);
-        assertThat(queries.get(0).getSqlSegment()).contains("LIMIT 5");
-        assertThat(queries.get(1).getSqlSegment()).contains("LIMIT 5");
     }
 
     @Test
