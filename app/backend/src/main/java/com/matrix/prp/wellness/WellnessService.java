@@ -468,14 +468,29 @@ public class WellnessService {
             "INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) "+
             "VALUES (?,?,?,?,?)",
             user,date,existing.mealType(),existing.note(),key);
-        // Clone exact stored values: nullable macronutrients remain unknown, a
-        // known 0g stays zero, and verified-label values are not discarded.
-        // This only selects items belonging to the already owner-checked meal.
-        db.update("INSERT INTO prp_wellness_meal_items "+
-            "(meal_id,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate) "+
-            "SELECT ?,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate "+
-            "FROM prp_wellness_meal_items WHERE meal_id=? ORDER BY id",
-            copiedId,id);
+        // Clone exact confirmed nutrition values without conflating the new
+        // meal with another user's data or recomputing historical catalog food.
+        // Each new item ID maps to its own optional V30 enrichment row.
+        for(MealItem item:existing.items()) {
+            long newItemId=insert("INSERT INTO prp_wellness_meal_items "+
+                "(meal_id,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate) "+
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                copiedId,item.foodId()>0?item.foodId():null,item.foodName(),
+                item.grams(),item.calories(),item.proteinG(),item.carbsG(),
+                item.fatG(),item.isEstimate());
+            // Source provenance is retained as a *copied* historical snapshot,
+            // never presented as newly user-verified nutrition for this meal.
+            db.update("INSERT INTO prp_wellness_meal_item_nutrients "+
+                "(meal_item_id,quantity,quantity_unit,consumed_ratio,weight_min_g,weight_max_g,"+
+                "calories_min_kcal,calories_max_kcal,protein_g,carbs_g,fat_g,fiber_g,sugar_g,"+
+                "sodium_mg,source_type,confidence_level,estimate_note) "+
+                "SELECT ?,quantity,quantity_unit,consumed_ratio,weight_min_g,weight_max_g,"+
+                "calories_min_kcal,calories_max_kcal,protein_g,carbs_g,fat_g,fiber_g,sugar_g,"+
+                "sodium_mg,'COPIED_SNAPSHOT','COPIED',"+
+                "'历史餐食营养快照副本，请核对本次实际食用份量' "+
+                "FROM prp_wellness_meal_item_nutrients WHERE meal_item_id=?",
+                newItemId,item.id());
+        }
         return meal(copiedId);
     }
 
