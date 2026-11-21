@@ -176,4 +176,27 @@ class PersonalOsChatExtractionServiceTest {
             .isInstanceOf(ResponseStatusException.class);
         verifyNoInteractions(gateway);
     }
+    @Test void modelOutputMayNotSmuggleAutoActionOrExtraFields() throws Exception {
+        String grant=token();
+        when(gateway.stream(any(),anyList(),anyInt(),any())).thenReturn(
+            new DeepSeekClient.Result("""
+                {"candidates":[{"predicate":"DECLARES_SKILL","value":"学习 RAG",
+                "evidenceQuote":"我正在学习 RAG","autoConfirm":true}]}
+                """,3,4));
+        assertThatThrownBy(() -> service.extract(grant))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_GATEWAY));
+        verify(store,never()).completed(anyLong(),anyString(),anyLong(),anyLong());
+    }
+
+    @Test void singleUseTokenCannotBeSpentAfterModelChange() {
+        String grant=token();
+        when(settings.selection(7L)).thenReturn(
+            new AiSettingsStore.Selection("deepseek","different-model"));
+        assertThatThrownBy(() -> service.extract(grant))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(gateway);
+    }
+
 }
