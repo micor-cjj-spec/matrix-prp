@@ -44,6 +44,9 @@
 
 不可把 #138、#213 或其它分支的绿色结果套用到 #240 或未来的受保护集成分支。必须在目标 exact head 重新检查 required CI、状态与可信 workflow provenance。
 
+**Chromium 诊断分支（仅候选）：** [Draft #246](https://github.com/micor-cjj-spec/matrix-prp/pull/246) 基于 #240 的 exact head `8a3c04cef545c15a5fa1c88e9cd2163f7311e753`，在提交 `bdc816562cf2075406174750772ff962706151a3` 中**只修改** `app/deploy/mcp-oauth/test_full_e2e_ci.sh` 一处。它不修改 Maven 命令、认证、证书验证或应用业务逻辑，仅在 Maven 失败时输出固定脱敏错误类别，并保持非零退出。新候选 [CI #44910604677](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44910604677)、[Contract #44910604664](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44910604664)、[Impact #44910604698](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44910604698) 已触发，记录时仍排队。不能用尚未执行的诊断 CI 抵消 #240 原始 Chromium 失败，也不能把诊断 PR 当作 T-005 正式接受。
+
+
 ## 4. 待完成的强制门禁（全部未打勾）
 
 - [ ] **G1 · source review**：每个任务 PR 的真实 diff / base / head / allowed_paths / rename 路径经过独立审查；源变更只进入已批准的受保护 **integrate/REQ-20261031-001** 分支，不能未经授权合并 main。
