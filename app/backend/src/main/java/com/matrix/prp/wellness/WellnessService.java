@@ -477,7 +477,7 @@ public class WellnessService {
                 "VALUES (?,?,?,?,?,?,?,?,?)",
                 copiedId,item.foodId()>0?item.foodId():null,item.foodName(),
                 item.grams(),item.calories(),item.proteinG(),item.carbsG(),
-                item.fatG(),item.isEstimate());
+                item.fatG(),item.estimate());
             // Source provenance is retained as a *copied* historical snapshot,
             // never presented as newly user-verified nutrition for this meal.
             db.update("INSERT INTO prp_wellness_meal_item_nutrients "+
