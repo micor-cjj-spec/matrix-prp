@@ -553,24 +553,33 @@ function pickMention(item: ContextOption) {
 }
 async function showPreview() {
   if (!selectedScopes.value.length || sending.value || previewing.value) return
+  const ownerToken = auth.token
   previewing.value = true
   try {
-    preview.value = await previewAiContext([...selectedScopes.value])
+    const review = await previewAiContext([...selectedScopes.value])
+    // Do not resurrect a private preview from the prior login.
+    if (ownerToken !== auth.token) return
+    preview.value = review
     previewVisible.value = true
     mentionOpen.value = false
-  } catch { ElMessage.error('数据预览失败，请检查相关应用是否可用') }
-  finally { previewing.value = false }
+  } catch {
+    if (ownerToken === auth.token) ElMessage.error('数据预览失败，请检查相关应用是否可用')
+  } finally { previewing.value = false }
 }
 async function confirmShare() {
   if (!preview.value || confirming.value) return
+  const ownerToken = auth.token
   confirming.value = true
   try {
     const approved = await confirmAiContext(preview.value.previewId)
+    // A one-time context grant must not be carried into a different session.
+    if (ownerToken !== auth.token) return
     previewVisible.value = false
     preview.value = null
     await send(approved.contextToken)
-  } catch { ElMessage.error('授权已过期或确认失败，请重新预览') }
-  finally { confirming.value = false }
+  } catch {
+    if (ownerToken === auth.token) ElMessage.error('授权已过期或确认失败，请重新预览')
+  } finally { confirming.value = false }
 }
 function copy(content: string) {
   void navigator.clipboard?.writeText(content).then(() => ElMessage.success('已复制')).catch(() => ElMessage.error('复制失败'))
