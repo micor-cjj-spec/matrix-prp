@@ -116,11 +116,14 @@ final class WellnessMealBatchIntent {
             }
         }
         if(type!=null)meals.add(finish(type,declared,foods));
-        if(meals.isEmpty() || meals.size()>4)return Optional.empty();
+        // Bounded by eight eating events: three ordinary meal slots plus
+        // optional distinct snacks; explicit food + calories remain required.
+        if(meals.isEmpty() || meals.size()>8)return Optional.empty();
         Set<String> seen=new LinkedHashSet<>();
         for(Meal meal:meals)
-            if(!TYPES.contains(meal.type()) || !seen.add(meal.type()))
-                throw new IllegalArgumentException("重复或不合法的餐次，请逐项核对");
+            if(!TYPES.contains(meal.type()) ||
+                (!"SNACK".equals(meal.type()) && !seen.add(meal.type())))
+                throw new IllegalArgumentException("重复或不合法的主餐次，请逐项核对");
         return Optional.of(new Batch(date,List.copyOf(meals)));
     }
 
