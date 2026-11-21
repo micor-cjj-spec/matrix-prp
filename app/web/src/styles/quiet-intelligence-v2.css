@@ -299,3 +299,74 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
   html{scroll-behavior:auto}
   *,*::before,*::after {animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+
+
+/* V2 layout accents: functional navigation points, not replacement pages. */
+.prp-shell .home-v2-focus {
+  display:grid;grid-template-columns:minmax(0,1.7fr) minmax(235px,.85fr);
+  background:linear-gradient(117deg,#284f3e,#436f52);color:#fff;
+  border:1px solid rgba(42,89,53,.3);border-radius:23px;overflow:hidden;
+  box-shadow:0 18px 40px rgba(35,78,50,.13);margin:0 0 19px;min-height:236px
+}
+.prp-shell .home-v2-focus-main {
+  position:relative;padding:31px clamp(23px,3vw,39px);
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:center;
+}
+.prp-shell .home-v2-focus-main::after {
+  content:"";position:absolute;right:-45px;top:-95px;width:240px;height:240px;
+  border:1px solid rgba(245,255,237,.09);border-radius:50%;
+  box-shadow:0 0 0 40px rgba(255,255,255,.035),0 0 0 80px rgba(255,255,255,.018);
+  pointer-events:none
+}
+.prp-shell .home-v2-kicker {display:flex;align-items:center;gap:8px;color:#d6e8d7;font-size:11px;letter-spacing:1.5px;font-weight:700;margin:0 0 14px}
+.prp-shell .home-v2-focus h2 {color:#f5faf2;font-size:clamp(20px,2.25vw,28px);line-height:1.3;letter-spacing:-.6px;margin:0 0 10px;font-weight:680;position:relative;z-index:1}
+.prp-shell .home-v2-focus-description {color:#d5e4d5;font-size:13px;line-height:1.65;margin:0 0 21px;max-width:520px;position:relative;z-index:1}
+.prp-shell .home-v2-primary-link {display:inline-flex;align-items:center;gap:9px;background:#eef5ea;color:#325d43;text-decoration:none;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:750;transition:transform .18s,background-color .18s;position:relative;z-index:1}
+.prp-shell .home-v2-primary-link:hover {background:#fff;color:#2a593e;transform:translateY(-2px)}
+.prp-shell .home-v2-focus-aside {background:rgba(18,57,36,.22);border-left:1px solid rgba(255,255,255,.12);padding:27px 20px;display:flex;flex-direction:column;justify-content:center;gap:6px;min-width:0}
+.prp-shell .home-v2-focus-aside p {font-size:11px;color:#c7ddc9;letter-spacing:1.3px;margin:0 0 10px;font-weight:700}
+.prp-shell .home-v2-focus-aside a {display:flex;align-items:center;gap:10px;padding:11px;border-radius:11px;text-decoration:none;color:#edf5eb;font-size:12px;transition:background-color .18s}
+.prp-shell .home-v2-focus-aside a:hover {background:rgba(255,255,255,.10)}
+.prp-shell .home-v2-focus-aside a .el-icon:last-child {margin-left:auto;font-size:12px}
+.prp-shell .wellness-v2-intro {
+  display:flex;align-items:center;justify-content:space-between;gap:18px;
+  border-radius:22px;border:1px solid #dfeade;
+  background:linear-gradient(110deg,#e6efe2 0%,#f5f7ed 93%);
+  padding:24px 26px;margin:0 0 24px;position:relative;overflow:hidden
+}
+.prp-shell .wellness-v2-intro::after {content:"";position:absolute;width:160px;height:160px;border:1px solid #83a38b29;border-radius:50%;top:-95px;right:9%;pointer-events:none}
+.prp-shell .wellness-v2-intro-info {position:relative;z-index:1;min-width:0}
+.prp-shell .wellness-v2-kicker {font-size:11px;letter-spacing:1.4px;color:#6e9678;font-weight:730}
+.prp-shell .wellness-v2-intro h2 {font-size:clamp(18px,2.1vw,23px);letter-spacing:-.5px;color:#2d5239;margin:10px 0 7px}
+.prp-shell .wellness-v2-intro p {font-size:12px;line-height:1.65;color:#799081;margin:0}
+.prp-shell .wellness-v2-intro-actions {display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;max-width:380px;position:relative;z-index:1}
+.prp-shell .wellness-v2-intro-actions .el-button {margin:0}
+.prp-shell .learning-v2-path {display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.35fr);gap:27px;align-items:center;border:1px solid #e5ece2;background:#fff;border-radius:22px;padding:27px;margin:0 0 28px;box-shadow:0 8px 25px rgba(29,68,35,.033)}
+.prp-shell .learning-v2-path-intro h2 {font-size:20px;font-weight:700;letter-spacing:-.5px;color:#2e4a38;line-height:1.45;margin:9px 0}
+.prp-shell .learning-v2-path-intro p:last-child {font-size:12px;color:#829584;line-height:1.7;margin:0}
+.prp-shell .learning-v2-steps {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.prp-shell .learning-v2-steps a {display:flex;align-items:center;gap:11px;border-radius:13px;background:#f2f7f0;padding:13px;text-decoration:none;color:#436a4d;min-width:0;transition:transform .18s,background-color .18s}
+.prp-shell .learning-v2-steps a:hover {background:#e6f1e4;transform:translateY(-2px)}
+.prp-shell .learning-v2-steps span {color:#8aab8e;font-family:Georgia,serif;font-size:19px}
+.prp-shell .learning-v2-steps strong {font-size:12px;font-weight:680}
+.prp-shell .learning-v2-steps .el-icon {margin-left:auto}
+@media(max-width:1000px) {
+ .prp-shell .home-v2-focus {grid-template-columns:minmax(0,1.4fr) minmax(200px,.9fr)}
+ .prp-shell .learning-v2-path {grid-template-columns:1fr;gap:18px}
+ .prp-shell .wellness-v2-intro {flex-direction:column;align-items:stretch}
+ .prp-shell .wellness-v2-intro-actions {justify-content:flex-start;max-width:none}
+}
+@media(max-width:660px) {
+ .prp-shell .home-v2-focus {grid-template-columns:1fr;border-radius:19px}
+ .prp-shell .home-v2-focus-main {padding:23px 21px}
+ .prp-shell .home-v2-focus-aside {border-left:0;border-top:1px solid rgba(255,255,255,.1);padding:11px 16px 14px;display:grid;grid-template-columns:1fr}
+ .prp-shell .home-v2-focus-aside p {margin:3px 0 0 9px}
+ .prp-shell .home-v2-focus-aside a {padding:9px 11px}
+ .prp-shell .learning-v2-path {padding:20px;border-radius:18px}
+ .prp-shell .learning-v2-steps a {gap:7px;padding:11px}
+ .prp-shell .learning-v2-steps span {font-size:17px}
+ .prp-shell .learning-v2-steps strong {font-size:11px}
+ .prp-shell .wellness-v2-intro {padding:21px 19px;border-radius:19px}
+ .prp-shell .wellness-v2-intro-actions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .prp-shell .wellness-v2-intro-actions .el-button {width:100%;margin:0}
+}
