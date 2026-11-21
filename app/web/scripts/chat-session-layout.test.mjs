@@ -383,3 +383,14 @@ test('wellness copy retry is one event while daily macro trends refresh after co
   assert.match(view, /:disabled="copyingMealId !== null"/)
   assert.match(view, /const \[energy, nutrients\] = await Promise\.allSettled\(/)
 })
+
+
+test('confirmed manual meal save never asks to resubmit when subsequent refresh fails', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const saveFlow = view.slice(view.indexOf('async function saveMeal()'), view.indexOf('async function deleteMeal('))
+  assert.match(saveFlow, /mealSubmissionKey\.value = null[\s\S]*?try \{\s*await Promise\.all\(\[loadDay\(true\), wellnessApi\.frequent\(/)
+  assert.match(saveFlow, /catch \{\s*ElMessage\.warning\('餐食已保存，但页面刷新失败；请刷新页面查看，勿重新提交'\)/)
+  assert.match(saveFlow, /catch \{[\s\S]*?ElMessage\.error\('餐食保存请求未确认，请重试；若已保存不会重复创建'\)/)
+  assert.match(view, /async function loadDay\(strict = false\)/)
+  assert.match(view, /if \(strict\) throw error/)
+})
