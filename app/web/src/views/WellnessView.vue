@@ -310,22 +310,21 @@ async function copyMeal(meal: Meal) {
   catch { ElMessage.error('复制失败') }
 }
 let trendRequestVersion = 0
+const nutritionTrendUnavailable = ref(false)
 async function loadTrend() {
   const version = ++trendRequestVersion
   const days = trendDays.value
-  try {
-    const [energy, nutrients] = await Promise.all([
-      wellnessApi.trends(days), wellnessApi.nutritionTrends(days),
-    ])
-    if (version !== trendRequestVersion) return
-    trend.value = energy
-    nutritionTrend.value = nutrients
-  } catch {
-    if (version !== trendRequestVersion) return
-    trend.value = []
-    nutritionTrend.value = []
-    ElMessage.warning('营养趋势暂时无法加载，请稍后重试')
-  }
+  const [energy, nutrients] = await Promise.allSettled([
+    wellnessApi.trends(days), wellnessApi.nutritionTrends(days),
+  ])
+  if (version !== trendRequestVersion) return
+  // A failed V2-only nutrition endpoint cannot erase the existing calorie
+  // history while the frontend/backend versions are temporarily different.
+  trend.value = energy.status === 'fulfilled' ? energy.value : []
+  nutritionTrend.value = nutrients.status === 'fulfilled' ? nutrients.value : []
+  nutritionTrendUnavailable.value = nutrients.status === 'rejected'
+  if (energy.status === 'rejected')
+    ElMessage.warning('热量趋势暂时无法加载，请稍后重试')
 }
 
 const usdaDialog = ref(false)
@@ -537,12 +536,15 @@ async function saveProfile() {
               </el-radio-group>
             </div>
             <p class="muted">每日{{ trendName }}（{{ trendUnit }}）。没有记录为留白；当某项营养素缺失时，不将已知部分当作全天总量，也不将未知显示为 0。</p>
+            <p v-if="nutritionTrendUnavailable && trendMetric !== 'calories'" class="coverage-tip" role="status">营养趋势接口暂不可用；可切换回热量趋势查看已记录摄入。</p>
+            <p class="muted">图中底部的细线表示已核实的 0，空白表示缺失或未记录；逐日明细可点击或长按查看。</p>
             <div v-if="!trend.length" class="empty">趋势暂时无法显示，请重试。</div>
             <div v-else class="bars" role="group" :aria-label="'近' + trendDays + '天' + trendName + '趋势'">
               <div v-for="(point, idx) in trend" :key="point.date" class="bar-column" :title="trendDescription(point)" :aria-label="trendDescription(point)">
                 <div class="bar-track">
                   <div v-if="trendValue(point) !== null" class="bar-value"
-                    :style="{ height: trendValue(point) === 0 ? '0%' : Math.max(3, Number(trendValue(point)) / selectedTrendMax * 100) + '%' }"></div>
+                    :class="{ 'bar-zero': trendValue(point) === 0 }"
+                    :style="{ height: trendValue(point) === 0 ? '3px' : Math.max(3, Number(trendValue(point)) / selectedTrendMax * 100) + '%' }"></div>
                 </div>
                 <small v-if="trendDays <= 14 || idx === trend.length - 1 || idx % Math.ceil(trendDays / 8) === 0">{{ point.date.slice(5) }}</small>
               </div>
@@ -889,7 +891,7 @@ async function saveProfile() {
 .trend-controls :deep(.el-radio-group){display:flex;flex-wrap:wrap}
 .bars{height:175px;display:flex;align-items:end;gap:7px;padding-top:12px;overflow-x:auto;overflow-y:hidden}.bar-column{height:100%;min-width:9px;flex:1 0 9px;display:flex;flex-direction:column;align-items:center;gap:6px}
 .bar-track{width:100%;height:148px;display:flex;align-items:end;background:var(--el-fill-color-lighter);border-radius:5px;overflow:hidden}
-.bar-value{background:var(--el-color-primary);width:100%;border-radius:4px 4px 0 0}.bar-column small{color:var(--el-text-color-secondary)}
+.bar-value{background:var(--el-color-primary);width:100%;border-radius:4px 4px 0 0}.bar-zero{background:var(--el-color-success)}.bar-column small{color:var(--el-text-color-secondary)}
 .form-panel{max-width:640px}.form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .food-row{display:flex;align-items:center;gap:9px;margin-bottom:10px}.food-row .el-select{flex:1;min-width:0}.food-row .el-input-number{width:140px}
 .meal-total{font-size:18px;font-weight:700;margin-top:18px}
