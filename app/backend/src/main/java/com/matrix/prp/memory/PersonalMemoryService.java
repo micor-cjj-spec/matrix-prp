@@ -51,7 +51,14 @@ public class PersonalMemoryService {
      * accept a principal ID, entity reference, evidence claim or confirmation.
      */
     public record AiCandidate(Relation predicate, String value, LocalDate validFrom,
-                              LocalDate validTo, Sensitivity sensitivity, String requestKey) {}
+                              LocalDate validTo, Sensitivity sensitivity, String requestKey,
+                              Long sourceMessageId, String evidenceQuote) {
+        // Previous first-party synthetic candidate submissions stay unsourced.
+        public AiCandidate(Relation predicate, String value, LocalDate validFrom,
+                           LocalDate validTo, Sensitivity sensitivity, String requestKey) {
+            this(predicate,value,validFrom,validTo,sensitivity,requestKey,null,null);
+        }
+    }
 
     private static final String COLS="id,subject_type,subject_ref,predicate,object_type,"
         + "object_ref,object_value,source_type,source_ref,origin,status,sensitivity,"
@@ -70,9 +77,11 @@ public class PersonalMemoryService {
 
     private final JdbcTemplate db;
     private final PersonalOntologyAssertionGuard assertions;
+    private final PersonalOntologyReferenceGuard references;
 
     public PersonalMemoryService(JdbcTemplate db,PersonalOntologyReferenceGuard references) {
         this.db=db;
+        this.references=references;
         this.assertions=new PersonalOntologyAssertionGuard(references);
     }
 
@@ -145,9 +154,25 @@ public class PersonalMemoryService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "AI candidate must be a bounded self-reported skill, preference or background");
         }
+        // A paired message ID + exact quote establishes verifiable provenance.
+        // Model-provided URLs, arbitrary source references and owners are not trusted.
+        boolean hasId=suggestion.sourceMessageId()!=null;
+        boolean hasQuote=suggestion.evidenceQuote()!=null;
+        if (hasId!=hasQuote)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Chat evidence must include both a message ID and exact quotation");
+        String sourceRef=null;
+        EvidenceSource sourceType=EvidenceSource.USER_INPUT;
+        if (hasId) {
+            if (suggestion.sourceMessageId()<=0)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid chat source ID");
+            sourceRef=Long.toString(suggestion.sourceMessageId());
+            references.requireOwnedChatQuote(sourceRef,suggestion.evidenceQuote());
+            sourceType=EvidenceSource.CHAT_MESSAGE;
+        }
         Proposed p=new Proposed(NodeType.PERSON,Long.toString(owner),
             suggestion.predicate(),NodeType.LITERAL,null,suggestion.value().strip(),
-            EvidenceSource.USER_INPUT,null,suggestion.validFrom(),suggestion.validTo(),
+            sourceType,sourceRef,suggestion.validFrom(),suggestion.validTo(),
             suggestion.sensitivity(),suggestion.requestKey());
         return proposeWithParent(p,null,"AI_CANDIDATE");
     }
