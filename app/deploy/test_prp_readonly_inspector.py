@@ -126,14 +126,18 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertNotIn("password", emitted)
             self.assertEqual(json.loads(safe.read_text())["production_gate_passed"], False)
 
-    def test_chat_trigger_is_scoped_to_owner_and_read_only_release_issue(self):
-        # Source-contract guard; a real GitHub issue_comment/Environment event
-        # still requires a separate trusted-main review and live acceptance.
+    def test_chat_production_check_is_owner_only_and_cannot_publish(self):
+        # This source-contract is intentionally explicit: only GitHub's
+        # independent protected-main review and production Environment grant
+        # can activate this previously tested fixed CHECK/status SSH workflow.
         workflow = (Path(__file__).resolve().parents[2]
-                    / ".github/workflows/prp-readonly-inspect.yml").read_text()
+                    / ".github/workflows/deploy-prp.yml").read_text()
+        self.assertIn("issue_comment:\\n    types: [created]", workflow)
+        self.assertIn("release_control:\\n    if: github.event_name != 'issue_comment'", workflow)
+        self.assertIn("  chat_check:\\n", workflow)
+        chat = workflow.split("  chat_check:\\n", 1)[1]
         for required in (
-            "issue_comment:",
-            "types: [created]",
+            "github.event_name == 'issue_comment'",
             "github.ref == 'refs/heads/main'",
             "github.event.issue.number == 260",
             "github.event.issue.state == 'open'",
@@ -141,17 +145,29 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "github.event.comment.user.login == github.repository_owner",
             "github.event.comment.user.type == 'User'",
             "github.event.sender.login == github.repository_owner",
-            "github.event.comment.body == '/prp inspect health-v2'",
-            "environment: production-inspect",
-            "secrets.PRP_INSPECT_SSH_KEY",
-            '"prp-inspect@$INSPECT_HOST" report',
+            "github.event.comment.body == '/prp check production'",
+            "name: production",
+            "secrets.PRP_DEPLOY_SSH_KEY",
+            "secrets.PRP_DEPLOY_KNOWN_HOSTS",
+            "app/deploy/verify_ssh_boundary.py",
+            "app/deploy/verify_controller.py",
+            '"prp-deploy@$DEPLOY_HOST" controller-sha256',
+            '"prp-deploy@$DEPLOY_HOST" check',
+            '"prp-deploy@$DEPLOY_HOST" status',
+            "if: always()",
         ):
             with self.subTest(required=required):
-                self.assertIn(required, workflow)
-        self.assertIn("permissions:\n  contents: read", workflow)
-        self.assertNotIn("secrets.PRP_DEPLOY_SSH_KEY", workflow)
-        self.assertNotIn("prp-deploy@", workflow)
-        self.assertNotIn("${{ github.event.comment.body }}", workflow)
+                self.assertIn(required, chat)
+        for forbidden in (
+            "release.tar.gz", " deploy < ", " rollback ", "mvnw",
+            "mysql ", "flyway ", "${{ github.event.comment.body }}",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, chat)
+        publish = workflow.split("  publish:\\n", 1)[1].split("  chat_check:\\n", 1)[0]
+        self.assertIn("needs.release_control.result == 'success'", publish)
+        self.assertNotIn("github.event_name == 'issue_comment'", publish)
+        self.assertIn("permissions:\\n  contents: read", workflow)
 
     def test_gateway_denies_unknown_or_injected_commands(self):
         gateway = Path(__file__).with_name("prp-inspect-gateway.sh")
