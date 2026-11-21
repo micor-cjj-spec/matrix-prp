@@ -189,6 +189,7 @@ async function openAnalysis(meal: Meal) {
 }
 const nutrientSourceLabel = (source: string) => source === 'FOOD_CATALOG'
   ? '食品库参考' : source === 'USER_LABEL' ? '用户核实的包装营养标签'
+  : source === 'COPIED_SNAPSHOT' ? '历史餐食营养快照（本次份量需确认）'
   : source === 'USER_ESTIMATE' ? '本次食物估算' : '来源待核对'
 const nutritionCoverage = computed(() => {
   const items = meals.value.flatMap(meal => meal.items)
