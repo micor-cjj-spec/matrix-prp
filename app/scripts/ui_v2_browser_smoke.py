@@ -46,6 +46,8 @@ def mock_api(route, state):
         return
     path = "/" + url.path.split("/api/", 1)[1]
     method = request.method
+    # Record only synthetic request paths; this test never reaches real services.
+    state.setdefault("api_calls", []).append(method + " " + path)
 
     if path == "/users/me":
         reply(route, USER)
@@ -114,7 +116,7 @@ def check_viewport(browser, width, height):
     )
     # Token is fake. All API traffic is intercepted before any network call.
     context.add_init_script("localStorage.setItem('matrix-prp-token', 'synthetic-ui-smoke-only')")
-    state = {"completed": False, "writes": 0}
+    state = {"completed": False, "writes": 0, "api_calls": []}
     context.route("**/api/**", lambda route: mock_api(route, state))
     page = context.new_page()
     exceptions = []
@@ -153,7 +155,23 @@ def check_viewport(browser, width, height):
         button = page.locator(".home-v2-complete-button")
         button.wait_for(timeout=15000)
         button.click()
-        page.wait_for_function("document.querySelector('.home-v2-complete-button') === null")
+        # Use actual DOM detachment, not RAF-based page.wait_for_function,
+        # whose browser-engine scheduling may vary on hosted runners.
+        try:
+            button.wait_for(state="detached", timeout=10000)
+        except Exception:
+            print("TASK_DIAG viewport=" + str(width)
+                  + " browser=" + os.environ.get("PRP_UI_BROWSER", "chromium")
+                  + " writes=" + str(state["writes"])
+                  + " completed=" + str(state["completed"])
+                  + " api_calls=" + repr(state["api_calls"][-25:])
+                  + " button_count=" + str(button.count())
+                  + " button_disabled=" + str(button.is_disabled())
+                  + " button_text=" + repr(button.inner_text()[:100])
+                  + " page_errors=" + repr(exceptions[-4:])
+                  + " console_errors=" + repr(console_errors[-4:])
+                  + " bad_responses=" + repr(bad_responses[-4:]), flush=True)
+            raise
         must(state["writes"] == 1, "Task completion should make exactly one synthetic PATCH")
         print(f"PASS {width}px homepage, focus task update, four responsive tabs", flush=True)
 
