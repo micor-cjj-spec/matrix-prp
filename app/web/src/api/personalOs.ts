@@ -134,3 +134,19 @@ export async function invalidatePersonalMemory(id: number) {
 export async function erasePersonalMemory(id: number) {
   await apiClient.delete<ApiResponse<void>>(`/memory/${id}`)
 }
+
+/** Submits unverified AI proposals only to owner-review PENDING, not confirmed memory. */
+export interface PersonalAiKnowledgeCandidate {
+  predicate: MemoryPredicate
+  value: string
+  validFrom: null
+  validTo: null
+  sensitivity: 'RESTRICTED'
+  requestKey: string
+}
+export async function submitPersonalAiKnowledgeCandidates(items: PersonalAiKnowledgeCandidate[]) {
+  const { data } = await apiClient.post<ApiResponse<PersonalMemory[]>>(
+    '/memory/ai-candidates', items,
+  )
+  return data.data
+}
