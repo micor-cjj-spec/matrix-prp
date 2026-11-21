@@ -141,6 +141,11 @@ export interface DailySummary {
 export interface TrendPoint {
   date: string; calories: string | null; exerciseMinutes: number | null; weightKg: string | null
 }
+/** Macro totals are null unless every recorded food has a known value for that nutrient. */
+export interface NutritionTrendPoint {
+  date: string; proteinG: string | null; carbsG: string | null; fatG: string | null
+  foodItemCount: number; knownProteinCount: number; knownCarbsCount: number; knownFatCount: number
+}
 async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
   const res = await apiClient.get<ApiResponse<T>>(url, { params })
   return res.data.data
@@ -194,4 +199,5 @@ export const wellnessApi = {
   saveProfile: (form: Profile) => put<Profile>('/wellness/profile', form),
   daily: (date: string) => get<DailySummary>('/wellness/summary/daily', { date }),
   trends: (days = 14) => get<TrendPoint[]>('/wellness/summary/trends', { days }),
+  nutritionTrends: (days = 14) => get<NutritionTrendPoint[]>('/wellness/summary/nutrition-trends', { days }),
 }

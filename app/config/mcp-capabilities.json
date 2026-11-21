@@ -215,6 +215,11 @@
       "reason": "Read daily structured summary"
     },
     {
+      "route": "GET /api/wellness/summary/nutrition-trends",
+      "status": "excluded",
+      "reason": "First-party owner-only macro nutrient trends; not part of existing MCP trend tool scope or DTO"
+    },
+    {
       "route": "GET /api/wellness/summary/trends",
       "status": "mapped",
       "tool": "prp_wellness_trends",

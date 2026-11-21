@@ -51,6 +51,175 @@ class WellnessDatabaseIT {
         return postJson("/api/auth/login",null,Map.of("username",username,"password",password))
                 .path("token").asText();
     }
+    @Test void approvedAiMealLabelAndDailyNutritionTrendReadBackAreConsistent() throws Exception {
+        // Synthetic first-party flow only: create a private pending AI draft,
+        // confirm it once, explicitly verify the label, then compare all three
+        // owner read views. No external ChatGPT/OAuth acceptance is implied.
+        String admin=login("video_admin","video-test-admin-password-2026");
+        String invitation=postJson("/api/auth/invitations",admin,Map.of())
+            .path("code").asText();
+        String username="nutrition_flow_"+UUID.randomUUID().toString().substring(0,8);
+        String owner=postJson("/api/auth/register",null,Map.of(
+            "username",username,"password","synthetic-label-password-2026",
+            "displayName","Nutrition flow test","invitationCode",invitation))
+            .path("token").asText();
+        Long ownerId=jdbc.queryForObject("SELECT id FROM prp_users WHERE username=?",
+            Long.class,username);
+        String day=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))
+            .minusDays(1).toString();
+
+        String id=UUID.randomUUID().toString();
+        Map<String,Object> original=Map.of(
+            "schemaVersion",1,"sourceType","IMAGE",
+            "items",List.of(Map.of("name","Synthetic label milk","estimatedGrams",0)),
+            "sourceContext",Map.of("kind","NUTRITION_LABEL",
+                "lineItems",List.of(Map.of("name","Synthetic label milk",
+                    "packageGrams",250,"labelVerified",false,
+                    "labelPer100gCandidate",Map.of(
+                        "caloriesKcal",62,"proteinG",3,"carbsG",6,"fatG",2)))));
+        Map<String,Object> draft=Map.of(
+            "date",day,"mealType","BREAKFAST","note","Synthetic candidate only",
+            "items",List.of(Map.of("mode","manual","foodId",0,
+                "name","Synthetic label milk","grams",0,"manualCalories",95)),
+            "_initialExtraction",original);
+        jdbc.update("INSERT INTO prp_wellness_ai_drafts " +
+            "(id,user_id,action_type,payload_json,description,model_used,expires_at) " +
+            "VALUES (?,?,?,?,?,?,?)",
+            id,ownerId,"meal.create",mapper.writeValueAsString(draft),
+            "Synthetic nutrition pending","ci/synthetic",
+            Timestamp.valueOf(LocalDateTime.now().plusMinutes(10)));
+
+        assertThat(getData("/api/wellness/meals?date="+day,owner).size()).isZero();
+        assertThat(getData("/api/wellness/summary/daily?date="+day,owner)
+            .path("calories").isNull()).isTrue();
+        JsonNode saved=postJson("/api/wellness/ai/drafts/"+id+"/confirm",owner,Map.of())
+            .path("saved");
+        long mealId=saved.path("id").asLong();
+        assertThat(mealId).isPositive();
+        assertThat(saved.path("items").get(0).path("proteinG").isNull()).isTrue();
+        JsonNode before=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        JsonNode beforeDay=null;
+        for(JsonNode point:before) if(day.equals(point.path("date").asText()))beforeDay=point;
+        assertThat(beforeDay).isNotNull();
+        assertThat(beforeDay.path("proteinG").isNull()).isTrue();
+        assertThat(beforeDay.path("foodItemCount").asInt()).isEqualTo(1);
+
+        long itemId=saved.path("items").get(0).path("id").asLong();
+        Map<String,Object> verification=Map.of(
+            "mealItemId",itemId,"consumedGrams",150,
+            "caloriesPer100g",60,"proteinPer100g",3,
+            "carbsPer100g",6,"fatPer100g",2,"userVerified",true);
+        JsonNode verified=postJson("/api/wellness/meals/"+mealId+"/label-verification",
+            owner,verification);
+        assertThat(verified.path("analyses").size()).isEqualTo(2);
+        JsonNode daily=getData("/api/wellness/summary/daily?date="+day,owner);
+        JsonNode detail=getData("/api/wellness/meals/"+mealId+"/analysis",owner);
+        JsonNode trends=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        JsonNode trend=null;
+        for(JsonNode point:trends) if(day.equals(point.path("date").asText()))trend=point;
+        assertThat(trend).isNotNull();
+        assertThat(detail.path("meal").path("items").get(0).path("calories").decimalValue())
+            .isEqualByComparingTo("90");
+        assertThat(daily.path("calories").decimalValue()).isEqualByComparingTo("90");
+        assertThat(daily.path("proteinG").decimalValue()).isEqualByComparingTo("4.50");
+        assertThat(trend.path("proteinG").decimalValue()).isEqualByComparingTo("4.50");
+        assertThat(trend.path("carbsG").decimalValue()).isEqualByComparingTo("9");
+        assertThat(trend.path("fatG").decimalValue()).isEqualByComparingTo("3");
+        assertThat(trend.path("foodItemCount").asInt()).isEqualTo(1);
+        assertThat(trend.path("knownProteinCount").asInt()).isEqualTo(1);
+
+        // Repeated writes must not generate a second meal or extra analysis.
+        mvc.perform(auth(post("/api/wellness/ai/drafts/{id}/confirm",id),owner))
+            .andExpect(status().isConflict());
+        postJson("/api/wellness/meals/"+mealId+"/label-verification",owner,verification);
+        assertThat(getData("/api/wellness/meals?date="+day,owner).size()).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM prp_wellness_meal_analyses WHERE meal_id=?",
+            Long.class,mealId)).isEqualTo(2L);
+        assertThat(getData("/api/wellness/summary/daily?date="+day,owner)
+            .path("calories").decimalValue()).isEqualByComparingTo("90");
+    }
+
+    @Test void nutritionTrendsDistinguishZeroUnknownMissingAndOwnerIsolation() throws Exception {
+        String admin=login("video_admin","video-test-admin-password-2026");
+        String invite=postJson("/api/auth/invitations",admin,Map.of()).path("code").asText();
+        String owner=postJson("/api/auth/register",null,Map.of(
+            "username","nutrition_trend_"+UUID.randomUUID().toString().substring(0,8),
+            "password","trend-test-password-2026",
+            "displayName","Nutrition synthetic owner","invitationCode",invite))
+            .path("token").asText();
+
+        java.time.LocalDate today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        String partialDay=today.minusDays(2).toString();
+        String knownDay=today.minusDays(1).toString();
+        String missingDay=today.minusDays(3).toString();
+        long food=postJson("/api/wellness/foods",owner,Map.of(
+            "name","Synthetic nutrition trend sample "+UUID.randomUUID(),
+            "preparation","cooked","calories100g",100,
+            "protein100g",0,"carbs100g",20,"fat100g",1,
+            "sourceNote","test-only synthetic food")).path("id").asLong();
+
+        postJson("/api/wellness/meals",owner,Map.of(
+            "mealDate",partialDay,"mealType","BREAKFAST",
+            "items",List.of(Map.of("foodId",food,"grams",100)),
+            "idempotencyKey","partial-known-"+UUID.randomUUID()));
+        postJson("/api/wellness/meals/snapshots",owner,Map.of(
+            "mealDate",partialDay,"mealType","SNACK",
+            "items",List.of(Map.of("name","unknown-macros snack", "grams",0,
+                "calories",60)),"idempotencyKey","partial-unknown-"+UUID.randomUUID()));
+        postJson("/api/wellness/meals",owner,Map.of(
+            "mealDate",knownDay,"mealType","LUNCH",
+            "items",List.of(Map.of("foodId",food,"grams",100)),
+            "idempotencyKey","known-zero-"+UUID.randomUUID()));
+
+        JsonNode points=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        assertThat(points.size()).isEqualTo(7);
+        JsonNode partial=null,known=null,missing=null;
+        for(JsonNode point:points) {
+            String value=point.path("date").asText();
+            if(value.equals(partialDay))partial=point;
+            if(value.equals(knownDay))known=point;
+            if(value.equals(missingDay))missing=point;
+        }
+        assertThat(partial).isNotNull();
+        assertThat(partial.path("foodItemCount").asInt()).isEqualTo(2);
+        assertThat(partial.path("knownProteinCount").asInt()).isEqualTo(1);
+        assertThat(partial.path("knownCarbsCount").asInt()).isEqualTo(1);
+        assertThat(partial.path("knownFatCount").asInt()).isEqualTo(1);
+        assertThat(partial.path("proteinG").isNull()).isTrue();
+        assertThat(partial.path("carbsG").isNull()).isTrue();
+        assertThat(partial.path("fatG").isNull()).isTrue();
+        assertThat(known).isNotNull();
+        assertThat(known.path("foodItemCount").asInt()).isEqualTo(1);
+        assertThat(known.path("knownProteinCount").asInt()).isEqualTo(1);
+        assertThat(known.path("proteinG").decimalValue()).isEqualByComparingTo("0");
+        assertThat(known.path("carbsG").decimalValue()).isEqualByComparingTo("20");
+        assertThat(known.path("fatG").decimalValue()).isEqualByComparingTo("1");
+        assertThat(missing).isNotNull();
+        assertThat(missing.path("foodItemCount").asInt()).isZero();
+        assertThat(missing.path("proteinG").isNull()).isTrue();
+
+        String secondInvite=postJson("/api/auth/invitations",admin,Map.of()).path("code").asText();
+        String outsider=postJson("/api/auth/register",null,Map.of(
+            "username","nutrition_other_"+UUID.randomUUID().toString().substring(0,8),
+            "password","trend-other-password-2026","displayName","No meal fixtures",
+            "invitationCode",secondInvite)).path("token").asText();
+        JsonNode other=getData("/api/wellness/summary/nutrition-trends?days=7",outsider);
+        assertThat(other.size()).isEqualTo(7);
+        // A second freshly registered owner has no copied private food rows.
+        for(JsonNode day:other) {
+            assertThat(day.path("foodItemCount").asInt()).isZero();
+            assertThat(day.path("proteinG").isNull()).isTrue();
+            assertThat(day.path("carbsG").isNull()).isTrue();
+            assertThat(day.path("fatG").isNull()).isTrue();
+        }
+
+        for(int days:new int[]{1,30,90}) {
+            assertThat(getData("/api/wellness/summary/nutrition-trends?days="+days,owner).size())
+                .isEqualTo(days);
+        }
+    }
+
     @Test void mealNutritionSnapshotIdempotencyAndTenantIsolation() throws Exception {
         String a=login("video_admin","video-test-admin-password-2026");
         mvc.perform(get("/api/wellness/meals?date=2026-10-11")).andExpect(status().isUnauthorized());
