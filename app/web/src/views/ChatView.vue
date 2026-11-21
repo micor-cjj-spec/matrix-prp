@@ -251,6 +251,10 @@ watch(() => auth.token, (next, previous) => {
   historyOpen.value = false
   usage.value = null
   settings.value = null
+  provider.value = 'deepseek'
+  model.value = 'deepseek-chat'
+  savingModel.value = false
+  managingConversation.value = false
   streamError.value = ''
   historyLoading.value = false
   conversationsLoadingMore.value = false
