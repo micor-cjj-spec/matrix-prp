@@ -6,6 +6,15 @@ if [[ "$GITHUB_ACTIONS" != "true" || -z "$RUNNER_TEMP" ]]; then
   exit 2
 fi
 cd "$(git rev-parse --show-toplevel)"
+export MCP_E2E_REVIEW_VIDEO="${MCP_E2E_REVIEW_VIDEO:-false}"
+if [[ "$MCP_E2E_REVIEW_VIDEO" == "true" ]]; then
+  [[ "${MCP_E2E_EXACT_CHATGPT:-false}" == "true" &&
+     "${MCP_E2E_FIRST_PARTY:-false}" == "true" &&
+     "${MCP_E2E_CRUD:-false}" != "true" ]] || {
+    echo "Review/video signed E2E requires isolated exact-client PKCE without CRUD" >&2
+    exit 2
+  }
+fi
 tmp="$RUNNER_TEMP/prp-mcp-real-pkce"
 mkdir -p "$tmp/nginx" "$tmp/certs"
 export MCP_E2E_KC_ADMIN_PASSWORD MCP_E2E_KC_USER_PASSWORD MCP_E2E_PRP_PASSWORD MCP_E2E_CA_CERT
@@ -192,6 +201,26 @@ path.write_text(json.dumps(realm), encoding="utf-8")
 print("CI_EXACT_CHATGPT_CLIENT_ID_SAME_REALM_REGISTERED_WITH_SYNTHETIC_TEST_KEY=YES")
 PY_EXACT
 fi
+if [[ "$MCP_E2E_REVIEW_VIDEO" == "true" ]]; then
+  # Add scopes only to the disposable imported realm and exact synthetic client.
+  python3 - "$tmp/keycloak-realm.json" <<'PY_REVIEW_VIDEO_SCOPES'
+import copy, json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+realm = json.loads(path.read_text(encoding="utf-8"))
+prototype = next(s for s in realm["clientScopes"] if s["name"] == "prp.tasks.read")
+for name in ("prp.reviews.read", "prp.video.read"):
+    scope = copy.deepcopy(prototype)
+    scope["name"] = name
+    scope["description"] = "Disposable CI-only " + name
+    scope["attributes"]["consent.screen.text"] = name
+    realm["clientScopes"].append(scope)
+client = next(c for c in realm["clients"]
+              if c["clientId"] == "https://chatgpt.com/oauth/client.json")
+client["optionalClientScopes"] = ["prp.reviews.read", "prp.video.read"]
+path.write_text(json.dumps(realm), encoding="utf-8")
+print("CI_REVIEW_VIDEO_SCOPE_IMPORT_EPHEMERAL_ONLY=YES")
+PY_REVIEW_VIDEO_SCOPES
+fi
 cp "$tmp/keycloak-realm.json" "$tmp/import/prp-mcp-realm.json"
 docker run --rm -d --name prp-ci-real-keycloak \
   -p 127.0.0.1:18080:8080 \
@@ -337,6 +366,13 @@ if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
   }
   export MATRIX_PRP_MCP_EXPANDED_USER_IDS="1"
 fi
+if [[ "$MCP_E2E_REVIEW_VIDEO" == "true" ]]; then
+  # Default-OFF capability enabled ONLY for this disposable, synthetic owner.
+  export MATRIX_PRP_MCP_ADDITIONAL_READ_TOOLS_ENABLED="true"
+  export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="prp.reviews.read,prp.video.read"
+  export MATRIX_PRP_MCP_EXPANDED_USER_IDS="1"
+  export MATRIX_PRP_MCP_WRITE_ENABLED="false"
+fi
 export MATRIX_PRP_MCP_ALLOWED_ORIGINS="https://prp-e2e.localhost"
 export MATRIX_PRP_MCP_OAUTH_ISSUER="https://auth-e2e.localhost/realms/prp-mcp"
 export MATRIX_PRP_MCP_OAUTH_JWK_SET_URI="https://auth-e2e.localhost/realms/prp-mcp/protocol/openid-connect/certs"
@@ -363,14 +399,19 @@ java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
 backend_pid="$!"
 
 # Only generic PASS/failure step names are printed by the browser driver.
-python3 app/deploy/mcp-oauth/ci_pkce_browser.py
-echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP protocol."
+if [[ "$MCP_E2E_REVIEW_VIDEO" == "true" ]]; then
+  python3 app/deploy/mcp-oauth/ci_review_video_pkce.py
+  echo "PASS: signed Keycloak review/video scopes and bounded owner-only MCP reads."
+else
+  python3 app/deploy/mcp-oauth/ci_pkce_browser.py
+  echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP protocol."
+fi
 
 # Exercise an independent first-party public S256 pairing client on the
 # same disposable HTTPS Keycloak+PRP stack. It removes only the throwaway
 # prior owner link, rebinds with an owner-signed single-use ticket and checks
 # temporary client grant revocation with the new link still present.
-if [[ "${MCP_E2E_CRUD:-false}" != "true" ]]; then
+if [[ "${MCP_E2E_CRUD:-false}" != "true" && "$MCP_E2E_REVIEW_VIDEO" != "true" ]]; then
   python3 app/deploy/mcp-oauth/ci_browser_pairing_flow.py
   echo "PASS: public owner browser PKCE pairing and temporary client grant revocation."
 

@@ -325,7 +325,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [readonly, crud]
+        mode: [readonly, crud, review-video]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -337,8 +337,9 @@ jobs:
       - name: Run real ephemeral PKCE + owner link + MCP read/revoke end-to-end
         env:
           MCP_E2E_CRUD: ${{ matrix.mode == 'crud' && 'true' || 'false' }}
-          MCP_E2E_FIRST_PARTY: ${{ matrix.mode == 'crud' && 'true' || 'false' }}
-          MCP_E2E_EXACT_CHATGPT: ${{ matrix.mode == 'crud' && 'true' || 'false' }}
+          MCP_E2E_FIRST_PARTY: ${{ matrix.mode != 'readonly' && 'true' || 'false' }}
+          MCP_E2E_EXACT_CHATGPT: ${{ matrix.mode != 'readonly' && 'true' || 'false' }}
+          MCP_E2E_REVIEW_VIDEO: ${{ matrix.mode == 'review-video' && 'true' || 'false' }}
         run: bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
 
   safe-deployment-diagnostics:
