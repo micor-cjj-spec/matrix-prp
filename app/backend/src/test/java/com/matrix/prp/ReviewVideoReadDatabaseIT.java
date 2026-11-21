@@ -88,7 +88,13 @@ class ReviewVideoReadDatabaseIT {
         as(a);
         var top=reviews.listLimited(filter,20);
         assertThat(top).hasSize(20);
-        assertThat(top).allSatisfy(r -> assertThat(r.title()).startsWith("A-only-"));
+        // The MCP-specific SQL projection must not even fetch sensitive full review fields.
+        assertThat(top).allSatisfy(r -> {
+            assertThat(r.title()).startsWith("A-only-");
+            assertThat(r.highlights()).isNull();
+            assertThat(r.problems()).isNull();
+            assertThat(r.nextActions()).isNull();
+        });
         assertThat(top).noneSatisfy(r -> assertThat(r.id()).isEqualTo(deleted.id()));
         assertThat(reviews.listLimited(
             new ReviewFilter("monthly","learning",first,last),20)).isEmpty();

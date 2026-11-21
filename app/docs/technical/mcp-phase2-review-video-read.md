@@ -4,7 +4,7 @@ Tracking: #218 (child of #170). This branch does not add live MCP tools. No depl
 
 ## Existing data sources
 
-- Review: `ReviewService.listLimited(ReviewFilter, limit)` calls the existing `MyBatisReviewRepository` owner-scoped filter and enforces an SQL `LIMIT` (1–20). Original `list` behavior for REST is unchanged.
+- Review: `ReviewService.listLimited(ReviewFilter, limit)` calls the existing `MyBatisReviewRepository` owner-scoped filter and enforces an SQL `LIMIT` (1–20). The bounded SELECT fetches only ID, type, module, title, summary, date range and creation time, excluding full highlights/problems/nextActions at the SQL layer. Original `list` behavior for REST is unchanged.
 - Video: new `VideoLibraryService.foldersLimited(limit)` and `videosLimited(folderId, limit)` use `CurrentUser.id()`, bind a parameterized SQL `LIMIT`, and reject foreign folders. Original REST methods are unchanged.
 - Reuse those services; do not query other tenants, accept a caller-provided userId, fetch playback URLs, issue media tickets, read raw MP4 data, or expose uploading state.
 
