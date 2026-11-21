@@ -31,6 +31,28 @@ public class MyBatisReviewRepository implements ReviewRepository {
 
     @Override
     public List<ReviewItem> list(ReviewFilter filter) {
+        return reviewMapper.selectList(criteria(filter)).stream()
+                .map(ReviewEntity::toItem).toList();
+    }
+
+    @Override
+    public List<ReviewItem> listLimited(ReviewFilter filter, int limit) {
+        if (limit < 1 || limit > 20) throw new IllegalArgumentException("Review limit must be 1..20");
+        // Preview-only projection: do not retrieve private highlights, problems,
+        // nextActions, update timestamps or any unrelated owner data from SQL.
+        // Safe: the suffix contains only this validated integer; never user input.
+        var query = criteria(filter)
+                .select(ReviewEntity::getId, ReviewEntity::getReviewType,
+                        ReviewEntity::getModuleCode, ReviewEntity::getTitle,
+                        ReviewEntity::getSummary, ReviewEntity::getPeriodStart,
+                        ReviewEntity::getPeriodEnd, ReviewEntity::getCreatedAt)
+                .orderByDesc(ReviewEntity::getId)
+                .last("LIMIT " + limit);
+        return reviewMapper.selectList(query).stream()
+                .map(ReviewEntity::toItem).toList();
+    }
+
+    private LambdaQueryWrapper<ReviewEntity> criteria(ReviewFilter filter) {
         ReviewFilter effectiveFilter = filter == null ? new ReviewFilter(null, null, null, null) : filter;
         LambdaQueryWrapper<ReviewEntity> wrapper = new LambdaQueryWrapper<ReviewEntity>()
                 .eq(ReviewEntity::getUserId, CurrentUser.id())
@@ -47,10 +69,7 @@ public class MyBatisReviewRepository implements ReviewRepository {
                         ReviewEntity::getPeriodStart,
                         effectiveFilter.periodEnd())
                 .orderByDesc(ReviewEntity::getCreatedAt);
-        return reviewMapper.selectList(wrapper)
-                .stream()
-                .map(ReviewEntity::toItem)
-                .toList();
+        return wrapper;
     }
 
     @Override

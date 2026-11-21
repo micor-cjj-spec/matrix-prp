@@ -152,7 +152,7 @@ jobs:
           MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
         run: |
           chmod +x mvnw
-          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT test
+          ./mvnw -B -Dtest=VideoDatabaseIT,ReviewVideoReadDatabaseIT,McpReviewVideoOwnedMysqlOAuthIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT test
 
 
   deployment-gate-tests:
@@ -318,7 +318,9 @@ jobs:
     # Full disposable CI: live Keycloak browser login+PKCE, fresh PRP MySQL,
     # TLS trusted JWKS, first-party owner grant/link and OAuth MCP tool calls.
     # No prod DNS, no user data, no external server access.
-    runs-on: ubuntu-latest
+    # Pin to the runner image that passed the independent real Keycloak+PKCE E2E:
+    # ubuntu-latest (26.04) returned an HTTPS URLError while Keycloak loopback was 200.
+    runs-on: ubuntu-24.04
     timeout-minutes: 28
     strategy:
       fail-fast: false

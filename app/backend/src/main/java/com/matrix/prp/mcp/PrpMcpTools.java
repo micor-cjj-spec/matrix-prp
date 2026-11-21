@@ -8,6 +8,8 @@ import com.matrix.prp.records.model.CreateRecordRequest;
 import com.matrix.prp.records.model.RecordFilter;
 import com.matrix.prp.records.service.RecordService;
 import com.matrix.prp.practice.PracticeService;
+import com.matrix.prp.reviews.service.ReviewService;
+import com.matrix.prp.video.VideoLibraryService;
 import com.matrix.prp.practice.PracticeModels;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.model.TaskFilter;
@@ -39,6 +41,11 @@ public class PrpMcpTools {
     /** PracticeService is profile-excluded from database-free tests; production supplies it. */
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     private PracticeService practice;
+    /** Review/video services are absent in some database-free test profiles. */
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private ReviewService reviewRead;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private VideoLibraryService videoRead;
     private final McpDraftService drafts;
     private final McpScopeGuard scopes;
 
@@ -410,6 +417,42 @@ public class PrpMcpTools {
     public Object practiceStatistics() {
         scopes.require("prp.practice.read");
         return practiceReadService().statistics();
+    }
+
+    // Optional Phase 2 reads. Both services are required, and the independent
+    // OAuth manifest keeps all three tools invisible unless explicitly enabled.
+    private McpReviewVideoReadAdapter reviewVideoReadAdapter() {
+        if (reviewRead == null || videoRead == null) {
+            throw new IllegalStateException("Review/video read services unavailable");
+        }
+        return new McpReviewVideoReadAdapter(reviewRead, videoRead);
+    }
+
+    @McpTool(name="prp_reviews_list", description="Read 1-20 owner-scoped review previews filtered by review type, module and overlapping date range. Detailed highlights, problems and next actions are withheld.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object reviewPreviews(
+            @McpToolParam(description="Optional review type, at most 64 characters",required=false) String reviewType,
+            @McpToolParam(description="Optional PRP module code, at most 64 characters",required=false) String moduleCode,
+            @McpToolParam(description="Optional review period start yyyy-MM-dd",required=false) String periodStart,
+            @McpToolParam(description="Optional review period end yyyy-MM-dd",required=false) String periodEnd,
+            @McpToolParam(description="Number of previews 1-20, default 10",required=false) Integer limit) {
+        scopes.require("prp.reviews.read");
+        return reviewVideoReadAdapter().listReviewPreviews(reviewType, moduleCode,
+            optionalDate(periodStart), optionalDate(periodEnd), limit);
+    }
+
+    @McpTool(name="prp_video_folders", description="Read up to 50 owner-scoped video folder titles and IDs. No video content, upload status or playback credentials.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object videoFolderPreviews(
+            @McpToolParam(description="Number of folders 1-50, default 20",required=false) Integer limit) {
+        scopes.require("prp.video.read");
+        return reviewVideoReadAdapter().listFolderPreviews(limit);
+    }
+
+    @McpTool(name="prp_video_progress", description="Read up to 30 own video titles and persisted viewing positions, optionally filtered to an owned folder. No playback URLs, stream tickets or video files.", annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object videoProgressPreviews(
+            @McpToolParam(description="Optional positive owned folder ID",required=false) Long folderId,
+            @McpToolParam(description="Number of items 1-30, default 20",required=false) Integer limit) {
+        scopes.require("prp.video.read");
+        return reviewVideoReadAdapter().listVideoPreviews(folderId, limit);
     }
 
     private static int practiceLimit(Integer limit) {
