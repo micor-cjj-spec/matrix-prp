@@ -130,6 +130,16 @@
       "reason": "MCP queries the same owned records and filters, but returns at most 20 items with 200-character previews instead of full note bodies"
     },
     {
+      "route": "GET /api/reviews",
+      "status": "partial",
+      "tool": "prp_reviews_list",
+      "reason": "MCP returns at most 20 owner-scoped title/200-code-point summary previews; REST can return all full review notes, highlights, problems and next actions",
+      "tests": [
+        "app/backend/src/test/java/com/matrix/prp/mcp/McpReviewVideoOAuthTests.java",
+        "app/backend/src/test/java/com/matrix/prp/ReviewVideoReadDatabaseIT.java"
+      ]
+    },
+    {
       "route": "GET /api/tasks",
       "status": "partial",
       "tool": "prp_tasks_search",
@@ -140,6 +150,26 @@
       "status": "mapped",
       "tool": "prp_tasks_summary",
       "reason": "Shared TaskService.summary, same per-owner aggregate as REST"
+    },
+    {
+      "route": "GET /api/video/folders",
+      "status": "partial",
+      "tool": "prp_video_folders",
+      "reason": "MCP returns at most 50 owner-scoped folder IDs and shortened names; REST returns the complete folder collection",
+      "tests": [
+        "app/backend/src/test/java/com/matrix/prp/mcp/McpReviewVideoOAuthTests.java",
+        "app/backend/src/test/java/com/matrix/prp/ReviewVideoReadDatabaseIT.java"
+      ]
+    },
+    {
+      "route": "GET /api/video/items",
+      "status": "partial",
+      "tool": "prp_video_progress",
+      "reason": "MCP returns at most 30 owner-scoped video titles and viewing positions with optional owned folder filter; REST returns the full unbounded video metadata collection",
+      "tests": [
+        "app/backend/src/test/java/com/matrix/prp/mcp/McpReviewVideoOAuthTests.java",
+        "app/backend/src/test/java/com/matrix/prp/ReviewVideoReadDatabaseIT.java"
+      ]
     },
     {
       "route": "GET /api/video/items/{id}/playback",

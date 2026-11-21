@@ -53,3 +53,25 @@ cd app/backend
 ```
 
 The test creates random synthetic users and records in CI's `matrix_prp` database only. It must never be pointed at production MySQL, production OAuth credentials or real users.
+
+## Exact-head CI evidence and route capability audit
+
+- Phase 1 Draft #219 at `4b2902f77fc9cf92a88e68cc12594c77c928580b`: [CI #44924661707](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44924661707), attempt 2 **34/34 PASS**.
+- Phase 2 combined CI at `58a694a770b01fce92721eefa2caddcf410a7c40`: [CI #44924688689](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44924688689) **35/35 PASS**, 463/463 backend, 29/29 real MySQL, and real disposable Keycloak RSA-signed two-scope PKCE `review-video` job PASS. These results apply **only to those SHA values**; after any new documentation/contract commit, review the new exact-head checks again.
+- Parent Issue #170 additionally requires a REST-to-MCP capability registry update. This Phase 2 records three **partial** mappings: `GET /api/reviews -> prp_reviews_list`, `GET /api/video/folders -> prp_video_folders`, and `GET /api/video/items -> prp_video_progress`. All return narrower, bounded projections than the REST endpoints. Playback, media and upload-state routes remain **excluded**. The mapping catalog is an audit artifact, **not** a tool enablement flag or a user grant.
+
+## Real-client and release decision gate (NO-GO until independently cleared)
+
+The CI-only signed-token test uses disposable Keycloak, synthetic owners and a throwaway private key for the exact ChatGPT client ID. It **does not** prove OpenAI possesses/uses that key or that the active Realm accepts the actual ChatGPT `private_key_jwt` assertion.
+
+Before a separately approved *isolated test-stage* activation, require all of:
+
+1. A newly dated read-only inventory of the target Realm's exact-client policy, profiles, mappers, JWKS trust and existing clients. The October G0/B2 records in `app/deploy/mcp-oauth/keycloak-resource-guard/G0-EXACT-CLIENT-DELTA-REVIEW-20261027.md` and `B2-RELEASE-GATE.md` historically marked installation **NO-GO** and genuine current backup/restore/install approval receipts missing; do not treat these dated observations as proof of today's state or fabricate approval receipts.
+2. Explicitly authorized fresh backup plus **isolated restore and rollback evidence** for the actual target Keycloak Realm and signing state; verify original client inventory and exact audience mapper are preserved. Never modify a shared Realm, public Nginx or production database to shortcut a failed gate.
+3. Explicit review of real ChatGPT CIMD metadata, exact `https://chatgpt.com/oauth/client.json` client, registered callback, `private_key_jwt`, PKCE S256, exact `resource` and trusted HTTPS discovery. Verify real signed token's audience, issuer, client identity, scope and expiry without exposing credentials, codes, access/refresh tokens, cookies, PKCE verifier or PII in Issues.
+4. A separately approved, non-production account linkage and consent test: grant **only** `prp.reviews.read` and/or `prp.video.read` to the intended synthetic/test user; confirm no unrelated reads/writes, foreign account denial, and immediate access revocation. Do not equate this to production consent.
+5. A production-specific **new change request and separate rollback review**: the existing `McpProductionWellnessGuard` intentionally rejects both new scopes and existing health-only grants must remain intact. **Do not disable or weaken that guard in #218.**
+
+**Rollback boundary:** in any future separately authorized test-stage activation, first turn OFF `matrix-prp.mcp.additional-read-tools-enabled`, restore the previously approved exact advertised-scope configuration, revoke only the newly granted test client scopes and verify existing task/health tools still work. Restore Keycloak policy/client changes solely through the original approved G0/B2 rollback transaction. Never delete shared Keycloak clients/volumes, rotate production keys casually, or use `docker compose down -v` against a shared environment.
+
+**Decision:** code-level review and disposable CI may be accepted as engineering evidence, but #218 is **not release approved**. Keep #219/#224 Draft, never merge #225, and do not deploy or expand production OAuth consent without a distinct user-authorized change.
