@@ -413,6 +413,11 @@
       "reason": "Owner-only first-party AI knowledge suggestions remain PENDING; external MCP submission needs separately approved scope, provenance and consent flow."
     },
     {
+      "route": "POST /api/memory/ai-candidates/inspect",
+      "status": "excluded",
+      "reason": "Local owner-only preflight may derive sensitive personal fact existence; never available to MCP/model tools."
+    },
+    {
       "route": "POST /api/memory/candidates",
       "status": "excluded",
       "reason": "Memory candidate writes require a separate model-scoped draft and immutable proposal review design; this authenticated first-party form route is excluded pending T-006."
