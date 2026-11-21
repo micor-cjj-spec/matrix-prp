@@ -134,3 +134,77 @@ export async function invalidatePersonalMemory(id: number) {
 export async function erasePersonalMemory(id: number) {
   await apiClient.delete<ApiResponse<void>>(`/memory/${id}`)
 }
+
+/** T-005: personal-goal model sharing is separate from normal chat/MCP scopes. */
+export interface PlanningEvidence {
+  reference: string
+  relation: string
+  statement: string
+  evidenceClass: string
+}
+export interface PlanningGap {
+  code: string
+  explanation: string
+}
+export interface PlanningTaskDraft {
+  title: string
+  rationale: string
+  evidenceRefs: string[]
+}
+export interface PlanningSnapshot {
+  goalId: number
+  title: string
+  status: string
+  successCriteria: string | null
+  evidence: PlanningEvidence[]
+  gaps: PlanningGap[]
+  taskDrafts: PlanningTaskDraft[]
+  modelInvoked: boolean
+  dataWritten: boolean
+  limitation: string
+}
+export interface PlanningModelReview {
+  previewId: string
+  goalId: number
+  provider: string
+  model: string
+  snapshot: PlanningSnapshot
+  expiresAtMillis: number
+}
+export interface PlanningModelProposal {
+  title: string
+  rationale: string
+  evidenceRefs: string[]
+  assumptions: string[]
+}
+export interface PlanningModelAdvice {
+  goalId: number
+  provider: string
+  model: string
+  proposals: PlanningModelProposal[]
+  evidence: PlanningEvidence[]
+  gaps: PlanningGap[]
+  dataWritten: boolean
+  limitation: string
+}
+
+export async function previewGoalModelSharing(id: number, includePersonalFacts: boolean) {
+  const { data } = await apiClient.post<ApiResponse<PlanningModelReview>>(
+    `/ai/personal-os/goals/${id}/model/preview`, { includePersonalFacts },
+  )
+  return data.data
+}
+
+export async function confirmGoalModelSharing(id: number, previewId: string) {
+  const { data } = await apiClient.post<ApiResponse<{ modelToken: string }>>(
+    `/ai/personal-os/goals/${id}/model/confirm`, { previewId },
+  )
+  return data.data.modelToken
+}
+
+export async function suggestGoalModelAdvice(id: number, modelToken: string) {
+  const { data } = await apiClient.post<ApiResponse<PlanningModelAdvice>>(
+    `/ai/personal-os/goals/${id}/model/suggest`, { modelToken },
+  )
+  return data.data
+}
