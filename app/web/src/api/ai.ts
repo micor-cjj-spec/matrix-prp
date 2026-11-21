@@ -134,6 +134,8 @@ export interface ChatKnowledgeSuggestion {
   requestKey: string
 }
 export interface ChatKnowledgeExtraction {
+  conversationId: string
+  messageId: number
   provider: string
   model: string
   candidates: ChatKnowledgeSuggestion[]
