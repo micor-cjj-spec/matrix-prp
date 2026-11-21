@@ -32,7 +32,7 @@ class PersonalOsMcpReadToolsTests {
         mock(FinanceService.class), mock(WellnessService.class),
         mock(RecordService.class), mock(McpDraftService.class), guard);
 
-    private PersonalOsMcpReadToolsTests() {
+    PersonalOsMcpReadToolsTests() {
         ReflectionTestUtils.setField(tools, "personalGoals", goals);
         ReflectionTestUtils.setField(tools, "personalMemories", memories);
     }
