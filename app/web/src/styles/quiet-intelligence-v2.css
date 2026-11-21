@@ -426,3 +426,24 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
  .prp-shell .wellness-v2-intro-actions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
  .prp-shell .wellness-v2-intro-actions .el-button {width:100%;margin:0}
 }
+
+
+/* Touch-friendly interactions. The behavior/route behind each control is untouched. */
+@media (pointer:coarse) and (max-width:860px) {
+  .prp-shell .prp-back-to-apps,
+  .prp-shell .home-v2-primary-link,
+  .prp-shell .home-v2-focus-aside a,
+  .prp-shell .prp-app-filters button,
+  .prp-shell .prp-app-card,
+  .prp-shell .prp-favorite-button,
+  .prp-shell .prp-icon-link,
+  .prp-shell .wellness-page .food-chip {
+    min-height:44px;
+  }
+  .prp-shell-chat .prp-chat-workspace .chat-icon-button,
+  .prp-shell-chat .prp-chat-workspace .chat-compose-left button,
+  .prp-shell-chat .prp-chat-workspace .chat-send {
+    min-width:44px;min-height:44px;
+  }
+  .prp-shell .prp-mobile-tab {min-height:54px}
+}
