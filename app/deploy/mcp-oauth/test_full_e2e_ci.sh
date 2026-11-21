@@ -21,6 +21,21 @@ for secret in "$MCP_E2E_KC_ADMIN_PASSWORD" "$MCP_E2E_KC_USER_PASSWORD" "$MCP_E2E
 done
 backend_pid=""
 cleanup() {
+  local result=$?
+  if [[ "$result" -ne 0 ]] && docker inspect prp-ci-real-keycloak >/dev/null 2>&1; then
+    # Only fixed state/exit-code data, no container logs, secrets, tokens,
+    # environment dumps or health-response bodies.
+    local state status
+    state="$(docker inspect --format '{{.State.Status}}/exit={{.State.ExitCode}}' prp-ci-real-keycloak 2>/dev/null || true)"
+    status="$(curl --noproxy '*' --max-time 5 -s -o /dev/null -w '%{http_code}' \
+      'http://127.0.0.1:18080/realms/prp-mcp/.well-known/openid-configuration' || true)"
+    echo "CI_E2E_KEYCLOAK_CONTAINER_STATE=${state:-unknown}"
+    if [[ "$status" =~ ^[0-9]{3}$ ]]; then
+      echo "CI_E2E_KEYCLOAK_DIRECT_HTTP_STATUS=$status"
+    else
+      echo "CI_E2E_KEYCLOAK_DIRECT_HTTP_STATUS=unavailable"
+    fi
+  fi
   docker rm -f prp-ci-real-keycloak prp-ci-real-nginx prp-ci-real-mysql >/dev/null 2>&1 || true
   if [[ -n "$backend_pid" ]]; then kill "$backend_pid" >/dev/null 2>&1 || true; fi
 }

@@ -18,7 +18,7 @@ import sys
 import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urljoin, urlsplit, parse_qs
-from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler, ProxyHandler
 
 from oauth_token_check import check_token
 
@@ -113,14 +113,22 @@ def json_response(response, stage):
 
 def wait_ready(opener, url, max_seconds=150):
     until = time.monotonic() + max_seconds
+    last_http = None
+    last_exception = None
     while time.monotonic() < until:
         try:
-            if request(opener, url)[0] == 200:
+            last_http = request(opener, url)[0]
+            if last_http == 200:
                 return
-        except (OSError, ValueError, ssl.SSLError):
-            pass
+        except (OSError, ValueError, ssl.SSLError) as error:
+            # Print only the error class, never request URLs, headers, bodies,
+            # cookies, credentials, tokens or exception text.
+            last_exception = type(error).__name__
         time.sleep(3)
-    raise RuntimeError("Temporary environment not healthy: " + ("Keycloak" if "auth-" in url else "PRP"))
+    stage = "Keycloak" if "auth-" in url else "PRP"
+    diagnostic = (" HTTP_" + str(last_http) if last_http is not None else "")
+    diagnostic += (" transport_" + last_exception if last_exception else "")
+    raise RuntimeError("Temporary environment not healthy: " + stage + diagnostic)
 
 
 def add_user(opener, admin_password, username, password):
@@ -407,7 +415,10 @@ def main():
     context = ssl.create_default_context(cafile=ca)
     # Authenticate against the actual HTTPS staging-style proxy and retain
     # browser cookies for the Keycloak login/consent pages.
-    opener = build_opener(HTTPSHandler(context=context), HTTPCookieProcessor(CookieJar()), SafeRedirect())
+    # Every endpoint in this disposable suite resolves to the local runner.
+    # Never inherit runner proxy environment variables for localhost OAuth probes.
+    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context),
+                          HTTPCookieProcessor(CookieJar()), SafeRedirect())
     admin_pass = os.environ["MCP_E2E_KC_ADMIN_PASSWORD"]
     user_password = os.environ["MCP_E2E_KC_USER_PASSWORD"]
     prp_password = os.environ["MCP_E2E_PRP_PASSWORD"]
