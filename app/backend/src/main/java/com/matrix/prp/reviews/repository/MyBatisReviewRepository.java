@@ -31,6 +31,19 @@ public class MyBatisReviewRepository implements ReviewRepository {
 
     @Override
     public List<ReviewItem> list(ReviewFilter filter) {
+        return reviewMapper.selectList(criteria(filter)).stream()
+                .map(ReviewEntity::toItem).toList();
+    }
+
+    @Override
+    public List<ReviewItem> listLimited(ReviewFilter filter, int limit) {
+        if (limit < 1 || limit > 20) throw new IllegalArgumentException("Review limit must be 1..20");
+        // Safe: the suffix contains only this validated integer; never user input.
+        return reviewMapper.selectList(criteria(filter).last("LIMIT " + limit)).stream()
+                .map(ReviewEntity::toItem).toList();
+    }
+
+    private LambdaQueryWrapper<ReviewEntity> criteria(ReviewFilter filter) {
         ReviewFilter effectiveFilter = filter == null ? new ReviewFilter(null, null, null, null) : filter;
         LambdaQueryWrapper<ReviewEntity> wrapper = new LambdaQueryWrapper<ReviewEntity>()
                 .eq(ReviewEntity::getUserId, CurrentUser.id())
@@ -46,11 +59,9 @@ public class MyBatisReviewRepository implements ReviewRepository {
                 .le(effectiveFilter.periodEnd() != null,
                         ReviewEntity::getPeriodStart,
                         effectiveFilter.periodEnd())
-                .orderByDesc(ReviewEntity::getCreatedAt);
-        return reviewMapper.selectList(wrapper)
-                .stream()
-                .map(ReviewEntity::toItem)
-                .toList();
+                .orderByDesc(ReviewEntity::getCreatedAt)
+                .orderByDesc(ReviewEntity::getId);
+        return wrapper;
     }
 
     @Override
