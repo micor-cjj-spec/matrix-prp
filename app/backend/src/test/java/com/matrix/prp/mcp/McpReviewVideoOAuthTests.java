@@ -152,6 +152,21 @@ class McpReviewVideoOAuthTests {
         verifyNoInteractions(reviews,videos);
     }
 
+    @Test void unexpectedOAuthClientCannotReadReviewOrVideo() throws Exception {
+        identity(2,"https://client.example.test/oauth/client.json",
+            "prp.reviews.read prp.video.read",Set.of("prp.reviews.read","prp.video.read"));
+        rpc("prp_reviews_list",Map.of());
+        rpc("prp_video_progress",Map.of());
+        verifyNoInteractions(reviews,videos);
+    }
+
+    @Test void unlinkedOAuthIdentityCannotReadEvenIfTokenHasScopes() throws Exception {
+        when(links.resolveUserId("https://issuer.example.test","synthetic-rv-user"))
+            .thenReturn(OptionalLong.empty());
+        assertThat(rpc("prp_reviews_list",Map.of()).getResponse().getStatus()).isEqualTo(401);
+        verifyNoInteractions(reviews,videos);
+    }
+
     @Test void missingScopeRevokedConsentAndUnapprovedOwnerAllFailClosed() throws Exception {
         identity(2,CLIENT,"prp.video.read",Set.of("prp.reviews.read","prp.video.read"));
         assertThat(rpc("prp_reviews_list",Map.of()).getResponse().getContentAsString())
