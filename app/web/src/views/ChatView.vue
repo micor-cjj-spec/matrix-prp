@@ -854,7 +854,9 @@ onBeforeUnmount(() => { controller?.abort(); resetKnowledgeReview() })
     </el-dialog>
 
     <el-dialog v-model="knowledgeVisible" title="提取个人知识候选"
-      width="min(600px, 96vw)" append-to-body @closed="resetKnowledgeReview">
+      width="min(600px, 96vw)" append-to-body
+      :close-on-click-modal="false" :close-on-press-escape="!knowledgeSaving"
+      :show-close="!knowledgeSaving" @closed="resetKnowledgeReview">
       <template v-if="knowledgePreview">
         <p class="chat-consent-explain">请核对以下<strong>唯一一条</strong>用户消息。点击授权后，才会将这段原文发送给 {{ knowledgePreview.provider }} / {{ knowledgePreview.model }} 提取知识。不会读取其他聊天消息、健康或财务记录。</p>
         <pre class="chat-preview-data">{{ knowledgePreview.messageText }}</pre>
