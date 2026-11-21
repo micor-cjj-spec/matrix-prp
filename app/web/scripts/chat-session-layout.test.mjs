@@ -399,3 +399,15 @@ test('confirmed manual meal save never asks to resubmit when subsequent refresh 
   assert.match(view, /async function loadDay\(strict = false\)/)
   assert.match(view, /if \(strict\) throw error/)
 })
+
+test('confirmed label verification and deletion stay confirmed if only refresh fails', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const labelFlow = view.slice(view.indexOf('async function submitLabelReview()'), view.indexOf('async function openAnalysis('))
+  assert.match(labelFlow, /await wellnessApi\.verifyMealLabel\([\s\S]*?ElMessage\.success\('已按实际食用克数计算营养，并保存人工核实版本'\)/)
+  assert.match(labelFlow, /try \{\s*await Promise\.all\(\[loadDay\(true\), loadTrend\(\)\]\)\s*\} catch \{\s*ElMessage\.warning\('营养标签已核实，但页面刷新失败/)
+  assert.match(labelFlow, /ElMessage\.error\(message \|\| '营养标签核实请求未确认，请刷新页面核对后再重试'\)/)
+  const deleteFlow = view.slice(view.indexOf('async function deleteMeal(meal: Meal)'), view.indexOf('const copyingMealId'))
+  assert.match(deleteFlow, /try \{\s*await wellnessApi\.deleteMeal\(meal\.id\)\s*\} catch \{[\s\S]*?return\s*\}/)
+  assert.match(deleteFlow, /ElMessage\.success\('已删除'\)\s*try \{\s*await Promise\.all\(\[loadDay\(true\), loadTrend\(\)\]\)/)
+  assert.match(deleteFlow, /catch \{\s*ElMessage\.warning\('餐食已删除，但页面刷新失败/)
+})
