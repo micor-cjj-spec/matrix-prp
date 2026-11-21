@@ -123,6 +123,62 @@ class WellnessDatabaseIT {
             .path("calories").decimalValue()).isEqualByComparingTo("160");
     }
 
+    @Test void repeatedSnackCopyKeepsCalorieAndMacroTrendsInSync() throws Exception {
+        String admin=login("video_admin","video-test-admin-password-2026");
+        String invite=postJson("/api/auth/invitations",admin,Map.of())
+            .path("code").asText();
+        String username="snack_trend_"+UUID.randomUUID().toString().substring(0,8);
+        String owner=postJson("/api/auth/register",null,Map.of(
+            "username",username,"password","snack-trend-test-2026",
+            "displayName","Snack trend synthetic user","invitationCode",invite))
+            .path("token").asText();
+        String date=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))
+            .minusDays(1).toString();
+
+        long food=postJson("/api/wellness/foods",owner,Map.of(
+            "name","Synthetic daily snack "+UUID.randomUUID(),
+            "preparation","cooked","calories100g",100,
+            "protein100g",10,"carbs100g",12,"fat100g",2,
+            "sourceNote","synthetic CI")).path("id").asLong();
+        long source=postJson("/api/wellness/meals",owner,Map.of(
+            "mealDate",date,"mealType","SNACK","note","Actual eaten snack",
+            "items",List.of(Map.of("foodId",food,"grams",100)),
+            "idempotencyKey","source-"+UUID.randomUUID())).path("id").asLong();
+
+        String retryKey="copy-"+UUID.randomUUID();
+        String endpoint="/api/wellness/meals/"+source+"/copy?date="+date+
+            "&idempotencyKey="+retryKey;
+        long copied=postJson(endpoint,owner,Map.of()).path("id").asLong();
+        assertThat(copied).isPositive().isNotEqualTo(source);
+        assertThat(postJson(endpoint,owner,Map.of()).path("id").asLong()).isEqualTo(copied);
+        assertThat(getData("/api/wellness/meals?date="+date,owner).size()).isEqualTo(2);
+        assertThat(getData("/api/wellness/summary/daily?date="+date,owner)
+            .path("calories").decimalValue()).isEqualByComparingTo("200");
+        JsonNode trends=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        JsonNode point=null;
+        for(JsonNode day:trends) if(date.equals(day.path("date").asText()))point=day;
+        assertThat(point).isNotNull();
+        assertThat(point.path("foodItemCount").asInt()).isEqualTo(2);
+        assertThat(point.path("knownProteinCount").asInt()).isEqualTo(2);
+        assertThat(point.path("proteinG").decimalValue()).isEqualByComparingTo("20");
+        assertThat(point.path("carbsG").decimalValue()).isEqualByComparingTo("24");
+        assertThat(point.path("fatG").decimalValue()).isEqualByComparingTo("4");
+
+        // A new intentional event is distinct from replay of the previous one.
+        long second=postJson("/api/wellness/meals/"+source+"/copy?date="+date+
+            "&idempotencyKey=copy-"+UUID.randomUUID(),owner,Map.of())
+            .path("id").asLong();
+        assertThat(second).isNotEqualTo(copied);
+        assertThat(getData("/api/wellness/summary/daily?date="+date,owner)
+            .path("calories").decimalValue()).isEqualByComparingTo("300");
+        JsonNode points=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        for(JsonNode day:points)if(date.equals(day.path("date").asText()))point=day;
+        assertThat(point.path("foodItemCount").asInt()).isEqualTo(3);
+        assertThat(point.path("proteinG").decimalValue()).isEqualByComparingTo("30");
+        assertThat(point.path("carbsG").decimalValue()).isEqualByComparingTo("36");
+        assertThat(point.path("fatG").decimalValue()).isEqualByComparingTo("6");
+    }
+
     @Test void approvedAiMealLabelAndDailyNutritionTrendReadBackAreConsistent() throws Exception {
         // Synthetic first-party flow only: create a private pending AI draft,
         // confirm it once, explicitly verify the label, then compare all three
