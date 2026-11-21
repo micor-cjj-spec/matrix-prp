@@ -134,6 +134,10 @@ public final class PersonalOsPlanningAdviceService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                 "Personal context changed: review and approve a new snapshot");
         }
+        if (!Set.of("PLANNED", "ACTIVE", "PAUSED").contains(latest.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "Completed or cancelled goals cannot create new action suggestions");
+        }
 
         // Resolve a configured provider only after the grant and snapshot checks.
         // There is no free-form user prompt, chat history, tool planner or MCP access.
