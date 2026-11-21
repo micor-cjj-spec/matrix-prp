@@ -387,29 +387,75 @@ public class WellnessService {
         return meal(id);
     }
 
+    private static boolean sameAmount(BigDecimal a,BigDecimal b) {
+        return a==null?b==null:b!=null && a.compareTo(b)==0;
+    }
+    /**
+     * A note/date/type-only change must not destroy the confirmed nutrition
+     * snapshot and V30 item provenance; item IDs are the evidence foreign keys.
+     * A changed item still goes through the existing replacement behavior.
+     */
+    private static boolean sameAiMealItems(List<MealItem> saved,List<AiMealItem> requested) {
+        if(saved.size()!=requested.size()) return false;
+        for(int i=0;i<saved.size();i++) {
+            MealItem old=saved.get(i);
+            AiMealItem next=requested.get(i);
+            if(old.foodId()>0) {
+                if(next.foodId()==null || next.foodId()!=old.foodId() ||
+                   !sameAmount(old.grams(),next.grams())) return false;
+            } else {
+                if(next.foodId()!=null && next.foodId()>0 ||
+                   !Objects.equals(old.foodName(),next.name().trim()) ||
+                   !sameAmount(old.grams(),next.grams()==null?BigDecimal.ZERO:next.grams()) ||
+                   !sameAmount(old.calories(),next.calories())) return false;
+            }
+        }
+        return true;
+    }
+    private static boolean sameCatalogMealItems(List<MealItem> saved,List<ItemInput> requested) {
+        if(saved.size()!=requested.size()) return false;
+        for(int i=0;i<saved.size();i++) {
+            MealItem old=saved.get(i);
+            ItemInput next=requested.get(i);
+            if(next.foodId()==null || old.foodId()!=next.foodId() ||
+               !sameAmount(old.grams(),next.grams())) return false;
+        }
+        return true;
+    }
+
     @Transactional
     public Meal updateAiMeal(long id,LocalDate date,String type,String note,List<AiMealItem> items) {
-        Meal before=meal(id); // owner check before any mutation
         validateAiMealInput(date,type,note,items);
         long user=CurrentUser.id();
+        lockMealOwner(user); // same lock order as human label verification
+        Meal before=meal(id); // owner check inside serialized transaction
         if(!before.mealDate().equals(date) || !before.mealType().equals(type))
-            { lockMealOwner(user); assertMealSlotFree(user,date,type,id); }
+            assertMealSlotFree(user,date,type,id);
+        boolean itemsChanged=!sameAiMealItems(before.items(),items);
         db.update("UPDATE prp_wellness_meals SET meal_date=?,meal_type=?,note=? WHERE id=? AND user_id=?",
-                date,type,note,id,CurrentUser.id());
-        db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
-        insertAiItems(id,items);
+                date,type,note,id,user);
+        if(itemsChanged) {
+            db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
+            insertAiItems(id,items);
+        }
         return meal(id);
     }
 
     @Transactional
     public Meal updateMeal(long id, MealInput input) {
-        Meal before=meal(id);validateMeal(input);
+        validateMeal(input);
+        long user=CurrentUser.id();
+        lockMealOwner(user); // serialize meal edits with label confirmations and copies
+        Meal before=meal(id);
         if(!before.mealDate().equals(input.mealDate()) || !before.mealType().equals(input.mealType()))
-            { lockMealOwner(CurrentUser.id()); assertMealSlotFree(CurrentUser.id(),input.mealDate(),input.mealType(),id); }
+            assertMealSlotFree(user,input.mealDate(),input.mealType(),id);
+        boolean itemsChanged=!sameCatalogMealItems(before.items(),input.items());
         db.update("UPDATE prp_wellness_meals SET meal_date=?,meal_type=?,note=? WHERE id=? AND user_id=?",
-                input.mealDate(),input.mealType(),input.note(),id,CurrentUser.id());
-        db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
-        insertItems(id,input.items());
+                input.mealDate(),input.mealType(),input.note(),id,user);
+        if(itemsChanged) {
+            db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
+            insertItems(id,input.items());
+        }
         return meal(id);
     }
     private void insertItems(long id,List<ItemInput> inputs) {
