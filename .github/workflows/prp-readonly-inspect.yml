@@ -2,11 +2,6 @@ name: PRP independent read-only inspection
 run-name: PRP inspect production at ${{ github.sha }}
 on:
   workflow_dispatch:
-  # This read-only request can be placed by the authenticated owner through
-  # ChatGPT's GitHub connector; no Actions UI / workflow_dispatch needed.
-  # The workflow is always evaluated from the default branch, never an issue PR.
-  issue_comment:
-    types: [created]
 permissions:
   contents: read
 concurrency:
@@ -14,20 +9,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   inspect:
-    # No untrusted issue/PR code or text runs in a shell: only this fixed event
-    # gate may unlock the existing, separately permissioned read-only reporter.
-    # Production environment required-reviewer policy is unchanged.
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'issue_comment' &&
-       github.ref == 'refs/heads/main' &&
-       github.event.issue.number == 260 &&
-       github.event.issue.state == 'open' &&
-       !github.event.issue.pull_request &&
-       github.event.comment.user.login == github.repository_owner &&
-       github.event.comment.user.type == 'User' &&
-       github.event.sender.login == github.repository_owner &&
-       github.event.comment.body == '/prp inspect health-v2')
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     environment: production-inspect
     runs-on: ubuntu-latest
     timeout-minutes: 4
