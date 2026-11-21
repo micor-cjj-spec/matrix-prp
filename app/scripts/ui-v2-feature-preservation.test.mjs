@@ -36,7 +36,7 @@ test('UI V2 is activated and preserves all four first-level destinations', () =>
 })
 
 test('all home entry links and task completion behavior remain accessible', () => {
-  assertEvery(home, ['to="/tasks"', 'to="/learning"', 'to="/wellness"', 'to="/finance"', 'to="/life"', 'to="/videos"', 'to="/records"', 'to="/chat"', 'completeTask(task.id)', 'onMounted(refresh)'], 'home')
+  assertEvery(home, ['to="/tasks"', 'to="/learning"', 'to="/wellness"', 'to="/finance"', 'to="/life"', 'to="/videos"', 'to="/records"', 'to="/chat"', 'completeTask(task.id)', 'completeTask(todoItems[0].id)', 'pendingTask === todoItems[0].id', 'onMounted(refresh)'], 'home')
 })
 
 test('app directory still offers search, categories, favorites, and dynamic registry', () => {
