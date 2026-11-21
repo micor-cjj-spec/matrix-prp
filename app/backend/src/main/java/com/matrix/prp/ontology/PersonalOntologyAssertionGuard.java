@@ -15,7 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
  * Validation here never grants permission to write or to invoke a model.
  */
 public final class PersonalOntologyAssertionGuard {
-    public enum EvidenceSource { USER_INPUT, RECORD, TASK, REVIEW }
+    public enum EvidenceSource { USER_INPUT, RECORD, TASK, REVIEW, CHAT_MESSAGE }
 
     public record Candidate(
         NodeType subjectType, String subjectRef, Relation predicate,
@@ -76,6 +76,7 @@ public final class PersonalOntologyAssertionGuard {
             case RECORD -> references.requireOwned(NodeType.RECORD, candidate.sourceRef());
             case TASK -> references.requireOwned(NodeType.TASK, candidate.sourceRef());
             case REVIEW -> references.requireOwned(NodeType.REVIEW, candidate.sourceRef());
+            case CHAT_MESSAGE -> references.requireOwnedChatMessage(candidate.sourceRef());
         }
     }
 
