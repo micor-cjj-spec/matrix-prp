@@ -148,7 +148,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
         ):
             with self.subTest(required=required):
                 self.assertIn(required, workflow)
-        self.assertIn("permissions:\\n  contents: read", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
         self.assertNotIn("secrets.PRP_DEPLOY_SSH_KEY", workflow)
         self.assertNotIn("prp-deploy@", workflow)
         self.assertNotIn("${{ github.event.comment.body }}", workflow)
