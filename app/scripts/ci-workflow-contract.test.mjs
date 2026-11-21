@@ -78,7 +78,7 @@ test('L1/L2 inventory covers every required CI job without skipping checks', () 
       'required context must remain present: ' + context)
   }
   assert.deepEqual(tierInventory.matrix_jobs, {'mcp-real-pkce-e2e': 2, 'mcp-integrated-oauth-keycloak': 2})
-  assert.match(ci, /\n  mcp-real-pkce-e2e:\n[\s\S]*?\n      mode: \[readonly, crud\]/)
+  assert.match(ci, /\n  mcp-real-pkce-e2e:\n[\s\S]*?\n        mode: \[readonly, crud\]/)
   assert.equal(tierInventory.levels.L3.workflow, '.github/workflows/deploy-prp.yml')
   assert.match(deploy, /environment:\n      name: production/)
 })
