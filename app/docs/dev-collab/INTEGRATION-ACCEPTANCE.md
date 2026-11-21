@@ -20,7 +20,7 @@
 
 | 范围 | PR / head SHA（快照） | GitHub 差异核查 | 接受状态 |
 | --- | --- | --- | --- |
-| T-001 状态引擎 | [#211](https://github.com/micor-cjj-spec/matrix-prp/pull/211) / 0b771dc16140b0011fb6bd03d37b44104ea65d02 | 2 个文件，早期静态审计 | 未接受 |
+| T-001 状态引擎 | [#211](https://github.com/micor-cjj-spec/matrix-prp/pull/211) / 0b771dc16140b0011fb6bd03d37b44104ea65d02 | 2 文件；`core.mjs` 与总候选存在已识别差异，需 #245 集成桥接 | 未接受 |
 | T-002 Issue/PR 模板 | [#210](https://github.com/micor-cjj-spec/matrix-prp/pull/210) / 604466dbaa368638708d4a24b5b553a310b607d0 | 3 个文件，早期静态审计 | 未接受 |
 | T-007 安全验收模块 | [#226](https://github.com/micor-cjj-spec/matrix-prp/pull/226) / 079cf863e70a8004e3fb4dd50ffd7d4828864c93 | 12/12 精确白名单 | 未接受 |
 | T-009 恢复/接管 | [#227](https://github.com/micor-cjj-spec/matrix-prp/pull/227) / 72b795a70ad15d457272717fad4c3477cb23bbb1 | 4/4 精确白名单 | 未接受 |
@@ -29,6 +29,8 @@
 | T-006 看板与 Issue 投影 | [#234](https://github.com/micor-cjj-spec/matrix-prp/pull/234) / 2d804a37cbbb416b2695ee50a433a633649c1aa7 | 9/9 精确白名单 | 未接受 |
 | T-008 CAS/工作流测试 | [#237](https://github.com/micor-cjj-spec/matrix-prp/pull/237) / 9b6afe0c4b4d24b0e58dedf94dbd2852a31a8058 | 5/5 精确白名单 | 未接受 |
 | 17 个 bootstrap 信任根文件（不是普通 T 任务） | [#236](https://github.com/micor-cjj-spec/matrix-prp/pull/236) / 8378d3dc28ffa4b2c9875d405d323abd34452733 | 17 个独立文件；0 个与任务白名单交叉 | 独立安全审查待完成 |
+
+**2026-11-21 独立 PR / 总候选 blob 对账：** 在 T-001～T-004、T-006～T-009 的 50 个候选任务文件中，49 个与 #138 对应 blob 完全一致；仅 T-001 的 `core.mjs` 存在内置路径校验 vs 引用独立治理模块的结构差异。这个差异属于跨任务/治理集成边界，不能隐式覆盖 T-001 的两文件候选。已建立 [仅供集成审查的 Draft #245](https://github.com/micor-cjj-spec/matrix-prp/pull/245)，确切 head `eb001ea56a9da1fc6c38851770bc58b6749aa053`，在含治理模块的 [#236](https://github.com/micor-cjj-spec/matrix-prp/pull/236) 之上**只变更 1 个 `core.mjs` 文件**，使其 blob 与 #138 一致。两份路径安全规则的人工源码核查相近，但无独立运行时等价证据；**#245 不是普通工作任务 PR，也不意味着 T-001 被接受**。正式集成须显式审核此桥接及高权限治理依赖，不得将跨 scope 变更混入普通 worker 提交。
 
 任务依赖按 [#144](https://github.com/micor-cjj-spec/matrix-prp/pull/144) 的候选图核对：T-007 → T-001；T-009 → T-001/T-007；T-003 → T-001/T-007/T-009；T-004、T-006、T-008 后继；T-005 必须在其它八项都经过正式验收后才能处理。**代码堆叠关系不等于 GitHub 受保护集成分支的实际合并证据。**
 
