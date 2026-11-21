@@ -339,37 +339,25 @@ public class PersonalMemoryService {
     private void requireNoExactDuplicate(long owner,String subjectRef,Relation predicate,
             String literal,LocalDate from,LocalDate to,long excludeId,boolean includePending) {
         if (literal==null) return;
-        List<ComparableFact> existing=db.query("""
-            SELECT object_value,valid_from,valid_to FROM prp_personal_assertions
-            WHERE user_id=? AND subject_type='PERSON' AND subject_ref=?
-              AND predicate=? AND object_type='LITERAL'
-              AND status IN ('CONFIRMED','PENDING') AND id<>?
-            ORDER BY id DESC LIMIT 201
-            """,(rs,n)->new ComparableFact(rs.getString(1),
+        String statuses=includePending ? "IN ('CONFIRMED','PENDING')" : "='CONFIRMED'";
+        // SQL text is chosen exclusively from these two server-side constants.
+        String sql="SELECT object_value,valid_from,valid_to FROM prp_personal_assertions"
+            + " WHERE user_id=? AND subject_type='PERSON' AND subject_ref=?"
+            + " AND predicate=? AND object_type='LITERAL' AND status "+statuses
+            + " AND id<>? ORDER BY id DESC LIMIT 201";
+        List<ComparableFact> existing=db.query(sql,(rs,n)->new ComparableFact(
+                rs.getString(1),
                 rs.getDate(2)==null?null:rs.getDate(2).toLocalDate(),
                 rs.getDate(3)==null?null:rs.getDate(3).toLocalDate()),
             owner,subjectRef,predicate.name(),excludeId);
-        // The previous SQL includes pending rows for both call sites.
-        // Confirmation needs only confirmed matches; see the dedicated check below.
-        if (!includePending) {
-            existing=db.query("""
-                SELECT object_value,valid_from,valid_to FROM prp_personal_assertions
-                WHERE user_id=? AND subject_type='PERSON' AND subject_ref=?
-                  AND predicate=? AND object_type='LITERAL'
-                  AND status='CONFIRMED' AND id<>?
-                ORDER BY id DESC LIMIT 201
-                """,(rs,n)->new ComparableFact(rs.getString(1),
-                    rs.getDate(2)==null?null:rs.getDate(2).toLocalDate(),
-                    rs.getDate(3)==null?null:rs.getDate(3).toLocalDate()),
-                owner,subjectRef,predicate.name(),excludeId);
-        }
         if (existing.size()>200)
             throw conflict("Too many facts to verify duplicates safely; review existing memories");
         String normalized=normalizedLiteral(literal);
-        boolean duplicate=existing.stream().anyMatch(old->old.value()!=null
+        if (existing.stream().anyMatch(old->old.value()!=null
             && normalized.equals(normalizedLiteral(old.value()))
-            && overlaps(from,to,old.from(),old.to()));
-        if (duplicate) throw conflict("Equivalent knowledge is already pending or confirmed");
+            && overlaps(from,to,old.from(),old.to()))) {
+            throw conflict("Equivalent knowledge is already pending or confirmed");
+        }
     }
 
     static Sensitivity effectiveSensitivity(Proposed proposed) {
