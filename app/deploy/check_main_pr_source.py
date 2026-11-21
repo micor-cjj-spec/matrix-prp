@@ -15,7 +15,8 @@ def allowed_source(event: object, expected_repo: str) -> bool:
     """Only this repository's exact refs/heads/dev may merge toward main."""
     if not isinstance(event, dict) or not expected_repo:
         return False
-    if (event.get("repository") or {}).get("full_name") != expected_repo:
+    outer_repo = event.get("repository")
+    if not isinstance(outer_repo, dict) or outer_repo.get("full_name") != expected_repo:
         return False
     pr = event.get("pull_request")
     if not isinstance(pr, dict):
