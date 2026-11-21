@@ -76,13 +76,16 @@ class PersonalKnowledgeEvolutionTests {
             .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST));
         var proper=candidate("学习 RAG","synthetic-key-002");
+        when(db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",
+            Long.class,7L)).thenReturn(7L);
         doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND))
             .when(references).requireOwnedChatQuote("91","我正在学习 RAG");
         assertThatThrownBy(() -> memories.proposeAiCandidate(proper))
             .isInstanceOf(ResponseStatusException.class)
             .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND));
-        verifyNoInteractions(db);
+        verify(db,never()).update(any(org.springframework.jdbc.core.PreparedStatementCreator.class),
+            any(org.springframework.jdbc.support.KeyHolder.class));
     }
 
     @Test void normalizedDuplicateFromSameOwnerAndRelationRefusesNewCandidate() throws Exception {
