@@ -199,6 +199,10 @@ public class PersonalMemoryService {
             + " WHERE user_id=? AND request_key=? LIMIT 1",
             (rs,row)->rs.getLong(1),owner,p.requestKey());
         if (!priorIds.isEmpty()) return matchingReplay(get(priorIds.get(0)),p,supersedes,origin);
+        // Avoid obvious duplicates before any AI-suggested memory can be queued.
+        if ("AI_CANDIDATE".equals(origin))
+            requireNoExactDuplicate(owner,p.subjectRef(),p.predicate(),p.objectValue(),
+                p.validFrom(),p.validTo(),0L,true);
         var keys=new GeneratedKeyHolder();
         var now=LocalDateTime.now();
         Sensitivity sensitivity=effectiveSensitivity(p);
@@ -271,6 +275,10 @@ public class PersonalMemoryService {
         if("CONFIRMED".equals(m.status())) return m;
         if(!"PENDING".equals(m.status())) throw conflict("Memory is no longer pending");
         assertions.requireValid(toCandidate(m));
+        // A previously safe AI suggestion can become a duplicate while awaiting review.
+        if ("AI_CANDIDATE".equals(m.origin()))
+            requireNoExactDuplicate(CurrentUser.id(),m.subjectRef(),m.predicate(),m.objectValue(),
+                m.validFrom(),m.validTo(),m.id(),false);
         long owner=CurrentUser.id();
         if(m.supersedesId()!=null) {
             // Lock predecessor in the same transaction; never overwrite a
@@ -315,6 +323,53 @@ public class PersonalMemoryService {
             + " WHERE user_id=? AND supersedes_id=?",LocalDateTime.now(),owner,id);
         if(db.update("DELETE FROM prp_personal_assertions WHERE id=? AND user_id=?",
             id,owner)!=1) throw conflict("Memory changed concurrently");
+    }
+
+    /** Exact normalized duplicates only; different statements are not called conflicts. */
+    private record ComparableFact(String value, LocalDate from, LocalDate to) {}
+    private static String normalizedLiteral(String value) {
+        return java.text.Normalizer.normalize(value.strip(),java.text.Normalizer.Form.NFKC)
+            .replaceAll("\\s+"," ").toLowerCase(java.util.Locale.ROOT);
+    }
+    private static boolean overlaps(LocalDate from,LocalDate to,LocalDate otherFrom,LocalDate otherTo) {
+        return (to==null || otherFrom==null || !to.isBefore(otherFrom))
+            && (otherTo==null || from==null || !otherTo.isBefore(from));
+    }
+
+    private void requireNoExactDuplicate(long owner,String subjectRef,Relation predicate,
+            String literal,LocalDate from,LocalDate to,long excludeId,boolean includePending) {
+        if (literal==null) return;
+        List<ComparableFact> existing=db.query("""
+            SELECT object_value,valid_from,valid_to FROM prp_personal_assertions
+            WHERE user_id=? AND subject_type='PERSON' AND subject_ref=?
+              AND predicate=? AND object_type='LITERAL'
+              AND status IN ('CONFIRMED','PENDING') AND id<>?
+            ORDER BY id DESC LIMIT 201
+            """,(rs,n)->new ComparableFact(rs.getString(1),
+                rs.getDate(2)==null?null:rs.getDate(2).toLocalDate(),
+                rs.getDate(3)==null?null:rs.getDate(3).toLocalDate()),
+            owner,subjectRef,predicate.name(),excludeId);
+        // The previous SQL includes pending rows for both call sites.
+        // Confirmation needs only confirmed matches; see the dedicated check below.
+        if (!includePending) {
+            existing=db.query("""
+                SELECT object_value,valid_from,valid_to FROM prp_personal_assertions
+                WHERE user_id=? AND subject_type='PERSON' AND subject_ref=?
+                  AND predicate=? AND object_type='LITERAL'
+                  AND status='CONFIRMED' AND id<>?
+                ORDER BY id DESC LIMIT 201
+                """,(rs,n)->new ComparableFact(rs.getString(1),
+                    rs.getDate(2)==null?null:rs.getDate(2).toLocalDate(),
+                    rs.getDate(3)==null?null:rs.getDate(3).toLocalDate()),
+                owner,subjectRef,predicate.name(),excludeId);
+        }
+        if (existing.size()>200)
+            throw conflict("Too many facts to verify duplicates safely; review existing memories");
+        String normalized=normalizedLiteral(literal);
+        boolean duplicate=existing.stream().anyMatch(old->old.value()!=null
+            && normalized.equals(normalizedLiteral(old.value()))
+            && overlaps(from,to,old.from(),old.to()));
+        if (duplicate) throw conflict("Equivalent knowledge is already pending or confirmed");
     }
 
     static Sensitivity effectiveSensitivity(Proposed proposed) {
