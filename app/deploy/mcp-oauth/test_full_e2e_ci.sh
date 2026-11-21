@@ -21,6 +21,15 @@ for secret in "$MCP_E2E_KC_ADMIN_PASSWORD" "$MCP_E2E_KC_USER_PASSWORD" "$MCP_E2E
 done
 backend_pid=""
 cleanup() {
+  local result=$?
+  if (( result != 0 )); then
+    # Only container lifecycle facts, never raw logs/credentials/tokens.
+    for container in prp-ci-real-keycloak prp-ci-real-nginx prp-ci-real-mysql; do
+      if docker inspect "$container" >/dev/null 2>&1; then
+        docker inspect --format 'E2E failure: {{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' "$container" >&2 || true
+      fi
+    done
+  fi
   docker rm -f prp-ci-real-keycloak prp-ci-real-nginx prp-ci-real-mysql >/dev/null 2>&1 || true
   if [[ -n "$backend_pid" ]]; then kill "$backend_pid" >/dev/null 2>&1 || true; fi
 }

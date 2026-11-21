@@ -113,14 +113,20 @@ def json_response(response, stage):
 
 def wait_ready(opener, url, max_seconds=150):
     until = time.monotonic() + max_seconds
+    last_status = "unreachable"
     while time.monotonic() < until:
         try:
-            if request(opener, url)[0] == 200:
+            status = request(opener, url)[0]
+            if status == 200:
                 return
+            last_status = str(status)
         except (OSError, ValueError, ssl.SSLError):
-            pass
+            last_status = "unreachable"
         time.sleep(3)
-    raise RuntimeError("Temporary environment not healthy: " + ("Keycloak" if "auth-" in url else "PRP"))
+    # Never print URLs or response bodies: they may contain auth material.
+    component = "Keycloak" if "auth-" in url else "PRP"
+    raise RuntimeError("Temporary environment not healthy: " + component
+                       + " (last HTTP status: " + last_status + ")")
 
 
 def add_user(opener, admin_password, username, password):
