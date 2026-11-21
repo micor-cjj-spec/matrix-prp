@@ -42,12 +42,15 @@
 | --- | --- | --- |
 | 源候选 [#138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)，8fdd189e26a7b5b044b0b98efef22c7812bd54bc | [协作契约 #44901620609](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44901620609) **178/178 成功**；[Feature Impact #44901620559](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44901620559) 成功；[完整 CI #44901620594](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44901620594) **32/34，失败 2 个临时 Keycloak PKCE E2E** | **NO-GO**，不可用绿色子集替代全绿 |
 | 独立测试环境修复 [#213](https://github.com/micor-cjj-spec/matrix-prp/pull/213)，c2a468359ffd623b46a39b3c06d66aad485b01ac | [CI #44434350947](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44434350947) 在其自身 head **34/34 成功**；仅两个测试环境文件 | 不能证明已集成源代码成功 |
-| 组合验证 [#240](https://github.com/micor-cjj-spec/matrix-prp/pull/240)，8a3c04cef545c15a5fa1c88e9cd2163f7311e753 | 在 #138 后叠加 #213 的两个确切 blob；GitHub compare 仅新增 2 个文件改动；[CI #44907308326](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308326)、[契约 #44907308220](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308220)、[Impact #44907308239](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308239) 已触发，**第一次运行已结束：33/34 成功，仅 Chromium E2E 失败；对应 Job 在 Maven 打包阶段提前退出，详细构建日志未进入 Actions 输出；已对该失败 Job 发起第 2 次重试，当前仍排队中** | **待结果**；此组合 PR 也不是可直接合并的任务 PR |
+| 组合验证 [#240](https://github.com/micor-cjj-spec/matrix-prp/pull/240)，8a3c04cef545c15a5fa1c88e9cd2163f7311e753 | 在 #138 后叠加 #213 的两个确切 blob；GitHub compare 仅新增 2 个文件改动；[CI #44907308326](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308326)、[契约 #44907308220](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308220)、[Impact #44907308239](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44907308239) 已触发，**完整 CI 已完成：第一次 33/34（Chromium Maven 打包失败）；第二次只重试 Chromium Job 并成功，最终 34/34；契约 178/178、Impact 均成功** | **候选 CI 全绿，仍未验收**；此组合 PR 不是可直接合并的任务 PR |
 
 不可把 #138、#213 或其它分支的绿色结果套用到 #240 或未来的受保护集成分支。必须在目标 exact head 重新检查 required CI、状态与可信 workflow provenance。
 
-**Chromium 诊断分支（仅候选）：** [Draft #246](https://github.com/micor-cjj-spec/matrix-prp/pull/246) 基于 #240 的 exact head `8a3c04cef545c15a5fa1c88e9cd2163f7311e753`，在提交 `bdc816562cf2075406174750772ff962706151a3` 中**只修改** `app/deploy/mcp-oauth/test_full_e2e_ci.sh` 一处。它不修改 Maven 命令、认证、证书验证或应用业务逻辑，仅在 Maven 失败时输出固定脱敏错误类别，并保持非零退出。新候选 [CI #44910604677](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44910604677)、[Contract #44910604664](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44910604664)、[Impact #44910604698](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44910604698) 已触发，记录时仍排队。不能用尚未执行的诊断 CI 抵消 #240 原始 Chromium 失败，也不能把诊断 PR 当作 T-005 正式接受。
+**Chromium 诊断分支（仅候选）：** [Draft #246](https://github.com/micor-cjj-spec/matrix-prp/pull/246) 基于 #240 的 exact head `8a3c04cef545c15a5fa1c88e9cd2163f7311e753`，在提交 `bdc816562cf2075406174750772ff962706151a3` 中**只修改** `app/deploy/mcp-oauth/test_full_e2e_ci.sh` 一处。它不修改 Maven 命令、认证、证书验证或应用业务逻辑，仅在 Maven 失败时输出固定脱敏错误类别，并保持非零退出。新候选 [CI #44910604677](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44910604677) **34/34 全绿**、[Contract #44910604664](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44910604664) **178/178 全绿**、[Impact #44910604698](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44910604698) **成功**，均为此候选确切 head 的运行结果。不能用尚未执行的诊断 CI 抵消 #240 原始 Chromium 失败，也不能把诊断 PR 当作 T-005 正式接受。
 
+
+
+**首次失败解释边界：** #240 Chromium 初次失败发生在 Maven 打包；第二次相同代码重试时成功生成 JAR、启动隔离 Keycloak/PRP/MySQL 并执行真实 Vue/Chromium PKCE 登录回调。#246 诊断代码的同类流程也成功。原始失败日志未暴露 Maven 具体异常，不能武断归因为网络、磁盘、缓存或某项代码缺陷；也不能把 #246 成功视为“已证明具体根因修复”。本阶段仅可断言：**两份隔离候选在最终精确 head 的完整 CI 已全绿，安全与真实状态写入验收尚未完成**。
 
 ## 4. 待完成的强制门禁（全部未打勾）
 
@@ -70,7 +73,7 @@
 | --- | --- | --- |
 | integration branch / protected Ruleset | 精确分支、Ruleset ID、被保护状态和验证时间 | **未验证** |
 | task PR → trusted merge | PR #、submitted head SHA、target branch、merge SHA、required checks、reviewer | **未验证** |
-| #240 combined CI | 3 个 workflow 的完成状态和准确 Job 成败、最终 head SHA | **33/34，Chromium 单项重试排队；完整 CI 尚未全绿** |
+| #240 combined CI | 3 个 workflow 的完成状态和准确 Job 成败、最终 head SHA | **#240 最终 CI 34/34（第二次仅重试 Chromium Job 后成功），Contract 178/178、Impact 成功；候选 #246 也为 CI 34/34、Contract 178/178、Impact 成功。正式 T-005 仍 NO-GO** |
 | real owner Issue probe | Issue #、run ID、App installation 范围、V0 前后 SHA | **未执行** |
 | pinned V0→V1 migration | 明确 owner 授权、独立 reviewer、提案/旧/新 SHA、App receipt | **未授权／未执行** |
 | two conversations / collision recovery | 每次 request UUID、run ID、成功或拒绝原因、状态版本、远端 SHA | **未执行** |
