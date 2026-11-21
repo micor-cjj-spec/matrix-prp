@@ -266,6 +266,39 @@ class WellnessDatabaseIT {
             Long.class,mealId)).isEqualTo(2L);
         assertThat(getData("/api/wellness/summary/daily?date="+day,owner)
             .path("calories").decimalValue()).isEqualByComparingTo("90");
+
+        // Copying verified-label food is a new meal event but an exact snapshot:
+        // macros must NOT become unknown or be recomputed from the catalog.
+        String copiedDay=java.time.LocalDate.parse(day).plusDays(1).toString();
+        String copyUrl="/api/wellness/meals/"+mealId+"/copy?date="+copiedDay+
+            "&idempotencyKey=verified-label-copy-"+UUID.randomUUID();
+        long copiedId=postJson(copyUrl,owner,Map.of()).path("id").asLong();
+        assertThat(postJson(copyUrl,owner,Map.of()).path("id").asLong())
+            .isEqualTo(copiedId);
+        JsonNode copied=getData("/api/wellness/meals?date="+copiedDay,owner);
+        assertThat(copied.size()).isEqualTo(1);
+        JsonNode copiedItem=copied.get(0).path("items").get(0);
+        assertThat(copiedItem.path("calories").decimalValue()).isEqualByComparingTo("90");
+        assertThat(copiedItem.path("proteinG").decimalValue()).isEqualByComparingTo("4.50");
+        assertThat(copiedItem.path("carbsG").decimalValue()).isEqualByComparingTo("9");
+        assertThat(copiedItem.path("fatG").decimalValue()).isEqualByComparingTo("3");
+        JsonNode copiedTrends=getData("/api/wellness/summary/nutrition-trends?days=7",owner);
+        for(JsonNode point:copiedTrends) if(copiedDay.equals(point.path("date").asText())) {
+            assertThat(point.path("foodItemCount").asInt()).isEqualTo(1);
+            assertThat(point.path("knownProteinCount").asInt()).isEqualTo(1);
+            assertThat(point.path("proteinG").decimalValue()).isEqualByComparingTo("4.50");
+        }
+
+        // Subsequent edits to the source meal must not mutate the copy.
+        Map<String,Object> corrected=new java.util.HashMap<>(verification);
+        corrected.put("consumedGrams",100);
+        postJson("/api/wellness/meals/"+mealId+"/label-verification",owner,corrected);
+        JsonNode copiedAfter=getData("/api/wellness/meals?date="+copiedDay,owner);
+        assertThat(copiedAfter.size()).isEqualTo(1);
+        assertThat(copiedAfter.get(0).path("items").get(0).path("calories").decimalValue())
+            .isEqualByComparingTo("90");
+        assertThat(copiedAfter.get(0).path("items").get(0).path("proteinG").decimalValue())
+            .isEqualByComparingTo("4.50");
     }
 
     @Test void nutritionTrendsDistinguishZeroUnknownMissingAndOwnerIsolation() throws Exception {
