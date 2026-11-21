@@ -6,6 +6,7 @@ const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.ur
 const deploy = readFileSync(new URL('../../.github/workflows/deploy-prp.yml', import.meta.url), 'utf8')
 const impact = readFileSync(new URL('../../.github/workflows/feature-impact.yml', import.meta.url), 'utf8')
 const pkceShell = readFileSync(new URL('../deploy/mcp-oauth/test_full_e2e_ci.sh', import.meta.url), 'utf8')
+const pkceBrowser = readFileSync(new URL('../deploy/mcp-oauth/ci_pkce_browser.py', import.meta.url), 'utf8')
 
 test('stale PR runs cancel within their PR, but main push and other PRs remain independent', () => {
   assert.match(ci, /concurrency:\s*\n\s*group: prp-ci-.*github\.event\.pull_request\.number \|\| github\.ref/)
@@ -42,4 +43,12 @@ test('Keycloak diagnostics only inspect disposable localhost, never dump authent
   assert.match(pkceShell, /https:\/\/auth-e2e\.localhost\/realms\/prp-mcp\/\.well-known\/openid-configuration/)
   assert.match(pkceShell, /http:\/\/127\.0\.0\.1:18080\/realms\/prp-mcp\/\.well-known\/openid-configuration/)
   assert.doesNotMatch(pkceShell, /docker logs/)
+})
+
+test('synthetic Python OAuth browser ignores hosted-runner proxy for localhost-only services', () => {
+  assert.match(pkceBrowser, /from urllib\.request import .*ProxyHandler/)
+  assert.match(pkceBrowser, /build_opener\(ProxyHandler\(\{\}\), HTTPSHandler\(context=context\)/)
+  assert.match(pkceBrowser, /HTTPCookieProcessor\(CookieJar\(\)\), SafeRedirect\(\)/)
+  assert.match(pkceBrowser, /wait_ready\(opener, ISSUER \+ "\/\.well-known\/openid-configuration"\)/)
+  assert.match(pkceBrowser, /wait_ready\(opener, "https:\/\/prp-e2e\.localhost\/api\/health"\)/)
 })

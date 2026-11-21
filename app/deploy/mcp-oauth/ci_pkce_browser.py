@@ -18,7 +18,7 @@ import sys
 import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urljoin, urlsplit, parse_qs
-from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler, ProxyHandler
 
 from oauth_token_check import check_token
 
@@ -411,9 +411,13 @@ def main():
         raise RuntimeError("This test requires an isolated GitHub Actions runner")
     ca = os.environ["MCP_E2E_CA_CERT"]
     context = ssl.create_default_context(cafile=ca)
-    # Authenticate against the actual HTTPS staging-style proxy and retain
-    # browser cookies for the Keycloak login/consent pages.
-    opener = build_opener(HTTPSHandler(context=context), HTTPCookieProcessor(CookieJar()), SafeRedirect())
+    # All target services in this synthetic E2E are bound to disposable local
+    # hosts. Python urllib otherwise inherits HTTP(S)_PROXY from hosted runners
+    # (unlike the explicit curl --noproxy health probe), making local services
+    # appear unreachable even when both direct and Nginx OIDC discovery are 200.
+    # Explicit no-proxy prevents token/cookie requests leaving this runner.
+    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context),
+                          HTTPCookieProcessor(CookieJar()), SafeRedirect())
     admin_pass = os.environ["MCP_E2E_KC_ADMIN_PASSWORD"]
     user_password = os.environ["MCP_E2E_KC_USER_PASSWORD"]
     prp_password = os.environ["MCP_E2E_PRP_PASSWORD"]

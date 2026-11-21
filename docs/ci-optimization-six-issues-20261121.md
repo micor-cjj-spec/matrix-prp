@@ -24,3 +24,7 @@ Scope: GitHub Actions, no merge to `main`, no production deployment.
 - Add per-PR concurrency to required `impact-report`; its job name and checks stay unchanged.
 - In the disposable Keycloak failure trap, probe HTTPS and direct loopback discovery status codes separately. HTTP `000` denotes an unreachable endpoint. This is diagnostic instrumentation, not a root-cause fix or a production probe.
 - Queue backlog is separately tracked in Issue #247; temporary Keycloak readiness failures in Issue #212. Runner scheduling and Keycloak boot remain unverified until this PR's new CI runs actually start.
+
+## PKCE failure diagnosis (2026-11-21 15:14 UTC)
+
+On PR #249 SHA `cb2a2a0`, all 32 other main CI jobs passed. Two real PKCE E2E matrix jobs failed after 150 seconds with `Keycloak (last HTTP status: unreachable)`, while independent curl probes returned HTTP 200 for *both* fixed synthetic OIDC endpoints: direct `127.0.0.1:18080` and `https://auth-e2e.localhost` via Nginx. Keycloak/Nginx/MySQL containers were running, exit code 0, OOM false. This strongly implicates Python urllib's automatic hosted-runner proxy configuration rather than Keycloak availability. The Python opener now explicitly uses `ProxyHandler({})` to force local HTTP(S) calls to stay local while retaining TLS validation, cookies and restrictive OAuth redirects. A contract regression locks in that behavior. The fix still requires real CI proof; it is not a reason to waive PKCE tests.
