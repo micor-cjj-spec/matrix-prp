@@ -32,8 +32,8 @@ def source_scripts(folder=MIGRATIONS):
             if version in expected:
                 raise ValueError("DUPLICATE_CANDIDATE_MIGRATION_VERSION")
             expected[version] = path.name
-    if set(expected) != set(range(1, 30)):
-        raise ValueError("CANDIDATE_EXPECTED_MIGRATION_RANGE_NOT_1_TO_29")
+    if set(expected) != set(range(1, 31)):
+        raise ValueError("CANDIDATE_EXPECTED_MIGRATION_RANGE_NOT_1_TO_30")
     return expected
 
 
