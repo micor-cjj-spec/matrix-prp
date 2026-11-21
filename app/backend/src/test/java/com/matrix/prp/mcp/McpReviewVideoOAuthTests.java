@@ -100,6 +100,12 @@ class McpReviewVideoOAuthTests {
             var name=item.path("name").asText();
             names.add(name);
             assertThat(item.path("annotations").path("readOnlyHint").asBoolean()).isTrue();
+            // The client must never select an account or supply media credentials.
+            var properties=item.path("inputSchema").path("properties");
+            assertThat(properties.has("userId")).isFalse();
+            assertThat(properties.has("ownerId")).isFalse();
+            assertThat(properties.has("ticket")).isFalse();
+            assertThat(properties.has("playbackUrl")).isFalse();
             var scope=item.path("_meta").path("securitySchemes").get(0)
                 .path("scopes").get(0).asText();
             assertThat(scope).isEqualTo("prp_reviews_list".equals(name)
