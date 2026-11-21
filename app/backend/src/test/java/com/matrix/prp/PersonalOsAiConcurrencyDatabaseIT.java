@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
@@ -98,6 +99,16 @@ class PersonalOsAiConcurrencyDatabaseIT {
 
     @Test void concurrentDistinctKeysAndCompetingConfirmationsCannotBothWin()
             throws Exception {
+        // The test mutates and deletes synthetic users; never run against a
+        // developer or production MySQL even when pointed to a PRP database.
+        String database=jdbc.execute((ConnectionCallback<String>) connection ->
+            connection.getMetaData().getURL());
+        if (!"true".equals(System.getenv("GITHUB_ACTIONS"))
+                || !"Linux".equals(System.getenv("RUNNER_OS"))
+                || database==null || !database.matches(
+                    "jdbc:mysql://(localhost|127\\.0\\.0\\.1):3306/matrix_prp(\\?.*)?")) {
+            throw new SecurityException("DISPOSABLE_PERSONAL_OS_CONCURRENCY_MYSQL_ONLY");
+        }
         UserAccount owner=users.create(key("pos_ai_ci_"),"Synthetic Personal OS",
             "CI-only-irrelevant-password-hash",false);
         long id=owner.id();
