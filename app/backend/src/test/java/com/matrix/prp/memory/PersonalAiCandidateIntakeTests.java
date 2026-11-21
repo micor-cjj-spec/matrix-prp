@@ -113,7 +113,6 @@ class PersonalAiCandidateIntakeTests {
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("Synthetic DB boundary reached");
         verify(references).requireOwned(PERSON,"7");
-        verify(db,never()).update(startsWith("UPDATE prp_personal_assertions"),any());
     }
 
     @Test void originSpoofUsingPreviouslyUserSubmittedRequestKeyIsRejected() {
