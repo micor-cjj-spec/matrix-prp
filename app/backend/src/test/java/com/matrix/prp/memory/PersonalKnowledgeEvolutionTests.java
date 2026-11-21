@@ -87,6 +87,9 @@ class PersonalKnowledgeEvolutionTests {
 
     @Test void normalizedDuplicateFromSameOwnerAndRelationRefusesNewCandidate() throws Exception {
         owner(7);
+        when(db.queryForObject(
+            "SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,7L))
+            .thenReturn(7L);
         when(db.query(contains("SELECT object_value,valid_from,valid_to"),
                 any(RowMapper.class),eq(7L),eq("7"),eq("DECLARES_SKILL"),eq(0L)))
             .thenAnswer(invocation -> {
