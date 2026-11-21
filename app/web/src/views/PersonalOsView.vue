@@ -8,8 +8,8 @@ import {
   changePersonalGoalStatus, confirmPersonalMemory, createPersonalGoal,
   erasePersonalMemory, fetchConfirmedMemories, fetchMemoryCandidates,
   fetchPersonalGoalContext, fetchPersonalGoals, fetchPrivateMemories, invalidatePersonalMemory,
-  proposePersonalMemory, replacePersonalMemory,
-  type GoalStatus, type MemoryPredicate, type MemorySensitivity,
+  proposePersonalMemory, replacePersonalMemory, fetchMemoryChatSource,
+  type ChatEvidenceSource, type GoalStatus, type MemoryPredicate, type MemorySensitivity,
   type PersonalGoal, type PersonalGoalLink, type PersonalMemory,
 } from '@/api/personalOs'
 
@@ -37,6 +37,35 @@ const correctionTarget = ref<PersonalMemory | null>(null)
 const correctionText = ref('')
 const correctionRequestKey = ref('')
 const correctionOpen = ref(false)
+const chatSourceOpen = ref(false)
+const chatSourceBusy = ref(false)
+const chatSourceError = ref('')
+const chatSource = ref<ChatEvidenceSource | null>(null)
+let chatSourceGeneration = 0
+
+function clearChatSource() {
+  ++chatSourceGeneration
+  chatSourceOpen.value = false
+  chatSourceBusy.value = false
+  chatSourceError.value = ''
+  chatSource.value = null
+}
+async function openChatSource(item: PersonalMemory) {
+  if (item.sourceType !== 'CHAT_MESSAGE' || !item.sourceRef) return
+  clearChatSource()
+  const generation = chatSourceGeneration
+  chatSourceOpen.value = true
+  chatSourceBusy.value = true
+  try {
+    const data = await fetchMemoryChatSource(item.id)
+    if (generation === chatSourceGeneration) chatSource.value = data
+  } catch {
+    if (generation === chatSourceGeneration)
+      chatSourceError.value = '聊天来源不可用，可能已被删除或失去访问权限。'
+  } finally {
+    if (generation === chatSourceGeneration) chatSourceBusy.value = false
+  }
+}
 
 function requestKey(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`
@@ -386,6 +415,7 @@ watch(activeTab, (next) => {
     candidates.value = []
     memories.value = []
     memoryLoaded.value = false
+    clearChatSource()
   }
   if (next !== 'timeline') records.value = []
   if (next !== 'goals') {
@@ -401,6 +431,7 @@ onUnmounted(() => {
   ++loadGeneration
   ++goalContextGeneration
   ++privateRequestGeneration
+  clearChatSource()
   contextLoading.value = false
   privateOpen.value = false
   privateFacts.value = []
@@ -542,8 +573,9 @@ onMounted(async () => {
               <el-tag v-if="item.origin === 'AI_CANDIDATE'" size="small" type="danger">AI 提议 · 未核实</el-tag>
               <el-tag size="small" type="warning">{{ item.sensitivity === 'NORMAL' ? '普通' : '受限/敏感' }}</el-tag></div>
             <p>{{ describeMemory(item) }}</p>
-            <small>来源 {{ item.origin === 'AI_CANDIDATE' ? 'AI 整理的对话候选（尚未经独立核实）' : item.sourceType }}{{ item.sourceRef ? ' #' + item.sourceRef : '' }} · {{ item.createdAt.slice(0, 10) }}</small>
+            <small>来源 {{ item.sourceType === 'CHAT_MESSAGE' ? '已核对的本人聊天消息' : item.origin === 'AI_CANDIDATE' ? 'AI 候选（无关联聊天来源）' : item.sourceType }}{{ item.sourceRef ? ' #' + item.sourceRef : '' }} · {{ item.createdAt.slice(0, 10) }}</small>
             <div class="os-card-actions">
+              <el-button v-if="item.sourceType === 'CHAT_MESSAGE'" size="small" :disabled="chatSourceBusy" @click="openChatSource(item)">查看聊天来源</el-button>
               <el-button size="small" type="primary" :disabled="actionBusy" @click="confirmCandidate(item)">确认事实</el-button>
               <el-button size="small" :disabled="actionBusy" @click="invalidateCandidate(item)">不采纳</el-button>
               <el-button size="small" text type="danger" :disabled="actionBusy" @click="eraseMemory(item)">删除</el-button>
@@ -556,8 +588,9 @@ onMounted(async () => {
             <div class="os-memory-heading"><strong>{{ relationLabels[item.predicate] || item.predicate }}</strong>
               <el-tag size="small" type="success">已确认</el-tag></div>
             <p>{{ describeMemory(item) }}</p>
-            <small>来源 {{ item.sourceType }}{{ item.sourceRef ? ' #' + item.sourceRef : '' }} · {{ item.createdAt.slice(0, 10) }}</small>
+            <small>来源 {{ item.sourceType === 'CHAT_MESSAGE' ? '本人聊天消息' : item.sourceType }}{{ item.sourceRef ? ' #' + item.sourceRef : '' }} · {{ item.createdAt.slice(0, 10) }}</small>
             <div class="os-card-actions">
+              <el-button v-if="item.sourceType === 'CHAT_MESSAGE'" size="small" @click="openChatSource(item)">查看聊天来源</el-button>
               <el-button v-if="item.objectType === 'LITERAL'" size="small" :disabled="actionBusy"
                 @click="openCorrection(item)">更正</el-button>
               <el-button size="small" :disabled="actionBusy" @click="invalidateCandidate(item)">作废</el-button>
@@ -586,6 +619,7 @@ onMounted(async () => {
                 <small>来源 {{ item.sourceType }} · 事实 #{{ item.id }} ·
                   {{ item.status === 'CONFIRMED' ? '已确认' : item.status === 'INVALID' ? '已作废' : '已被替代' }}</small>
                 <div class="os-card-actions">
+                  <el-button v-if="item.sourceType === 'CHAT_MESSAGE'" size="small" @click="openChatSource(item)">查看聊天来源</el-button>
                   <el-button v-if="item.status === 'CONFIRMED' && item.objectType === 'LITERAL'" size="small"
                     :disabled="actionBusy" @click="openCorrection(item)">更正</el-button>
                   <el-button v-if="item.status === 'CONFIRMED'" size="small"
@@ -617,6 +651,18 @@ onMounted(async () => {
         </article>
       </section>
 
+      <el-dialog v-model="chatSourceOpen" title="原始聊天来源 · 仅本人查看"
+        width="min(92vw, 540px)" append-to-body destroy-on-close @closed="clearChatSource">
+        <p class="os-help">仅在你点击时读取这一条本人聊天消息。不会自动发送给 AI 或 MCP。若聊天已删除，引用也会失效。</p>
+        <p v-if="chatSourceBusy" role="status">正在核验消息来源…</p>
+        <p v-else-if="chatSourceError" role="alert">{{ chatSourceError }}</p>
+        <template v-else-if="chatSource">
+          <small>消息 #{{ chatSource.messageId }} · {{ chatSource.sentAt }}</small>
+          <pre class="os-chat-source-text">{{ chatSource.messageText }}</pre>
+        </template>
+        <template #footer><el-button @click="clearChatSource">关闭并清除本页来源内容</el-button></template>
+      </el-dialog>
+
       <el-dialog v-model="correctionOpen" title="更正个人记忆" width="min(92vw, 480px)" destroy-on-close>
         <p class="os-help">保存后先生成待确认候选。确认新版本时才会替代旧事实。</p>
         <el-input v-model="correctionText" type="textarea" :rows="4" maxlength="512" show-word-limit />
@@ -630,6 +676,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.os-chat-source-text { white-space:pre-wrap; overflow-wrap:anywhere; max-height:50vh; overflow-y:auto; padding:14px; border-radius:12px; background:var(--el-fill-color-light); font:inherit; font-size:13px; line-height:1.6 }
+
 .personal-os-page { max-width: 1260px; margin: 0 auto; padding: 0 0 60px; }
 .os-hero { background: linear-gradient(115deg,#172b45,#2b526a); color: #fff; border-radius: 22px; padding: 34px 38px; display: flex; align-items: end; justify-content: space-between; gap: 26px; }
 .os-kicker { font-size: 11px; font-weight: 700; letter-spacing: .15em; opacity: .8; }
