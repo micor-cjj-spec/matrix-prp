@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
+import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
 import AiActionLink from '@/components/ai/AiActionLink.vue'
 import AiActionDialog from '@/components/ai/AiActionDialog.vue'
@@ -34,6 +35,7 @@ const conversations = ref<Conversation[]>([])
 const messages = ref<ChatMessage[]>([])
 const blocksByMessage = ref<Record<number, AiMessageBlock[]>>({})
 const route = useRoute()
+const auth = useAuthStore()
 const actionDialogVisible = ref(false)
 const activeActionId = ref<string | null>(null)
 const actionRevision = ref(0)
@@ -221,6 +223,16 @@ const preview = ref<AiContextPreview | null>(null)
 const previewVisible = ref(false)
 const previewing = ref(false)
 const confirming = ref(false)
+
+// The extraction preview may contain a raw personal message. If credentials
+// change while ChatView stays mounted, invalidate the consent/review ticket
+// and clear both preview dialogs before another account can see their text.
+watch(() => auth.token, (next, previous) => {
+  if (next === previous) return
+  resetKnowledgeReview()
+  previewVisible.value = false
+  preview.value = null
+})
 const streamError = ref('')
 const chatPhoto = ref<File | null>(null)
 const photoInput = ref<HTMLInputElement | null>(null)
