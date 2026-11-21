@@ -119,6 +119,11 @@
       "reason": "Single memory record may contain sensitive/private provenance and unconfirmed claims; defer model-facing access pending explicit T-006 scope and owner-evidence audit."
     },
     {
+      "route": "GET /api/memory/{id}/source-preview",
+      "status": "excluded",
+      "reason": "Owner-click-only raw chat evidence inspection may include private conversation text; never export as a default model-visible MCP tool."
+    },
+    {
       "route": "GET /api/memory/candidates",
       "status": "excluded",
       "reason": "Unconfirmed AI or user candidate facts are private approval workflow state, not verified memories; never publish them to model-facing MCP tools by default."
