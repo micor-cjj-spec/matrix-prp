@@ -38,8 +38,17 @@ public class MyBatisReviewRepository implements ReviewRepository {
     @Override
     public List<ReviewItem> listLimited(ReviewFilter filter, int limit) {
         if (limit < 1 || limit > 20) throw new IllegalArgumentException("Review limit must be 1..20");
+        // Preview-only projection: do not retrieve private highlights, problems,
+        // nextActions, update timestamps or any unrelated owner data from SQL.
         // Safe: the suffix contains only this validated integer; never user input.
-        return reviewMapper.selectList(criteria(filter).orderByDesc(ReviewEntity::getId).last("LIMIT " + limit)).stream()
+        var query = criteria(filter)
+                .select(ReviewEntity::getId, ReviewEntity::getReviewType,
+                        ReviewEntity::getModuleCode, ReviewEntity::getTitle,
+                        ReviewEntity::getSummary, ReviewEntity::getPeriodStart,
+                        ReviewEntity::getPeriodEnd, ReviewEntity::getCreatedAt)
+                .orderByDesc(ReviewEntity::getId)
+                .last("LIMIT " + limit);
+        return reviewMapper.selectList(query).stream()
                 .map(ReviewEntity::toItem).toList();
     }
 
