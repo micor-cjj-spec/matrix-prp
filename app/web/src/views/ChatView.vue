@@ -224,14 +224,40 @@ const previewVisible = ref(false)
 const previewing = ref(false)
 const confirming = ref(false)
 
-// The extraction preview may contain a raw personal message. If credentials
-// change while ChatView stays mounted, invalidate the consent/review ticket
-// and clear both preview dialogs before another account can see their text.
+// All chat data is owner-specific, not only the consent modal. Reject pending
+// old-session responses before they can restore a previous owner's messages.
+let chatAuthGeneration = 0
 watch(() => auth.token, (next, previous) => {
   if (next === previous) return
+  ++chatAuthGeneration
+  controller?.abort()
+  ++activeSelectionRequest
+  ++photoSelectionVersion
   resetKnowledgeReview()
   previewVisible.value = false
   preview.value = null
+  selectedId.value = null
+  messages.value = []
+  blocksByMessage.value = {}
+  conversations.value = []
+  conversationsCursor.value = null
+  conversationsHasMore.value = false
+  hasOlder.value = false
+  input.value = ''
+  selectedScopes.value = []
+  chatPhoto.value = null
+  preparingPhoto.value = false
+  mentionOpen.value = false
+  historyOpen.value = false
+  usage.value = null
+  settings.value = null
+  streamError.value = ''
+  historyLoading.value = false
+  conversationsLoadingMore.value = false
+  loadingOlder.value = false
+  sending.value = false
+  // A same-route login must load the *new* account's data, never reuse old refs.
+  if (next) { void refresh(true); void loadSettings() }
 })
 const streamError = ref('')
 const chatPhoto = ref<File | null>(null)
@@ -262,6 +288,7 @@ async function photoSelected(event: Event) {
 }
 async function prepareInlineDiet(content: string) {
   if (sending.value) return
+  const generation = chatAuthGeneration
   const photo = chatPhoto.value
   const originalText = input.value
   const previousMessages = [...messages.value]
@@ -281,6 +308,7 @@ async function prepareInlineDiet(content: string) {
   bottom()
   try {
     const result = await prepareInlineHealthDraft(content, selectedId.value, photo)
+    if (generation !== chatAuthGeneration) return
     selectedId.value = result.conversationId
     // The POST already persisted both messages and the draft: never resubmit on a refresh failure.
     const assistant = messages.value[messages.value.length - 1]!
@@ -295,6 +323,7 @@ async function prepareInlineDiet(content: string) {
       listMessages(result.conversationId, undefined, HISTORY_PAGE_SIZE + 1),
       listMessageBlocks(result.conversationId),
     ])
+    if (generation !== chatAuthGeneration) return
     if (latest.status === 'fulfilled') {
       messages.value = latest.value.slice(-HISTORY_PAGE_SIZE)
       hasOlder.value = latest.value.length > HISTORY_PAGE_SIZE
@@ -311,14 +340,17 @@ async function prepareInlineDiet(content: string) {
     }
     try { await refresh() } catch { /* POST was successful; optional history refresh must not retry it */ }
   } catch (e) {
+    if (generation !== chatAuthGeneration) return
     const err = e as { response?: { data?: { message?: string } } }
     streamError.value = err.response?.data?.message || 'AI 饮食记录解析失败，请检查模型配置并重试'
     input.value = originalText
     chatPhoto.value = photo
     messages.value = previousMessages
   } finally {
-    sending.value = false
-    bottom()
+    if (generation === chatAuthGeneration) {
+      sending.value = false
+      bottom()
+    }
   }
 }
 const scroller = ref<HTMLElement | null>(null)
@@ -330,11 +362,16 @@ const isEmpty = computed(() => messages.value.length === 0)
 let controller: AbortController | null = null
 
 async function loadSettings() {
+  const generation = chatAuthGeneration
   try {
-    settings.value = await getAiSettings()
-    provider.value = settings.value.selectedProvider
-    model.value = settings.value.selectedModel
-  } catch { ElMessage.warning('模型配置暂时不可用') }
+    const selected = await getAiSettings()
+    if (generation !== chatAuthGeneration) return
+    settings.value = selected
+    provider.value = selected.selectedProvider
+    model.value = selected.selectedModel
+  } catch {
+    if (generation === chatAuthGeneration) ElMessage.warning('模型配置暂时不可用')
+  }
 }
 async function changeProvider(id: string) {
   if (sending.value || savingModel.value || !settings.value) return
@@ -362,9 +399,11 @@ async function persistModel(previous: { provider: string; model: string }) {
 }
 
 async function refresh(restoreLatest = false) {
+  const generation = chatAuthGeneration
   historyLoading.value = true
   // A refresh reopens the first cursor page; lazy pages are loaded on demand.
   const [chats, current] = await Promise.allSettled([pageConversations(), fetchUsage()])
+  if (generation !== chatAuthGeneration) return
   if (chats.status === 'fulfilled') {
     conversations.value = chats.value.items
     conversationsCursor.value = chats.value.nextCursor
@@ -384,6 +423,7 @@ async function refresh(restoreLatest = false) {
     historyLoadError.value = true
     ElMessage.error('历史会话加载失败，请重试；已有记录不会因此删除')
   }
+  if (generation !== chatAuthGeneration) return
   if (current.status === 'fulfilled') usage.value = current.value
   historyLoading.value = false
 }
@@ -391,15 +431,20 @@ async function loadMoreConversations() {
   if (!conversationsHasMore.value || !conversationsCursor.value ||
       conversationsLoadingMore.value || historyLoading.value) return
   const cursor = conversationsCursor.value
+  const generation = chatAuthGeneration
   conversationsLoadingMore.value = true
   try {
     const page = await pageConversations(cursor)
+    if (generation !== chatAuthGeneration) return
     const existing = new Set(conversations.value.map(item => item.id))
     conversations.value = [...conversations.value, ...page.items.filter(item => !existing.has(item.id))]
     conversationsCursor.value = page.nextCursor
     conversationsHasMore.value = page.hasMore
-  } catch { ElMessage.error('加载更多会话失败，请重试') }
-  finally { conversationsLoadingMore.value = false }
+  } catch {
+    if (generation === chatAuthGeneration) ElMessage.error('加载更多会话失败，请重试')
+  } finally {
+    if (generation === chatAuthGeneration) conversationsLoadingMore.value = false
+  }
 }
 async function renameSelectedConversation(item: Conversation) {
   if (sending.value || managingConversation.value) return
@@ -457,11 +502,13 @@ watch(messages, () => { if (!prependingHistory && !showJumpToBottom.value) botto
 async function select(id: string, automaticRestore = false) {
   if (sending.value || loadingOlder.value) return
   const requestId = ++activeSelectionRequest
+  const generation = chatAuthGeneration
   try {
     const [data, blocks] = await Promise.all([
       listMessages(id, undefined, HISTORY_PAGE_SIZE + 1),
       listMessageBlocks(id).catch(() => [] as AiMessageBlock[]),
     ])
+    if (generation !== chatAuthGeneration) return
     const canApply = shouldApplyLoadedConversation(
       conversations.value, id, automaticRestore, requestId, activeSelectionRequest, {
         selectedId: selectedId.value,
@@ -497,22 +544,25 @@ async function loadOlder() {
   const id = selectedId.value
   const oldestId = messages.value.find(message => message.id > 0)?.id
   if (!id || oldestId === undefined || !hasOlder.value || loadingOlder.value || sending.value) return
+  const generation = chatAuthGeneration
   loadingOlder.value = true
   try {
     const olderPage = await listMessages(id, oldestId, HISTORY_PAGE_SIZE + 1)
-    if (selectedId.value !== id) return
+    if (generation !== chatAuthGeneration || selectedId.value !== id) return
     hasOlder.value = olderPage.length > HISTORY_PAGE_SIZE
     const previousHeight = scroller.value?.scrollHeight ?? 0
     const previousTop = scroller.value?.scrollTop ?? 0
     prependingHistory = true
     messages.value = [...olderPage.slice(-HISTORY_PAGE_SIZE), ...messages.value]
     await nextTick()
+    if (generation !== chatAuthGeneration) return
     if (scroller.value) scroller.value.scrollTop =
       previousTop + scroller.value.scrollHeight - previousHeight
-  } catch { ElMessage.error('加载更早消息失败，请重试') }
-  finally {
+  } catch {
+    if (generation === chatAuthGeneration) ElMessage.error('加载更早消息失败，请重试')
+  } finally {
     prependingHistory = false
-    loadingOlder.value = false
+    if (generation === chatAuthGeneration) loadingOlder.value = false
   }
 }
 function newChat() {
@@ -609,6 +659,7 @@ async function confirmPreviousHealthDraft(content: string) {
     ElMessage.warning('当前没有可确认的饮食记录，请先描述日期、餐次与热量')
     return
   }
+  const generation = chatAuthGeneration
   const previousMessages = [...messages.value]
   const pendingId = -Date.now()
   const conversation = selectedId.value
@@ -622,6 +673,7 @@ async function confirmPreviousHealthDraft(content: string) {
   bottom()
   try {
     const result = await confirmPendingHealthDraft(conversation, content)
+    if (generation !== chatAuthGeneration) return
     // The backend returns a receipt only after the authorized draft was committed.
     const assistant = messages.value[messages.value.length - 1]!
     assistant.id = result.messageId
@@ -630,6 +682,7 @@ async function confirmPreviousHealthDraft(content: string) {
       listMessages(conversation, undefined, HISTORY_PAGE_SIZE + 1),
       listMessageBlocks(conversation),
     ])
+    if (generation !== chatAuthGeneration) return
     if (latest.status === 'fulfilled') {
       messages.value = latest.value.slice(-HISTORY_PAGE_SIZE)
       hasOlder.value = latest.value.length > HISTORY_PAGE_SIZE
@@ -639,13 +692,16 @@ async function confirmPreviousHealthDraft(content: string) {
       ElMessage.info(result.content)
     try { await refresh() } catch { /* the server has already committed; never retry */ }
   } catch {
+    if (generation !== chatAuthGeneration) return
     // In case of uncertain HTTP outcome, never claim a write, and do not re-POST.
     streamError.value = '保存结果未核实，请先到健康中心查看，避免重复提交；也可重新打开会话查看服务器回执。'
     messages.value = previousMessages
     input.value = content
   } finally {
-    sending.value = false
-    bottom()
+    if (generation === chatAuthGeneration) {
+      sending.value = false
+      bottom()
+    }
   }
 }
 async function send(contextToken?: string) {
@@ -700,6 +756,7 @@ async function send(contextToken?: string) {
   }
   if (selectedScopes.value.length > 0 && !contextToken) { await showPreview(); return }
   if (selectedScopes.value.length === 0 && contextToken) return
+  const generation = chatAuthGeneration
   const scopes = [...selectedScopes.value]
   input.value = ''
   selectedScopes.value = []
@@ -720,6 +777,7 @@ async function send(contextToken?: string) {
   let eventError = false
   try {
     await streamChat(selectedId.value, content, ({ event, data }) => {
+      if (generation !== chatAuthGeneration) return
       if (event === 'meta') selectedId.value = String(data.conversationId)
       if (event === 'delta') reply.content += String(data.text ?? '')
       if (event === 'done') completed = true
@@ -735,19 +793,24 @@ async function send(contextToken?: string) {
             : '生成失败，请稍后重试。'
       }
     }, controller.signal, scopes, contextToken)
+    if (generation !== chatAuthGeneration) return
     if (!completed) throw new Error('Stream interrupted')
   } catch (error) {
-    if (!eventError) streamError.value = describeStreamError(error)
+    if (generation === chatAuthGeneration && !eventError)
+      streamError.value = describeStreamError(error)
   } finally {
+    if (generation !== chatAuthGeneration) return
     sending.value = false
     controller = null
     await refresh()
+    if (generation !== chatAuthGeneration) return
     if (selectedId.value) {
       try {
         const [latest, blocks] = await Promise.all([
           listMessages(selectedId.value, undefined, HISTORY_PAGE_SIZE + 1),
           listMessageBlocks(selectedId.value).catch(() => [] as AiMessageBlock[]),
         ])
+        if (generation !== chatAuthGeneration) return
         hasOlder.value = latest.length > HISTORY_PAGE_SIZE
         messages.value = latest.slice(-HISTORY_PAGE_SIZE)
         blocksByMessage.value = groupBlocks(blocks)
