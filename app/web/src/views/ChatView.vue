@@ -762,6 +762,12 @@ onBeforeUnmount(() => { controller?.abort(); resetKnowledgeReview() })
             <div v-if="message.role === 'assistant' && !message.content" class="chat-typing">正在思考 <span>···</span></div>
             <div v-else-if="message.role === 'assistant'" class="markdown-body" v-html="renderSafeMarkdown(message.content)" />
             <div v-else class="chat-user-text">{{ message.content }}</div>
+            <div v-if="knowledgeCaptureEnabled && message.role === 'user' && message.id > 0"
+              class="chat-knowledge-action">
+              <button type="button" aria-label="从此消息提取知识候选"
+                :disabled="sending || knowledgeLoading || knowledgeSaving || message.content.length > 2000"
+                @click="startKnowledgeReview(message)">提取知识候选</button>
+            </div>
             <template v-for="(block, i) in blocksByMessage[message.id] ?? []" :key="message.id + '-' + i">
               <AiNavigationCard v-if="block.type === 'navigation'" :block="block" />
               <AiActionLink v-else-if="block.type === 'wellness_draft'"
@@ -846,10 +852,53 @@ onBeforeUnmount(() => { controller?.abort(); resetKnowledgeReview() })
         <el-button type="primary" :loading="confirming" @click="confirmShare">允许仅本次发送</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="knowledgeVisible" title="提取个人知识候选"
+      width="min(600px, 96vw)" append-to-body @closed="resetKnowledgeReview">
+      <template v-if="knowledgePreview">
+        <p class="chat-consent-explain">请核对以下<strong>唯一一条</strong>用户消息。点击授权后，才会将这段原文发送给 {{ knowledgePreview.provider }} / {{ knowledgePreview.model }} 提取知识。不会读取其他聊天消息、健康或财务记录。</p>
+        <pre class="chat-preview-data">{{ knowledgePreview.messageText }}</pre>
+        <p class="chat-consent-explain">令牌 3 分钟有效且仅使用一次；本次提取不会保存任何事实，后续仍需要你挑选候选并在个人智能系统中确认。</p>
+      </template>
+      <p v-else-if="knowledgeLoading && !knowledgeResult" role="status">正在提取知识候选，暂不写入个人记忆…</p>
+      <template v-if="knowledgeResult">
+        <p class="chat-consent-explain">模型已整理 {{ knowledgeResult.candidates.length }} 条未核实候选，默认均为<strong>受限</strong>。勾选只是提交到待确认队列，不代表认可或永久保存为事实。</p>
+        <p v-if="knowledgeSaved" role="status">所选候选已进入待确认列表。
+          <RouterLink to="/personal-os" @click="knowledgeVisible = false">前往个人智能系统审核</RouterLink>
+        </p>
+        <p v-else-if="!knowledgeResult.candidates.length">这条消息没有可可靠提取的自述事实。不会创建空记录。</p>
+        <div v-else class="chat-knowledge-list">
+          <label v-for="item in knowledgeResult.candidates" :key="item.requestKey" class="chat-knowledge-item">
+            <el-checkbox v-model="knowledgeSelected" :label="item.requestKey" :disabled="knowledgeSaving || knowledgeSaved" />
+            <span class="chat-knowledge-details">
+              <strong>{{ item.predicate === 'DECLARES_SKILL' ? '技能自述' : item.predicate === 'PREFERS' ? '偏好' : '背景经历' }}：{{ item.value }}</strong>
+              <small>原话证据：“{{ item.evidenceQuote }}” · 受限 · AI 提议未核实</small>
+            </span>
+          </label>
+        </div>
+        <p class="chat-consent-explain">知识提交时将记录为 AI 提议，尚不保留独立的逐句来源引用；如要更正请在审核前处理。</p>
+      </template>
+      <template #footer>
+        <el-button :disabled="knowledgeSaving" @click="resetKnowledgeReview">关闭 / 取消</el-button>
+        <el-button v-if="knowledgePreview" type="primary" :loading="knowledgeLoading"
+          @click="approveKnowledgeExtraction">仅本次发送给模型提取</el-button>
+        <el-button v-else-if="knowledgeResult && !knowledgeSaved && knowledgeResult.candidates.length"
+          type="primary" :loading="knowledgeSaving" :disabled="!knowledgeSelected.length"
+          @click="saveKnowledgeCandidates">选中提交待审核（{{ knowledgeSelected.length }}）</el-button>
+      </template>
+    </el-dialog>
   </AppLayout>
 </template>
 
 <style scoped>
+.chat-knowledge-action{margin-top:7px;text-align:right}
+.chat-knowledge-action button{border:0;background:transparent;color:#5170a0;font-size:11px;cursor:pointer;padding:3px 0}
+.chat-knowledge-action button:disabled{opacity:.35;cursor:not-allowed}
+.chat-knowledge-list{display:grid;gap:8px;max-height:42vh;overflow-y:auto}
+.chat-knowledge-item{display:flex;align-items:flex-start;gap:10px;padding:10px;border:1px solid #e1e7ee;border-radius:10px;cursor:pointer}
+.chat-knowledge-details{display:grid;gap:5px;min-width:0;font-size:13px;overflow-wrap:anywhere}
+.chat-knowledge-details small{font-size:11px;color:#748196;line-height:1.55}
+
 .prp-chat-workspace{display:flex;flex:1;min-height:0;min-width:0;height:100%}
 .chat-desktop-sidebar{display:block;flex:0 0 270px;min-height:0;border-right:1px solid #e8eef5;background:#fbfcff}
 .chat-mobile-menu{display:none!important}
