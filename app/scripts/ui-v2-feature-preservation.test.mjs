@@ -57,7 +57,7 @@ test('learning module retains videos, practice, vocal, notes, knowledge and revi
 
 test('chat and me retain critical controls, consent and owner settings', () => {
   assertEvery(chat, ['<ChatConversationPanel', 'historyOpen', 'newChat', 'changeProvider', 'changeModel', 'photoSelected', 'send()', 'confirmShare', 'selectedScopes', 'streamChat'], 'chat')
-  assertEvery(me, ["'/me/ai-settings'", "'/me/mcp-clients'", "'/notifications'", "'/me/settings'", "'/me/guide'", "'/me/about'", "'/me/agent-tasks'", "'/me/codex-jobs'", 'inviteFriend', 'logout'], 'me')
+  assertEvery(me, ["'/me/ai-settings'", "'/me/mcp-clients'", "'/notifications'", "'/me/settings'", "'/me/guide'", "'/me/about'", 'to="/me/agent-tasks"', 'to="/me/codex-jobs"', 'v-if="auth.user?.administrator"', 'inviteFriend', 'logout'], 'me')
 })
 
 test('mobile chat viewport and original iOS keyboard behavior stay intact', () => {
