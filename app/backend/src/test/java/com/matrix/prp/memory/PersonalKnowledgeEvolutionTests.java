@@ -201,4 +201,26 @@ class PersonalKnowledgeEvolutionTests {
         assertThat(memories.listNormalHistory()).isEmpty();
     }
 
+    @Test void revokedSourceMustNotBlockReestablishingKnowledgeFromNewEvidence() throws Exception {
+        owner(7);
+        when(db.query(contains("SELECT object_value,valid_from,valid_to"),
+                any(RowMapper.class),eq(7L),eq("7"),eq("DECLARES_SKILL"),eq(0L)))
+            .thenAnswer(invocation -> {
+                @SuppressWarnings("unchecked")
+                RowMapper<Object> mapper=invocation.getArgument(1);
+                ResultSet rs=mock(ResultSet.class);
+                when(rs.getString(1)).thenReturn("ＲＡＧ");
+                when(rs.getString(4)).thenReturn("CHAT_MESSAGE");
+                when(rs.getString(5)).thenReturn("91");
+                return List.of(mapper.mapRow(rs,0));
+            });
+        doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND))
+            .when(references).requireOwnedChatMessage("91");
+        var candidate=new PersonalMemoryService.AiCandidate(DECLARES_SKILL,"rag",
+            null,null,Sensitivity.RESTRICTED,"new-valid-source-key");
+        assertThat(memories.inspectAiCandidate(candidate).disposition()).isEqualTo("NEW");
+        verify(db,never()).update(any(org.springframework.jdbc.core.PreparedStatementCreator.class),
+            any(org.springframework.jdbc.support.KeyHolder.class));
+    }
+
 }
