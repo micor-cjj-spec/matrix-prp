@@ -74,6 +74,19 @@ function trendDescription(point: TrendPoint): string {
 const foods = ref<Food[]>([])
 const frequentFoods = ref<Food[]>([])
 const profile = reactive<Profile>({ heightCm: null, timezone: 'Asia/Shanghai' })
+// A long-lived PWA session may cross midnight, and the user's health-day
+// timezone may differ from their device timezone. Resolve at click time.
+function wellnessToday(): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: profile.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date())
+    const fields = new Map(parts.map(part => [part.type, part.value]))
+    return `${fields.get('year')}-${fields.get('month')}-${fields.get('day')}`
+  } catch {
+    return localDate()
+  }
+}
 const selectedGoal = computed(() => summary.value?.goal)
 const calories = computed(() => summary.value?.calories === null || summary.value?.calories === undefined ? null : Number(summary.value.calories))
 const dailyGoal = computed(() => Number(selectedGoal.value?.dailyCalories || 0))
@@ -189,6 +202,7 @@ async function openAnalysis(meal: Meal) {
 }
 const nutrientSourceLabel = (source: string) => source === 'FOOD_CATALOG'
   ? '食品库参考' : source === 'USER_LABEL' ? '用户核实的包装营养标签'
+  : source === 'COPIED_SNAPSHOT' ? '历史餐食营养快照（本次份量需确认）'
   : source === 'USER_ESTIMATE' ? '本次食物估算' : '来源待核对'
 const nutritionCoverage = computed(() => {
   const items = meals.value.flatMap(meal => meal.items)
@@ -202,14 +216,15 @@ const nutritionCoverage = computed(() => {
   }
 })
 
-async function loadDay() {
+async function loadDay(strict = false) {
   loading.value = true
   try {
     const [a, b, c] = await Promise.all([
       wellnessApi.daily(date.value), wellnessApi.meals(date.value), wellnessApi.exercises(date.value),
     ])
     summary.value = a; meals.value = b; exercises.value = c
-  } catch {
+  } catch (error) {
+    if (strict) throw error
     ElMessage.error('获取健康记录失败，请确认服务器已执行健康模块数据库迁移')
   } finally { loading.value = false }
 }
@@ -299,20 +314,54 @@ async function saveMeal() {
       if (editingMeal.value !== null) await wellnessApi.updateMeal(editingMeal.value, payload)
       else await wellnessApi.addMeal(payload)
     }
-    ElMessage.success('餐食已保存')
     mealSubmissionKey.value = null
     mealDialog.value = false; date.value = mealForm.mealDate
-    await Promise.all([loadDay(), wellnessApi.frequent().then(x => { frequentFoods.value = x }), loadTrend()])
-  } catch { ElMessage.error('餐食保存失败') } finally { saving.value = false }
+    // A failed readback is not a failed write. Never invite a duplicate
+    // resubmission after the server has acknowledged the meal.
+    try {
+      await Promise.all([loadDay(true), wellnessApi.frequent().then(x => { frequentFoods.value = x }), loadTrend()])
+      ElMessage.success('餐食已保存')
+    } catch {
+      ElMessage.warning('餐食已保存，但页面刷新失败；请刷新页面查看，勿重新提交')
+    }
+  } catch {
+    // For uncertain writes, preserve mealSubmissionKey for an idempotent retry.
+    ElMessage.error('餐食保存请求未确认，请重试；若已保存不会重复创建')
+  } finally { saving.value = false }
 }
 async function deleteMeal(meal: Meal) {
   try { await ElMessageBox.confirm('确定删除这条' + label(meal.mealType) + '记录吗？', '确认删除') } catch { return }
   try { await wellnessApi.deleteMeal(meal.id); await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已删除') }
   catch { ElMessage.error('删除失败') }
 }
+const copyingMealId = ref<number | null>(null)
+// A lost HTTP acknowledgement must not create a second snack on retry.
+// A confirmed copy releases the token for a deliberate subsequent meal.
+const copyRetryKeys = new Map<string, string>()
 async function copyMeal(meal: Meal) {
-  try { await wellnessApi.copyMeal(meal.id, today); date.value = today; await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已复制到今天') }
-  catch { ElMessage.error('复制失败') }
+  if (copyingMealId.value !== null) return
+  const targetDate = wellnessToday()
+  const request = `${meal.id}:${targetDate}`
+  const key = copyRetryKeys.get(request) ?? crypto.randomUUID()
+  copyRetryKeys.set(request, key)
+  copyingMealId.value = meal.id
+  try {
+    await wellnessApi.copyMeal(meal.id, targetDate, key)
+    copyRetryKeys.delete(request)
+    date.value = targetDate
+    // A confirmed write and a subsequent read failure are different outcomes.
+    // Never invite a second mutation because the UI refresh failed.
+    try {
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('已复制到今天')
+    } catch {
+      ElMessage.warning('加餐已保存，但页面刷新失败；请刷新页面查看，勿重复复制')
+    }
+  } catch {
+    ElMessage.error('复制请求未确认，请重试；已保存的加餐不会重复创建')
+  } finally {
+    copyingMealId.value = null
+  }
 }
 let trendRequestVersion = 0
 const nutritionTrendUnavailable = ref(false)
@@ -579,7 +628,7 @@ async function saveProfile() {
               <div class="entry-actions"><el-button link type="primary" @click="openAnalysis(meal)">分析详情</el-button>
                 <el-button link type="primary" @click="openAiChange('meal',meal.id)">AI 变更</el-button>
                  <el-button link type="primary" @click="openMeal(meal.mealType,meal)">编辑</el-button>
-                <el-button link @click="copyMeal(meal)">复制到今天</el-button>
+                <el-button link :disabled="copyingMealId !== null" :loading="copyingMealId === meal.id" @click="copyMeal(meal)">复制到今天</el-button>
                 <el-button link type="danger" @click="deleteMeal(meal)">删除</el-button></div>
             </div>
           </section>

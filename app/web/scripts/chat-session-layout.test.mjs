@@ -364,3 +364,38 @@ test('wellness macro trends preserve old calorie data and refresh after label ve
   assert.match(view, /@keydown\.enter\.prevent="selectedTrendDay = point\.date"/)
   assert.match(view, /class="bar-value"\s+:class="\{ 'bar-zero': trendValue\(point\) === 0 \}"/)
 })
+
+
+test('wellness copy retry is one event while daily macro trends refresh after confirmed copy', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const api = readFileSync(new URL('../src/api/wellness.ts', import.meta.url), 'utf8')
+  assert.match(api, /copyMeal: \(id: number, date: string, idempotencyKey\?: string\)/)
+  assert.match(view, /const copyRetryKeys = new Map<string, string>\(\)/)
+  assert.match(view, /function wellnessToday\(\): string \{/)
+  assert.match(view, /timeZone: profile\.timezone/)
+  assert.match(view, /\.formatToParts\(new Date\(\)\)/)
+  assert.match(view, /const targetDate = wellnessToday\(\)/)
+  assert.match(view, /const request = \`\$\{meal\.id\}:\$\{targetDate\}\`/)
+  assert.match(view, /copyRetryKeys\.get\(request\) \?\? crypto\.randomUUID\(\)/)
+  assert.match(view, /await wellnessApi\.copyMeal\(meal\.id, targetDate, key\)/)
+  assert.match(view, /copyRetryKeys\.delete\(request\)/)
+  const copyFlow = view.slice(view.indexOf('async function copyMeal(meal: Meal)'), view.indexOf('let trendRequestVersion'))
+  assert.match(copyFlow, /copyRetryKeys\.delete\(request\)[\s\S]*?try \{\s*await Promise\.all\(\[loadDay\(true\), loadTrend\(\)\]\)/)
+  assert.match(copyFlow, /catch \{\s*ElMessage\.warning\('加餐已保存，但页面刷新失败；请刷新页面查看，勿重复复制'\)/)
+  assert.match(copyFlow, /catch \{\s*ElMessage\.error\('复制请求未确认，请重试；已保存的加餐不会重复创建'\)/)
+  assert.match(view, /async function loadDay\(strict = false\)/)
+  assert.match(view, /if \(strict\) throw error/)
+  assert.match(view, /:disabled="copyingMealId !== null"/)
+  assert.match(view, /const \[energy, nutrients\] = await Promise\.allSettled\(/)
+})
+
+
+test('confirmed manual meal save never asks to resubmit when subsequent refresh fails', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const saveFlow = view.slice(view.indexOf('async function saveMeal()'), view.indexOf('async function deleteMeal('))
+  assert.match(saveFlow, /mealSubmissionKey\.value = null[\s\S]*?try \{\s*await Promise\.all\(\[loadDay\(true\), wellnessApi\.frequent\(/)
+  assert.match(saveFlow, /catch \{\s*ElMessage\.warning\('餐食已保存，但页面刷新失败；请刷新页面查看，勿重新提交'\)/)
+  assert.match(saveFlow, /catch \{[\s\S]*?ElMessage\.error\('餐食保存请求未确认，请重试；若已保存不会重复创建'\)/)
+  assert.match(view, /async function loadDay\(strict = false\)/)
+  assert.match(view, /if \(strict\) throw error/)
+})

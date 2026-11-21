@@ -432,17 +432,66 @@ public class WellnessService {
     }
     @Transactional
     public Meal copyMeal(long id,LocalDate date) {
-        Meal existing=meal(id);
-        if(existing.items().stream().anyMatch(i->i.foodId()<=0)) {
-            List<AiMealItem> snapshots=existing.items().stream()
-                .map(i->i.foodId()>0
-                    ?new AiMealItem(i.foodId(),null,i.grams(),null)
-                    :new AiMealItem(null,i.foodName(),i.grams(),i.calories())).toList();
-            return addAiMeal(date,existing.mealType(),existing.note(),snapshots,
-                UUID.randomUUID().toString());
+        return copyMeal(id,date,null);
+    }
+
+    /** A new eating event needs a new token; a network retry reuses its token.
+     * Preserve the *recorded item nutrition snapshot* rather than recalculating
+     * the catalog or losing manually verified protein/carbs/fat in addAiMeal.
+     * A confirmed retry never rewrites a previously copied historical meal.
+     */
+    @Transactional
+    public Meal copyMeal(long id,LocalDate date,String idempotencyKey) {
+        if(date==null) throw new IllegalArgumentException("Missing copy date");
+        long user=CurrentUser.id();
+        lockMealOwner(user);
+        Meal existing=meal(id); // owner check inside the same serialized transaction
+        String requestKey=idempotencyKey==null || idempotencyKey.isBlank()
+            ?UUID.randomUUID().toString():idempotencyKey;
+        if(requestKey.length()>80) throw new IllegalArgumentException("Invalid copy idempotency key");
+        String key=UUID.nameUUIDFromBytes(("meal-copy:"+id+":"+requestKey)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        List<Long> found=db.query(
+            "SELECT id FROM prp_wellness_meals WHERE user_id=? AND idempotency_key=?",
+            (r,n)->r.getLong("id"),user,key);
+        if(!found.isEmpty()) {
+            Meal replay=meal(found.getFirst());
+            if(!replay.mealDate().equals(date) ||
+               !replay.mealType().equals(existing.mealType()))
+                throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "复制幂等键已用于其他日期或餐次");
+            return replay;
         }
-        List<ItemInput> copies=existing.items().stream().map(i->new ItemInput(i.foodId(),i.grams())).toList();
-        return addMeal(new MealInput(date,existing.mealType(),existing.note(),copies,null));
+        assertMealSlotFree(user,date,existing.mealType(),-1L);
+        long copiedId=insert(
+            "INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) "+
+            "VALUES (?,?,?,?,?)",
+            user,date,existing.mealType(),existing.note(),key);
+        // Clone exact confirmed nutrition values without conflating the new
+        // meal with another user's data or recomputing historical catalog food.
+        // Each new item ID maps to its own optional V30 enrichment row.
+        for(MealItem item:existing.items()) {
+            long newItemId=insert("INSERT INTO prp_wellness_meal_items "+
+                "(meal_id,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate) "+
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                copiedId,item.foodId()>0?item.foodId():null,item.foodName(),
+                item.grams(),item.calories(),item.proteinG(),item.carbsG(),
+                item.fatG(),item.estimate());
+            // Source provenance is retained as a *copied* historical snapshot,
+            // never presented as newly user-verified nutrition for this meal.
+            db.update("INSERT INTO prp_wellness_meal_item_nutrients "+
+                "(meal_item_id,quantity,quantity_unit,consumed_ratio,weight_min_g,weight_max_g,"+
+                "calories_min_kcal,calories_max_kcal,protein_g,carbs_g,fat_g,fiber_g,sugar_g,"+
+                "sodium_mg,source_type,confidence_level,estimate_note) "+
+                "SELECT ?,quantity,quantity_unit,consumed_ratio,weight_min_g,weight_max_g,"+
+                "calories_min_kcal,calories_max_kcal,protein_g,carbs_g,fat_g,fiber_g,sugar_g,"+
+                "sodium_mg,'COPIED_SNAPSHOT','COPIED',"+
+                "'历史餐食营养快照副本，请核对本次实际食用份量' "+
+                "FROM prp_wellness_meal_item_nutrients WHERE meal_item_id=?",
+                newItemId,item.id());
+        }
+        return meal(copiedId);
     }
 
     public List<Exercise> exercises(LocalDate date) {
