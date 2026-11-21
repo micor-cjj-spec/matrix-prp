@@ -362,6 +362,9 @@ java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
   > "$tmp/prp-backend.log" 2>&1 &
 backend_pid="$!"
 
+# Exercise the loopback-only TLS/redirect/proxy guards without any network
+# before attempting real disposable PKCE. This prints no credentials or URLs.
+python3 -m unittest discover -s app/deploy/mcp-oauth -p test_ci_callback.py -q
 # Only generic PASS/failure step names are printed by the browser driver.
 python3 app/deploy/mcp-oauth/ci_pkce_browser.py
 echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP protocol."
