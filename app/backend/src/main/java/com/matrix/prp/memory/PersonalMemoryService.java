@@ -197,7 +197,8 @@ public class PersonalMemoryService {
         String value=normalizedLiteral(p.objectValue());
         boolean related=false;
         for (ComparableFact old:existing) {
-            if (old.value()==null || !overlaps(p.validFrom(),p.validTo(),old.from(),old.to()))
+            if (old.value()==null || !overlaps(p.validFrom(),p.validTo(),old.from(),old.to())
+                    || !comparableSourceIsValid(old))
                 continue;
             String prior=normalizedLiteral(old.value());
             if (value.equals(prior)) return new AiInspection(p.requestKey(),"DUPLICATE");
@@ -390,7 +391,8 @@ public class PersonalMemoryService {
     }
 
     /** Exact normalized duplicates only; different statements are not called conflicts. */
-    private record ComparableFact(String value, LocalDate from, LocalDate to) {}
+    private record ComparableFact(String value, LocalDate from, LocalDate to,
+                                  String sourceType, String sourceRef) {}
     private static String normalizedLiteral(String value) {
         return java.text.Normalizer.normalize(value.strip(),java.text.Normalizer.Form.NFKC)
             .replaceAll("\\s+"," ").toLowerCase(java.util.Locale.ROOT);
@@ -404,14 +406,36 @@ public class PersonalMemoryService {
             long excludeId,boolean includePending) {
         String statuses=includePending ? "IN ('CONFIRMED','PENDING')" : "='CONFIRMED'";
         // Only these server-owned, hardcoded status fragments enter the SQL.
-        String sql="SELECT object_value,valid_from,valid_to FROM prp_personal_assertions"
+        String sql="SELECT object_value,valid_from,valid_to,source_type,source_ref FROM prp_personal_assertions"
             + " WHERE user_id=? AND subject_type='PERSON' AND subject_ref=?"
             + " AND predicate=? AND object_type='LITERAL' AND status "+statuses
             + " AND id<>? ORDER BY id DESC LIMIT 201";
         return db.query(sql,(rs,n)->new ComparableFact(rs.getString(1),
                 rs.getDate(2)==null?null:rs.getDate(2).toLocalDate(),
-                rs.getDate(3)==null?null:rs.getDate(3).toLocalDate()),
+                rs.getDate(3)==null?null:rs.getDate(3).toLocalDate(),
+                rs.getString(4),rs.getString(5)),
             owner,subjectRef,predicate.name(),excludeId);
+    }
+
+    /**
+     * Invalidated source references cannot make a dead assertion block a
+     * newly verified statement. Existing owner history retains that row.
+     */
+    private boolean comparableSourceIsValid(ComparableFact fact) {
+        try {
+            if (fact.sourceType()==null || "USER_INPUT".equals(fact.sourceType()))
+                return true; // null only for legacy/synthetic rows
+            switch (EvidenceSource.valueOf(fact.sourceType())) {
+                case CHAT_MESSAGE -> references.requireOwnedChatMessage(fact.sourceRef());
+                case RECORD -> references.requireOwned(NodeType.RECORD,fact.sourceRef());
+                case TASK -> references.requireOwned(NodeType.TASK,fact.sourceRef());
+                case REVIEW -> references.requireOwned(NodeType.REVIEW,fact.sourceRef());
+                case USER_INPUT -> { }
+            }
+            return true;
+        } catch (ResponseStatusException | IllegalArgumentException revoked) {
+            return false;
+        }
     }
 
     private void requireNoExactDuplicate(long owner,String subjectRef,Relation predicate,
@@ -424,7 +448,8 @@ public class PersonalMemoryService {
         String normalized=normalizedLiteral(literal);
         if (existing.stream().anyMatch(old->old.value()!=null
             && normalized.equals(normalizedLiteral(old.value()))
-            && overlaps(from,to,old.from(),old.to()))) {
+            && overlaps(from,to,old.from(),old.to())
+            && comparableSourceIsValid(old))) {
             throw conflict("Equivalent knowledge is already pending or confirmed");
         }
     }
