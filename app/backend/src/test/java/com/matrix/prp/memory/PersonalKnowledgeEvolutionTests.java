@@ -187,4 +187,18 @@ class PersonalKnowledgeEvolutionTests {
             any(RowMapper.class),eq(91L),eq(8L));
     }
 
+    @Test void explicitlyOpenedNormalHistoryKeepsManageabilityOfRevokedSources() {
+        owner(7);
+        var stale=new PersonalMemoryService.Memory(43L,PERSON,"7",DECLARES_SKILL,
+            LITERAL,null,"学习 RAG",CHAT_MESSAGE,"91","AI_CANDIDATE",
+            "CONFIRMED","NORMAL",null,null,null,LocalDateTime.now());
+        when(db.query(contains("AND status IN ('CONFIRMED','SUPERSEDED','INVALID')"),
+            any(RowMapper.class),eq(7L))).thenReturn(List.of(stale));
+        assertThat(memories.listNormalHistory()).containsExactly(stale);
+        // Explicit management does not re-verify/implicitly erase a revoked source.
+        verifyNoInteractions(references);
+        owner(8);
+        assertThat(memories.listNormalHistory()).isEmpty();
+    }
+
 }
