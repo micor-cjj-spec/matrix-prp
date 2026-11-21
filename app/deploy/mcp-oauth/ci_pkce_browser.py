@@ -8,6 +8,8 @@ content and user data are NEVER written to stdout or logs.
 """
 import base64
 import hashlib
+import socket
+from http.client import HTTPSConnection
 from html.parser import HTMLParser
 from http.cookiejar import CookieJar
 import json
@@ -18,7 +20,7 @@ import sys
 import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urljoin, urlsplit, parse_qs
-from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler, ProxyHandler
 
 from oauth_token_check import check_token
 
@@ -47,6 +49,31 @@ class SafeRedirect(HTTPRedirectHandler):
                 or target.port is not None):
             raise RuntimeError("OAuth attempted an unexpected cross-origin redirect")
         return super().redirect_request(request, fp, code, msg, headers, url)
+
+
+class LoopbackHTTPSConnection(HTTPSConnection):
+    """CI-only direct IPv4 transport, retaining original TLS SNI/hostname checks.
+
+    The disposable Nginx listener is bound to 127.0.0.1:443. Some runner
+    environments resolve .localhost names to IPv6, or lack consistent DNS
+    treatment. Never attempt off-runner network connections from this driver.
+    """
+    def connect(self):
+        if (self.host not in {"auth-e2e.localhost", "prp-e2e.localhost"}
+                or self.port != 443 or self._tunnel_host):
+            raise OSError("Unapproved disposable OAuth HTTPS destination")
+        raw = socket.create_connection(("127.0.0.1", 443), self.timeout,
+                                       self.source_address)
+        try:
+            self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+        except Exception:
+            raw.close()
+            raise
+
+
+class LoopbackHTTPSHandler(HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(LoopbackHTTPSConnection, req, context=self._context)
 
 
 class Forms(HTMLParser):
@@ -113,14 +140,22 @@ def json_response(response, stage):
 
 def wait_ready(opener, url, max_seconds=150):
     until = time.monotonic() + max_seconds
+    last_http = None
+    last_exception = None
     while time.monotonic() < until:
         try:
-            if request(opener, url)[0] == 200:
+            last_http = request(opener, url)[0]
+            if last_http == 200:
                 return
-        except (OSError, ValueError, ssl.SSLError):
-            pass
+        except (OSError, ValueError, ssl.SSLError) as error:
+            # Print only the error class, never request URLs, headers, bodies,
+            # cookies, credentials, tokens or exception text.
+            last_exception = type(error).__name__
         time.sleep(3)
-    raise RuntimeError("Temporary environment not healthy: " + ("Keycloak" if "auth-" in url else "PRP"))
+    stage = "Keycloak" if "auth-" in url else "PRP"
+    diagnostic = (" HTTP_" + str(last_http) if last_http is not None else "")
+    diagnostic += (" transport_" + last_exception if last_exception else "")
+    raise RuntimeError("Temporary environment not healthy: " + stage + diagnostic)
 
 
 def add_user(opener, admin_password, username, password):
@@ -407,7 +442,10 @@ def main():
     context = ssl.create_default_context(cafile=ca)
     # Authenticate against the actual HTTPS staging-style proxy and retain
     # browser cookies for the Keycloak login/consent pages.
-    opener = build_opener(HTTPSHandler(context=context), HTTPCookieProcessor(CookieJar()), SafeRedirect())
+    # Every endpoint in this disposable suite resolves to the local runner.
+    # Never inherit runner proxy environment variables for localhost OAuth probes.
+    opener = build_opener(ProxyHandler({}), LoopbackHTTPSHandler(context=context),
+                          HTTPCookieProcessor(CookieJar()), SafeRedirect())
     admin_pass = os.environ["MCP_E2E_KC_ADMIN_PASSWORD"]
     user_password = os.environ["MCP_E2E_KC_USER_PASSWORD"]
     prp_password = os.environ["MCP_E2E_PRP_PASSWORD"]
