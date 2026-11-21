@@ -16,6 +16,12 @@ Issue [#228](https://github.com/micor-cjj-spec/matrix-prp/issues/228), parent #1
 
 6. **History uses existing lifecycle.** `supersedes_id`, `SUPERSEDED`, `INVALID` and `valid_from/valid_to` already preserve an explicitly approved correction chain. T-008c does not create a second lifecycle, erase past versions, rewrite old effective dates, or auto-correct a memory because the model thinks it is outdated. The first-party owner correction dialog remains responsible for replacement, and final confirm revalidates its predecessor.
 
+## Owner access after a chat source is deleted
+
+Normal AI retrieval intentionally drops facts whose chat evidence has become unavailable, but the stored fact must remain user-manageable. `GET /api/memory/history/normal` is a **separate, owner-click-only, no-store, MCP-excluded** list of up to 100 NORMAL confirmed/invalid/superseded assertions, **without** filtering invalid sources. The UI panel “普通记忆历史与失效来源” is closed by default, clears its data on account/tab change and route exit, and provides correction, invalidation and permanent deletion. It does not affect `listCurrent` and does not make revoked-source facts model-visible. Existing SENSITIVE/RESTRICTED facts remain in the separately opened private management panel.
+
+This is bounded history management, **not** an exhaustive ancestry graph or a chronological lifecycle timeline. Pagination and explicit version-chain visualization are future work.
+
 ## Privacy and failure handling
 
 - `AI_CANDIDATE` remains provenance, **not** trust or an AI conclusion that the user is competent/healthy/etc.
