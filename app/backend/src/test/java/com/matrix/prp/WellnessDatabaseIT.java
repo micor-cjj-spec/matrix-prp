@@ -256,6 +256,32 @@ class WellnessDatabaseIT {
         assertThat(trend.path("foodItemCount").asInt()).isEqualTo(1);
         assertThat(trend.path("knownProteinCount").asInt()).isEqualTo(1);
 
+        // Editing only the meal header must retain item IDs and verified V30
+        // nutrition; prior unconditional DELETE cascaded away USER_LABEL rows.
+        String noteOnlyPayload=mapper.writeValueAsString(Map.of(
+            "mealDate",day,"mealType","BREAKFAST","note","Only note edited",
+            "items",List.of(Map.of("foodId",0,"name","Synthetic label milk",
+                "grams",150,"calories",90))));
+        JsonNode noteOnlyResponse=mapper.readTree(mvc.perform(auth(
+            put("/api/wellness/meals/{id}/snapshots",mealId)
+                .contentType(MediaType.APPLICATION_JSON).content(noteOnlyPayload),owner))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+            .path("data");
+        assertThat(noteOnlyResponse.path("note").asText()).isEqualTo("Only note edited");
+        assertThat(noteOnlyResponse.path("items").get(0).path("id").asLong()).isEqualTo(itemId);
+        assertThat(noteOnlyResponse.path("items").get(0).path("proteinG").decimalValue())
+            .isEqualByComparingTo("4.50");
+        JsonNode retained=getData("/api/wellness/meals/"+mealId+"/analysis",owner);
+        assertThat(retained.path("nutrients").get(0).path("sourceType").asText())
+            .isEqualTo("USER_LABEL");
+        assertThat(retained.path("nutrients").get(0).path("mealItemId").asLong())
+            .isEqualTo(itemId);
+        assertThat(retained.path("analyses").size()).isEqualTo(2);
+        assertThat(getData("/api/wellness/summary/nutrition-trends?days=7",owner)
+            .findValuesAsText("date")).contains(day);
+        assertThat(getData("/api/wellness/summary/daily?date="+day,owner)
+            .path("proteinG").decimalValue()).isEqualByComparingTo("4.50");
+
         // Repeated writes must not generate a second meal or extra analysis.
         mvc.perform(auth(post("/api/wellness/ai/drafts/{id}/confirm",id),owner))
             .andExpect(status().isConflict());
@@ -406,6 +432,20 @@ class WellnessDatabaseIT {
         assertThat(postJson("/api/wellness/meals",a,meal).path("id").asLong())
                 .isEqualTo(first.path("id").asLong());
         long mealId=first.path("id").asLong();
+        // Catalog entries also keep the original item identity on header-only edits.
+        JsonNode headerOnly=mapper.readTree(mvc.perform(auth(
+            put("/api/wellness/meals/{id}",mealId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of(
+                    "mealDate","2026-10-11","mealType","LUNCH",
+                    "note","Only changed catalog meal note",
+                    "items",List.of(validItem)))),a))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+            .path("data");
+        assertThat(headerOnly.path("items").get(0).path("id").asLong())
+            .isEqualTo(first.path("items").get(0).path("id").asLong());
+        assertThat(headerOnly.path("items").get(0).path("calories").decimalValue())
+            .isEqualByComparingTo("250");
         assertThat(getData("/api/wellness/foods/frequent",a).get(0).path("id").asLong()).isEqualTo(foodId);
         JsonNode summary=getData("/api/wellness/summary/daily?date=2026-10-11",a);
         assertThat(summary.path("calories").decimalValue()).isEqualByComparingTo("250.00");
