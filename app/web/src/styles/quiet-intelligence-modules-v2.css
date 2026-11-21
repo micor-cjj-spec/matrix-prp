@@ -1,0 +1,158 @@
+/* Matrix PRP Quiet Intelligence: functional module visual completion.
+ * Additive styles only — all original module forms, links, cards, dialogs and
+ * permissions remain part of their original Vue components.
+ */
+
+/* Work / task board */
+.prp-shell .prp-page-content .tasks-insight {gap:18px;margin-bottom:25px}
+.prp-shell .prp-page-content .tasks-progress-panel,
+.prp-shell .prp-page-content .tasks-focus-panel {
+  border:1px solid #e1e9df;border-radius:21px;padding:25px;
+  background:#fff;box-shadow:0 9px 27px rgba(38,75,46,.035)
+}
+.prp-shell .prp-page-content .tasks-focus-panel {background:linear-gradient(135deg,#e8f1e4,#f8faf5)}
+.prp-shell .prp-page-content .tasks-insight strong {color:#2d4e3b}
+.prp-shell .prp-page-content .tasks-percent {color:#416e53!important;font-weight:720}
+.prp-shell .prp-page-content .tasks-eyebrow {color:#799080;letter-spacing:.4px}
+.prp-shell .prp-page-content .tasks-insight p,
+.prp-shell .prp-page-content .tasks-focus-panel small {color:#819787}
+.prp-shell .prp-page-content .tasks-module-heading h2 {color:#2b4e38;font-size:18px}
+.prp-shell .prp-page-content .tasks-module-heading>span {color:#8e9e91}
+.prp-shell .prp-page-content .tasks-module-grid {gap:12px}
+.prp-shell .prp-page-content .tasks-module-item {
+  border:1px solid #e4eae0;border-radius:16px;
+  background:linear-gradient(140deg,#fff,#fcfdf9);
+  min-height:93px;padding:17px;transition:transform .17s,border-color .17s,box-shadow .17s
+}
+.prp-shell .prp-page-content .tasks-module-item:hover,
+.prp-shell .prp-page-content .tasks-module-item.selected {
+  border-color:#aac7ac;background:#eef5eb;box-shadow:0 8px 19px rgba(46,86,51,.08)
+}
+.prp-shell .prp-page-content .tasks-module-item:hover {transform:translateY(-2px)}
+.prp-shell .prp-page-content .tasks-module-name b {color:#527e5c}
+.prp-shell .prp-page-content .tasks-module-item small {color:#839787}
+.prp-shell .prp-page-content .tasks-quick-filters {scrollbar-width:thin}
+.prp-shell .prp-page-content .tasks-result-count {color:#849687}
+
+/* Finance ledger, business forms and readouts */
+.prp-shell .prp-page-content .finance-grid,
+.prp-shell .prp-page-content .work-grid {gap:19px}
+.prp-shell .prp-page-content .finance-grid .el-card,
+.prp-shell .prp-page-content .work-grid .el-card {border-radius:20px;border-color:#e4ebe0;box-shadow:0 7px 22px rgba(36,68,44,.035)}
+.prp-shell .prp-page-content .compact-row,
+.prp-shell .prp-page-content .summary-item {
+  border-radius:13px;border:1px solid #e6ece3;background:#fbfcf9;padding:15px;
+}
+.prp-shell .prp-page-content .compact-row:hover {background:#f0f6ec;border-color:#d4e4d0}
+.prp-shell .prp-page-content .summary-item p,
+.prp-shell .prp-page-content .summary-item span {color:#839585}
+.prp-shell .prp-page-content .transaction-list-card {min-width:0}
+
+/* Knowledge, records, tags, reviews and general reader/editor shells */
+.prp-shell .prp-page-content .knowledge-tree-card,
+.prp-shell .prp-page-content .knowledge-reader-card {
+  border:1px solid #e3eae0;border-radius:19px;box-shadow:0 9px 28px rgba(32,69,40,.035)
+}
+.prp-shell .prp-page-content .knowledge-node.file {color:#547b59}
+.prp-shell .prp-page-content .search-result {transition:border-color .17s,background-color .17s}
+.prp-shell .prp-page-content .search-result:hover {border-color:#c4dcc3;background:#f6faf4}
+.prp-shell .prp-page-content .search-result-title em {color:#809783}
+.prp-shell .prp-page-content .markdown-reader {color:#2d4336;line-height:1.85}
+.prp-shell .prp-page-content .md-heading {color:#264635;letter-spacing:-.3px}
+.prp-shell .prp-page-content .md-quote {border-left-color:#78a184;background:#eef6ec}
+.prp-shell .prp-page-content .md-inline-code {background:#eaf2e7;color:#406449}
+.prp-shell .prp-page-content .md-code-block {background:#1b2722;color:#e7f2e8}
+.prp-shell .prp-page-content .tag-item,
+.prp-shell .prp-page-content .list-item {transition:border-color .17s,background-color .17s}
+.prp-shell .prp-page-content .tag-item:hover,
+.prp-shell .prp-page-content .list-item:hover {border-color:#d2e2cf;background:#fdfefa}
+
+/* Learning: video and playlist are interactive components; keep player contrast. */
+.prp-shell .prp-page-content .video-study-page {padding-bottom:34px}
+.prp-shell .prp-page-content .video-study-layout {column-gap:20px}
+.prp-shell .prp-page-content .study-player-card {
+  border-radius:21px;background:#16221b;box-shadow:0 13px 31px rgba(18,42,28,.14)
+}
+.prp-shell .prp-page-content .study-video-stage {background:#101b15}
+.prp-shell .prp-page-content .study-player-controls {background:#1b2d22}
+.prp-shell .prp-page-content .study-video-placeholder {color:#c7dccb}
+.prp-shell .prp-page-content .study-play-symbol {color:#d0e1cb;background:rgba(160,200,162,.12)}
+.prp-shell .prp-page-content .study-playlist {border-radius:19px;border-color:#e2eae0;box-shadow:0 9px 25px rgba(31,67,42,.045)}
+.prp-shell .prp-page-content .playlist-heading strong {color:#2e4c3b}
+.prp-shell .prp-page-content .playlist-heading small {color:#8ca08e}
+.prp-shell .prp-page-content .course-folder {border-radius:10px;color:#69806e;transition:background-color .16s}
+.prp-shell .prp-page-content .course-folder:hover,
+.prp-shell .prp-page-content .course-folder.is-selected {background:#e9f3e7;color:#3e7151}
+.prp-shell .prp-page-content .playlist-item {border-radius:12px;color:#425e4b;transition:background-color .16s}
+.prp-shell .prp-page-content .playlist-item:hover {background:#f4f8f1}
+.prp-shell .prp-page-content .playlist-item.is-playing {background:#e8f2e7}
+.prp-shell .prp-page-content .is-playing .episode-title,
+.prp-shell .prp-page-content .playing-indicator {color:#416d4d}
+.prp-shell .prp-page-content .episode-progress-track {background:#dce9da}
+.prp-shell .prp-page-content .episode-progress-track>span {background:#638e69}
+
+/* Practice: retain question editing, import, AI and error review. */
+.prp-shell .prp-page-content .practice-grid {gap:18px}
+.prp-shell .prp-page-content .practice-grid .el-card {border-radius:19px;border-color:#e2eae0}
+.prp-shell .prp-page-content .practice-row {border-bottom-color:#e9eee6;padding:13px 0}
+.prp-shell .prp-page-content .practice-muted {color:#809183}
+.prp-shell .prp-page-content .practice-ai {
+  background:#eff5ed;border:1px solid #e2eade;border-radius:14px;
+  color:#3c6247;line-height:1.85
+}
+
+/* Vocal: use the same calm design language without changing media controls. */
+.prp-shell .prp-page-content .vocal-page {padding:5px 0 45px}
+.prp-shell .prp-page-content .vocal-hero h1 {color:#2e4f3b;font-weight:710}
+.prp-shell .prp-page-content .vocal-hero p {color:#849688}
+.prp-shell .prp-page-content .vocal-hero-stats div {background:#eaf1e7;border-color:#dce8d9;border-radius:16px}
+.prp-shell .prp-page-content .vocal-metric,
+.prp-shell .prp-page-content .vocal-panel {
+  background:#fff;border-color:#e4ebe1;border-radius:19px;
+  box-shadow:0 7px 23px rgba(35,71,42,.038)
+}
+.prp-shell .prp-page-content .vocal-metric strong {color:#31513d}
+.prp-shell .prp-page-content .vocal-plan-item {
+  border-color:#e1ebe0;border-radius:12px;transition:background-color .17s,border-color .17s
+}
+.prp-shell .prp-page-content .vocal-plan-item:hover,
+.prp-shell .prp-page-content .vocal-plan-item.is-selected {background:#eef5eb;border-color:#a8c8aa}
+.prp-shell .prp-page-content .vocal-empty {background:#f2f6f0;color:#869787}
+
+/* Chat conversation history: selection, rename, delete, pagination still work. */
+.prp-shell-chat .prp-chat-workspace .chat-conversation-panel {background:#f2f6f0;color:#2f493a}
+.prp-shell-chat .prp-chat-workspace .chat-panel-top strong {color:#31533e}
+.prp-shell-chat .prp-chat-workspace .chat-panel-new {
+  background:#fff;border:1px solid #d8e5d7;color:#456f50;border-radius:13px
+}
+.prp-shell-chat .prp-chat-workspace .chat-panel-row:hover,
+.prp-shell-chat .prp-chat-workspace .chat-panel-row.selected {background:#e1ecdf}
+.prp-shell-chat .prp-chat-workspace .chat-panel-select {color:#4c6a54}
+.prp-shell-chat .prp-chat-workspace .chat-panel-icon {color:#6f8873}
+.prp-shell-chat .prp-chat-workspace .chat-panel-icon:hover {background:#e0ebdf}
+.prp-shell-chat .prp-chat-workspace .chat-panel-group {color:#8a9d8d}
+.prp-shell-chat .prp-chat-workspace .chat-panel-menu {border-color:#dce7d9;box-shadow:0 10px 27px rgba(26,66,36,.17)}
+.prp-shell-chat .prp-chat-workspace .chat-panel-menu button {color:#496750}
+.prp-shell-chat .prp-chat-workspace .chat-panel-menu button:hover {background:#edf6eb}
+.prp-shell-chat .prp-chat-workspace .chat-panel-note button,
+.prp-shell-chat .prp-chat-workspace .chat-panel-load {color:#497b59}
+.prp-shell-chat .prp-chat-workspace .chat-panel-usage {border-top-color:#e0e9df;color:#8d9c8e}
+
+/* Interaction details: never make unavailable or privileged actions look interactive. */
+.prp-shell .prp-page-content :is(.el-button,.prp-app-card,.domain-tool-card,.home-metric):focus-visible,
+.prp-shell-chat .prp-chat-workspace button:focus-visible {
+  outline:3px solid #9eba9d;outline-offset:2px
+}
+.prp-shell .prp-page-content :is(.el-card,.panel,.home-panel) {min-width:0}
+@media(max-width:860px) {
+  .prp-shell .prp-page-content .tasks-progress-panel,
+  .prp-shell .prp-page-content .tasks-focus-panel {padding:19px}
+  .prp-shell .prp-page-content .finance-grid,
+  .prp-shell .prp-page-content .work-grid {gap:14px}
+  .prp-shell .prp-page-content .vocal-page {padding:0 0 32px}
+  .prp-shell .prp-page-content .study-player-card {border-radius:15px}
+}
+@media(prefers-reduced-motion:reduce) {
+  .prp-shell .prp-page-content .tasks-module-item,
+  .prp-shell .prp-page-content .playlist-item {transition:none}
+}
