@@ -302,7 +302,25 @@ echo "E2E TLS: disposable Java certificate trust configured."
 (
   cd app/backend
   chmod +x mvnw
-  ./mvnw -B -ntp -DskipTests package > "$tmp/java-build.log" 2>&1
+  # Only emit a fixed non-sensitive failure category. Raw Maven logs can
+  # contain repository URLs, headers or environment details: never print them.
+  if ! ./mvnw -B -ntp -DskipTests package > "$tmp/java-build.log" 2>&1; then
+    diagnostic="UNKNOWN"
+    if grep -Eq 'Could not resolve dependencies|Non-resolvable parent POM|Could not transfer artifact|UnknownHostException|Connection timed out|Read timed out|Connection reset|Name or service not known' "$tmp/java-build.log"; then
+      diagnostic="DEPENDENCY_OR_NETWORK"
+    elif grep -Eq 'No space left on device|Disk quota exceeded' "$tmp/java-build.log"; then
+      diagnostic="RUNNER_DISK_SPACE"
+    elif grep -Eq 'OutOfMemoryError|Java heap space|Cannot allocate memory|Killed process' "$tmp/java-build.log"; then
+      diagnostic="MEMORY_OR_PROCESS"
+    elif grep -Eq 'COMPILATION ERROR|Compilation failure|cannot find symbol|package .* does not exist' "$tmp/java-build.log"; then
+      diagnostic="JAVA_COMPILATION"
+    elif grep -Eq 'Permission denied|No such file or directory|cannot execute' "$tmp/java-build.log"; then
+      diagnostic="LAUNCH_OR_FILESYSTEM"
+    fi
+    echo "E2E_DIAG_MAVEN_BUILD_CATEGORY=$diagnostic" >&2
+    echo "FAIL E2E: disposable review-branch Java Maven build failed." >&2
+    exit 1
+  fi
 )
 echo "E2E PRP: Java 21 JAR built from review branch."
 # Verify the ZIP central directory of the exact freshly built Spring Boot JAR.
