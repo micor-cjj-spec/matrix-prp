@@ -97,8 +97,10 @@ public class WellnessController {
     @DeleteMapping("/meals/{id}")
     public ApiResponse<Void> deleteMeal(@PathVariable long id) { service.deleteMeal(id); return ApiResponse.success(); }
     @PostMapping("/meals/{id}/copy")
-    public ApiResponse<Meal> copyMeal(@PathVariable long id, @RequestParam @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate date) {
-        return ApiResponse.success(service.copyMeal(id, date));
+    public ApiResponse<Meal> copyMeal(@PathVariable long id,
+            @RequestParam @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required=false) String idempotencyKey) {
+        return ApiResponse.success(service.copyMeal(id, date, idempotencyKey));
     }
 
     @GetMapping("/exercises")
