@@ -160,6 +160,8 @@ async function saveKnowledgeCandidates() {
       validTo: null,
       sensitivity: 'RESTRICTED' as const,
       requestKey: item.requestKey,
+      sourceMessageId: result.messageId,
+      evidenceQuote: item.evidenceQuote,
     })))
     if (ticket !== knowledgeGeneration) return
     knowledgeSaved.value = true
