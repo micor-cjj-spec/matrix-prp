@@ -1,6 +1,7 @@
 package com.matrix.prp.mcp;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import com.matrix.prp.reviews.entity.ReviewEntity;
@@ -15,6 +16,7 @@ import com.matrix.prp.video.VideoStorage;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -65,9 +67,15 @@ class McpReviewVideoSqlBoundaryTests {
         repository.listLimited(new ReviewFilter("weekly", "learning",
             LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 21)), 12);
         verify(mapper).selectList(argThat(query ->
-            query.getSqlSegment().contains("user_id")
-                && query.getSqlSegment().contains("LIMIT 12")
-                && query.getSqlSegment().contains("ORDER BY")));
+            query instanceof LambdaQueryWrapper<?> preview
+                && preview.getSqlSegment().contains("user_id")
+                && preview.getSqlSegment().contains("LIMIT 12")
+                && preview.getSqlSegment().contains("ORDER BY")
+                && preview.getSqlSelect().contains("summary")
+                && preview.getSqlSelect().contains("created_at")
+                && !preview.getSqlSelect().contains("highlights")
+                && !preview.getSqlSelect().contains("problems")
+                && !preview.getSqlSelect().contains("next_actions")));
         verifyNoMoreInteractions(mapper);
     }
 
