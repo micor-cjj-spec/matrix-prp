@@ -143,6 +143,8 @@ export interface PersonalAiKnowledgeCandidate {
   validTo: null
   sensitivity: 'RESTRICTED'
   requestKey: string
+  sourceMessageId?: number
+  evidenceQuote?: string
 }
 export async function submitPersonalAiKnowledgeCandidates(items: PersonalAiKnowledgeCandidate[]) {
   const { data } = await apiClient.post<ApiResponse<PersonalMemory[]>>(
