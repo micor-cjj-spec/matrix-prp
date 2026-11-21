@@ -99,6 +99,15 @@ public class McpToolConfiguration {
             .map(Map.Entry::getKey)
             .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
+    /** Preserve existing direct-invocation test API; no Personal OS tools without a new opt-in. */
+    public List<McpStatelessServerFeatures.SyncToolSpecification> prpMcpSpecifications(
+            PrpMcpTools tools, McpScopeGuard scopeGuard,
+            org.springframework.beans.factory.ObjectProvider<McpClientGrantService> grantProvider,
+            McpDraftService drafts, String resource, boolean oauthEnabled, String advertisedScopes,
+            boolean writeEnabled, boolean chatgptApprovalUiEnabled, boolean additionalReadToolsEnabled) {
+        return prpMcpSpecifications(tools,scopeGuard,grantProvider,drafts,resource,oauthEnabled,
+            advertisedScopes,writeEnabled,chatgptApprovalUiEnabled,additionalReadToolsEnabled,false,false);
+    }
     @Bean
     public List<McpStatelessServerFeatures.SyncToolSpecification> prpMcpSpecifications(
             PrpMcpTools tools, McpScopeGuard scopeGuard, org.springframework.beans.factory.ObjectProvider<McpClientGrantService> grantProvider, McpDraftService drafts,
