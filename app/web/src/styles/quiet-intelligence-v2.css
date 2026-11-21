@@ -214,6 +214,30 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell .prp-app-icon {background:#e8f1e5;color:#4a7758;border-radius:15px}
 .prp-shell .prp-favorite-button.selected {color:#987747;background:#f6f0e1}
 .prp-shell .prp-apps-note {color:#526b57}
+
+/* Grouping changes presentation only: each entry still comes from the original registry. */
+.prp-shell .prp-apps-group-list {display:grid;gap:30px}
+.prp-shell .prp-apps-group {display:grid;gap:14px;min-width:0}
+.prp-shell .prp-apps-group-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.prp-shell .prp-apps-group-heading>div {display:flex;align-items:center;gap:13px;min-width:0}
+.prp-shell .prp-apps-group-mark {width:8px;height:28px;flex:none;border-radius:99px;background:#91a78d}
+.prp-shell .prp-apps-group:nth-child(1) .prp-apps-group-mark {background:#8fa179}
+.prp-shell .prp-apps-group:nth-child(2) .prp-apps-group-mark {background:#729a7b}
+.prp-shell .prp-apps-group:nth-child(3) .prp-apps-group-mark {background:#c1a981}
+.prp-shell .prp-apps-group:nth-child(4) .prp-apps-group-mark {background:#8f9d8e}
+.prp-shell .prp-apps-group-heading h3 {margin:0;font-size:17px;line-height:1.45;font-weight:720;color:#2d4d3a}
+.prp-shell .prp-apps-group-heading p {margin:2px 0 0;color:#657b69;font-size:12px;line-height:1.6}
+.prp-shell .prp-apps-group-heading>span {color:#66806b;font-size:12px;white-space:nowrap}
+.prp-shell .prp-apps-group .prp-apps-grid {margin-top:0}
+@media(max-width:660px) {
+  .prp-shell .prp-apps-group-list {gap:27px}
+  .prp-shell .prp-apps-group-heading h3 {font-size:16px}
+  .prp-shell .prp-apps-group-heading p {font-size:11px}
+  .prp-shell .prp-apps-group-heading>span {font-size:11px}
+  .prp-shell .prp-apps-group-heading>div {gap:10px}
+  .prp-shell .prp-apps-group-mark {height:25px}
+}
+
 .prp-shell .prp-apps-empty {border-color:#dbe7d9}
 /* Me: profile, settings, access grants, invitations, admin tools all stay in place. */
 .prp-shell .prp-profile-card {border-radius:24px;background:linear-gradient(115deg,#e3eee1,#f7f8ee);border:1px solid #e0e9dc;padding:32px 34px}
