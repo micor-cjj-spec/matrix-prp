@@ -38,7 +38,7 @@ test('all home entry links and task completion behavior remain accessible', () =
 })
 
 test('app directory still offers search, categories, favorites, and dynamic registry', () => {
-  assertEvery(apps, ['getAppEntries', 'groupOrder', 'v-for="item in filtered"', 'v-for="group in categories"', 'v-model="query"', 'toggleFavorite(item.code)', 'localStorage.setItem', 'groupNames'], 'app catalog')
+  assertEvery(apps, ['getAppEntries', 'groupOrder', 'v-for="item in section.items"', 'groupedEntries', 'groupDescriptions', 'v-for="section in groupedEntries"', 'v-for="group in categories"', 'v-model="query"', 'toggleFavorite(item.code)', 'localStorage.setItem', 'groupNames'], 'app catalog')
 })
 
 test('health workflows retain all six tabs, actions and authorization-aware AI changes', () => {
@@ -84,4 +84,14 @@ test('v2 module styling loads and preserves the complete uni-app page registry',
 
 test('module pages provide back-to-apps affordance, without replacing the main nav', () => {
   assertEvery(layout, ['class="prp-back-to-apps"', 'route.path !== \'/apps\'', 'to="/apps"', 'class="nav-list prp-main-nav"'], 'app breadcrumb')
+})
+
+
+test('category grouping has a one-to-one source without dropping search or favorites', () => {
+  assertEvery(apps, [
+    'groupOrder', 'groupedEntries', 'items: filtered.value.filter(item => item.group === group)',
+    'v-for="section in groupedEntries"', 'v-for="item in section.items"',
+    'groupNames[section.group]', 'filtered.length', 'v-model="query"',
+    'v-for="group in categories"', 'toggleFavorite(item.code)', ':to="item.route"'
+  ], 'grouped app directory')
 })
