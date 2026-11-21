@@ -57,11 +57,15 @@ echo '127.0.0.1 auth-e2e.localhost prp-e2e.localhost' | sudo tee -a /etc/hosts >
 
 openssl req -x509 -new -newkey rsa:2048 -nodes -days 1 \
   -keyout "$tmp/certs/ca.key" -out "$tmp/certs/ca.pem" \
-  -subj '/CN=PRP-E2E-Disposable-CA' >/dev/null 2>&1
+  -subj '/CN=PRP-E2E-Disposable-CA' \
+  -addext 'basicConstraints=critical,CA:TRUE' \
+  -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
 openssl req -new -newkey rsa:2048 -nodes -keyout "$tmp/certs/leaf.key" \
   -out "$tmp/certs/leaf.csr" -subj '/CN=auth-e2e.localhost' >/dev/null 2>&1
 printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
-  'extendedKeyUsage=serverAuth' > "$tmp/certs/leaf.ext"
+  'extendedKeyUsage=serverAuth' \
+  'basicConstraints=critical,CA:FALSE' \
+  'keyUsage=critical,digitalSignature,keyEncipherment' > "$tmp/certs/leaf.ext"
 openssl x509 -req -in "$tmp/certs/leaf.csr" \
   -CA "$tmp/certs/ca.pem" -CAkey "$tmp/certs/ca.key" -CAcreateserial \
   -out "$tmp/certs/leaf.pem" -days 1 -extfile "$tmp/certs/leaf.ext" >/dev/null 2>&1
