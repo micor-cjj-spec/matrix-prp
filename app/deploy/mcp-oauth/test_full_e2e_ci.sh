@@ -35,6 +35,17 @@ cleanup() {
     else
       echo "CI_E2E_KEYCLOAK_DIRECT_HTTP_STATUS=unavailable"
     fi
+    # Verify the HTTPS/Nginx path using CA validation and fixed IPv4 routing.
+    # Only safe status codes and container state; never log response bodies.
+    local nginx_state tls_status
+    nginx_state="$(docker inspect --format '{{.State.Status}}/exit={{.State.ExitCode}}' prp-ci-real-nginx 2>/dev/null || true)"
+    echo "CI_E2E_NGINX_CONTAINER_STATE=${nginx_state:-unavailable}"
+    tls_status="$(curl --noproxy '*' --max-time 6 --silent --output /dev/null --write-out '%{http_code}' --cacert "$tmp/certs/ca.pem" --resolve 'auth-e2e.localhost:443:127.0.0.1' 'https://auth-e2e.localhost/realms/prp-mcp/.well-known/openid-configuration' || true)"
+    if [[ "$tls_status" =~ ^[0-9]{3}$ ]]; then
+      echo "CI_E2E_KEYCLOAK_VERIFIED_TLS_HTTP_STATUS=$tls_status"
+    else
+      echo "CI_E2E_KEYCLOAK_VERIFIED_TLS_HTTP_STATUS=unavailable"
+    fi
   fi
   docker rm -f prp-ci-real-keycloak prp-ci-real-nginx prp-ci-real-mysql >/dev/null 2>&1 || true
   if [[ -n "$backend_pid" ]]; then kill "$backend_pid" >/dev/null 2>&1 || true; fi
