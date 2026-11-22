@@ -26,13 +26,24 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
             or not os.environ.get("RUNNER_TEMP")
             or flow.ISSUER != ISSUER_ORIGIN + "/realms/prp-mcp"):
         raise RuntimeError("FIRST_PARTY_BROWSER_DISPOSABLE_CI_ONLY")
-    import ci_first_party_link_e2e as first
+    review_video = os.environ.get("MCP_E2E_REVIEW_VIDEO") == "true"
+    if review_video:
+        # Only a throwaway test may unlink the ticket-linked synthetic subject.
+        # Rebind via real browser PKCE after an explicit review/video-only grant.
+        if (os.environ.get("MCP_E2E_EXACT_CHATGPT") != "true"
+                or os.environ.get("MCP_E2E_CRUD") == "true"):
+            raise RuntimeError("BROWSER_REVIEW_VIDEO_EXACT_READONLY_CI_REQUIRED")
+        flow.json_response(flow.request(
+            opener, PRP + "/api/mcp/identity/unlink", bearer=prp_bearer,
+            data={"password": prp_password}), "Unlink synthetic ticket pairing")
+    requested = (["prp.reviews.read", "prp.video.read"] if review_video
+                 else ["prp.tasks.read"])
     grant = flow.json_response(flow.request(
         opener, PRP + "/api/mcp/clients", bearer=prp_bearer,
-        data={"clientId": CHATGPT, "scopes": ["prp.tasks.read"],
-              "password": prp_password}), "Grant task read to exact ChatGPT client ID")
+        data={"clientId": CHATGPT, "scopes": requested,
+              "password": prp_password}), "Grant exact read scopes to CI client")
     if grant.get("data", {}).get("status") != "ACTIVE":
-        raise RuntimeError("BROWSER_CHATGPT_TASK_SCOPE_NOT_GRANTED")
+        raise RuntimeError("BROWSER_CHATGPT_READ_SCOPE_NOT_GRANTED")
     stage = "CHROMIUM_START"
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, args=[
@@ -64,11 +75,25 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
             page.goto(PRP + "/prp/me/mcp-clients",
                       wait_until="domcontentloaded", timeout=30000)
             stage = "EXACT_RESOURCE_SCOPE_DISCOVERY"
-            page.locator(".scope-option").filter(has_text="读取任务").wait_for(
-                state="visible", timeout=20000)
-            if (page.locator(".scope-option").count() != 1
-                    or not page.locator('.scope-option input[type="checkbox"]').is_checked()):
-                raise RuntimeError("BROWSER_SCOPE_DISCOVERY_OR_READ_DEFAULT_INVALID")
+            if review_video:
+                page.locator(".scope-option").filter(
+                    has_text="读取复盘摘要").wait_for(state="visible", timeout=20000)
+                page.locator(".scope-option").filter(
+                    has_text="读取视频目录和学习进度").wait_for(
+                        state="visible", timeout=20000)
+                if (page.locator(".scope-option").count() != 2
+                        or page.locator('.scope-option input[type="checkbox"]:checked').count() != 0):
+                    raise RuntimeError("BROWSER_REVIEW_VIDEO_SCOPE_DEFAULT_NOT_EMPTY")
+                page.get_by_text("身份绑定本身不会新增数据读取授权",
+                                 exact=False).wait_for(state="visible", timeout=20000)
+                if page.get_by_text("读取任务", exact=True).count() != 0:
+                    raise RuntimeError("BROWSER_REVIEW_VIDEO_TASK_SCOPE_MISADVERTISED")
+            else:
+                page.locator(".scope-option").filter(has_text="读取任务").wait_for(
+                    state="visible", timeout=20000)
+                if (page.locator(".scope-option").count() != 1
+                        or not page.locator('.scope-option input[type="checkbox"]').is_checked()):
+                    raise RuntimeError("BROWSER_SCOPE_DISCOVERY_OR_READ_DEFAULT_INVALID")
             panel = page.locator(".el-card").filter(
                 has=page.get_by_text("推荐：在 PRP 中通过 Keycloak 安全绑定账号"))
             panel.locator('input[type="password"]').fill(prp_password, timeout=20000)
@@ -168,9 +193,31 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
             or links[0].get("issuer") != flow.ISSUER
             or links[0].get("subject") != signed_mcp_subject):
         raise RuntimeError("BROWSER_OIDC_SUBJECT_NOT_LINKED_TO_MCP_IDENTITY")
-    result = flow.jsonrpc(opener, oauth_bearer, 73, "tools/call",
-                          {"name": "prp_tasks_list", "arguments": {}})
-    if result[0] != 200 or result[1].get("error") or             result[1].get("result", {}).get("isError"):
-        raise RuntimeError("BROWSER_LINKED_MCP_TASK_READ_FAILED")
-    print("PASS E2E CHROMIUM: actual PRP Vue page, pinned Keycloak login, server-side " +
-          "PKCE callback, query scrub, identity link and separate bearer tasks read.")
+    if review_video:
+        manifest = flow.jsonrpc(opener, oauth_bearer, 72, "tools/list", {})
+        offered = {tool.get("name") for tool in
+                   manifest[1].get("result", {}).get("tools", [])}
+        if (manifest[0] != 200 or offered != {
+                "prp_reviews_list", "prp_video_folders", "prp_video_progress"}):
+            raise RuntimeError("BROWSER_REVIEW_VIDEO_TOOL_CATALOG_NOT_EXACT")
+        for name in sorted(offered):
+            result = flow.jsonrpc(opener, oauth_bearer, 73, "tools/call",
+                                  {"name": name, "arguments": {}})
+            if (result[0] != 200 or result[1].get("error")
+                    or result[1].get("result", {}).get("isError")):
+                raise RuntimeError("BROWSER_LINKED_READ_FAILED_" + name)
+        unwanted = flow.jsonrpc(opener, oauth_bearer, 74, "tools/call",
+                                {"name": "prp_tasks_list", "arguments": {}})
+        if (unwanted[0] == 200 and not unwanted[1].get("error")
+                and not unwanted[1].get("result", {}).get("isError")):
+            raise RuntimeError("BROWSER_REVIEW_VIDEO_TASK_ACCESS_UNEXPECTEDLY_ALLOWED")
+        print("PASS E2E CHROMIUM REVIEW VIDEO: real Vue read-scope UI defaults empty, "
+              "Keycloak browser PKCE/callback, query scrub, linked three readonly tools; "
+              "task scope denied.")
+    else:
+        result = flow.jsonrpc(opener, oauth_bearer, 73, "tools/call",
+                              {"name": "prp_tasks_list", "arguments": {}})
+        if (result[0] != 200 or result[1].get("error") or result[1].get("result", {}).get("isError"):
+            raise RuntimeError("BROWSER_LINKED_MCP_TASK_READ_FAILED")
+        print("PASS E2E CHROMIUM: actual PRP Vue page, pinned Keycloak login, server-side " +
+              "PKCE callback, query scrub, identity link and separate bearer tasks read.")
