@@ -217,7 +217,8 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
     else:
         result = flow.jsonrpc(opener, oauth_bearer, 73, "tools/call",
                               {"name": "prp_tasks_list", "arguments": {}})
-        if (result[0] != 200 or result[1].get("error") or result[1].get("result", {}).get("isError"):
+        if (result[0] != 200 or result[1].get("error")
+                or result[1].get("result", {}).get("isError")):
             raise RuntimeError("BROWSER_LINKED_MCP_TASK_READ_FAILED")
         print("PASS E2E CHROMIUM: actual PRP Vue page, pinned Keycloak login, server-side " +
               "PKCE callback, query scrub, identity link and separate bearer tasks read.")
