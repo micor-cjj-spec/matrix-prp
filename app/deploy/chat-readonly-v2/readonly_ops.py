@@ -92,12 +92,20 @@ def root_filesystem_usage(statvfs=os.statvfs):
     """Fixed root-filesystem summary; no user-controlled path or command."""
     try:
         stats = statvfs("/")
-        block = stats.f_frsize
-        total = stats.f_blocks * block
-        used = (stats.f_blocks - stats.f_bfree) * block
-        free = stats.f_bavail * block
-        if not (type(total) is int and type(used) is int and type(free) is int
-                and total > 0 and 0 <= used <= total and 0 <= free <= total):
+        block, blocks, free_blocks, avail_blocks = (
+            stats.f_frsize, stats.f_blocks, stats.f_bfree, stats.f_bavail
+        )
+        if (any(type(v) is not int for v in (
+                    block, blocks, free_blocks, avail_blocks)) or
+                block <= 0 or blocks <= 0 or
+                not 0 <= avail_blocks <= free_blocks <= blocks):
+            raise ValueError("invalid filesystem counters")
+        total = blocks * block
+        used = (blocks - free_blocks) * block
+        free = avail_blocks * block
+        # Fixed-size metric contract: bound conversion to JSON-friendly
+        # signed 64-bit values before percentage arithmetic.
+        if total > (1 << 63) - 1:
             raise ValueError("invalid filesystem counters")
         return {
             "totalBytes": total,
@@ -105,7 +113,7 @@ def root_filesystem_usage(statvfs=os.statvfs):
             "freeBytes": free,
             "usagePercent": round(100.0 * used / total, 2),
         }
-    except (OSError, ValueError, AttributeError, TypeError, ZeroDivisionError) as exc:
+    except (OSError, ValueError, AttributeError, TypeError, ZeroDivisionError, OverflowError) as exc:
         raise RejectedRequest("metric unavailable") from exc
 
 
