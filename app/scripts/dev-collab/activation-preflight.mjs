@@ -7,7 +7,7 @@ import { resolve } from 'node:path'
  */
 import { execFileSync } from 'node:child_process'
 import { verifyStateBranchRuleset } from './state-rule-policy.mjs'
-import { validateSnapshot } from './core.mjs'
+import { validateSnapshot, requireMigratedLiveState } from './core.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const REF='prp-collab-state'
@@ -31,8 +31,12 @@ function check(value,code,blocks) {if(!value)blocks.push(code)}
 function names(collection,key) {
   return Array.isArray(collection?.[key])?collection[key].map(x=>x?.name):[]
 }
-export function evaluateActivationEvidence(data) {
+export function evaluateActivationEvidence(data, options={}) {
+  // Preserve the original one-shot V0 migration gate; V1 checks are read-only.
+  const phase=options?.phase??'bootstrap_v0'
   const blockers=[]
+  check(phase==='bootstrap_v0'||phase==='active_v1',
+    'UNKNOWN_PREFLIGHT_PHASE',blockers)
   const {main,stateBranch,rule,appRule,mainRule,appId,rulesetId,
     environment,branchPolicies,environmentSecrets,environmentVariables,snapshot,
     headSha,installationRepos,publicationHold}=data??{}
@@ -64,8 +68,14 @@ export function evaluateActivationEvidence(data) {
     'STATE_BRANCH_UNPROTECTED',blockers)
   check(SHA.test(headSha||'')&&stateBranch?.commit?.sha===headSha,
     'STATE_REF_UNVERIFIED',blockers)
-  check(headSha==='062036f7021e215ffbfdcbf5689d207a0549b68b',
-    'STATE_NOT_PINNED_V0',blockers)
+  if(phase==='bootstrap_v0'){
+    check(headSha==='062036f7021e215ffbfdcbf5689d207a0549b68b',
+      'STATE_NOT_PINNED_V0',blockers)
+  }else if(phase==='active_v1'){
+    // Non-replayable historic migration SHA must not be treated as current live V1.
+    check(SHA.test(headSha||'')&&headSha!=='062036f7021e215ffbfdcbf5689d207a0549b68b',
+      'STATE_STILL_PINNED_TO_V0',blockers)
+  }
   check(appId===EXPECTED_APP_ID,'APP_ID_MISMATCH',blockers)
   check(rulesetId===STATE_RULESET_ID&&rule?.id===STATE_RULESET_ID,
     'STATE_RULESET_ID_MISMATCH',blockers)
@@ -113,12 +123,19 @@ export function evaluateActivationEvidence(data) {
   try {
     validateSnapshot(snapshot)
     check(snapshot.requirement_id===REQ,'WRONG_REQUIREMENT',blockers)
-    check(snapshot.version===0&&snapshot.status==='ACTIVE'&&
-      snapshot.tasks.length===5&&snapshot.tasks.every(t=>
-        t.claim==null&&t.status==='READY')&&
-      snapshot.processed_requests.length===0,
-      'NOT_CLEAN_INITIAL_PILOT_STATE',blockers)
-  }catch{blockers.push('INVALID_STATE_SNAPSHOT')}
+    if(phase==='bootstrap_v0'){
+      check(snapshot.version===0&&snapshot.status==='ACTIVE'&&
+        snapshot.tasks.length===5&&snapshot.tasks.every(t=>
+          t.claim==null&&t.status==='READY')&&
+        snapshot.processed_requests.length===0,
+        'NOT_CLEAN_INITIAL_PILOT_STATE',blockers)
+    }else if(phase==='active_v1'){
+      // Check actual V1 task/Issue identities instead of inferring migration from version.
+      requireMigratedLiveState(snapshot)
+      check(snapshot.status==='ACTIVE','MIGRATED_REQUIREMENT_NOT_ACTIVE',blockers)
+    }
+  }catch{blockers.push(phase==='active_v1'?
+    'INVALID_OR_UNMIGRATED_STATE_SNAPSHOT':'INVALID_STATE_SNAPSHOT')}
 
   check(installationRepos?.total_count===1&&
     installationRepos?.repositories?.length===1&&
@@ -129,11 +146,13 @@ export function evaluateActivationEvidence(data) {
     'PUBLICATION_HOLD_MISSING_OR_INVALID',blockers)
 
   return {
-    repository:REPO,requirement_id:REQ,
+    repository:REPO,requirement_id:REQ,phase,
     state_sha:SHA.test(headSha||'')?headSha:null,
     status:blockers.length===0?'PRECONDITIONS_OBSERVED':'NO_GO',
     blockers,allow_claim:false,allow_merge:false,allow_deploy:false,
-    note:'This read-only report never authorizes a state write. The first live operation still requires an explicit owner-created Issue request and must pass the trusted Issue workflow.'
+    note:phase==='active_v1'?
+      'Read-only V1 observation is not task approval, an authorized state write, a main merge or production deployment. Current operations still require an owner-authored Issue and trusted workflow.':
+      'This read-only report never authorizes a state write. The first live operation still requires an explicit owner-created Issue request and must pass the trusted Issue workflow.'
   }
 }
 function run() {
@@ -155,9 +174,11 @@ function run() {
   let snapshot=null
   if(SHA.test(headSha||'')){
     try {
-      const bytes=execFileSync('git',['show',headSha+':requirements/'+REQ+'.json'],
-        {encoding:'utf8',maxBuffer:1024*1024,stdio:['ignore','pipe','pipe']})
-      snapshot=JSON.parse(bytes)
+      // Read the exact verified remote state commit, not a potentially stale local checkout.
+      const file=api('contents/requirements/'+REQ+'.json?ref='+headSha)
+      if(file?.encoding!=='base64'||typeof file.content!=='string')
+        throw Error('STATE_CONTENT_UNREADABLE')
+      snapshot=JSON.parse(Buffer.from(file.content,'base64').toString('utf8'))
     }catch{/* no local object: reject rather than assume state */}
   }
   let publicationHold=null
@@ -174,10 +195,13 @@ function run() {
          stdio:['ignore','pipe','pipe']}))
     }catch{/* refuse to infer app access */}
   }
+  // V0 checks remain exact and fail closed; migrated states use a separate V1 contract.
+  const phase=Number.isInteger(snapshot?.version)&&snapshot.version>=1?
+    'active_v1':'bootstrap_v0'
   const report=evaluateActivationEvidence({main,stateBranch,rule,appRule,mainRule,appId,
     rulesetId:Number(rulesetId),
     environment,branchPolicies,environmentSecrets,environmentVariables,snapshot,
-    headSha,installationRepos,publicationHold})
+    headSha,installationRepos,publicationHold},{phase})
   process.stdout.write(JSON.stringify(report,null,2)+'\n')
   if(report.status!=='PRECONDITIONS_OBSERVED')process.exitCode=2
 }
