@@ -1,0 +1,242 @@
+name: PRP CIMD production-review OCI (CI only; no deployment)
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  production-review-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: |
+            app/deploy/mcp-production-cimd/pom.xml
+            app/deploy/mcp-production-health/auth-policy/pom.xml
+      - name: Build exact-version extension JARs on runner only
+        run: |
+          set -Eeuo pipefail
+          mvn -B -ntp -f app/deploy/mcp-production-cimd/pom.xml -Dkeycloak.version=26.8.1 verify
+          mvn -B -ntp -f app/deploy/mcp-production-health/auth-policy/pom.xml -Dkeycloak.version=26.8.1 verify
+      - name: Build separate production-review OCI and verify native CIMD against synthetic Postgres
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          NET="prp-cimd-prod-review-ci"
+          PG="prp-cimd-prod-review-pg"
+          KC="prp-cimd-runtime-26-8-1"
+          finish() {
+            docker rm -f "$KC" "$PG" "$BROKER" >/dev/null 2>&1 || true
+            docker network rm "$NET" >/dev/null 2>&1 || true
+          }
+          trap finish EXIT
+          BROKER="prp-cimd-prod-review-egress"
+          PW="$(openssl rand -hex 24)"
+          ADMIN_PW="$(openssl rand -hex 24)"
+          echo "::add-mask::$PW"
+          echo "::add-mask::$ADMIN_PW"
+          OUT="$RUNNER_TEMP/cimd-production-review-oci"
+          mkdir -p "$OUT" "$RUNNER_TEMP/synthetic-cimd-realm"
+          python3 app/deploy/mcp-production-health/build_realm.py --output "$RUNNER_TEMP/synthetic-cimd-realm/prp-mcp-prod-realm.json"
+          # The synthetic Realm has no users/credentials; 0700/0600 from
+          # umask 077 blocks Keycloak's container UID 1000 from listing it.
+          # Grant read/execute ONLY to this disposable synthetic import mount.
+          chmod 0755 "$RUNNER_TEMP/synthetic-cimd-realm"
+          chmod 0644 "$RUNNER_TEMP/synthetic-cimd-realm/prp-mcp-prod-realm.json"
+          docker pull quay.io/keycloak/keycloak:26.8.1
+          # Fail fast if Keycloak's actual non-root UID cannot access the mount.
+          docker run --rm --user 1000:0 \
+            -v "$RUNNER_TEMP/synthetic-cimd-realm:/opt/keycloak/data/import:ro" \
+            --entrypoint /bin/sh quay.io/keycloak/keycloak:26.8.1 \
+            -c 'test -r /opt/keycloak/data/import/prp-mcp-prod-realm.json && test -x /opt/keycloak/data/import'
+          echo "SYNTHETIC_REALM_IMPORT_READABLE_AS_KEYCLOAK_UID=PASS"
+          KC_BASE="$(docker image inspect quay.io/keycloak/keycloak:26.8.1 --format '{{index .RepoDigests 0}}')"
+          test -n "$KC_BASE"
+          # Build from a separate reviewed Dockerfile, not by re-tagging the clone-only image.
+          docker build --build-arg KEYCLOAK_BASE="$KC_BASE" \
+            --tag prp-cimd-production-review:26.8.1 \
+            --file app/deploy/mcp-production-cimd/Dockerfile.production-candidate app/deploy
+          # Check the built feature by actually starting PostgreSQL-backed Keycloak below.
+          echo "POSTGRES_OPTIMIZED_IMAGE_BUILD=PASS"
+          docker pull postgres:17.6-alpine
+          P_UID="$(docker run --rm postgres:17.6-alpine id -u postgres)"
+          P_GID="$(docker run --rm postgres:17.6-alpine id -g postgres)"
+          docker build --tag prp-cimd-prod-review-egress:26.8.1 \
+            --file app/deploy/mcp-production-health/Dockerfile.egress \
+            app/deploy/mcp-production-health
+          docker network create "$NET" >/dev/null
+          STATE="$RUNNER_TEMP/prp-cimd-prod-review-egress-state"
+          mkdir -p "$STATE"
+          chmod 0777 "$STATE"
+          docker run -d --name "$BROKER" --network "$NET" --network-alias egress \
+            --memory 128m --pids-limit 32 --cap-drop ALL \
+            --security-opt no-new-privileges --read-only \
+            -v "$STATE:/state" prp-cimd-prod-review-egress:26.8.1 >/dev/null
+          export PRP_CIMD_EGRESS_COUNTERS="$STATE/counters.safe.json"
+          export PRP_CIMD_CLONE_NAME="$KC"
+          export PRP_CIMD_CLONE_VERSION="26.8.1"
+          export PRP_CIMD_CLONE_PASSWORD="$ADMIN_PW"
+          docker run -d --name "$PG" --network "$NET" --network-alias pgclone \
+            --memory 512m --user "$P_UID:$P_GID" --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --tmpfs "/var/lib/postgresql/data:rw,size=384m,uid=$P_UID,gid=$P_GID,mode=0700" \
+            -e POSTGRES_USER=prp_auth -e POSTGRES_PASSWORD="$PW" -e POSTGRES_DB=prp_auth \
+            postgres:17.6-alpine >/dev/null
+          READY=false
+          for i in $(seq 1 50); do
+            if docker exec "$PG" pg_isready -q -U prp_auth -d prp_auth; then
+              READY=true; break
+            fi
+            sleep 1
+          done
+          test "$READY" = true
+          echo "SYNTHETIC_POSTGRES_READY=PASS"
+          # No parent /opt/keycloak/data tmpfs: --import-realm requires its bind-mounted subdirectory.
+          # The clone container is deleted before saving image LAYERS, never live state.
+          docker run -d --name "$KC" --network "$NET" --memory 1400m \
+            --pids-limit 256 --cap-drop ALL --security-opt no-new-privileges \
+            -p 127.0.0.1:18880:8080 \
+            -v "$RUNNER_TEMP/synthetic-cimd-realm:/opt/keycloak/data/import:ro" \
+            -e KC_DB=postgres -e KC_DB_URL=jdbc:postgresql://pgclone:5432/prp_auth \
+            -e KC_DB_USERNAME=prp_auth -e KC_DB_PASSWORD="$PW" \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=prp-ci-admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD="$ADMIN_PW" \
+            prp-cimd-production-review:26.8.1 start --optimized --import-realm \
+            --http-enabled=true --hostname=https://auth.micor.top \
+            --proxy-headers=xforwarded \
+            --spi-client-policy-executor--prp-health-cimd-metadata--cimd-provider-name=prp-health-scope-cimd >/dev/null
+          python3 - <<'PY'
+          import json, time, urllib.request, urllib.error, http.client, subprocess
+          endpoint="http://127.0.0.1:18880/realms/prp-mcp-prod/.well-known/openid-configuration"
+          success=False
+          statuses=set()
+          mismatch_flags=set()
+          for _ in range(65):
+              try:
+                  req=urllib.request.Request(endpoint,headers={
+                      "Host":"auth.micor.top",
+                      "X-Forwarded-Proto":"https",
+                      "X-Forwarded-Host":"auth.micor.top"})
+                  with urllib.request.urlopen(req,timeout=4) as resp:
+                      statuses.add(resp.status)
+                      data=json.load(resp)
+                  mismatch_flags={k for k,b in {
+                      "issuer":data.get("issuer")=="https://auth.micor.top/realms/prp-mcp-prod",
+                      "cimd":data.get("client_id_metadata_document_supported") is True,
+                      "jwt":"private_key_jwt" in data.get("token_endpoint_auth_methods_supported",[]),
+                      "pkce":"S256" in data.get("code_challenge_methods_supported",[])
+                  }.items() if not b}
+                  success=not mismatch_flags
+                  if success:
+                      break
+              except urllib.error.HTTPError as e:
+                  statuses.add(e.code)
+              except (OSError, ValueError, http.client.HTTPException):
+                  pass
+              state=subprocess.run(["docker","inspect","-f","{{.State.Running}}","prp-cimd-runtime-26-8-1"],
+                                   capture_output=True,text=True,timeout=5)
+              if state.returncode==0 and state.stdout.strip()=="false":
+                  break
+              time.sleep(2)
+          print("POSTGRES_OPTIMIZED_KEYCLOAK_SMOKE=" + ("PASS" if success else "FAIL"))
+          if not success:
+              state=subprocess.run(["docker","inspect","-f","{{.State.ExitCode}} {{.State.OOMKilled}} {{.State.Running}}",
+                                   "prp-cimd-runtime-26-8-1"],capture_output=True,text=True,timeout=5)
+              parts=state.stdout.strip().split()
+              print("CLONE_KC_EXIT_CODE=" + (parts[0] if len(parts)==3 else "UNKNOWN"))
+              print("CLONE_KC_OOM_KILLED=" + (parts[1] if len(parts)==3 else "UNKNOWN"))
+              print("CLONE_KC_RUNNING=" + (parts[2] if len(parts)==3 else "UNKNOWN"))
+              print("CLONE_DISCOVERY_HTTP_STATUSES=" + json.dumps(sorted(statuses)))
+              print("CLONE_DISCOVERY_MISMATCH_FIELDS=" + json.dumps(sorted(mismatch_flags)))
+              logs=subprocess.run(["docker","logs","--tail","250","prp-cimd-runtime-26-8-1"],
+                                  capture_output=True,text=True,timeout=10)
+              raw=logs.stdout + logs.stderr
+              categories={
+                  "DB_CONNECTION":any(t in raw for t in ("PSQLException","Connection refused","Unable to connect to database")),
+                  "DB_SCHEMA":any(t in raw for t in ("Liquibase","migration failed","database schema")),
+                  "REALM_IMPORT":any(t in raw for t in ("Importing realm","Failed to import realm")),
+                  "JAVA_MEMORY":any(t in raw for t in ("OutOfMemoryError","Cannot allocate memory")),
+                  "PROVIDER_LOAD":any(t in raw for t in ("NoClassDefFoundError","ServiceConfigurationError","Failed to load provider")),
+                  "HOSTNAME":any(t in raw for t in ("hostname","Hostname v2","proxy-headers")),
+                  "ERROR_LOG":any("ERROR" in line for line in raw.splitlines()),
+              }
+              print("CLONE_KC_LOG_CATEGORIES=" + json.dumps(categories,sort_keys=True))
+              # This runner contains only disposable, synthetic bootstrap data.
+              # Print a bounded, letter-only classification of log failures,
+              # never original messages, URLs, tokens, passwords or stack traces.
+              import re
+              failures=[]
+              for line in raw.splitlines():
+                  if any(mark in line for mark in ("ERROR", "Caused by:", "Exception:")):
+                      tail=line.split("ERROR",1)[-1] if "ERROR" in line else line
+                      safe=re.sub(r"[^A-Za-z _.-]", "_",tail).strip()[:200]
+                      failures.append(safe)
+              print("CLONE_KC_REDACTED_FAILURE_HINTS=" + json.dumps(failures[:7]))
+              raise SystemExit(1)
+          PY
+          REALM_COUNT="$(docker exec "$PG" psql -U prp_auth -d prp_auth -At -c "SELECT count(*) FROM realm WHERE name='prp-mcp-prod'")"
+          test "$REALM_COUNT" = 1
+          echo "SYNTHETIC_REALM_IMPORTED_TO_POSTGRES=PASS"
+          # Uses actual Keycloak JVM + pinned ChatGPT metadata/JWKS via fixed egress,
+          # strict existing-client security/scope, and original Policy executor.
+          python3 app/deploy/mcp-production-cimd/ci_native_runtime.py
+          echo "PRODUCTION_REVIEW_NATIVE_CIMD_23_CHECKS=PASS"
+          # Stop and destroy runtime before exporting image layers only.
+          docker rm -f "$KC" "$PG" "$BROKER" >/dev/null
+          docker network rm "$NET" >/dev/null
+          # We never docker commit, export a runtime container, or upload DB state.
+          docker save prp-cimd-production-review:26.8.1 | gzip -1 > "$OUT/prp-cimd-production-review-2681.tar.gz"
+          GITHUB_SHA="$GITHUB_SHA" KC_BASE="$KC_BASE" OUT="$OUT" python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          root=pathlib.Path(os.environ["OUT"])
+          image_id=subprocess.check_output(
+              ["docker","image","inspect","prp-cimd-production-review:26.8.1","--format","{{.Id}}"],
+              text=True).strip()
+          def sha(path):
+              h=hashlib.sha256()
+              with open(path,"rb") as stream:
+                  for part in iter(lambda:stream.read(1024*1024),b""):
+                      h.update(part)
+              return h.hexdigest()
+          manifest={
+              "artifact_purpose":"PRODUCTION_CANDIDATE_REVIEW_ONLY_NOT_DEPLOYED",
+              "source_sha":os.environ["GITHUB_SHA"],
+              "keycloak_version":"26.8.1",
+              "keycloak_base_digest":os.environ["KC_BASE"],
+              "review_image_tag":"prp-cimd-production-review:26.8.1",
+              "review_image_id":image_id,
+              "postgres_optimized":True,
+              "cimd_and_resource_indicators_enabled":True,
+              "synthetic_postgres_smoke":"PASS",
+              "native_jvm_cimd_synthetic_checks":23,
+              "real_chatgpt_managed_assertion_verified":False,
+              "production_approval_to_deploy":False,
+              "real_production_backup_used":False,
+              "real_chatgpt_assertion_verified":False,
+              "cimd_provider_jar_sha256":sha("app/deploy/mcp-production-cimd/target/prp-production-cimd-candidate.jar"),
+              "health_policy_jar_sha256":sha("app/deploy/mcp-production-health/auth-policy/target/prp-production-health-policy.jar"),
+              "oci_gzip_sha256":sha(root/"prp-cimd-production-review-2681.tar.gz")
+          }
+          (root/"manifest.safe.json").write_text(json.dumps(manifest,indent=2)+"\n")
+          print("PRODUCTION_REVIEW_OCI_IMAGE_BUILT=PASS")
+          print("PRODUCTION_CHANGED=False")
+          print("BACKUP_UPLOADED=False")
+          PY
+      - name: Preserve ONLY production-review OCI image layers and nonsecret digests
+        uses: actions/upload-artifact@v4
+        with:
+          name: prp-cimd-2681-production-REVIEW-NO-DEPLOY
+          path: |
+            ${{ runner.temp }}/cimd-production-review-oci/manifest.safe.json
+            ${{ runner.temp }}/cimd-production-review-oci/prp-cimd-production-review-2681.tar.gz
+          if-no-files-found: error
+          retention-days: 3

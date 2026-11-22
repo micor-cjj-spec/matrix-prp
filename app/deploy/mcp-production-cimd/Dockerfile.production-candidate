@@ -1,0 +1,11 @@
+# REVIEW ONLY — prepare a separate production-optimized artifact, NEVER deploy
+# by using this Dockerfile or its CI output alone.
+# Keycloak base must be the verified, immutable quay.io digest supplied at build.
+ARG KEYCLOAK_BASE
+FROM ${KEYCLOAK_BASE}
+COPY --chown=1000:0 mcp-production-health/auth-policy/target/prp-production-health-policy.jar /opt/keycloak/providers/prp-production-health-policy.jar
+COPY --chown=1000:0 mcp-production-cimd/target/prp-production-cimd-candidate.jar /opt/keycloak/providers/prp-production-cimd-candidate.jar
+RUN /opt/keycloak/bin/kc.sh build --db=postgres --features=resource-indicators,cimd:v1
+LABEL org.opencontainers.image.title="PRP CIMD production-review candidate" \
+      org.opencontainers.image.description="Not an approved production image; separate change control and backup/rollback review required"
+ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]

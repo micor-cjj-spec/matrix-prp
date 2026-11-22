@@ -1,0 +1,98 @@
+name: PRP CIMD native Keycloak runtime (disposable only)
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  native-cimd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        keycloak: ['26.8.1', '26.8.2']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: |
+            app/deploy/mcp-production-cimd/pom.xml
+            app/deploy/mcp-production-health/auth-policy/pom.xml
+      - name: Build isolated extension JARs for the exact Keycloak version
+        env:
+          VERSION: ${{ matrix.keycloak }}
+        run: |
+          set -Eeuo pipefail
+          mvn -B -ntp -f app/deploy/mcp-production-cimd/pom.xml -Dkeycloak.version="$VERSION" verify
+          mvn -B -ntp -f app/deploy/mcp-production-health/auth-policy/pom.xml -Dkeycloak.version="$VERSION" verify
+          sha256sum app/deploy/mcp-production-cimd/target/prp-production-cimd-candidate.jar
+          sha256sum app/deploy/mcp-production-health/auth-policy/target/prp-production-health-policy.jar
+      - name: Build and run actual official Keycloak with CIMD feature and extension providers
+        env:
+          VERSION: ${{ matrix.keycloak }}
+        run: |
+          set -Eeuo pipefail
+          NAME="prp-cimd-runtime-${VERSION//./-}"
+          NET="prp-cimd-net-${VERSION//./-}"
+          BROKER="prp-cimd-egress-${VERSION//./-}"
+          finish() {
+            docker rm -f "$NAME" "$BROKER" >/dev/null 2>&1 || true
+            docker network rm "$NET" >/dev/null 2>&1 || true
+          }
+          trap finish EXIT
+          export PRP_CIMD_CLONE_NAME="$NAME"
+          export PRP_CIMD_CLONE_VERSION="$VERSION"
+          export PRP_CIMD_CLONE_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$PRP_CIMD_CLONE_PASSWORD"
+          mkdir -p "$RUNNER_TEMP/prp-cimd-realm"
+          python3 app/deploy/mcp-production-health/build_realm.py --output "$RUNNER_TEMP/prp-cimd-realm/prp.json"
+          cat > "$RUNNER_TEMP/Dockerfile.cimd" <<'DOCKERFILE'
+          ARG BASE
+          FROM ${BASE}
+          COPY mcp-production-health/auth-policy/target/prp-production-health-policy.jar /opt/keycloak/providers/prp-production-health-policy.jar
+          COPY mcp-production-cimd/target/prp-production-cimd-candidate.jar /opt/keycloak/providers/prp-production-cimd-candidate.jar
+          RUN /opt/keycloak/bin/kc.sh build --db=dev-file --features=resource-indicators,cimd:v1
+          ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
+          DOCKERFILE
+          docker pull "quay.io/keycloak/keycloak:$VERSION"
+          BASE_DIGEST="$(docker image inspect "quay.io/keycloak/keycloak:$VERSION" --format '{{index .RepoDigests 0}}')"
+          test -n "$BASE_DIGEST"
+          docker build --build-arg BASE="$BASE_DIGEST" --tag "prp-cimd-test:$VERSION" --file "$RUNNER_TEMP/Dockerfile.cimd" app/deploy
+          # Use the same source-audited exact-chatgpt.com CONNECT broker as
+          # the production-health candidate, without any published proxy port.
+          # Keycloak and broker share a disposable Docker-only DNS network.
+          docker pull python:3.12-slim
+          docker build --tag "prp-cimd-egress-test:$VERSION" \
+            --file app/deploy/mcp-production-health/Dockerfile.egress \
+            app/deploy/mcp-production-health
+          docker network create "$NET" >/dev/null
+          STATE="$RUNNER_TEMP/prp-cimd-egress-state"
+          mkdir -p "$STATE"
+          chmod 777 "$STATE"
+          docker run -d --name "$BROKER" --network "$NET" --network-alias egress \
+            --memory 128m --pids-limit 32 --cap-drop ALL --security-opt no-new-privileges \
+            --read-only -v "$STATE:/state" "prp-cimd-egress-test:$VERSION" >/dev/null
+          export PRP_CIMD_EGRESS_COUNTERS="$STATE/counters.safe.json"
+          docker run -d --name "$NAME" --network "$NET" --memory 1400m \
+            --pids-limit 256 --cap-drop ALL \
+            --security-opt no-new-privileges -p 127.0.0.1:18880:8080 \
+            --tmpfs /opt/keycloak/data:rw,size=384m,uid=1000,gid=0,mode=0700 \
+            -v "$RUNNER_TEMP/prp-cimd-realm:/opt/keycloak/data/import:ro" \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=prp-ci-admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD="$PRP_CIMD_CLONE_PASSWORD" \
+            "prp-cimd-test:$VERSION" start --optimized --import-realm \
+            --http-enabled=true --http-port=8080 --hostname=https://auth.micor.top \
+            --proxy-headers=xforwarded \
+            --spi-client-policy-executor--prp-health-cimd-metadata--cimd-provider-name=prp-health-scope-cimd
+          python3 app/deploy/mcp-production-cimd/ci_native_runtime.py
+          echo "PRODUCTION_CHANGED=False"
+          echo "NO_PRODUCTION_BACKUP_USED=True"
+          echo "ACTUAL_CHATGPT_ASSERTION_TESTED=False"
