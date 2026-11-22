@@ -67,3 +67,28 @@ test('AI draft confirmation checks owner-scoped status without replaying a POST'
   assert.equal((save.match(/apiClient\.post<ApiResponse<Outcome>>/g) ?? []).length, 1,
     'failed confirmation must not replay POST automatically')
 })
+
+const aiChangeController = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiChangeController.java', import.meta.url), 'utf8')
+const aiChangeService = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/wellness/WellnessAiChangeService.java', import.meta.url), 'utf8')
+
+test('AI change readback is owner-scoped, read-only and cannot replay the confirm POST', () => {
+  assert.match(aiChangeController, /@GetMapping\("\/\{id\}\/status"\)/)
+  assert.match(aiChangeController, /service\.getChangeStatus\(id\)/)
+  const status = aiChangeService.split('public ChangeDraftStatus getChangeStatus(String id) {')[1]?.split('private Map<String,Object> lockedDraft')[0]
+  assert.ok(status)
+  assert.match(status, /validDraftId\(id\)/)
+  assert.match(status, /WHERE id=\? AND user_id=\? AND action_type IN/)
+  assert.match(status, /CurrentUser\.id\(\)/)
+  assert.match(status, /"PENDING","CONSUMED"/)
+  assert.doesNotMatch(status, /db\.update\(|wellness\.(?:update|delete|create)/)
+  const confirm = aiChange.split('async function confirm(){')[1]?.split('async function reviewRecordsBeforeNewDraft()')[0]
+  assert.ok(confirm)
+  assert.match(confirm, /const selected=draft\.value/)
+  assert.match(confirm, /const selectedAction=selected\.action/)
+  assert.match(confirm, /status\.data\.data\.status==='CONSUMED'/)
+  assert.match(confirm, /apiClient\.get<ApiResponse<\{status:string\}>>/)
+  assert.match(confirm, /confirmOutcomeUncertain\.value=true/)
+  assert.equal((confirm.match(/apiClient\.post<ApiResponse<Outcome>>/g) ?? []).length, 1)
+  assert.match(aiChange, /!targetId\|\|busy\|\|saving\|\|loading\|\|confirmOutcomeUncertain/)
+  assert.match(aiChange, /reviewRecordsBeforeNewDraft/)
+})
