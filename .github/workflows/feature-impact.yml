@@ -2,7 +2,7 @@ name: Feature Impact Report
 
 on:
   pull_request:
-    branches: [main, 'integrate/**']
+    branches: [main, dev, 'integrate/**']
 
 permissions:
   contents: read
