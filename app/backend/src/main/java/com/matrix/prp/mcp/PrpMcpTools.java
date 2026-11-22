@@ -1,6 +1,10 @@
 package com.matrix.prp.mcp;
 
 import com.matrix.prp.auth.security.CurrentUser;
+import com.matrix.prp.goals.GoalService;
+import com.matrix.prp.memory.PersonalMemoryService;
+import com.matrix.prp.ontology.PersonalOntology.NodeType;
+import com.matrix.prp.ontology.PersonalOntology.Relation;
 import com.matrix.prp.finance.model.CreateFinanceTransactionRequest;
 import com.matrix.prp.finance.model.FinanceTransactionFilter;
 import com.matrix.prp.finance.service.FinanceService;
@@ -18,6 +22,8 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
+import java.util.Set;
 import org.springaicommunity.mcp.annotation.McpTool;
 import org.springaicommunity.mcp.annotation.McpToolParam;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -39,6 +45,11 @@ public class PrpMcpTools {
     /** PracticeService is profile-excluded from database-free tests; production supplies it. */
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     private PracticeService practice;
+    /** P0-backed Personal OS Services are not available in legacy DB-free tests. */
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private GoalService personalGoals;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private PersonalMemoryService personalMemories;
     private final McpDraftService drafts;
     private final McpScopeGuard scopes;
 
@@ -350,6 +361,104 @@ public class PrpMcpTools {
         return records.listLimited(new RecordFilter(moduleCode, tagId, optionalDate(recordDate), keyword),20)
             .stream().map(r -> new RecordPreview(r.id(),r.moduleCode(),r.title(),r.recordDate(),
                 r.content()==null ? "" : r.content().substring(0,Math.min(200,r.content().length())))).toList();
+    }
+
+    // Personal OS T-006: these reads are not in the production health manifest.
+    // Each has a distinct OAuth scope AND operator gate in McpToolConfiguration.
+    // Always call the existing owner-scoped services, never userId supplied by AI.
+    public record PersonalGoalSummary(long id, String title, String status,
+                                      String priority, LocalDate targetDate,
+                                      boolean hasSuccessCriteria) {}
+    public record PersonalGoalEvidence(long assertionId, String predicate, String relatedType,
+                                       String relatedReference, String value) {}
+    public record PersonalMemorySummary(long assertionId, String predicate, String value,
+                                        LocalDate validFrom, LocalDate validTo) {}
+
+    private GoalService personalGoalService() {
+        if (personalGoals == null)
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Personal OS goal service is not available");
+        return personalGoals;
+    }
+    private PersonalMemoryService personalMemoryService() {
+        if (personalMemories == null)
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Personal OS memory service is not available");
+        return personalMemories;
+    }
+    private static String bounded(String value, int max) {
+        if (value == null) return "";
+        return value.length() <= max ? value : value.substring(0, max);
+    }
+
+    @McpTool(name="prp_goals_list",
+        description="List up to 20 of your own career goals: short title/status/target only. No personal memory, private descriptions or writes. Requires separate Personal OS read authorization.",
+        annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object personalGoalsList() {
+        scopes.require("prp.personal_os.read");
+        return personalGoalService().list().stream()
+            .filter(goal -> "career".equals(goal.domain()))
+            .limit(20)
+            .map(goal -> new PersonalGoalSummary(
+                goal.id(), bounded(goal.title(), 120), goal.status(), goal.priority(),
+                goal.targetDate(), goal.successCriteria()!=null && !goal.successCriteria().isBlank()))
+            .toList();
+    }
+
+    @McpTool(name="prp_goal_context",
+        description="Read up to 20 confirmed, current NORMAL relationships for ONE owned career goal; no task/record/review bodies or sensitive memory. Never creates a task.",
+        annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object personalGoalContext(
+        @McpToolParam(description="Exact positive ID of your own career goal",required=true) long goalId) {
+        scopes.require("prp.personal_os.read");
+        if (goalId <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid goal ID");
+        GoalService goals = personalGoalService();
+        GoalService.Goal goal = goals.get(goalId);
+        if (!"career".equals(goal.domain()))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Career goal unavailable");
+        // GoalService.context revalidates every linked endpoint and evidence source;
+        // no unbounded graph traversal and no task/record/review contents.
+        return goals.context(goalId).stream()
+            .filter(link -> Set.of("NEEDS_SKILL","ADVANCES","USES_RESOURCE_RECORD","EVALUATES")
+                .contains(link.predicate()))
+            .limit(20)
+            .map(link -> new PersonalGoalEvidence(
+                link.assertionId(),link.predicate(),
+                "GOAL".equals(link.subjectType()) ? link.objectType() : link.subjectType(),
+                "GOAL".equals(link.subjectType()) ? link.objectRef() : link.subjectRef(),
+                bounded(link.objectValue(), 128)))
+            .toList();
+    }
+
+    @McpTool(name="prp_memory_search",
+        description="Search at most 10 current, user-confirmed NORMAL self-reported skill/preference/background facts matching an exact keyword. Never search sensitive, restricted, pending, invalid or historical memories.",
+        annotations=@McpTool.McpAnnotations(readOnlyHint=true,destructiveHint=false,idempotentHint=true,openWorldHint=false))
+    public Object personalMemorySearch(
+        @McpToolParam(description="Required keyword, 1-64 characters; matches only your confirmed NORMAL memories",required=true)
+        String keyword) {
+        scopes.require("prp.personal_os.read");
+        if (keyword == null || keyword.isBlank() || keyword.length() > 64
+                || keyword.chars().anyMatch(Character::isISOControl))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid memory search keyword");
+        long owner = CurrentUser.id();
+        String needle = keyword.strip().toLowerCase(Locale.ROOT);
+        LocalDate today = LocalDate.now();
+        return personalMemoryService().listCurrent().stream()
+            .filter(memory -> memory.id()>0 && memory.subjectType()==NodeType.PERSON
+                && Long.toString(owner).equals(memory.subjectRef())
+                && memory.objectType()==NodeType.LITERAL && memory.objectRef()==null
+                && "CONFIRMED".equals(memory.status()) && "NORMAL".equals(memory.sensitivity())
+                && Set.of(Relation.DECLARES_SKILL,Relation.PREFERS,Relation.HAS_BACKGROUND)
+                    .contains(memory.predicate())
+                && memory.objectValue()!=null && !memory.objectValue().isBlank()
+                && memory.objectValue().length()<=256
+                && (memory.validFrom()==null || !memory.validFrom().isAfter(today))
+                && (memory.validTo()==null || !memory.validTo().isBefore(today))
+                && memory.objectValue().toLowerCase(Locale.ROOT).contains(needle))
+            .limit(10)
+            .map(memory -> new PersonalMemorySummary(memory.id(),memory.predicate().name(),
+                bounded(memory.objectValue(), 160),memory.validFrom(),memory.validTo()))
+            .toList();
     }
 
     private PracticeService practiceReadService() {

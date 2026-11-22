@@ -18,7 +18,7 @@ export const groupOrder: AppGroup[] = ['learning', 'health', 'life', 'finance', 
 const groups: Record<string, AppGroup> = {
   learning: 'learning', videos: 'learning', practice: 'learning', knowledge: 'learning', vocal: 'learning',
   wellness: 'health',
-  life: 'life', tasks: 'life', records: 'life', reviews: 'life', tags: 'life',
+  life: 'life', tasks: 'life', records: 'life', reviews: 'life', tags: 'life', 'personal-os': 'life',
   finance: 'finance',
 }
 
