@@ -6,6 +6,7 @@ import AppLayout from '@/layouts/AppLayout.vue'
 import WellnessAiRecorder from '@/components/wellness/WellnessAiRecorder.vue'
 import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 import PersonalDishManager from '@/components/wellness/PersonalDishManager.vue'
+import { dateInTimeZone } from '@/utils/wellnessDate'
 import {
   wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type MealSnapshotItem, type Exercise, type ExerciseInput,
   type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint, type NutritionTrendPoint, type MealAnalysisDetails,
@@ -77,15 +78,7 @@ const profile = reactive<Profile>({ heightCm: null, timezone: 'Asia/Shanghai' })
 // A long-lived PWA session may cross midnight, and the user's health-day
 // timezone may differ from their device timezone. Resolve at click time.
 function wellnessToday(): string {
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: profile.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
-    }).formatToParts(new Date())
-    const fields = new Map(parts.map(part => [part.type, part.value]))
-    return `${fields.get('year')}-${fields.get('month')}-${fields.get('day')}`
-  } catch {
-    return localDate()
-  }
+  return dateInTimeZone(profile.timezone)
 }
 const selectedGoal = computed(() => summary.value?.goal)
 const calories = computed(() => summary.value?.calories === null || summary.value?.calories === undefined ? null : Number(summary.value.calories))
@@ -234,7 +227,24 @@ async function loadDay(strict = false) {
   } finally { loading.value = false }
 }
 function onTabChange(tab: string | number) { if (tab === 'goals') loadGoal() }
+let initialHealthDateResolved = false
 async function loadAll() {
+  // Load the owner's business timezone before requesting a daily summary.
+  // A UTC-/US-local date can disagree with Asia/Shanghai across midnight.
+  let profileReady = false
+  try {
+    Object.assign(profile, await wellnessApi.profile())
+    profileReady = true
+  } catch {
+    ElMessage.warning('个人健康时区暂不可用，先按设备日期显示')
+  }
+  if (profileReady && !initialHealthDateResolved) {
+    initialHealthDateResolved = true
+    const routeDate = route.query.date
+    const routeDateSelected = typeof routeDate === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(routeDate)
+    // Never overwrite a deep-linked day or one the user selected while loading.
+    if (!routeDateSelected && date.value === today) date.value = wellnessToday()
+  }
   await Promise.all([
     loadDay(),
     wellnessApi.metrics(90).then(x => { metrics.value = x }),
@@ -242,7 +252,6 @@ async function loadAll() {
     loadTrend(),
     wellnessApi.foods().then(x => { foods.value = x }),
     wellnessApi.frequent().then(x => { frequentFoods.value = x }),
-    wellnessApi.profile().then(x => { Object.assign(profile, x) }),
   ]).catch(() => { ElMessage.warning('部分健康资料未加载，请检查数据库迁移') })
 }
 onMounted(loadAll)
@@ -512,7 +521,7 @@ const goalForm = reactive({ effectiveFrom: today, dailyCalories: 0, dailyProtein
   weeklyActivityMinutes: null as number | null })
 function loadGoal() {
   const current = goals.value.find(x => x.effectiveFrom <= date.value)
-  goalForm.effectiveFrom = today
+  goalForm.effectiveFrom = wellnessToday()
   goalForm.dailyCalories = current ? Number(current.dailyCalories) : 0
   goalForm.dailyProteinG = current?.dailyProteinG == null ? null : Number(current.dailyProteinG)
   goalForm.weeklyActivityMinutes = current?.weeklyActivityMinutes ?? null
