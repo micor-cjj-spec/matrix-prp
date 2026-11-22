@@ -74,6 +74,10 @@ const aiChangeService = readFileSync(new URL('../../backend/src/main/java/com/ma
 test('AI change readback is owner-scoped, read-only and cannot replay the confirm POST', () => {
   assert.match(aiChangeController, /@GetMapping\("\/\{id\}\/status"\)/)
   assert.match(aiChangeController, /service\.getChangeStatus\(id\)/)
+  const capabilities = JSON.parse(readFileSync(new URL('../../config/mcp-capabilities.json', import.meta.url), 'utf8'))
+  const route = capabilities.routes.find(x => x.route === 'GET /api/wellness/ai/changes/{id}/status')
+  assert.equal(route?.status, 'excluded', 'first-party confirmation probe must not become an MCP tool')
+  assert.match(route.reason, /owner-only|owner-scoped|first-party/i)
   const status = aiChangeService.split('public ChangeDraftStatus getChangeStatus(String id) {')[1]?.split('private Map<String,Object> lockedDraft')[0]
   assert.ok(status)
   assert.match(status, /validDraftId\(id\)/)
