@@ -74,6 +74,25 @@ jobs:
           done < <(git ls-tree -r --name-only origin/main -- app/backend/src/main/resources/db/migration/)
           test "$count" -eq 24
           echo 'CI_MAIN_V1_V24_MIGRATION_BLOBS_UNCHANGED=YES'
+      - name: Bootstrap the pinned Maven wrapper with bounded download retries
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd app/backend
+          chmod +x mvnw
+          # Retry only Maven distribution bootstrap, never SQL/test assertions.
+          # Each wrapper attempt uses a disposable temporary download directory.
+          for attempt in 1 2 3 4; do
+            if ./mvnw --version; then
+              echo 'CI_MAVEN_WRAPPER_BOOTSTRAP_READY=YES'
+              break
+            fi
+            if [[ "$attempt" -eq 4 ]]; then
+              echo '::error::CI_PINNED_MAVEN_WRAPPER_BOOTSTRAP_FAILED' >&2
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
       - name: Create and dispose an exclusively runner-owned MySQL schema
         shell: bash
         run: |
