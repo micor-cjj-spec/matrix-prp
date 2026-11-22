@@ -142,16 +142,40 @@ async function save() {
     return
   }
   confirming.value = true; error.value = ''
+  const draftId = draft.value.draftId
+  let confirmStarted = false
   try {
-    await apiClient.patch('/wellness/ai/drafts/' + encodeURIComponent(draft.value.draftId), correction())
-    const r = await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/drafts/' + encodeURIComponent(draft.value.draftId) + '/confirm', {})
+    await apiClient.patch('/wellness/ai/drafts/' + encodeURIComponent(draftId), correction())
+    confirmStarted = true
+    const r = await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/drafts/' + encodeURIComponent(draftId) + '/confirm', {})
     done.value = r.data.data.route
     emit('recorded', r.data.data)
     draft.value = null; file.value = null
     ElMessage.success('健康记录已保存')
   } catch (e) {
     const err = e as { response?: { data?: { message?: string } } }
-    error.value = err.response?.data?.message || '保存失败，请检查草稿字段及登录状态'
+    if (!confirmStarted) {
+      error.value = err.response?.data?.message || '草稿修改请求未确认，请检查输入后再试'
+    } else {
+      // The confirmation POST may have committed even if its response was lost.
+      // This owner-scoped GET is read-only: never replay the mutation to check.
+      try {
+        const checked = await apiClient.get<ApiResponse<{ status: string }>>(
+          '/wellness/ai/drafts/' + encodeURIComponent(draftId))
+        if (checked.data.data.status === 'CONSUMED') {
+          const route = /^\d{4}-\d{2}-\d{2}$/.test(values.value.date)
+            ? '/wellness?date=' + encodeURIComponent(values.value.date) : '/wellness'
+          done.value = route
+          emit('recorded', { action: draft.value?.action || 'meal.create', route, saved: null })
+          draft.value = null; file.value = null
+          ElMessage.success('已核实草稿保存成功，无需重复提交')
+        } else {
+          error.value = '确认请求结果未核实，请刷新健康中心核对是否保存，勿重复提交'
+        }
+      } catch {
+        error.value = '确认请求结果未核实，回读也失败；请刷新健康中心核对，勿重复提交'
+      }
+    }
   } finally { confirming.value = false }
 }
 </script>
