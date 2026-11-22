@@ -13,13 +13,13 @@ Existing known environments are distinct and must not be overwritten:
 
 1. An authorized staging operator independently records the *actual running* source commit, backend/web source commits and image digests, Flyway history/version, dedicated database and realm, HTTPS host identity and non-production isolation. Do **not** copy raw docker inspect, Nginx output, environmental variables, passwords, tokens, user IDs, photos or database records.
 2. Create a **local private** JSON file with the keys below, leaving all unverified values null or false until independently observed. Never commit a completed real-world manifest or credentials.
-3. Run the offline preflight using the reviewed exact health feature SHA, rather than guessing the version from a source checkout:
+3. Run the offline preflight **from the exact reviewed candidate checkout** with its matching `app/deploy/migration-policy.json` and source SHA. The expected Flyway version is derived from this checked-in policy: a Health-only V30 branch expects 30, while the combined Health V30 + Personal OS V31 candidate expects 31. Do not reuse an older checker or allow a partially migrated DB to pass:
 
        python3 app/deploy/health-v2/readiness_audit.py --evidence /private/redacted.json --expected-sha <reviewed-40-hex-health-commit>
 
 4. BLOCKED:CODE means stop. DECLARED_EVIDENCE_CONSISTENT_REVIEW_REQUIRED confirms **only that the operator's claims are mutually consistent**; it is **not** a verified deployment, UAT PASS or permission to touch OAuth or live data. A distinct reviewer must confirm the observations and approvals.
 
-The parser **rejects duplicate JSON keys and unknown fields** (including extra purported approvals) rather than ignoring unreviewed assertions. The evidence schema is exact for version `health-v2-stage-readiness-v1`; adding an attestation field requires a separately reviewed schema and tests. Never use a successful offline JSON check as proof of a live observation.
+The parser **rejects duplicate JSON keys and unknown fields** (including extra purported approvals) rather than ignoring unreviewed assertions. It also refuses a missing, malformed, duplicate-version or Health-V30-free migration policy, and compares the observed highest Flyway version against the policy in the reviewed checkout, not a hard-coded V30. The evidence schema is exact for version `health-v2-stage-readiness-v1`; adding an attestation field requires a separately reviewed schema and tests. Never use a successful offline JSON check as proof of a live observation.
 
 ### JSON structure (deliberately incomplete / must fail until verified)
 
