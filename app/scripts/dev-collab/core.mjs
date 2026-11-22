@@ -70,7 +70,7 @@ function safeBranch(value){
 }
 function verifyCheckpoint(cp){
   check(plain(cp) && Object.keys(cp).every(k=>
-    ['summary','next_step','branch','head_sha','tests','blockers','pr_number','recorded_at','worker_id','origin'].includes(k)),
+    ['summary','next_step','branch','head_sha','tests','blockers','pr_number','recorded_at','worker_id','origin','archived'].includes(k)),
     'CHECKPOINT_FIELDS')
   check(singleLine(cp.summary,4,400) && singleLine(cp.next_step,4,400),'CHECKPOINT_DESCRIPTION')
   check(safeBranch(cp.branch) && HEX_SHA.test(cp.head_sha),'CHECKPOINT_GIT_REFERENCE')
@@ -80,6 +80,7 @@ function verifyCheckpoint(cp){
   check(cp.recorded_at===undefined || (typeof cp.recorded_at==='string' &&
     Number.isFinite(Date.parse(cp.recorded_at))),'CHECKPOINT_TIME')
   check(cp.worker_id===undefined || WORKER.test(cp.worker_id),'CHECKPOINT_WORKER')
+  check(cp.archived===undefined || cp.archived===true,'CHECKPOINT_ARCHIVED_METADATA')
   check(cp.origin===undefined || ['claimant','owner_verified_git'].includes(cp.origin),
     'CHECKPOINT_ORIGIN')
 }
@@ -257,6 +258,10 @@ export function applyCommand(original, command, context) {
         CLAIMED_STATES.has(other.status) && scopesOverlap(task.allowed_paths, other.allowed_paths)), 'SCOPE_CONFLICT')
       task.claim = { claim_id: randomUUID(), worker_id: command.worker_id, actor: context.actor, claimed_at: context.now, generation: 1 }
       task.status = 'CLAIMED'
+      // A previous lease's checkpoint is historical, never current-claim recovery proof.
+      // Even a re-claim with the same worker_id must use fresh owner-verified evidence.
+      if(task.checkpoint!==undefined)
+        task.checkpoint={...task.checkpoint,archived:true}
       receipt.claim_id = task.claim.claim_id
       break
     }
@@ -293,7 +298,7 @@ export function applyCommand(original, command, context) {
     case 'checkpoint': {
       requireOwner()
       check(plain(command.checkpoint),'CHECKPOINT_REQUIRED')
-      check(!Object.keys(command.checkpoint).some(k=>['recorded_at','worker_id','origin'].includes(k)),
+      check(!Object.keys(command.checkpoint).some(k=>['recorded_at','worker_id','origin','archived'].includes(k)),
         'CHECKPOINT_METADATA_RESERVED')
       verifyCheckpoint(command.checkpoint)
       check(task.head_sha===undefined || task.head_sha===command.checkpoint.head_sha,
@@ -324,7 +329,7 @@ export function applyCommand(original, command, context) {
         if(task.checkpoint===undefined || command.checkpoint!==undefined){
           // The old chat may have pushed a newer head after saving its last checkpoint.
           // Replacing it is owner-only, and only with verified Git evidence for that head.
-          if(task.checkpoint!==undefined){
+          if(task.checkpoint!==undefined && task.checkpoint.archived!==true){
             check(task.checkpoint.worker_id===task.claim.worker_id,
               'RECOVERY_CHECKPOINT_OWNER_MISMATCH')
             check(task.head_sha!==undefined &&
@@ -333,7 +338,7 @@ export function applyCommand(original, command, context) {
           }
           check(plain(command.checkpoint),'RECOVERY_CHECKPOINT_REQUIRED')
           check(context.gitEvidenceVerified===true,'RECOVERY_GIT_EVIDENCE_REQUIRED')
-          check(!Object.keys(command.checkpoint).some(k=>['recorded_at','worker_id','origin'].includes(k)),
+          check(!Object.keys(command.checkpoint).some(k=>['recorded_at','worker_id','origin','archived'].includes(k)),
             'CHECKPOINT_METADATA_RESERVED')
           verifyCheckpoint(command.checkpoint)
           check(command.checkpoint.head_sha===command.expected_head_sha &&
@@ -348,6 +353,7 @@ export function applyCommand(original, command, context) {
         }
       }
       check(task.checkpoint!==undefined,'RECOVERY_CHECKPOINT_REQUIRED')
+      check(task.checkpoint.archived!==true,'RECOVERY_CHECKPOINT_ARCHIVED')
       check(task.checkpoint.worker_id===task.claim.worker_id,'RECOVERY_CHECKPOINT_OWNER_MISMATCH')
       check(HEX_SHA.test(command.expected_head_sha) &&
         command.expected_head_sha===task.checkpoint.head_sha &&
