@@ -161,6 +161,62 @@ class McpFirstPartyOwnerMappingTests {
     }
 
     @Test
+    void reviewOnlyOwnerMappingFailsClosedWhenNotOptedInOrNotAdvertised() {
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.reviews.read"));
+        assertThatThrownBy(() -> links.linkFirstPartyOwner(7L, ISSUER, SUBJECT, CHATGPT))
+            .isInstanceOf(ResponseStatusException.class);
+        ReflectionTestUtils.setField(links, "reviewVideoReadToolsEnabled", true);
+        assertThatThrownBy(() -> links.linkFirstPartyOwner(7L, ISSUER, SUBJECT, CHATGPT))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(db);
+    }
+
+    @Test
+    void reviewedReadOnlyOwnerMappingNeedsExactAdvertisedScopeAndOwnerGrant() {
+        ReflectionTestUtils.setField(links, "reviewVideoReadToolsEnabled", true);
+        ReflectionTestUtils.setField(links, "advertisedScopes",
+            "prp.reviews.read,prp.video.read");
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.reviews.read"));
+        when(db.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                      any(), any())).thenReturn(List.of());
+        assertThat(links.linkFirstPartyOwner(7L, ISSUER, SUBJECT, CHATGPT)).isTrue();
+        verify(db).update(startsWith("INSERT INTO prp_mcp_identity_links"),
+            eq(ISSUER), eq(SUBJECT), eq(7L));
+    }
+
+    @Test
+    void advertisedVideoReadAlonePermitsMappingButWrongGrantOrClientCannot() {
+        ReflectionTestUtils.setField(links, "reviewVideoReadToolsEnabled", true);
+        ReflectionTestUtils.setField(links, "advertisedScopes", "prp.video.read");
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.reviews.read"));
+        assertThatThrownBy(() -> links.linkFirstPartyOwner(7L, ISSUER, SUBJECT, CHATGPT))
+            .isInstanceOf(ResponseStatusException.class);
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.video.read"));
+        assertThatThrownBy(() -> links.linkFirstPartyOwner(
+            7L, ISSUER, SUBJECT, "some-other-oauth-client"))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(db);
+        when(db.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                      any(), any())).thenReturn(List.of());
+        assertThat(links.linkFirstPartyOwner(7L, ISSUER, SUBJECT, CHATGPT)).isTrue();
+    }
+
+    @Test
+    void optionalFeatureNeverConvertsFinanceOrWriteConsentIntoReadPermission() {
+        ReflectionTestUtils.setField(links, "reviewVideoReadToolsEnabled", true);
+        ReflectionTestUtils.setField(links, "advertisedScopes",
+            "prp.reviews.read,prp.video.read");
+        for (Set<String> denied : List.of(
+                Set.of("prp.finance.read"), Set.of("prp.write.create"), Set.<String>of())) {
+            when(grants.grantedScopes(7L, CHATGPT)).thenReturn(denied);
+            assertThatThrownBy(() -> links.linkFirstPartyOwner(
+                    7L, ISSUER, SUBJECT, CHATGPT))
+                .isInstanceOf(ResponseStatusException.class);
+        }
+        verifyNoInteractions(db);
+    }
+
+    @Test
     void healthReadCannotReassignAnotherOwnersVerifiedSubject() {
         when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.wellness.read"));
         when(db.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
