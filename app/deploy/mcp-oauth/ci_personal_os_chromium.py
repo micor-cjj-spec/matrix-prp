@@ -179,11 +179,21 @@ def run(page, origin):
 
     model_calls = []
     task_writes = []
+    task_post_response_classes = []
     def observe_task_write(req):
         path = urlsplit(req.url).path
         if req.method in ("POST", "PATCH", "DELETE") and path.endswith("/api/tasks"):
             task_writes.append(1)
+    def observe_task_response(resp):
+        if (resp.request.method == "POST"
+                and urlsplit(resp.url).path.endswith("/api/tasks")):
+            status = resp.status
+            task_post_response_classes.append(
+                "2XX" if 200 <= status < 300 else
+                "4XX" if 400 <= status < 500 else
+                "5XX" if 500 <= status < 600 else "OTHER")
     page.on("request", observe_task_write)
+    page.on("response", observe_task_response)
 
     def mock_model(route):
         path = urlsplit(route.request.url).path
@@ -285,11 +295,28 @@ def run(page, origin):
         print("CI_T007_STAGE_TASK_REVIEW_REOPENED=PASS")
         if "CI-only evidence-reviewed action" not in draft_dialog.inner_text():
             raise RuntimeError("PERSONAL_OS_TASK_DRAFT_TITLE_NOT_REVIEWABLE")
-        with page.expect_response(lambda r:
-                urlsplit(r.url).path == "/api/tasks"
-                and r.request.method == "POST", timeout=20000) as saved_response:
-            draft_dialog.get_by_role("button", name="确认创建任务").click()
-        response = saved_response.value
+        save_button = draft_dialog.get_by_role("button", name="确认创建任务")
+        if not save_button.is_enabled():
+            print("CI_T007_STAGE_TASK_SAVE_BUTTON_DISABLED=YES")
+            raise RuntimeError("PERSONAL_OS_OWNER_TASK_SAVE_BUTTON_DISABLED")
+        print("CI_T007_STAGE_TASK_SAVE_BUTTON_ENABLED=PASS")
+        before_write_count = len(task_writes)
+        try:
+            with page.expect_response(lambda r:
+                    urlsplit(r.url).path == "/api/tasks"
+                    and r.request.method == "POST", timeout=20000) as saved_response:
+                save_button.click()
+                print("CI_T007_STAGE_TASK_SAVE_CLICK_RETURNED=PASS")
+            response = saved_response.value
+        except Exception:
+            # Fixed, non-sensitive diagnostics only; never log task text,
+            # request URL, response body, headers, tokens or browser state.
+            print("CI_T007_STAGE_TASK_POST_REQUEST_OBSERVED="
+                  + ("YES" if len(task_writes) > before_write_count else "NO"))
+            print("CI_T007_STAGE_TASK_POST_RESPONSE_CLASS="
+                  + (task_post_response_classes[-1]
+                     if task_post_response_classes else "NOT_SEEN"))
+            raise
         print("CI_T007_STAGE_TASK_SAVE_RESPONSE_SEEN=PASS")
         if response.status != 200:
             raise RuntimeError("PERSONAL_OS_OWNER_TASK_SAVE_FAILED")
