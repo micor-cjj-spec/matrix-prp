@@ -261,6 +261,10 @@ jobs:
         run: |
           set -euo pipefail
           git -C merged merge --abort
-          test -z "$(git -C merged status --porcelain)"
+          # Maven/Python intentionally leave untracked build caches; only the
+          # tracked source/index and HEAD matter after aborting a local merge.
+          git -C merged diff --quiet
+          git -C merged diff --cached --quiet
+          test -z "$(git -C merged ls-files -u)"
           test "$(git -C merged rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           echo "MCP218_LOCAL_MERGE_ABORTED_NO_REMOTE_CHANGE"
