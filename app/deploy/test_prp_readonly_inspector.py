@@ -132,10 +132,10 @@ class ReadOnlyInspectionTests(unittest.TestCase):
         # can activate this previously tested fixed CHECK/status SSH workflow.
         workflow = (Path(__file__).resolve().parents[2]
                     / ".github/workflows/deploy-prp.yml").read_text()
-        self.assertIn("issue_comment:\\n    types: [created]", workflow)
-        self.assertIn("release_control:\\n    if: github.event_name != 'issue_comment'", workflow)
-        self.assertIn("  chat_check:\\n", workflow)
-        chat = workflow.split("  chat_check:\\n", 1)[1]
+        self.assertIn("issue_comment:\n    types: [created]", workflow)
+        self.assertIn("release_control:\n    if: github.event_name != 'issue_comment'", workflow)
+        self.assertIn("  chat_check:\n", workflow)
+        chat = workflow.split("  chat_check:\n", 1)[1]
         for required in (
             "github.event_name == 'issue_comment'",
             "github.ref == 'refs/heads/main'",
@@ -164,10 +164,10 @@ class ReadOnlyInspectionTests(unittest.TestCase):
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, chat)
-        publish = workflow.split("  publish:\\n", 1)[1].split("  chat_check:\\n", 1)[0]
+        publish = workflow.split("  publish:\n", 1)[1].split("  chat_check:\n", 1)[0]
         self.assertIn("needs.release_control.result == 'success'", publish)
         self.assertNotIn("github.event_name == 'issue_comment'", publish)
-        self.assertIn("permissions:\\n  contents: read", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
 
     def test_gateway_denies_unknown_or_injected_commands(self):
         gateway = Path(__file__).with_name("prp-inspect-gateway.sh")
