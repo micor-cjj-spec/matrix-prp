@@ -268,7 +268,7 @@ class WellnessMealBatchFlowTests {
             new Meal(90L,day,"SNACK","existing 07:00 snack",List.of())));
         var service=service(db,wellness);
         String note=day+"""
-            
+
             加餐（约90 kcal）
             苹果：90 kcal
             加餐（约110 kcal）
