@@ -9,6 +9,7 @@ on:
       - .github/workflows/health-v2-stage-readiness-review.yml
   pull_request:
     branches:
+      - main
       - integration/wellness-v2-main-aligned-ci-20261122
     paths:
       - app/deploy/health-v2/**
