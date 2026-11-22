@@ -102,6 +102,13 @@ def process_request(request,account,now=None):
     result=execute(job['command'],job['runSeconds'],account)
     result.update({'version':1,'jobId':job['jobId']})
     response_plain=json.dumps(result,ensure_ascii=False,separators=(',',':')).encode()
+    if len(response_plain)>15000:
+        # Terminal control bytes can expand dramatically under JSON escaping.
+        # Retain a bounded encrypted response instead of losing all results.
+        result['stdout']=result['stdout'][:1000]
+        result['stderr']=result['stderr'][:1000]
+        result['truncated']=True
+        response_plain=json.dumps(result,ensure_ascii=False,separators=(',',':')).encode()
     response_cipher=b64_encode(openssl_cms_encrypt(response_plain,job['answerCertificate'].encode('ascii')))
     if len(response_cipher)>60000:
         raise InvalidJob('result ciphertext exceeds limit')
