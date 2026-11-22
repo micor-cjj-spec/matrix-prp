@@ -31,6 +31,12 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: app/backend/pom.xml
+      - name: Prepare pinned official Maven 3.9.16 (disposable CI only)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n app/deploy/mcp-staging/ci_prepare_maven_3916.sh
+          bash app/deploy/mcp-staging/ci_prepare_maven_3916.sh
       - name: Run strictly disposable synthetic V28 snapshot to V29 restore test
         shell: bash
         run: |
@@ -107,7 +113,7 @@ jobs:
           cd app/backend
           chmod +x mvnw
           export PRP_CI_V28_RESTORE_PHASE=seed
-          ./mvnw -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
+          "$RUNNER_TEMP/apache-maven-3.9.16/bin/mvn" -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
 
           docker exec -e MYSQL_PWD="$root_pw" "$src" \
             mysqldump --protocol=TCP -h 127.0.0.1 -uroot \
@@ -135,7 +141,7 @@ jobs:
             < "$temp/synthetic-v28.sql"
 
           export PRP_CI_V28_RESTORE_PHASE=verify_clone
-          ./mvnw -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
+          "$RUNNER_TEMP/apache-maven-3.9.16/bin/mvn" -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
           echo "CI_FULL_SYNTHETIC_V28_DUMP_RESTORE_V29_CLONE=PASS"
           echo "NO_LIVE_HOST_V2_PRODUCTION_DB_OR_OFFHOST_BACKUP_ACCESSED=YES"
           echo "NO_G0_B2_OR_PRODUCTION_EXPORT_PERMISSION=YES"
