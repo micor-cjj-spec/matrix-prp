@@ -66,3 +66,66 @@ for (const [name,delta] of refused) {
     assert.ok(!errors.join(",").includes("SHOULD_NOT_APPEAR"));
   });
 }
+
+
+// Exercise the actual CLI contract, not only the exported validation function.
+// This uses temporary non-secret files inside the ephemeral CI worker. No network,
+// Docker, server, grant or application data is touched.
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const commandPath = fileURLToPath(new URL("./mcp218-canary-plan.mjs", import.meta.url));
+
+function runOfflineCli(contents) {
+  const directory = mkdtempSync(join(tmpdir(), "mcp218-plan-ci-"));
+  try {
+    const planFile = join(directory, "plan.json");
+    writeFileSync(planFile, contents, { mode: 0o600 });
+    const outcome = spawnSync(process.execPath, [commandPath, planFile], {
+      encoding: "utf8",
+      timeout: 10000,
+      env: { ...process.env, NO_PROXY: "*", HTTP_PROXY: "", HTTPS_PROXY: "" },
+    });
+    assert.equal(outcome.error, undefined);
+    return outcome;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test("CLI: valid preparation plan is explicitly NOT release authorization", () => {
+  const outcome = runOfflineCli(JSON.stringify(proposed));
+  assert.equal(outcome.status, 0);
+  assert.match(outcome.stdout, /^MCP218_PLAN_SHAPE_PASS_ONLY_NO_DEPLOY_AUTHORIZATION\s*$/);
+  assert.equal(outcome.stderr, "");
+});
+
+test("CLI: shared V2 domain must fail closed with fixed error code", () => {
+  const outcome = runOfflineCli(JSON.stringify({
+    ...proposed, resource_url: "https://prp-test.micor.top/api/mcp",
+  }));
+  assert.equal(outcome.status, 2);
+  assert.match(outcome.stderr, /^MCP218_PLAN_NO_GO NEW_HTTPS_RESOURCE_REQUIRED\s*$/);
+  assert.equal(outcome.stdout, "");
+});
+
+test("CLI: unknown secret-bearing field is rejected without echoing its value", () => {
+  const sensitiveSentinel = "DO_NOT_PRINT_CI_SENTINEL_8f5be7";
+  const outcome = runOfflineCli(JSON.stringify({
+    ...proposed, client_secret: sensitiveSentinel,
+  }));
+  assert.equal(outcome.status, 2);
+  assert.match(outcome.stderr, /^MCP218_PLAN_NO_GO UNEXPECTED_FIELD\s*$/);
+  assert.ok(!outcome.stdout.includes(sensitiveSentinel));
+  assert.ok(!outcome.stderr.includes(sensitiveSentinel));
+});
+
+test("CLI: malformed JSON cannot be accepted as an empty permission set", () => {
+  const outcome = runOfflineCli("{ not valid JSON: ");
+  assert.equal(outcome.status, 2);
+  assert.match(outcome.stderr, /^MCP218_PLAN_NO_GO INVALID_OR_UNREADABLE_JSON\s*$/);
+  assert.equal(outcome.stdout, "");
+});
