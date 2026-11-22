@@ -137,6 +137,22 @@ class ReadonlyV2Tests(unittest.TestCase):
                          {"liveness": "unreachable", "readiness": "unknown"})
         self.assertEqual(project_health_liveness(200, b"x" * 2049)["liveness"], "unknown")
 
+    def test_http_4xx_is_unknown_not_proof_host_unreachable(self):
+        for status in (400, 401, 403, 404, 408, 429, 499):
+            with self.subTest(status=status):
+                self.assertEqual(project_health_liveness(status, b"internal details"),
+                                 {"liveness": "unknown", "readiness": "unknown"})
+        self.assertEqual(project_health_liveness(502, b"private gateway error"),
+                         {"liveness": "unreachable", "readiness": "unknown"})
+        self.assertEqual(project_health_liveness("503", b"private"),
+                         {"liveness": "unknown", "readiness": "unknown"})
+
+    def test_health_duplicate_json_keys_fail_closed(self):
+        raw = (b'{"code":"SUCCESS","code":"ERROR","data":'
+               b'{"status":"UP","service":"matrix-prp-backend"}}')
+        self.assertEqual(project_health_liveness(200, raw),
+                         {"liveness": "unknown", "readiness": "unknown"})
+
 
 if __name__ == "__main__":
     unittest.main()
