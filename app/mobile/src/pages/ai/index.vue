@@ -89,13 +89,13 @@ onBeforeUnmount(()=>controller?.abort())
 .history{white-space:nowrap}.history-row{display:flex;gap:8px}
 .history-button{flex:0 0 auto;max-width:170px;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;font-size:12px;background:#fff;border-radius:10px;padding:6px 9px}
-.history-button.selected{background:#dbeafe;color:#1d4ed8}
-.chat-messages{height:48vh;background:#fff;padding:12px;box-sizing:border-box;border-radius:12px}
-.chat-bubble{max-width:88%;background:#f1f5f9;padding:11px;border-radius:12px;margin:10px 0;box-sizing:border-box}
-.chat-bubble.mine{margin-left:auto;background:#dbeafe}
+.history-button.selected{background:#dfeede;color:#365e44}
+.chat-messages{height:48vh;background:#fcfdfb;border:1px solid #e2eae0;padding:13px;box-sizing:border-box;border-radius:18px}
+.chat-bubble{max-width:88%;background:#f1f5ef;padding:12px;border-radius:15px;margin:10px 0;box-sizing:border-box;color:#304b3a}
+.chat-bubble.mine{margin-left:auto;background:#e0efde}
 .bubble-text{display:block;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px;font-size:14px}
 .chat-entry{display:flex;align-items:end;gap:8px;margin-top:14px}
-.chat-input{flex:1;min-height:54px;max-height:120px;padding:10px;background:#fff;border-radius:10px;
+.chat-input{flex:1;min-height:54px;max-height:120px;padding:11px;background:#fff;border:1px solid #dfe9dd;border-radius:13px;
   font-size:14px;box-sizing:border-box}
 .send-button{flex:0 0 auto}.disclaimer{display:block;font-size:11px;margin:12px 0}
 </style>
