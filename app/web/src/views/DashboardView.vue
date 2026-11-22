@@ -81,6 +81,31 @@ onMounted(refresh)
         <RouterLink to="/tasks" class="home-plan-link">查看我的计划 <el-icon><ArrowRight /></el-icon></RouterLink>
       </header>
 
+      <section class="home-v2-focus" aria-label="今日焦点">
+        <div class="home-v2-focus-main">
+          <p class="home-v2-kicker"><el-icon><Clock /></el-icon> YOUR DAY · 今日焦点</p>
+          <h2>{{ todoItems.length ? '专注当前最重要的一件事' : '从一件小事开始，积累今天的进步' }}</h2>
+          <p class="home-v2-focus-description">{{ taskError || (todoItems.length ? todoItems[0].title : '还没有待处理的任务，可以先安排一个简单目标。') }}</p>
+          <div class="home-v2-focus-actions">
+            <el-button v-if="todoItems.length && !loading && !taskError" class="home-v2-complete-button"
+              type="primary" :disabled="pendingTask !== null" :loading="pendingTask === todoItems[0].id"
+              :aria-label="'完成今日焦点任务：' + todoItems[0].title"
+              @click="completeTask(todoItems[0].id)">
+              <el-icon v-if="pendingTask !== todoItems[0].id"><Check /></el-icon> 完成这一项
+            </el-button>
+            <RouterLink to="/tasks" class="home-v2-primary-link">
+              {{ todoItems.length ? '查看并处理任务' : '安排今日任务' }} <el-icon><ArrowRight /></el-icon>
+            </RouterLink>
+          </div>
+        </div>
+        <div class="home-v2-focus-aside" aria-label="快捷操作">
+          <p>随时开始</p>
+          <RouterLink to="/chat"> <el-icon><Reading /></el-icon> 与 AI 讨论计划 <el-icon><ArrowRight /></el-icon></RouterLink>
+          <RouterLink to="/wellness"> <el-icon><Food /></el-icon> 记录饮食与运动 <el-icon><ArrowRight /></el-icon></RouterLink>
+          <RouterLink to="/videos"> <el-icon><VideoCamera /></el-icon> 继续课程学习 <el-icon><ArrowRight /></el-icon></RouterLink>
+        </div>
+      </section>
+
       <section class="home-metrics" aria-label="今日概览">
         <RouterLink to="/tasks" class="home-metric metric-tasks">
           <div class="home-metric-top"><span>待处理任务</span><el-icon><Tickets /></el-icon></div>
