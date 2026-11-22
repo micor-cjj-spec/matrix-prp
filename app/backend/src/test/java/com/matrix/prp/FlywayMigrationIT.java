@@ -119,10 +119,52 @@ class FlywayMigrationIT {
         String originalRow=existingAiRowSnapshot(url);
         assertThat(count(url,"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()"
                 +" AND table_name='prp_ai_conversations'")).isEqualTo(5);
+        // Reproduce the actual upcoming V29 -> V30 transition on CI-only MySQL.
+        // Seed a confirmed legacy meal BEFORE V30, then prove its original rows
+        // survive; this is NOT a restored production clone or release approval.
+        Flyway throughV29=Flyway.configure().dataSource(url,user(),password())
+                .locations("classpath:db/migration")
+                .target(org.flywaydb.core.api.MigrationVersion.fromVersion("29"))
+                .cleanDisabled(true).load();
+        int pendingToV29=throughV29.info().pending().length;
+        assertThat(pendingToV29).isGreaterThan(0);
+        assertThat(throughV29.migrate().migrationsExecuted).isEqualTo(pendingToV29);
+        assertThat(count(url,"SELECT COUNT(*) FROM flyway_schema_history WHERE version='29' AND success=1"))
+                .isEqualTo(1);
+        assertThat(count(url,"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()"
+                +" AND table_name IN ('prp_wellness_meal_analyses','prp_wellness_meal_item_nutrients')"))
+                .isZero();
+        insertSentinel(url,"flyway_v30_pre_upgrade_ci");
+        try(Connection connection=DriverManager.getConnection(url,user(),password());
+            Statement st=connection.createStatement()) {
+            st.executeUpdate("INSERT INTO prp_wellness_meals(user_id,meal_date,meal_type,note)"
+                    +" SELECT id,'2026-07-06','SNACK','CI_V30_PRESERVED_MEAL'"
+                    +" FROM prp_users WHERE username='flyway_v30_pre_upgrade_ci'");
+            st.executeUpdate("INSERT INTO prp_wellness_meal_items"
+                    +"(meal_id,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate)"
+                    +" SELECT id,NULL,'Synthetic legacy meal',80,320,NULL,NULL,NULL,1"
+                    +" FROM prp_wellness_meals WHERE note='CI_V30_PRESERVED_MEAL'");
+        }
+        String preUpgradeMealQuery="SELECT COUNT(*) FROM prp_wellness_meal_items i"
+                +" JOIN prp_wellness_meals m ON i.meal_id=m.id"
+                +" JOIN prp_users u ON m.user_id=u.id"
+                +" WHERE u.username='flyway_v30_pre_upgrade_ci'"
+                +" AND m.note='CI_V30_PRESERVED_MEAL' AND m.meal_type='SNACK'"
+                +" AND m.meal_date='2026-07-06' AND i.food_name='Synthetic legacy meal'"
+                +" AND i.grams=80 AND i.calories=320 AND i.is_estimate=1"
+                +" AND i.protein_g IS NULL AND i.carbs_g IS NULL AND i.fat_g IS NULL";
+        assertThat(count(url,preUpgradeMealQuery)).isEqualTo(1);
+        assertThat(count(url,"SELECT COUNT(*) FROM flyway_schema_history WHERE version='30'"))
+                .isZero();
+
         Flyway migration = flyway(url);
         int pending = migration.info().pending().length;
-        assertThat(pending).isGreaterThanOrEqualTo(4);
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(pending);
+        assertThat(pending).isEqualTo(1);
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(count(url,preUpgradeMealQuery)).isEqualTo(1);
+        assertThat(count(url,"SELECT COUNT(*) FROM flyway_schema_history"
+                +" WHERE version='30' AND script='V30__wellness_analysis_details.sql' AND success=1"))
+                .isEqualTo(1);
         assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(count(url,"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()"
                 +" AND table_name='prp_ai_conversations'")).isEqualTo(5);
@@ -150,7 +192,7 @@ class FlywayMigrationIT {
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(17 + pending);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(17 + pendingToV29 + pending);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('prp_ai_conversations','prp_ai_messages','prp_ai_usage','prp_ai_preferences','prp_ai_provider_credentials','prp_ai_agent_tasks','prp_ai_codex_jobs','prp_ai_message_blocks','prp_ai_tool_audit','prp_ai_conversation_meta')")).isEqualTo(10);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() " +
                 "AND table_name='prp_ai_conversations' AND column_name IN ('deleted_at','is_pinned','title_source')"))
@@ -161,6 +203,12 @@ class FlywayMigrationIT {
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='prp_wellness_ai_drafts'")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='prp_wellness_ai_action_targets'")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='prp_wellness_dish_templates'")).isEqualTo(1);
+        // V30 is create-empty: no legacy meal rows are rewritten or implicitly enriched.
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() " +
+                "AND table_name IN ('prp_wellness_meal_analyses','prp_wellness_meal_item_nutrients')"))
+                .isEqualTo(2);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meal_analyses")).isZero();
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meal_item_nutrients")).isZero();
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='prp_vocal_takes'")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('prp_finance_import_batches','prp_finance_import_rows','prp_finance_source_links')")).isEqualTo(3);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='prp_wellness_meal_items' AND column_name IN ('protein_g','carbs_g','fat_g') AND is_nullable='YES'")).isEqualTo(3);
@@ -239,6 +287,12 @@ class FlywayMigrationIT {
                 + "AND CAST(name AS BINARY)=CAST(CONVERT(CONVERT(0xE59C9FE8B186 USING latin1) USING utf8mb4) AS BINARY)")).isEqualTo(1);
         assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meals "
                 + "WHERE note='MIGRATION_TEXT_SENTINEL'")).isEqualTo(1);
+        // V30 is create-empty: no legacy meal rows are rewritten or implicitly enriched.
+        assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() " +
+                "AND table_name IN ('prp_wellness_meal_analyses','prp_wellness_meal_item_nutrients')"))
+                .isEqualTo(2);
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meal_analyses")).isZero();
+        assertThat(count(url, "SELECT COUNT(*) FROM prp_wellness_meal_item_nutrients")).isZero();
         assertThat(migration.migrate().migrationsExecuted).isZero();
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
         assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(1 + pending);
