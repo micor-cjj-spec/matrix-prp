@@ -117,3 +117,27 @@ test('screen readers can identify each home task completion action', () => {
   assert.ok(!home.includes('aria-label="完成任务"'),
     'ambiguous repeated task-action labels are not allowed')
 })
+
+test('sidebar supporting labels maintain WCAG AA contrast at both gradient stops', () => {
+  const luminance = hex => {
+    const rgb = hex.slice(1).match(/.{2}/g).map(value => parseInt(value, 16) / 255)
+    const linear = rgb.map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+    return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+  }
+  const contrastRatio = (a, b) => {
+    const [x, y] = [luminance(a), luminance(b)]
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+  }
+  for (const selector of [
+    '.prp-shell .prp-brand .brand-copy small',
+    '.prp-shell .nav-caption',
+  ]) {
+    const declaration = theme.split(selector + ' {')[1]?.split('}')[0]
+    const color = declaration?.match(/(?:^|;)\s*color:\s*(#[0-9a-fA-F]{6})/)?.[1]
+    assert.ok(color, 'missing sidebar text color for ' + selector)
+    for (const background of ['#f0f4ec', '#f7f9f3']) {
+      assert.ok(contrastRatio(color, background) >= 4.5,
+        selector + ' does not meet 4.5:1 contrast on ' + background)
+    }
+  }
+})
