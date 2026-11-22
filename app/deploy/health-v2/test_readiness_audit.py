@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from readiness_audit import EvidenceBlocked, main, review
+from readiness_audit import EvidenceBlocked, main, review, reviewed_flyway_version
 
 SHA = "a" * 40
 
@@ -32,7 +32,7 @@ def synthetic():
             "web_source_sha": SHA,
             "backend_image_digest": "sha256:" + "1" * 64,
             "web_image_digest": "sha256:" + "2" * 64,
-            "flyway_version": 30,
+            "flyway_version": 31,
             "flyway_failed_count": 0,
             "https_hostname_verified": True,
             "oidc_issuer_host": "auth-health-v2-stage.example.net",
@@ -84,8 +84,52 @@ class ReadinessTests(unittest.TestCase):
     def test_build_digest_missing(self):
         self.assert_blocked(lambda d: d["observed"].update(backend_image_digest="missing"), "IMAGE_DIGEST_UNVERIFIED")
 
-    def test_v29_does_not_prove_v30(self):
-        self.assert_blocked(lambda d: d["observed"].update(flyway_version=29), "FLYWAY_V30_NOT_VERIFIED")
+    def test_v29_does_not_prove_complete_reviewed_candidate(self):
+        self.assert_blocked(lambda d: d["observed"].update(flyway_version=29),
+                            "FLYWAY_REVIEWED_VERSION_NOT_VERIFIED")
+
+    def test_v30_only_is_incomplete_when_reviewed_candidate_includes_v31(self):
+        self.assertEqual(reviewed_flyway_version(), 31)
+        self.assert_blocked(lambda d: d["observed"].update(flyway_version=30),
+                            "FLYWAY_REVIEWED_VERSION_NOT_VERIFIED")
+
+    def test_true_bool_is_not_an_accepted_flyway_version(self):
+        self.assert_blocked(lambda d: d["observed"].update(flyway_version=True),
+                            "FLYWAY_REVIEWED_VERSION_NOT_VERIFIED")
+
+    def test_health_only_reviewed_policy_still_accepts_v30(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = Path(tmp) / "migration-policy.json"
+            source = json.loads(
+                (Path(__file__).resolve().parent.parent / "migration-policy.json").read_text()
+            )
+            source["rules"] = [r for r in source["rules"] if r["version"] <= 30]
+            policy.write_text(json.dumps(source), encoding="utf-8")
+            doc = synthetic()
+            doc["observed"]["flyway_version"] = 30
+            self.assertEqual(reviewed_flyway_version(policy), 30)
+            self.assertEqual(review(doc, SHA, policy_path=policy),
+                             "DECLARED_EVIDENCE_CONSISTENT_REVIEW_REQUIRED")
+            doc["observed"]["flyway_version"] = 31
+            with self.assertRaisesRegex(EvidenceBlocked, "FLYWAY_REVIEWED_VERSION_NOT_VERIFIED"):
+                review(doc, SHA, policy_path=policy)
+
+    def test_duplicate_or_missing_migration_policy_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = Path(tmp) / "migration-policy.json"
+            with self.assertRaisesRegex(EvidenceBlocked, "MIGRATION_POLICY_UNVERIFIED"):
+                reviewed_flyway_version(policy)
+            data = json.loads(
+                (Path(__file__).resolve().parent.parent / "migration-policy.json").read_text()
+            )
+            data["rules"].append(dict(data["rules"][-1]))
+            policy.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(EvidenceBlocked, "MIGRATION_POLICY_UNVERIFIED"):
+                reviewed_flyway_version(policy)
+            data["rules"] = [r for r in data["rules"] if r["version"] != 30]
+            policy.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(EvidenceBlocked, "MIGRATION_POLICY_UNVERIFIED"):
+                reviewed_flyway_version(policy)
 
     def test_source_file_not_runtime(self):
         self.assert_blocked(lambda d: d["observed"].update(actual_runtime_observation=False), "SOURCE_ONLY_NOT_RUNTIME_EVIDENCE")
