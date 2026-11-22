@@ -8,8 +8,10 @@ production filesystem, account, or SSH setup is implemented here.
 """
 import base64
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import sqlite3
 import time
 import uuid
@@ -125,6 +127,36 @@ class ReplayLedger:
         if not self.path.is_absolute() or self.path.is_symlink():
             raise RejectedRequest("state unavailable")
 
+    def _prepare_private_file(self):
+        """Deny writable/shared directories, symlinks and preexisting loose files.
+
+        This is an isolated prototype guard, not a production-safe guarantee
+        against every filesystem race or privileged operator misconfiguration.
+        """
+        try:
+            parent = self.path.parent
+            parent_stat = parent.lstat()
+            if (parent.is_symlink() or not stat.S_ISDIR(parent_stat.st_mode) or
+                    parent_stat.st_uid != os.geteuid() or
+                    stat.S_IMODE(parent_stat.st_mode) != 0o700):
+                raise RejectedRequest("state unavailable")
+            try:
+                fd = os.open(
+                    str(self.path),
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
+                    0o600,
+                )
+            except FileExistsError:
+                pass
+            else:
+                os.close(fd)
+            st = self.path.lstat()
+            if (not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid()
+                    or stat.S_IMODE(st.st_mode) != 0o600 or st.st_nlink != 1):
+                raise RejectedRequest("state unavailable")
+        except (OSError, ValueError) as exc:
+            raise RejectedRequest("state unavailable") from exc
+
     def claim(self, job_id, nonce, expires_at, now=None):
         _uuid(job_id)
         timestamp = int(time.time()) if now is None else now
@@ -134,8 +166,7 @@ class ReplayLedger:
             raise RejectedRequest("invalid request")
         connection = None
         try:
-            if self.path.is_symlink():
-                raise RejectedRequest("state unavailable")
+            self._prepare_private_file()
             connection = sqlite3.connect(str(self.path), isolation_level=None, timeout=2)
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
