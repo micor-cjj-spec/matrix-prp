@@ -18,7 +18,7 @@ import sys
 import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urljoin, urlsplit, parse_qs
-from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler, ProxyHandler
+from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler
 
 from oauth_token_check import check_token
 
@@ -111,6 +111,39 @@ def json_response(response, stage):
     return result
 
 
+def safe_keycloak_health_diagnostics(opener, last_https_status, last_exception):
+    """Log only categorical CI health signals. Never dump Keycloak logs or secrets."""
+    import subprocess
+
+    print("CI E2E DIAG Keycloak HTTPS: status=" + last_https_status
+          + ", exception=" + last_exception, file=sys.stderr)
+    try:
+        # Differentiate a broken TLS proxy from an unavailable Keycloak container.
+        direct_status = str(request(opener,
+            ADMIN + "/realms/prp-mcp/.well-known/openid-configuration")[0])
+    except Exception as error:
+        direct_status = type(error).__name__
+    print("CI E2E DIAG Keycloak direct loopback: " + direct_status, file=sys.stderr)
+    try:
+        result = subprocess.run([
+            "docker", "inspect", "--format",
+            "{{.State.Status}}|{{.State.ExitCode}}|{{.State.OOMKilled}}",
+            "prp-ci-real-keycloak"],
+            capture_output=True, text=True, timeout=8, check=False)
+        # Only fixed enums/numeric values are logged. Docker env, logs and
+        # command-line arguments may contain secrets and must not be dumped.
+        state = result.stdout.strip().split("|") if result.returncode == 0 else []
+        if (len(state) == 3 and state[0] in ("running", "created", "exited",
+                                            "restarting", "paused", "dead")
+                and state[1].isdigit() and state[2] in ("true", "false")):
+            print("CI E2E DIAG Keycloak container: state=" + state[0]
+                  + ", exit=" + state[1] + ", oom=" + state[2], file=sys.stderr)
+        else:
+            print("CI E2E DIAG Keycloak container: unavailable", file=sys.stderr)
+    except (OSError, subprocess.TimeoutExpired):
+        print("CI E2E DIAG Keycloak container: unavailable", file=sys.stderr)
+
+
 def wait_ready(opener, url, max_seconds=150):
     until = time.monotonic() + max_seconds
     attempts = 0
@@ -144,6 +177,8 @@ def wait_ready(opener, url, max_seconds=150):
           + " attempts=" + str(attempts)
           + " last_http=" + last_http_status
           + " last_error_type=" + last_error_type, file=sys.stderr)
+    if stage == "Keycloak" and os.environ.get("GITHUB_ACTIONS") == "true":
+        safe_keycloak_health_diagnostics(opener, last_http_status, last_error_type)
     raise RuntimeError("Temporary environment not healthy: " + stage)
 
 
@@ -431,11 +466,7 @@ def main():
     context = ssl.create_default_context(cafile=ca)
     # Authenticate against the actual HTTPS staging-style proxy and retain
     # browser cookies for the Keycloak login/consent pages.
-    # All E2E URLs use synthetic *.localhost or 127.0.0.1 addresses.
-    # Explicitly bypass runner-provided HTTP(S) proxies for the disposable
-    # loopback stack; retain the exact CA and HTTPS certificate validation.
-    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context),
-                          HTTPCookieProcessor(CookieJar()), SafeRedirect())
+    opener = build_opener(HTTPSHandler(context=context), HTTPCookieProcessor(CookieJar()), SafeRedirect())
     admin_pass = os.environ["MCP_E2E_KC_ADMIN_PASSWORD"]
     user_password = os.environ["MCP_E2E_KC_USER_PASSWORD"]
     prp_password = os.environ["MCP_E2E_PRP_PASSWORD"]
