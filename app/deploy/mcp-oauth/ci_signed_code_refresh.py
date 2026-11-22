@@ -139,7 +139,8 @@ def run():
     browser.CLIENT = CLIENT  # Exclusive to this standalone process.
     context = ssl.create_default_context(cafile=os.environ["MCP_E2E_CA_CERT"])
     opener = browser.build_opener(
-        browser.HTTPSHandler(context=context),
+        browser.ProxyHandler({}),
+        browser.LoopbackHTTPSHandler(context=context),
         browser.HTTPCookieProcessor(CookieJar()), browser.SafeRedirect(),
     )
     browser.wait_ready(opener, browser.ISSUER + "/.well-known/openid-configuration")
