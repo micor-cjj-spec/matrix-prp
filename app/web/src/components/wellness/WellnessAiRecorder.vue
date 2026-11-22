@@ -30,6 +30,7 @@ const foods = ref<Food[]>([])
 const searchBusy = ref(false)
 const busy = ref(false)
 const confirming = ref(false)
+const confirmOutcomeUncertain = ref(false)
 const error = ref('')
 const done = ref('')
 watch(() => props.initialText, value => {
@@ -86,7 +87,7 @@ function energy(item: Item): string {
 }
 async function plan() {
   if (busy.value || preparingPhoto.value || (!text.value.trim() && !file.value)) return
-  busy.value = true; draft.value = null; error.value = ''; done.value = ''
+  busy.value = true; draft.value = null; error.value = ''; done.value = ''; confirmOutcomeUncertain.value = false
   const form = new FormData()
   form.append('text', text.value.trim() || '请识别照片里的食物和可食部分量，生成今天的午餐记录草稿')
   if (file.value) form.append('image', file.value)
@@ -127,7 +128,7 @@ function removeIngredient(index: number) {
   values.value.items = current.filter((_, i) => i !== index)
 }
 async function save() {
-  if (!draft.value || confirming.value) return
+  if (!draft.value || confirming.value || confirmOutcomeUncertain.value) return
   if (draft.value.action === 'meal.create' &&
       (!values.value.items?.length || values.value.items.length > 30 ||
        values.value.items.some(item =>
@@ -170,9 +171,11 @@ async function save() {
           draft.value = null; file.value = null
           ElMessage.success('已核实草稿保存成功，无需重复提交')
         } else {
+          confirmOutcomeUncertain.value = true
           error.value = '确认请求结果未核实，请刷新健康中心核对是否保存，勿重复提交'
         }
       } catch {
+        confirmOutcomeUncertain.value = true
         error.value = '确认请求结果未核实，回读也失败；请刷新健康中心核对，勿重复提交'
       }
     }
@@ -199,6 +202,7 @@ async function save() {
     <small v-if="file">选中图片：{{ file.name }}（{{ photoSizeLabel(file.size) }}）</small>
     <p class="capture-note">每张图片都需要先在本机检查；可裁剪和用实心黑块遮挡收货信息。仅处理后的图片可进入 AI 草稿识别，PRP 不保存原图。黑块遮挡不是自动识别隐私文字。</p>
     <p v-if="error" role="alert" class="capture-error">{{ error }}</p>
+    <small v-if="confirmOutcomeUncertain" role="status">确认结果未核实，已暂停重复提交；请先查看健康中心，再决定是否重新生成草稿。</small>
     <div v-if="draft" class="capture-draft">
       <strong>{{ draft.description }}</strong>
       <small>识别模型：{{ draft.modelUsed }} · 草稿15分钟内有效</small>
@@ -265,7 +269,7 @@ async function save() {
         <label>腰围（cm），可选 <input v-model="values.waistCm" type="number" min="0" max="300" step="0.1" /></label>
       </template>
       <div class="capture-actions">
-        <button :disabled="confirming" @click="save">{{ confirming ? '正在保存…' : '确认并保存记录' }}</button>
+        <button :disabled="confirming || confirmOutcomeUncertain" @click="save">{{ confirming ? '正在保存…' : '确认并保存记录' }}</button>
         <button type="button" class="outline" @click="draft=null">取消</button>
       </div>
     </div>
