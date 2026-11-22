@@ -19,11 +19,19 @@
 | --- | --- | --- | --- | --- |
 | 看 GitHub CI 当前状态 | `github_ci_status` | **现有 GitHub 连接器直读**，不访问服务器 | 固定仓库和默认分支；最多 1 个已知 workflow run ID | workflow、状态、结论、URL、时间（仅 GitHub API 的可公开字段） |
 | 看服务器系统盘空间 | `host_root_fs_usage` | 待审批的独立低权限只读采集器 | **无参数** | totalBytes、usedBytes、freeBytes、usagePercent；仅根文件系统 |
-| 看 PRP 应用是否健康 | `prp_app_health` | 待审批的独立低权限只读采集器 | **无参数** | `status=healthy/unhealthy/unknown`、probeTimeUTC；不返回健康响应原文 |
+| 看 PRP 后端是否可响应 | `prp_app_health` | **优先评估现有 `/api/health` 可用性**；必要时再用独立低权限只读采集器 | **无参数** | `liveness=reachable/unreachable/unknown`、`readiness=unknown`、`probeTimeUTC`；不返回响应原文 |
 
-首批版本**不提供部署版本号**，因为当前尚未核实可信的本地只读版本来源。健康探针的具体本地端点、认证要求和可达性也尚未核实；未通过独立只读验证前，`prp_app_health` 应返回 `unknown`，不得凭推测把服务判定为 healthy。
+**已核实的源码依据（尚未核实真实生产可达性）：**
 
-**直接路由原则：** `github_ci_status` 已能由 ChatGPT 通过 GitHub 连接器完成，因此不应再走 GitHub Issue → Actions → SSH 的新通道；只为两项确实需要主机本地数据的查询设计采集链路。
+- [HealthController.java](../../backend/src/main/java/com/matrix/prp/common/api/HealthController.java) 已提供 `GET /api/health`：固定 `status=UP`、`service=matrix-prp-backend`、`version=0.1.0`（**硬编码，不代表真实发布版本**）等字段。接口响应成功只能证明后端 HTTP 存活，**不能证明 MySQL、知识库、业务功能就绪**。
+- 同一控制器提供 `GET /api/health/runtime`。根据 [RuntimeHealthService.java](../../backend/src/main/java/com/matrix/prp/common/api/RuntimeHealthService.java)，它会验证数据库连接并返回 `status=UP/DEGRADED`，但也带有**知识库绝对路径、运行 profiles 和数据库/持久化状态**。 [SecurityConfig.java](../../backend/src/main/java/com/matrix/prp/config/SecurityConfig.java) 的 `/api/health/**` 是 `permitAll()`；即使上层 Nginx 未对公网开放，此端点仍应按**含内部诊断细节**处理，**不得向 ChatGPT、公开 Issue 或任何 V2 结果返回完整原始 JSON**。
+- [phase-1-verification.md](../releases/phase-1-verification.md) 明确记录 MySQL 不可用时 `/api/health` 仍能响应，而 `/api/health/runtime` 是 `DEGRADED`；这证实 **liveness ≠ readiness**。
+
+**首版仅采集最小 liveness 状态**：固定预设本地/已审查的 URL、短超时，HTTP 200 且严格验证响应中的 `data.status=UP` 才映射为 `reachable`。其它 HTTP/网络错误可映射 `unreachable` 或 `unknown`，但不得用 `healthy` 一词暗示全系统可用。只有独立批准、评估数据脱敏与授权后，才可另行提出 readiness 聚合（默认 `unknown`）。
+
+首批**不提供部署版本号**：源码写死的 `0.1.0` 不具备版本证明力；真实容器/提交版本来源尚待核实。
+
+**直接路由原则：** `github_ci_status` 由 ChatGPT 通过现有 GitHub 连接器完成，**不走 SSH**。健康 liveness 先评估经审查的现有 `/api/health` 是否可安全直接访问；仅当确需主机本地信息且不存在安全直接只读源时，才考虑独立 V2 采集器，**不能为凑齐三项而新增 SSH**。
 
 ## 3. 主机只读采集候选方案（尚未决定启用）
 
@@ -35,7 +43,7 @@
 - 单独执行用户必须可读自己的 V2 解密密钥，但不能访问 V1 root 私钥；因此该密钥**只能解锁固定只读操作**，不可拿去执行通用 Bash。
 - 先完成离线权限与攻击面复核；真实服务器上的账号、密钥、SSH 配置、网络、服务安装与常态开放，需要日后分别明确批准。**本设计 PR 不执行这些步骤。**
 - 降低滥用风险：一组请求最多一次响应，固定大小输出、有限频率、短请求有效期、nonce 去重、低资源占用、固定超时；如果响应发布失败，记录不确定状态，**不得自动重发主机操作**。
-- 如果只读健康检查必须读取私有 Token、绕过本地 TLS 或查看内部详情，则**不实现该探针**，改为已有公开健康接口或仅反馈“无法核实”。
+- 如果健康检查必须读取私有 Token、绕过本地 TLS 或使用完整 `/api/health/runtime` 内部 JSON，则**不实现该探针**；仅允许预设的 `/api/health` 存活性请求与**服务器内执行的白名单字段过滤**，或反馈“无法核实”。不得公开 `knowledgeRoot`、`activeProfiles`、内部路径、数据库配置等。
 
 ## 4. 精确消息结构（建议契约，不是当前已启用 API）
 
@@ -80,7 +88,7 @@
 - 公开 Issue 中的非 owner 评论、被编辑的旧评论、fork/PR 事件、不同 repo/Issue、bot 身份伪造；
 - 伪造的 `actor`、`target`、`jobId`、nonce、过期时间、其他字段、JSON 重复键、消息被转发到 V1；
 - 企图传入 `command`、`path`、`url`、`headers`、`sql`、`pid`、`serviceName`、`env`、任意参数值或控制字符；
-- 重放/并发同一请求、超大输入、循环触发、输出过长、超时、服务不可达、健康探针返回敏感 body；
+- 重放/并发同一请求、超大输入、循环触发、输出过长、超时、服务不可达、健康探针返回敏感 body，特别是 `/api/health/runtime` 的 `knowledgeRoot` 和 `activeProfiles` 泄露；
 - 临时结果证书与任务不匹配、日志泄漏、异常信息回显、公开响应混入密钥或主机身份信息；
 - V1 双开关被意外打开、发布锁被删除、主机采集账号被误授予 sudo 或容器管理权限。
 
@@ -89,7 +97,7 @@
 **阶段 A — 评审（当前允许）**
 
 1. 本文在 Draft PR 评审；与 V1 技术说明核对边界，并确认为什么 CI 直读不需要任何主机通道。
-2. 审核健康探针的真实数据来源与最小可读性；不确定则保持 `unknown`。
+2. 依据已核实的 `/api/health` 与 `/api/health/runtime` 源码，分别定义 liveness 和 readiness，不得误将硬编码 `UP` 作为端到端可用性；确认公网/本地路由与过滤前均返回 `unknown`。
 3. 明确 V2 独立 SSH/GitHub 路由的安全边界和运维撤销流程。
 
 **阶段 B — 离线实现（需下一次明确批准）**
