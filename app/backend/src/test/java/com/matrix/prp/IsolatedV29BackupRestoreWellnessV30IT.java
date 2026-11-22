@@ -9,9 +9,11 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.HexFormat;
 import java.util.Map;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -56,6 +58,33 @@ class IsolatedV29BackupRestoreWellnessV30IT {
             throw new SecurityException("DISPOSABLE_V29_WELLNESS_RESTORE_ONLY");
         }
         phase();
+    }
+
+    private static Flyway flyway(String url, String target) {
+        if (!SOURCE_URL.equals(url) && !CLONE_URL.equals(url)) {
+            throw new SecurityException("UNREVIEWED_DATABASE_URL");
+        }
+        return Flyway.configure()
+                .dataSource(url, USER, System.getenv("MATRIX_PRP_FLYWAY_DB_PASSWORD"))
+                .locations("classpath:db/migration")
+                .baselineVersion("7")
+                .baselineOnMigrate(false)
+                .cleanDisabled(true)
+                .validateOnMigrate(true)
+                .target(MigrationVersion.fromVersion(target))
+                .load();
+    }
+
+    private void assertHistoricBaseline(String url, int version) throws Exception {
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history "
+                + "WHERE installed_rank=1 AND type='BASELINE' AND version='7' "
+                + "AND checksum IS NULL AND success=1")).isEqualTo(1);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history "
+                + "WHERE type='SQL' AND success=1 AND "
+                + "CAST(version AS UNSIGNED) BETWEEN 8 AND " + version))
+                .isEqualTo(version - 7);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history"))
+                .isEqualTo(1 + version - 7);
     }
 
     private static Connection connect(String url) throws SQLException {
@@ -129,9 +158,20 @@ class IsolatedV29BackupRestoreWellnessV30IT {
     private void seed() throws Exception {
         assertThat(tableCount(SOURCE_URL)).isZero();
         assertThat(tableCount(CLONE_URL)).isZero();
-        Flyway source = helper.flyway(SOURCE_URL, "29");
-        assertThat(source.migrate().migrationsExecuted).isEqualTo(29);
+        // Reproduce production's historic V7 manual baseline on a disposable source:
+        // build physical V1-V7 tables, discard ONLY this synthetic Flyway history,
+        // register a V7 baseline, then apply the immutable V8-V29 migrations.
+        assertThat(flyway(SOURCE_URL, "7").migrate().migrationsExecuted)
+                .isEqualTo(7);
+        try (Connection c = connect(SOURCE_URL);
+             Statement statement = c.createStatement()) {
+            statement.execute("DROP TABLE flyway_schema_history");
+        }
+        Flyway source = flyway(SOURCE_URL, "29");
+        assertThat(source.baseline().successfullyBaselined).isTrue();
+        assertThat(source.migrate().migrationsExecuted).isEqualTo(22);
         assertThat(source.validateWithResult().validationSuccessful).isTrue();
+        assertHistoricBaseline(SOURCE_URL, 29);
         helper.populateSyntheticV28(SOURCE_URL);
         helper.insert(SOURCE_URL, "INSERT INTO prp_wellness_meals "
                 + "(user_id,meal_date,meal_type,note,idempotency_key) "
@@ -153,10 +193,12 @@ class IsolatedV29BackupRestoreWellnessV30IT {
     }
 
     private void verifyClone() throws Exception {
-        Flyway source = helper.flyway(SOURCE_URL, "29");
-        Flyway restoredV29 = helper.flyway(CLONE_URL, "29");
+        Flyway source = flyway(SOURCE_URL, "29");
+        Flyway restoredV29 = flyway(CLONE_URL, "29");
         assertThat(source.validateWithResult().validationSuccessful).isTrue();
         assertThat(restoredV29.validateWithResult().validationSuccessful).isTrue();
+        assertHistoricBaseline(SOURCE_URL, 29);
+        assertHistoricBaseline(CLONE_URL, 29);
         Map<String, String> original = helper.preservedFingerprints(SOURCE_URL);
         assertThat(helper.preservedFingerprints(CLONE_URL))
                 .containsExactlyInAnyOrderEntriesOf(original);
@@ -173,9 +215,10 @@ class IsolatedV29BackupRestoreWellnessV30IT {
         assertThat(count(CLONE_URL, "SELECT COUNT(*) FROM flyway_schema_history "
                 + "WHERE version='30'")).isZero();
 
-        Flyway upgraded = helper.flyway(CLONE_URL, "30");
+        Flyway upgraded = flyway(CLONE_URL, "30");
         assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(upgraded.validateWithResult().validationSuccessful).isTrue();
+        assertHistoricBaseline(CLONE_URL, 30);
         assertThat(tableCount(CLONE_URL)).isEqualTo(before + 2);
         assertThat(enrichmentTableCount(CLONE_URL)).isEqualTo(2);
         assertThat(count(CLONE_URL, "SELECT COUNT(*) FROM prp_wellness_meal_analyses"))
@@ -207,7 +250,9 @@ class IsolatedV29BackupRestoreWellnessV30IT {
         assertThat(mealFingerprint(SOURCE_URL)).isEqualTo(originalMeal);
         assertThat(helper.preservedFingerprints(SOURCE_URL))
                 .containsExactlyInAnyOrderEntriesOf(original);
+        assertHistoricBaseline(SOURCE_URL, 29);
 
+        System.out.println("CI_SYNTHETIC_V7_BASELINE_V29_RESTORED_CLONE_V30=PASS");
         System.out.println("CI_SYNTHETIC_V29_DUMP_RESTORE_V30_CLONE=PASS");
         System.out.println("CI_SYNTHETIC_V29_ORIGINAL_SOURCE_UNCHANGED=YES");
         System.out.println("CI_SYNTHETIC_V30_ORPHAN_NUTRIENT_FK_REJECTED=YES");
