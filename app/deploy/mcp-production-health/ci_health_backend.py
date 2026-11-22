@@ -63,8 +63,11 @@ class Backend:
    except RuntimeError:pass
    time.sleep(1)
   else:raise RuntimeError('REAL_HEALTH_MYSQL_START_TIMEOUT')
-  # Only this new CI schema is migrated. Guarded production-shaped runtime is then restarted with Flyway OFF.
-  self.start_java({'spring':{'flyway':{'enabled':True},'ai':{'mcp':{'server':{'enabled':False}}}},'matrix-prp':{'mcp':{'enabled':False}}})
+  # This isolated health OAuth regression deliberately proves the historical
+  # V29 schema contract. New V30/V31 migrations are verified separately by the
+  # disposable MySQL Flyway/owner lifecycle CI jobs, not silently migrated here.
+  # Never change the fixed V29 history assertion or production Flyway-OFF guard.
+  self.start_java({'spring':{'flyway':{'enabled':True,'target':'29'},'ai':{'mcp':{'server':{'enabled':False}}}},'matrix-prp':{'mcp':{'enabled':False}}})
   self.check('real_health_mysql_v29_migrated',self.sql('SELECT version,success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;')=='29\t1')
   migration_history=self.sql('SELECT installed_rank,version,checksum,success FROM flyway_schema_history ORDER BY installed_rank;')
   # /api/health may return 200 before AdminBootstrap's ApplicationRunner inserts the initial owner.
