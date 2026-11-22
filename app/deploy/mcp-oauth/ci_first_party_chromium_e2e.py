@@ -105,12 +105,18 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
                 stage = "BROWSER_VERIFY_EXACT_SCOPE_SELECTION"
                 if page.locator('.scope-option input[type="checkbox"]:checked').count() != 2:
                     raise RuntimeError("BROWSER_OWNER_REVIEW_VIDEO_CHECKBOXES_NOT_SELECTED")
-                stage = "BROWSER_FILL_OWNER_GRANT_FIELDS"
-                page.get_by_placeholder("OAuth client_id").fill(CHATGPT)
-                page.get_by_placeholder(
+                # The legacy one-use ticket form has a second identical
+                # OAuth client-id placeholder; restrict all interactions to
+                # the actual owner-grant card to avoid locator ambiguity.
+                grant_panel = page.locator(".el-card").filter(
+                    has=page.get_by_text("新增或修改客户端授权", exact=True))
+                stage = "BROWSER_FILL_OWNER_GRANT_CLIENT_ID"
+                grant_panel.get_by_placeholder("OAuth client_id").fill(CHATGPT)
+                stage = "BROWSER_FILL_OWNER_GRANT_PASSWORD"
+                grant_panel.get_by_placeholder(
                     "密码只发送给 PRP，不提供给 AI 客户端").fill(prp_password)
                 stage = "BROWSER_SUBMIT_OWNER_GRANT"
-                page.get_by_role("button", name="批准此客户端").click()
+                grant_panel.get_by_role("button", name="批准此客户端").click()
                 stage = "BROWSER_WAIT_OWNER_GRANT_ACTIVE"
                 page.locator(".client-row").filter(
                     has_text=CHATGPT).get_by_text(
