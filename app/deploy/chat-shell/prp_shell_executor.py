@@ -118,11 +118,14 @@ def execute(command,timeout_seconds,account):
 def process_request(request,account,now=None):
     if not isinstance(request,dict) or set(request)!={'jobId','ciphertext'}:
         raise InvalidJob('invalid transport')
+    # Fail closed before passing any caller-controlled bytes to OpenSSL.
+    # Even a stolen SSH credential must not reach root-owned CMS parsing
+    # while this host has not explicitly enabled command execution.
+    require_execution_enabled()
     job_id=request['jobId']
     ciphertext=b64_decode(request['ciphertext'],40000)
     data=strict_json(openssl_cms_decrypt(ciphertext,PRIVATE_KEY,CERT))
     job=validate_payload(data,job_id,now=now)
-    require_execution_enabled()
     claim(job['jobId'],job['nonce'])
     result=execute(job['command'],job['runSeconds'],account)
     result.update({'version':1,'jobId':job['jobId']})
