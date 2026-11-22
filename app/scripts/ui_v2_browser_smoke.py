@@ -337,7 +337,7 @@ def main():
             launch_options["args"] = ["--no-sandbox"]
         browser = browser_type.launch(**launch_options)
         try:
-            for width, height in [(1280, 900), (768, 900), (390, 844)]:
+            for width, height in [(1280, 900), (768, 900), (390, 844), (844, 390)]:
                 check_viewport(browser, width, height)
         finally:
             browser.close()
