@@ -1,0 +1,28 @@
+name: PRP Dev Collaboration Contract
+
+on:
+  pull_request:
+    branches: [main, 'integrate/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dev-collab-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+      - name: Test cross-session state machine and safety rules
+        run: node --test app/scripts/dev-collab/*.test.mjs
+      - name: Shell syntax and permission boundaries
+        run: bash -n app/scripts/dev-collab/state-transaction.sh
+      - name: Check patch whitespace
+        run: git diff --check HEAD^ HEAD
