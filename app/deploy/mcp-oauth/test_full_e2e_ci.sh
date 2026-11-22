@@ -308,6 +308,8 @@ echo "E2E TLS: disposable Java certificate trust configured."
     diagnostic="UNKNOWN"
     if grep -Eq 'wget: Failed to fetch|curl: Failed to fetch' "$tmp/java-build.log"; then
       diagnostic="WRAPPER_DOWNLOAD"
+    elif grep -Eiq 'status code: 429|Too Many Requests' "$tmp/java-build.log"; then
+      diagnostic="DEPENDENCY_HTTP_429"
     elif grep -Eq 'Could not resolve dependencies|Non-resolvable parent POM|Could not transfer artifact|UnknownHostException|Connection timed out|Read timed out|Connection reset|Name or service not known' "$tmp/java-build.log"; then
       diagnostic="DEPENDENCY_OR_NETWORK"
     elif grep -Eq 'No space left on device|Disk quota exceeded' "$tmp/java-build.log"; then

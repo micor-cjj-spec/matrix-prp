@@ -74,6 +74,12 @@ jobs:
           done < <(git ls-tree -r --name-only origin/main -- app/backend/src/main/resources/db/migration/)
           test "$count" -eq 24
           echo 'CI_MAIN_V1_V24_MIGRATION_BLOBS_UNCHANGED=YES'
+      - name: Prepare pinned official Maven 3.9.16 (disposable CI only)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n app/deploy/mcp-staging/ci_prepare_maven_3916.sh
+          bash app/deploy/mcp-staging/ci_prepare_maven_3916.sh
       - name: Create and dispose an exclusively runner-owned MySQL schema
         shell: bash
         run: |
@@ -121,7 +127,7 @@ jobs:
           }
           cd app/backend
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=ExistingLegacyV7BaselineToMcpV28UpgradeIT test
+          "$RUNNER_TEMP/apache-maven-3.9.16/bin/mvn" -B -ntp -Dtest=ExistingLegacyV7BaselineToMcpV28UpgradeIT test
 
           # Exercise the exact production-schema metadata SELECT against
           # a SYNTHETIC, disposable `matrix_prp` schema in this CI-only
