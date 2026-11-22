@@ -95,9 +95,11 @@ jobs:
           done
 
           cd app/backend
-          chmod +x mvnw
+          # Use the runner's preinstalled Maven; the wrapper ZIP download was
+          # blocked by external repository availability before tests began.
+          mvn -version
           export CI_WELLNESS_RESTORE_PHASE=seed
-          ./mvnw -B -ntp -Dtest=IsolatedV29BackupRestoreWellnessV30IT test
+          mvn -B -ntp -Dtest=IsolatedV29BackupRestoreWellnessV30IT test
 
           docker exec -e MYSQL_PWD="$root_password" "$source_container" \
             mysqldump --protocol=TCP -h 127.0.0.1 -uroot \
@@ -125,7 +127,7 @@ jobs:
             < "$tmp/synthetic-v29.sql"
 
           export CI_WELLNESS_RESTORE_PHASE=verify_clone
-          ./mvnw -B -ntp -Dtest=IsolatedV29BackupRestoreWellnessV30IT test
+          mvn -B -ntp -Dtest=IsolatedV29BackupRestoreWellnessV30IT test
           echo "CI_FULL_SYNTHETIC_WELLNESS_V29_DUMP_RESTORE_V30_CLONE=PASS"
           echo "NO_LIVE_PRP_DATABASE_OR_PRODUCTION_BACKUP_ACCESSED=YES"
           echo "PRODUCTION_DEPLOYMENT_APPROVED=NO"
