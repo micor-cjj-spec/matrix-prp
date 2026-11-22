@@ -141,3 +141,43 @@ test('sidebar supporting labels maintain WCAG AA contrast at both gradient stops
     }
   }
 })
+
+test('mobile PWA permits native pinch zoom without losing iOS safe areas', () => {
+  const html = source('web/index.html')
+  const globalCss = source('web/src/styles/main.css')
+  const viewport = html.match(/<meta name="viewport" content="([^"]+)"/)?.[1] ?? ''
+  const restrictedViewport = text =>
+    /(?:^|,)\s*(?:maximum-scale|minimum-scale|user-scalable)\s*=/.test(text)
+  const restrictedRootTouch = css =>
+    /html\s*\{[^}]*touch-action\s*:\s*(?:none|pan-x|pan-y)(?:\s|;|!)/s.test(css)
+
+  // Negative-control fixtures make sure the guard actually rejects forbidden
+  // source. A double-escaped regex could silently pass the good source while
+  // failing to detect all future regressions.
+  assert.ok(restrictedViewport('width=device-width, user-scalable=no'))
+  assert.ok(restrictedViewport('width=device-width, maximum-scale=1.0'))
+  assert.ok(restrictedViewport('width=device-width, minimum-scale=1'))
+  assert.ok(restrictedRootTouch('html { touch-action: pan-x pan-y; }'))
+  assert.ok(restrictedRootTouch('html { touch-action: none; }'))
+
+  assert.ok(viewport.includes('width=device-width') && viewport.includes('viewport-fit=cover'),
+    'mobile viewport must retain device width and iOS safe-area support')
+  assert.ok(!restrictedViewport(viewport),
+    'mobile viewport must not prevent browser zoom or cap magnification')
+  assert.ok(!restrictedRootTouch(globalCss),
+    'global html touch-action must not suppress pinch zoom')
+  assert.ok(!entry.includes("addEventListener('gesturestart'"),
+    'do not prevent Safari gesturestart from activating user-controlled zoom')
+  assert.ok(globalCss.includes('font-size: 16px !important'),
+    'retain the iOS form-input font size safeguard against involuntary focus zoom')
+})
+
+
+test('mobile chat controls distinguish pinch zoom from keyboard occlusion', () => {
+  assertEvery(layout, [
+    "isMobileKeyboardVisible(window.innerHeight, viewport)",
+    "import { isMobileKeyboardVisible } from '@/utils/mobileViewport'",
+  ], 'visualViewport keyboard detector')
+  const helper = source('web/src/utils/mobileViewport.ts')
+  assertEvery(helper, ['viewport.scale', 'viewport.offsetTop', 'viewport.height'], 'zoom-aware keyboard metric')
+})
