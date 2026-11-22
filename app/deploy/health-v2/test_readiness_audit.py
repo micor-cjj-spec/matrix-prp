@@ -62,6 +62,24 @@ class ReadinessTests(unittest.TestCase):
     def test_shared_v2_hostname(self):
         self.assert_blocked(lambda d: d["stage"].update(public_host="prp-test.micor.top"), "SHARED_OR_PRODUCTION_HOST")
 
+    def test_numeric_ip_public_host_not_a_separate_stage_hostname(self):
+        # IPv4 and shortened numeric forms must not stand in for an observed
+        # DNS / HTTPS stage name. These declarations are not live-host checks.
+        for hostname in ("127.0.0.1", "127.1", "192.0.2.55", "8.8.8.8"):
+            with self.subTest(hostname=hostname):
+                self.assert_blocked(
+                    lambda d, host=hostname: d["stage"].update(public_host=host),
+                    "IP_LITERAL_HOST_FORBIDDEN",
+                )
+
+    def test_numeric_ip_oidc_host_not_a_separate_issuer_hostname(self):
+        for hostname in ("127.0.0.2", "192.0.2.2"):
+            with self.subTest(hostname=hostname):
+                self.assert_blocked(
+                    lambda d, host=hostname: d["stage"].update(oidc_host=host),
+                    "IP_LITERAL_HOST_FORBIDDEN",
+                )
+
     def test_production_database(self):
         self.assert_blocked(lambda d: d["stage"].update(database_name="matrix_prp"), "SHARED_OR_PRODUCTION_DB")
 

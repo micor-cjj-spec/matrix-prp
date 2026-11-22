@@ -56,6 +56,10 @@ def _host(value, code):
     labels = value.split(".")
     _need(len(labels) >= 2 and all(1 <= len(x) <= 63 and not x.startswith("-") and not x.endswith("-") for x in labels), code)
     _need(value not in _RESERVED_HOST, "SHARED_OR_PRODUCTION_HOST")
+    # Numeric dotted host labels can be interpreted as IPv4 literals (even in
+    # shortened forms such as 127.1). These are not independent HTTPS/OIDC
+    # DNS hostnames, and must never satisfy a claimed stage-host attestation.
+    _need(not all(label.isdecimal() for label in labels), "IP_LITERAL_HOST_FORBIDDEN")
     return value
 
 
