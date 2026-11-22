@@ -157,6 +157,28 @@ export async function proposeGoalTaskLink(goalId: number, taskId: number, key: s
   return data.data
 }
 
+/** Separate owner-reviewed link of an existing review to one personal goal. */
+export async function proposeGoalReviewLink(goalId: number, reviewId: number, key: string) {
+  const { data } = await apiClient.post<ApiResponse<PersonalMemory>>(
+    '/memory/candidates', {
+      subjectType: 'REVIEW',
+      subjectRef: String(reviewId),
+      predicate: 'EVALUATES',
+      objectType: 'GOAL',
+      objectRef: String(goalId),
+      objectValue: null,
+      sourceType: 'REVIEW',
+      sourceRef: String(reviewId),
+      validFrom: null,
+      validTo: null,
+      sensitivity: 'NORMAL',
+      requestKey: key,
+    },
+  )
+  // Unlike a data-entry form this creates only an unconfirmed association.
+  return data.data
+}
+
 /** T-005: personal-goal model sharing is separate from normal chat/MCP scopes. */
 export interface PlanningEvidence {
   reference: string
