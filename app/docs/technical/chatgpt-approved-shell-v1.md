@@ -71,3 +71,8 @@ PRP 主仓库公开。Issue 正文、评论和 GitHub Actions 输出不能存放
 - 安装时网关误设为 `0500`，**必须先改为 `0555`**，否则非 root 的 SSH 接入账号无法启动它；脚本仍须 root 所有且父目录不可写。
 - **尚未添加专用 SSH authorized_keys、sudoers、Actions Secrets 或将触发工作流合入 main**；此时远程执行通道不可用。
 - 上述 11 项是离线单元测试，尚不能替代独立 SSH 授权、Actions 端到端测试与安全审查。GitHub CI 尚在排队。
+- 2026-11-22 后续进度：已安装独立强制命令 SSH 网关，**本机执行空请求会返回预期拒绝**；GitHub `production-shell` 环境已配置 main-only 策略以及三个独立 Secrets（HOST / SSH_KEY / KNOWN_HOSTS）。此前的“尚未添加”项已完成，不等于 GitHub Runner 外部联通已验收。
+- **新增默认关闭开关：** GitHub Actions `command` job 必须同时满足 `vars.PRP_CHAT_SHELL_ENABLED == 'true'` 才能执行。**不要在完成正式安全评审和端到端验收前设置该变量。**
+- **只用于验证的工作流：** `workflow_dispatch` 会启动 `connectivity-smoke`，它使用已经配置的 Secrets 从 GitHub Runner 访问强制网关，仅发送**空输入**，要求网关返回 `PRP_SHELL_REQUEST_REJECTED`；绝不传递或执行真实命令。该工作流必须存在于 main 才能执行；请先通过所有 CI、审核并单独批准只启用测试通道的合并步骤。
+- **互斥注意：** 这套默认关闭开关是部署期间的保护，不是 ChatGPT 用户批准的密码学验证。不能把“未启用变量”解释为已完成端到端验收。
+
