@@ -32,9 +32,17 @@ def evaluate(data):
     if hold:
         blockers.append("publication_hold")
     blockers += [k for k in CHECKS if k != "production_smoke" and checks[k] != "pass"]
+    # A smoke failure is a known failed release check, not a clean preflight.
+    # A claimed smoke pass without a matching deployed SHA is contradictory.
+    smoke = checks["production_smoke"]
+    if smoke == "fail":
+        blockers.append("production_smoke")
+    elif smoke == "pass" and deployed != commit:
+        blockers.append("deployed_commit_mismatch" if deployed is not None else "deployed_commit_missing")
     eligible = not blockers
     # A successful workflow, skipped publish, or user approval alone never establishes LIVE.
-    live = eligible and checks["production_smoke"] == "pass" and deployed == commit
+    # This is offline evaluation of supplied evidence, NOT trusted proof of deployment.
+    live = eligible and smoke == "pass" and deployed == commit
     return {
         "schema_version": 1,
         "commit": commit,
