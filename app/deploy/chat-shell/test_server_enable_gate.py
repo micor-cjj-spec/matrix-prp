@@ -9,6 +9,10 @@ import prp_shell_executor as executor
 from protocol import InvalidJob, b64_encode
 
 class HostExecutionGate(unittest.TestCase):
+    def test_unit_tests_resolve_checked_out_protocol_not_installed_global_copy(self):
+        import protocol
+        self.assertEqual(Path(protocol.__file__).resolve().parent,
+                         Path(executor.__file__).resolve().parent)
     def test_missing_marker_symlink_wrong_mode_and_content_denied(self):
         with tempfile.TemporaryDirectory() as d:
             folder=Path(d)
