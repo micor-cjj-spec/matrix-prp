@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 from review_realm import READ_SCOPES, REALM, build_review_video_candidate
+from review_exact_clients import review_package, validate_proposals
 
 
 NODE_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "mcp218-canary-plan.mjs"
@@ -61,6 +62,28 @@ def check_contract(path):
             return "REALM_PLAN_CONTRACT_MISMATCH"
     except (LookupError, TypeError, ValueError, AttributeError):
         return "REALM_PLAN_CONTRACT_MISMATCH"
+
+    # The exact login clients are *review candidates*, not part of the Realm
+    # import. Tie them to the SAME plan's issuer/resource and keep synthetic
+    # owners unallocated. Never emit the candidate or its input to logs.
+    try:
+        issuer = plan["issuer_url"]
+        proposal = review_package(resource, issuer)
+        owner = proposal["synthetic_owner_plan"]
+        if (proposal["realm"] != REALM or
+                proposal["resource"] != resource or
+                proposal["issuer"] != issuer or
+                proposal["deployable"] is not False or
+                proposal["not_a_keycloak_import"] is not True or
+                proposal["not_a_release_receipt"] is not True or
+                validate_proposals(proposal["proposed_clients"], resource, issuer) is not True or
+                owner["actual_user_ids"] != "NOT_ALLOCATED" or
+                owner["expanded_user_ids_setting"] != "NOT_CONFIGURED" or
+                owner["owner_client_grants"] != "NOT_GRANTED" or
+                set(owner["required_read_scopes"]) != set(READ_SCOPES)):
+            return "CLIENT_PLAN_CONTRACT_MISMATCH"
+    except (LookupError, TypeError, ValueError, AttributeError):
+        return "CLIENT_PLAN_CONTRACT_MISMATCH"
     return None
 
 
