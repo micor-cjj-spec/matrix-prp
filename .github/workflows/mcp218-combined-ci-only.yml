@@ -235,7 +235,7 @@ jobs:
 
           # No push, branch rewrite, GitHub merge API, deployment, secrets, or approval.
           # This writes only an ephemeral merge index/worktree on the Actions runner.
-          git -C merged merge --no-commit --no-ff "$reviewed_main"
+          git -C merged -c user.name="MCP218 CI-only rehearsal" -c user.email="mcp218-rehearsal@example.invalid" merge --no-commit --no-ff "$reviewed_main"
           test "$(git -C merged rev-parse HEAD)" = "$source_head"
           test "$(git -C merged rev-parse MERGE_HEAD)" = "$reviewed_main"
           test -z "$(git -C merged ls-files -u)"
