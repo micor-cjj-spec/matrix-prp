@@ -1,5 +1,7 @@
 """Synthetic-only V2 event, replay and minimized reply tests."""
 import json
+import os
+import stat
 import sys
 import tempfile
 import threading
@@ -139,6 +141,41 @@ class V2SecurityContractTests(unittest.TestCase):
             path.mkdir()
             with self.assertRaises(RejectedRequest):
                 ReplayLedger(path).claim(self.job, "a" * 32, NOW + 100, NOW)
+
+    def test_replay_ledger_private_file_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            self.assertTrue(ReplayLedger(path).claim(self.job, "a" * 32, NOW + 100, NOW))
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_replay_ledger_rejects_insecure_directory_and_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            path = folder / "ledger.sqlite"
+            folder.chmod(0o755)
+            with self.assertRaises(RejectedRequest):
+                ReplayLedger(path).claim(self.job, "a" * 32, NOW + 100, NOW)
+            self.assertFalse(path.exists())
+            folder.chmod(0o700)
+            path.write_bytes(b"")
+            path.chmod(0o644)
+            with self.assertRaises(RejectedRequest):
+                ReplayLedger(path).claim(self.job, "a" * 32, NOW + 100, NOW)
+
+    def test_replay_ledger_rejects_symlinks_and_hardlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            file = folder / "ledger.sqlite"
+            target = folder / "target.sqlite"
+            target.write_bytes(b"")
+            target.chmod(0o600)
+            file.symlink_to(target)
+            with self.assertRaises(RejectedRequest):
+                ReplayLedger(file).claim(self.job, "a" * 32, NOW + 100, NOW)
+            file.unlink()
+            os.link(target, file)
+            with self.assertRaises(RejectedRequest):
+                ReplayLedger(file).claim(self.job, "a" * 32, NOW + 100, NOW)
 
     def test_response_disk_fields_and_job_binding(self):
         data = {"totalBytes": 102400, "usedBytes": 71680,
