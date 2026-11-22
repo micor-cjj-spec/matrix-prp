@@ -35,7 +35,7 @@ jobs:
           node --test app/scripts/mcp218-canary-plan.test.mjs
       - name: Validate Realm candidate and shared offline contract (no network)
         run: |
-          python3 -m py_compile app/deploy/mcp218-canary/review_realm.py app/deploy/mcp218-canary/test_review_realm.py app/deploy/mcp218-canary/check_offline_contract.py app/deploy/mcp218-canary/test_offline_contract.py
+          python3 -m py_compile app/deploy/mcp218-canary/review_realm.py app/deploy/mcp218-canary/test_review_realm.py app/deploy/mcp218-canary/check_offline_contract.py app/deploy/mcp218-canary/test_offline_contract.py app/deploy/mcp218-canary/review_exact_clients.py app/deploy/mcp218-canary/test_review_exact_clients.py
           python3 -m unittest discover -v -s app/deploy/mcp218-canary -p 'test_*.py'
       - name: State non-release acceptance boundary
         run: echo "MCP218_OFFLINE_SHAPE_TEST_ONLY_NOT_G0_B2_OR_DEPLOY_APPROVAL"
