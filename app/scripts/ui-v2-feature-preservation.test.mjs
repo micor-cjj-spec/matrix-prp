@@ -109,3 +109,11 @@ test('native mobile video and AI interactions remain available after visual upda
     'chat-bubble', 'chat-input', 'history-button'
   ], 'mobile AI')
 })
+
+
+test('screen readers can identify each home task completion action', () => {
+  assert.ok(home.includes(`:aria-label="'完成任务：' + task.title"`),
+    'each task row must expose its own title to assistive technology')
+  assert.ok(!home.includes('aria-label="完成任务"'),
+    'ambiguous repeated task-action labels are not allowed')
+})
