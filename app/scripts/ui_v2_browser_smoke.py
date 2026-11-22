@@ -316,6 +316,44 @@ def check_viewport(browser, width, height):
              "Health overview panel is not exclusively visible")
         must(page.locator(".prp-back-to-apps").count() == 1,
              "Missing return-to-apps link from module page")
+        # Health V2 compatibility: the visual UI intro must coexist with
+        # the retained nutrition analysis, trend selector and six original tabs.
+        # Unrecorded calories must not be mistaken for a confirmed zero.
+        intro = page.locator(".wellness-v2-intro")
+        must("未记录不等于零" in intro.inner_text(),
+             "Synthetic empty health day must distinguish unknown from zero")
+        nutrition = page.locator(".wellness-tabs .el-tab-pane:visible .nutrition-panel")
+        must(nutrition.count() == 1, "Health V2 nutrition completeness panel disappeared")
+        must("暂无餐食数据" in nutrition.inner_text(),
+             "Health V2 nutrition coverage must explain the unknown state")
+        must("未知数据不按 0 处理" in nutrition.inner_text(),
+             "Health V2 must preserve the unknown-is-not-zero disclaimer")
+        must(page.locator(".wellness-tabs .el-tab-pane:visible .trend-controls .el-radio-button").count() == 4,
+             "Health V2 must retain calories, protein, carbs, and fat trend selectors")
+
+        # Read-only UI exercise: open and cancel each V2 quick-create form.
+        # Never click any save action or mutate health records on a real backend.
+        for button_label, dialog_title in [
+            ("记录饮食", "新增餐次"),
+            ("记录运动", "添加运动"),
+            ("记录体重", "记录身体指标"),
+        ]:
+            intro.get_by_role("button", name=button_label, exact=True).click()
+            dialog = page.locator(".el-dialog:visible")
+            dialog.wait_for(timeout=5000)
+            must(dialog.count() == 1 and dialog_title in dialog.inner_text(),
+                 "Health quick-action dialog missing: " + dialog_title)
+            dialog.get_by_role("button", name="取消", exact=True).click()
+            dialog.wait_for(state="hidden", timeout=5000)
+        intro.get_by_role("button", name="AI 快速记录", exact=True).click()
+        must(page.get_by_role("tab", name="AI 快速记录").get_attribute("aria-selected") == "true",
+             "Health V2 AI shortcut must activate the retained AI tab")
+        overview_tab.click()
+        must(overview_tab.get_attribute("aria-selected") == "true",
+             "Health overview not restored after testing AI quick shortcut")
+        must(state["writes"] == 1,
+             "Opening/cancelling health dialogs must never submit synthetic health writes")
+        print(f"PASS {width}px health V2 nutrition coverage, trends and non-writing quick actions", flush=True)
         # Element Plus animates the active indicator; wait for its visual
         # transition to settle so Chromium and WebKit capture the same tab.
         page.wait_for_timeout(280)
