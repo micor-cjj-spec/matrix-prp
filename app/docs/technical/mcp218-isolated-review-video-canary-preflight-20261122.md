@@ -152,3 +152,18 @@ python3 app/deploy/mcp218-canary/check_offline_contract.py /path/to/nonsecret-mc
 ```
 
 成功只返回 `MCP218_OFFLINE_CONTRACT_PASS_ONLY_NO_DEPLOY_AUTHORIZATION`；失败返回 `MCP218_OFFLINE_CONTRACT_NO_GO` + 固定分类码，并以退出码 2 结束。该命令**仅读本地配置、执行本地 Node 校验和构建 Python 内存对象**；不访问网络、不写磁盘、不导入 Realm、不提供可安装配置或审批凭据。GitHub Actions 用合成计划和负例测试覆盖该链路；与真实 DNS/TLS、Keycloak Client、ChatGPT 登录、G0/B2 及环境部署没有任何等价关系。上述实际验收仍全部 NO-GO，只有获得单独批准才可继续。
+
+
+## 11. #218 独立登录 Client 与合成账号白名单评审（未安装、未授权）
+
+已新增纯内存 `app/deploy/mcp218-canary/review_exact_clients.py` 和对应的 `test_review_exact_clients.py`，在已存在的**单一 bearer-only Resource Client 候选之外**，仅为独立 `prp-mcp218` Realm 准备**两份不具备导入能力的评审提案**：
+
+- ChatGPT Client ID 精确为 `https://chatgpt.com/oauth/client.json`；回调精确为 `https://chatgpt.com/connector_platform_oauth_redirect`；Client JWT + 官方 JWKS `https://chatgpt.com/oauth/jwks.json`，PKCE S256；audience mapper 仅绑定传入的新 `mcp218-*/api/mcp` Resource。默认 OIDC `basic`，可选数据 Scope 严格只有 `prp.reviews.read`、`prp.video.read`。未加入旧任务、财务、健康、写入权限，也不默认追加 `offline_access`。
+- 独立第一方客户端 `prp-mcp218-first-party-link`：公开 PKCE S256，重定向仅指向新 Resource Origin 下 `/prp/me/mcp-link/callback`，不包含数据 Scope；其回调真实性与真实用户关联能力**必须在该目标部署获批后再验证**，不能将静态设计视为已可运行。
+- 两个客户端都禁用 implicit flow、密码授权、service account、full-scope、web-origin 扩展，要求 consent；只准备**客户端结构提案**，不写入 Realm、没有真实注册操作、Keycloak 配置文件、私钥或密码。
+- 合成账号占位仅为 `synthetic-owner-A` 与 `synthetic-owner-B`；真实 user ID **NOT_ALLOCATED**、`matrix-prp.mcp.expanded-user-ids` **NOT_CONFIGURED**、owner Client Grant **NOT_GRANTED**。安全边界来自 `McpScopeGuard.require()`：此名单默认为空且额外要求精确 ChatGPT Client ID；必须在获批的新环境独立造数后获取准确 ID，仅纳入获批的合成 owner，不许复制原 V2/生产 owner ID。
+- `review_package(resource, issuer)` 明确标记 `deployable=false`、`not_a_keycloak_import=true`、`not_a_release_receipt=true`；`validate_proposals` 保持精确客户端定义，不容许变更回调、JWKS、aud、Scope 或禁用安全开关。新增单元测试仅使用虚构测试域名，不联网、不写磁盘、不生成/使用身份材料。
+
+来源：2026-11-22 核对公开 `https://chatgpt.com/oauth/client.json` 中的 Client ID、唯一回调、`private_key_jwt`/RS256 与 JWKS URL；这是对**公开协议元数据的核对**，不代表真实 ChatGPT 登录或 Keycloak 注册成功。
+
+**真实实施依旧 NO-GO：** 尚无已核实的独立主机、DNS/TLS/回调路由、可运行 Realm、授权的双 owner 数据、独立 G0/B2 恢复/回滚批准及真实 ChatGPT `Connect` 验收。即使本候选通过 CI，也**不得**安装 Client、创建账号、设置白名单、发放 Grant、改变生产或 V2，更不得合并 main。需要在具体目标确认后取得独立、明确的有状态变更审批。
