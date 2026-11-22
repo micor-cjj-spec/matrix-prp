@@ -259,6 +259,69 @@ def run(page, origin):
         raise RuntimeError("PERSONAL_OS_MODEL_REVIEW_CONSENT_SEQUENCE_INVALID")
     if task_writes:
         raise RuntimeError("PERSONAL_OS_MODEL_ADVICE_AUTO_WROTE_TASK")
+
+    # A model suggestion is untrusted review text, never an automatic task.
+    # Opening and canceling the owner draft must not write anything.
+    page.get_by_role("button", name="采纳为任务（先审核）").click()
+    draft_dialog = page.locator(".el-dialog").filter(
+        has=page.get_by_text("采纳 AI 建议为任务", exact=True))
+    draft_dialog.wait_for(state="visible", timeout=15000)
+    if task_writes:
+        raise RuntimeError("PERSONAL_OS_TASK_DRAFT_OPEN_AUTO_WROTE")
+    draft_dialog.get_by_role("button", name="取消", exact=True).click()
+    draft_dialog.wait_for(state="hidden", timeout=15000)
+    if task_writes:
+        raise RuntimeError("PERSONAL_OS_TASK_DRAFT_CANCEL_WROTE")
+
+    # Only a distinct explicit save click may persist one synthetic task via
+    # the regular first-party task API. We delete the CI-owned task afterward.
+    created_task_id = None
+    try:
+        page.get_by_role("button", name="采纳为任务（先审核）").click()
+        draft_dialog.wait_for(state="visible", timeout=15000)
+        if "CI-only evidence-reviewed action" not in draft_dialog.inner_text():
+            raise RuntimeError("PERSONAL_OS_TASK_DRAFT_TITLE_NOT_REVIEWABLE")
+        with page.expect_response(lambda r:
+                urlsplit(r.url).path == "/api/tasks"
+                and r.request.method == "POST", timeout=20000) as saved_response:
+            draft_dialog.get_by_role("button", name="确认创建任务").click()
+        response = saved_response.value
+        if response.status != 200:
+            raise RuntimeError("PERSONAL_OS_OWNER_TASK_SAVE_FAILED")
+        body = response.json()
+        created_task_id = body.get("data", {}).get("id")
+        if not isinstance(created_task_id, int) or created_task_id <= 0:
+            raise RuntimeError("PERSONAL_OS_TASK_SAVE_ID_INVALID")
+        if len(task_writes) != 1:
+            raise RuntimeError("PERSONAL_OS_TASK_WRITE_NOT_EXACTLY_ONE")
+        draft_dialog.wait_for(state="hidden", timeout=15000)
+        persisted = page.evaluate("""async taskId => {
+          const token = localStorage.getItem('matrix-prp-token');
+          const response = await fetch('/api/tasks', {
+            headers: {'Authorization': 'Bearer ' + token}, cache: 'no-store',
+            credentials: 'omit'
+          });
+          if (!response.ok) return false;
+          const tasks = (await response.json()).data;
+          return Array.isArray(tasks) && tasks.some(t =>
+            t.id === taskId && t.title === 'CI-only evidence-reviewed action'
+            && t.moduleCode === 'learning');
+        }""", created_task_id)
+        if not persisted:
+            raise RuntimeError("PERSONAL_OS_OWNER_TASK_NOT_PERSISTED")
+    finally:
+        if created_task_id is not None:
+            status = page.evaluate("""async taskId => {
+              const token = localStorage.getItem('matrix-prp-token');
+              const response = await fetch('/api/tasks/' + taskId, {
+                method: 'DELETE', headers: {'Authorization': 'Bearer ' + token},
+                cache: 'no-store', credentials: 'omit'
+              });
+              return response.status;
+            }""", created_task_id)
+            if status != 200:
+                raise RuntimeError("PERSONAL_OS_CI_TASK_CLEANUP_FAILED")
+    print("CI_PERSONAL_OS_T007_OWNER_REVIEWED_TASK_ADOPTION=PASS")
     page.locator(".el-segmented").get_by_text("个人记忆", exact=True).click()
     if page.locator(".os-model-results").count():
         raise RuntimeError("PERSONAL_OS_MODEL_ADVICE_PERSISTED_AFTER_TAB_CHANGE")
@@ -277,6 +340,7 @@ def run(page, origin):
     if page.locator(".os-model-json").count():
         raise RuntimeError("PERSONAL_OS_MOBILE_PREVIEW_RESTORED_WITHOUT_APPROVAL")
     before_mobile_calls = len(model_calls)
+    before_mobile_task_writes = len(task_writes)
     page.get_by_role("button", name="预览将共享的内容").click()
     page.locator(".os-model-json").wait_for(state="visible", timeout=15000)
     if len(model_calls) != before_mobile_calls + 1 or model_calls[-1] != "preview":
@@ -303,7 +367,8 @@ def run(page, origin):
         raise RuntimeError("PERSONAL_OS_MOBILE_CONSENT_HORIZONTAL_OVERFLOW")
     page.get_by_role("button", name="核对完成，确认仅本次发送").click()
     page.locator(".el-message-box").get_by_role("button", name="取消").click()
-    if len(model_calls) != before_mobile_calls + 1 or task_writes:
+    if (len(model_calls) != before_mobile_calls + 1
+            or len(task_writes) != before_mobile_task_writes):
         raise RuntimeError("PERSONAL_OS_MOBILE_CANCEL_INVOKED_MODEL_OR_TASK")
     page.locator(".el-segmented").get_by_text("个人记忆", exact=True).click()
     if page.locator(".os-model-review").count():
