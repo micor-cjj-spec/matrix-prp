@@ -597,6 +597,122 @@ def run(page, origin):
             if erased != 200:
                 raise RuntimeError("PERSONAL_OS_MANUAL_LINK_FIXTURE_ERASE_FAILED")
 
+    # End-to-end review closure: owner-created review is linked to the goal
+    # only after an explicit first-party selection and second confirmation.
+    # This uses the existing PRP review endpoint and a synthetic-only record.
+    review_id = None
+    review_link_id = None
+    try:
+        review_id = page.evaluate("""async () => {
+          const token = localStorage.getItem('matrix-prp-token');
+          const response = await fetch('/api/reviews', {
+            method: 'POST', headers: {
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json'
+            }, body: JSON.stringify({
+              reviewType: 'weekly', moduleCode: 'life',
+              title: 'CI-only existing goal review',
+              summary: 'Synthetic progress only', highlights: '',
+              problems: '', nextActions: 'Synthetic follow-up',
+              periodStart: '2026-11-01', periodEnd: '2026-11-08'
+            }), cache: 'no-store'
+          });
+          if (response.status != 200) return null;
+          return (await response.json()).data?.id ?? null;
+        }""")
+        if not isinstance(review_id, int) or review_id <= 0:
+            raise RuntimeError("PERSONAL_OS_REVIEW_FIXTURE_NOT_CREATED")
+        before_link_requests = len(link_requests)
+        before_confirms = len(confirmation_requests)
+        page.get_by_role("button", name="关联已有复盘（先选择）").click()
+        review_dialog = page.locator(".el-dialog").filter(
+            has=page.get_by_text("选择已有复盘关联目标", exact=True))
+        review_dialog.wait_for(state="visible", timeout=15000)
+        review_dialog.locator(".el-select").click()
+        page.get_by_text(
+            "CI-only existing goal review (#" + str(review_id) + ")",
+            exact=True).click()
+        review_dialog.get_by_role("button", name="审核复盘关联").click()
+        page.get_by_role("button", name="确认复盘关联到此目标").wait_for(
+            state="visible", timeout=15000)
+        if (len(link_requests) != before_link_requests
+                or len(confirmation_requests) != before_confirms):
+            raise RuntimeError("PERSONAL_OS_REVIEW_SELECTION_AUTO_WROTE")
+        page.get_by_role("button", name="暂不关联复盘").click()
+        if (len(link_requests) != before_link_requests
+                or len(confirmation_requests) != before_confirms):
+            raise RuntimeError("PERSONAL_OS_REVIEW_CANCEL_WROTE")
+        print("CI_PERSONAL_OS_T007_REVIEW_SELECTION_CANCEL_NO_WRITE=PASS")
+
+        page.get_by_role("button", name="关联已有复盘（先选择）").click()
+        review_dialog.wait_for(state="visible", timeout=15000)
+        review_dialog.locator(".el-select").click()
+        page.get_by_text(
+            "CI-only existing goal review (#" + str(review_id) + ")",
+            exact=True).click()
+        review_dialog.get_by_role("button", name="审核复盘关联").click()
+        with page.expect_response(
+            lambda resp: resp.request.method == "POST"
+            and urlsplit(resp.url).path.startswith("/api/memory/")
+            and urlsplit(resp.url).path.endswith("/confirm"),
+            timeout=20000
+        ) as reviewed:
+            page.get_by_role("button", name="确认复盘关联到此目标").click()
+        response = reviewed.value
+        fact = response.json().get("data", {}) if response.status == 200 else {}
+        review_link_id = fact.get("id")
+        if (not isinstance(review_link_id, int) or review_link_id <= 0
+                or fact.get("predicate") != "EVALUATES"
+                or fact.get("subjectType") != "REVIEW"
+                or fact.get("subjectRef") != str(review_id)
+                or fact.get("objectRef") != str(goal_link_id)
+                or fact.get("status") != "CONFIRMED"):
+            raise RuntimeError("PERSONAL_OS_REVIEW_GOAL_RELATION_INVALID")
+        if (len(link_requests) != before_link_requests + 1
+                or len(confirmation_requests) != before_confirms + 1):
+            raise RuntimeError("PERSONAL_OS_REVIEW_LINK_WRITE_NOT_EXPLICIT_ONCE")
+        page.locator(".os-context .os-evidence span").filter(
+            has_text="复盘 #" + str(review_id)).wait_for(
+                state="visible", timeout=15000)
+        print("CI_PERSONAL_OS_T007_EXISTING_REVIEW_GOAL_LINK=PASS")
+    finally:
+        if review_id is not None:
+            removed = page.evaluate("""async id => {
+              const token = localStorage.getItem('matrix-prp-token');
+              const response = await fetch('/api/reviews/' + id, {
+                method: 'DELETE', headers: {'Authorization': 'Bearer ' + token},
+                cache: 'no-store'
+              });
+              return response.status;
+            }""", review_id)
+            if removed != 200:
+                raise RuntimeError("PERSONAL_OS_REVIEW_FIXTURE_DELETE_FAILED")
+            if review_link_id is not None:
+                stale = page.evaluate("""async ({goalId, reviewId}) => {
+                  const token = localStorage.getItem('matrix-prp-token');
+                  const response = await fetch('/api/goals/' + goalId + '/context', {
+                    headers: {'Authorization': 'Bearer ' + token}, cache: 'no-store'
+                  });
+                  if (!response.ok) return null;
+                  return (await response.json()).data.filter(x =>
+                    x.predicate === 'EVALUATES' && x.subjectType === 'REVIEW'
+                    && x.subjectRef === String(reviewId));
+                }""", {"goalId": goal_link_id, "reviewId": review_id})
+                if stale != []:
+                    raise RuntimeError("PERSONAL_OS_DELETED_REVIEW_STILL_IN_CONTEXT")
+                erased = page.evaluate("""async id => {
+                  const token = localStorage.getItem('matrix-prp-token');
+                  const response = await fetch('/api/memory/' + id, {
+                    method: 'DELETE',
+                    headers: {'Authorization': 'Bearer ' + token},
+                    cache: 'no-store'
+                  });
+                  return response.status;
+                }""", review_link_id)
+                if erased != 200:
+                    raise RuntimeError("PERSONAL_OS_REVIEW_RELATION_CLEANUP_FAILED")
+                print("CI_PERSONAL_OS_T007_REVOKED_REVIEW_LINK_EXCLUDED=PASS")
+
     page.locator(".el-segmented").get_by_text("个人记忆", exact=True).click()
     if page.locator(".os-model-results").count():
         raise RuntimeError("PERSONAL_OS_MODEL_ADVICE_PERSISTED_AFTER_TAB_CHANGE")
