@@ -368,7 +368,7 @@ if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
 fi
 if [[ "$MCP_E2E_REVIEW_VIDEO" == "true" ]]; then
   # Default-OFF capability enabled ONLY for this disposable, synthetic owner.
-  export MATRIX_PRP_MCP_ADDITIONAL_READ_TOOLS_ENABLED="true"
+  export MATRIX_PRP_MCP_REVIEW_VIDEO_READ_TOOLS_ENABLED="true"
   export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="prp.reviews.read,prp.video.read"
   export MATRIX_PRP_MCP_EXPANDED_USER_IDS="1"
   export MATRIX_PRP_MCP_WRITE_ENABLED="false"
