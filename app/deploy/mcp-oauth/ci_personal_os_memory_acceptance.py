@@ -96,11 +96,16 @@ def _two_owner_browser_isolation(page):
         # injection is origin-scoped, never applied to Keycloak or other sites.
         second_context = page.context.browser.new_context(
             ignore_https_errors=True, service_workers="block")
-        second_context.add_init_script("""(() => {
-          if (location.origin === 'https://prp-e2e.localhost')
-            localStorage.setItem('matrix-prp-token', %s);
-        })();""" % json.dumps(second_token))
         second_page = second_context.new_page()
+        # Place the token only on the isolated PRP origin. Avoid an init
+        # script that would overwrite a NEW owner's token on later navigations.
+        second_page.goto("https://prp-e2e.localhost/prp/login",
+                         wait_until="domcontentloaded", timeout=30000)
+        second_page.evaluate("""token => {
+          if (location.origin !== 'https://prp-e2e.localhost')
+            throw new Error('T007_WRONG_PRP_ORIGIN');
+          localStorage.setItem('matrix-prp-token', token);
+        }""", second_token)
         second_page.goto("https://prp-e2e.localhost/prp/personal-os",
                          wait_until="domcontentloaded", timeout=30000)
         second_page.locator(".os-hero h1").wait_for(state="visible", timeout=20000)
@@ -123,6 +128,57 @@ def _two_owner_browser_isolation(page):
             raise RuntimeError("T007_TWO_OWNER_PRIVATE_API_CROSS_OWNER_LEAK")
         if second_page.get_by_text(private_fact).count():
             raise RuntimeError("T007_TWO_OWNER_PRIVATE_UI_CROSS_OWNER_LEAK")
+
+        # U08 same-tab account switching: use actual Vue logout/login paths,
+        # not a localStorage swap that might bypass Pinia's auth watchers.
+        # The first owner can see its fact after logging in intentionally;
+        # switching back to the second owner must clear and deny it again.
+        def gui_switch(username, password):
+            second_page.goto("https://prp-e2e.localhost/prp/me",
+                             wait_until="domcontentloaded", timeout=30000)
+            second_page.get_by_role("button", name="退出登录").click()
+            dialog = second_page.locator(".el-message-box")
+            dialog.locator(".el-message-box__btns .el-button--primary").click()
+            second_page.locator(".login-form").wait_for(
+                state="visible", timeout=15000)
+            second_page.locator('input[autocomplete="username"]').fill(username)
+            second_page.locator('input[autocomplete="current-password"]').fill(password)
+            second_page.locator(".login-form").get_by_role(
+                "button", name="登录", exact=True).click()
+            second_page.locator(".prp-brand").wait_for(
+                state="visible", timeout=20000)
+            second_page.goto("https://prp-e2e.localhost/prp/personal-os",
+                             wait_until="domcontentloaded", timeout=30000)
+            second_page.locator(".os-hero h1").wait_for(
+                state="visible", timeout=20000)
+            second_page.locator(".el-segmented").get_by_text(
+                "个人记忆", exact=True).click()
+            second_page.get_by_text("补充个人事实", exact=True).wait_for(
+                state="visible", timeout=15000)
+
+        bootstrap_password = os.environ.get("MCP_E2E_PRP_PASSWORD")
+        if not bootstrap_password:
+            raise RuntimeError("T007_MISSING_DISPOSABLE_PRIMARY_PASSWORD")
+        gui_switch("stage_admin", bootstrap_password)
+        second_page.get_by_role("button", name="主动查看并管理").click()
+        second_page.locator(".os-private article.os-memory-card").filter(
+            has_text=private_fact).wait_for(state="visible", timeout=15000)
+        if not _fact_matches(_ok(second_page, "GET", "/api/memory/private"), fact_id):
+            raise RuntimeError("T007_OWNER_SWITCH_TO_PRIMARY_LOST_PRIVATE_DATA")
+
+        gui_switch(second_user["username"], second_user["password"])
+        if second_page.get_by_text(private_fact).count():
+            raise RuntimeError("T007_OWNER_SWITCH_PRIVATE_FACT_PERSISTED")
+        if _fact_matches(_ok(second_page, "GET", "/api/memory/private"), fact_id):
+            raise RuntimeError("T007_OWNER_SWITCH_CROSS_ACCOUNT_PRIVATE_API_LEAK")
+        if _call(second_page, "GET", "/api/memory/" + str(fact_id))["status"] != 404:
+            raise RuntimeError("T007_OWNER_SWITCH_DIRECT_ID_ACCESS_ALLOWED")
+        second_page.get_by_role("button", name="主动查看并管理").click()
+        second_page.locator(".os-private .el-empty").wait_for(
+            state="visible", timeout=15000)
+        if second_page.get_by_text(private_fact).count():
+            raise RuntimeError("T007_OWNER_SWITCH_OLD_PRIVATE_FACT_REAPPEARED")
+        print("CI_PERSONAL_OS_T007_SAME_TAB_ACCOUNT_SWITCH_PRIVACY=PASS")
     finally:
         if second_context is not None:
             second_context.close()
