@@ -114,3 +114,46 @@ export async function confirmPendingHealthDraft(conversationId: string, message:
     '/wellness/ai/chat/confirm-pending', { conversationId, message }, { timeout: 45000 }
   )).data.data
 }
+
+/** Personal OS chat extraction is independently opt-in, never automatic. */
+export interface PersonalChatKnowledgePreview {
+  previewId: string
+  conversationId: string
+  messageId: number
+  messageText: string
+  provider: string
+  model: string
+  expiresAtMillis: number
+}
+export type KnowledgePredicate = 'DECLARES_SKILL' | 'PREFERS' | 'HAS_BACKGROUND'
+export interface ChatKnowledgeSuggestion {
+  predicate: KnowledgePredicate
+  value: string
+  evidenceQuote: string
+  sensitivity: 'RESTRICTED'
+  requestKey: string
+}
+export interface ChatKnowledgeExtraction {
+  provider: string
+  model: string
+  candidates: ChatKnowledgeSuggestion[]
+  saved: boolean
+  limitation: string
+}
+
+export async function previewChatKnowledge(conversationId: string, messageId: number) {
+  return (await apiClient.post<ApiResponse<PersonalChatKnowledgePreview>>(
+    '/ai/personal-os/extract/preview', { conversationId, messageId },
+  )).data.data
+}
+export async function approveChatKnowledgePreview(previewId: string) {
+  return (await apiClient.post<ApiResponse<{ extractionToken: string }>>(
+    '/ai/personal-os/extract/confirm', { previewId },
+  )).data.data
+}
+export async function extractChatKnowledge(extractionToken: string) {
+  return (await apiClient.post<ApiResponse<ChatKnowledgeExtraction>>(
+    '/ai/personal-os/extract/extract', { extractionToken },
+    { timeout: 155000 },
+  )).data.data
+}

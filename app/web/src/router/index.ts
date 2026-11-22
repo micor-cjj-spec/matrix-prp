@@ -38,6 +38,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/personal-os',
+      name: 'personal-os',
+      component: () => import('@/views/PersonalOsView.vue'),
+      meta: { requiresAuth: true, title: '个人智能操作系统' },
+    },
+    {
       path: '/finance',
       name: 'finance',
       component: () => import('@/views/FinanceView.vue'),
