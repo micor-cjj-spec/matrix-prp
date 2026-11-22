@@ -1065,7 +1065,7 @@ onMounted(async () => {
       </section>
 
       <el-dialog v-model="taskPickerOpen" title="选择已有任务关联目标"
-        width="min(92vw, 520px)" destroy-on-close @closed="clearTaskPicker">
+        width="min(92vw, 520px)" destroy-on-close @close="clearTaskPicker">
         <p class="os-help">这里只读取本人现有任务，不会创建任务，也不会自动建立目标关联；选定任务后仍需再次确认。</p>
         <el-skeleton v-if="taskPickerBusy" :rows="3" animated />
         <template v-else>
