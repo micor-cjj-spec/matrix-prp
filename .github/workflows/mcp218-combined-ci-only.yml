@@ -1,0 +1,131 @@
+name: MCP218 combined review/video + first-party integration (CI only)
+run-name: MCP218 combined non-release validation at ${{ github.sha }}
+
+# This is a temporary synthetic-only integration branch, not a release path.
+# No secrets, SSH, Keycloak Admin, production host, deployment or authorization.
+on:
+  push:
+    branches:
+      - integrate/mcp218-readonly-owner-link-ci-20261122
+  pull_request:
+    branches:
+      - fix/mcp218-canary-plan-dns-boundaries-20261122
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp218-combined-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-unit:
+    name: Entire backend unit suite (combined code)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run backend full unit regression
+        working-directory: app/backend
+        run: |
+          set -euo pipefail
+          chmod +x mvnw
+          ./mvnw -B test
+
+  web-and-canary:
+    name: Build web and validate Node/Python OAuth review contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: Verify canary plan and non-deployable exact-client review contract
+        run: |
+          set -euo pipefail
+          node --check app/scripts/mcp218-canary-plan.mjs
+          node --test app/scripts/mcp218-canary-plan.test.mjs
+          python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -v
+      - name: Compile app frontend and review owner-consent UI
+        working-directory: app/web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          node --test scripts/mcp-scopes.test.mjs scripts/mcp-oidc-authorize-url.test.mjs scripts/mcp-redirect-guard.test.mjs
+
+  owner-mysql:
+    name: Real disposable MySQL 8.4 review/video owner OAuth reads
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: matrix_prp
+          MYSQL_USER: matrix_prp
+          MYSQL_PASSWORD: ci-app-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Initialize fresh disposable schema from immutable migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y default-mysql-client
+          for schema in app/docker/mysql/init/*.sql; do
+            MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+          done
+          while IFS= read -r schema; do
+            version="$(basename "$schema" | sed -E 's/V([0-9]+)__.*/\1/')"
+            if (( 10#$version > 7 )); then
+              MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+            fi
+          done < <(find app/backend/src/main/resources/db/migration -name 'V*__*.sql' | sort -V)
+      - name: Prove scoped reads and revoked owner grants on actual ephemeral SQL
+        working-directory: app/backend
+        env:
+          MATRIX_PRP_DB_PASSWORD: ci-app-password
+          MATRIX_PRP_BOOTSTRAP_USERNAME: video_admin
+          MATRIX_PRP_BOOTSTRAP_PASSWORD: video-test-admin-password-2026
+          MATRIX_PRP_JWT_SECRET: ci-integration-only-secret-key-at-least-32-bytes
+          MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
+        run: |
+          set -euo pipefail
+          chmod +x mvnw
+          ./mvnw -B -Dtest=ReviewVideoReadDatabaseIT,McpReviewVideoOwnedMysqlOAuthIT test
+
+  non-release-boundary:
+    name: Explicitly no installation authority
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "MCP218_COMBINED_CI_ONLY_NO_MAIN_MERGE_NO_PRODUCTION_DEPLOY"
+          echo "NO_REAL_KEYCLOAK_CLIENT_OR_GRANTS_OR_SSH"
