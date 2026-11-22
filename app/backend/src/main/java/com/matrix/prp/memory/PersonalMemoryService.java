@@ -271,6 +271,13 @@ public class PersonalMemoryService {
     }
 
     private Memory proposeWithParent(Proposed p,Long supersedes,String forcedOrigin) {
+        // Two tabs may submit different request keys for the very same
+        // TASK -> GOAL edge. Acquire the owner InnoDB mutex BEFORE ownership
+        // reads, so a concurrent confirmation cannot race the duplicate check.
+        boolean goalEdge = p != null && p.objectType() == NodeType.GOAL
+            && ((p.subjectType() == NodeType.TASK && p.predicate() == Relation.ADVANCES)
+                || (p.subjectType() == NodeType.REVIEW && p.predicate() == Relation.EVALUATES));
+        if (goalEdge) lockOwnerForKnowledgeMutation();
         validate(p);
         String origin=forcedOrigin!=null?forcedOrigin:
             p.sourceType()==EvidenceSource.USER_INPUT?"USER_CONFIRMED":"BUSINESS_REFERENCE";
@@ -279,6 +286,25 @@ public class PersonalMemoryService {
             + " WHERE user_id=? AND request_key=? LIMIT 1",
             (rs,row)->rs.getLong(1),owner,p.requestKey());
         if (!priorIds.isEmpty()) return matchingReplay(get(priorIds.get(0)),p,supersedes,origin);
+        if (goalEdge) {
+            // Same-key replay above is allowed; different keys for the same
+            // owner-specific TASK/REVIEW -> GOAL edge are not. Relation and
+            // node types come only from the validated server-side enum.
+            List<Long> edges = db.query("SELECT id FROM prp_personal_assertions"
+                + " WHERE user_id=? AND subject_type=? AND subject_ref=?"
+                + " AND predicate=? AND object_type='GOAL'"
+                + " AND object_ref=? AND status IN ('PENDING','CONFIRMED') LIMIT 1",
+                (rs,row)->rs.getLong(1),owner,p.subjectType().name(),
+                p.subjectRef(),p.predicate().name(),p.objectRef());
+            if (!edges.isEmpty()) {
+                // Recovery after a lost reply, tab close or page reload:
+                // a different request key with the *identical* owner-scoped
+                // payload resumes the original PENDING/CONFIRMED assertion.
+                // matchingReplay rejects changed evidence, dates or sensitivity.
+                // The owner must still explicitly confirm a PENDING assertion.
+                return matchingReplay(get(edges.get(0)),p,supersedes,origin);
+            }
+        }
         // Avoid obvious duplicates before any AI-suggested memory can be queued.
         if ("AI_CANDIDATE".equals(origin))
             requireNoExactDuplicate(owner,p.subjectRef(),p.predicate(),p.objectValue(),
