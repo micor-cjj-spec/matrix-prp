@@ -486,6 +486,117 @@ def run(page, origin):
                     raise RuntimeError("PERSONAL_OS_CI_TASK_LINK_ERASURE_FAILED")
                 print("CI_PERSONAL_OS_T007_REVOKED_TASK_LINK_EXCLUDED=PASS")
     print("CI_PERSONAL_OS_T007_OWNER_REVIEWED_TASK_ADOPTION=PASS")
+
+    # An existing task must also be linkable after leaving and reopening
+    # the Personal OS goal page. Creating the disposable task here is fixture
+    # setup, not a model action or a production task write.
+    manual_task_id = None
+    manual_link_id = None
+    try:
+        manual_task_id = page.evaluate("""async () => {
+          const token = localStorage.getItem('matrix-prp-token');
+          const response = await fetch('/api/tasks', {
+            method: 'POST', headers: {
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json'
+            }, body: JSON.stringify({
+              moduleCode: 'learning', title: 'CI-only existing task',
+              description: 'CI fixture only', priority: 'medium', dueDate: null
+            }), cache: 'no-store'
+          });
+          if (response.status !== 200) return null;
+          return (await response.json()).data?.id ?? null;
+        }""")
+        if not isinstance(manual_task_id, int) or manual_task_id <= 0:
+            raise RuntimeError("PERSONAL_OS_MANUAL_TASK_FIXTURE_NOT_CREATED")
+        # Reenter the goal after discarding in-memory advice and draft state.
+        page.locator(".el-segmented").get_by_text("个人记忆", exact=True).click()
+        page.locator(".el-segmented").get_by_text("我的目标", exact=True).click()
+        page.locator(".os-goal-card").filter(
+            has_text="CI-only first-party goal").locator(".os-goal-select").click()
+        if page.get_by_role("button", name="确认关联到此目标").count():
+            raise RuntimeError("PERSONAL_OS_MANUAL_LINK_CREATED_WITHOUT_OWNER_SELECTION")
+
+        def choose_existing_task():
+            page.get_by_role("button", name="关联已有任务（先选择）").click()
+            dialog = page.locator(".el-dialog").filter(
+                has=page.get_by_text("选择已有任务关联目标", exact=True))
+            dialog.wait_for(state="visible", timeout=15000)
+            dialog.locator(".el-select").click()
+            page.get_by_text(
+                "CI-only existing task (#" + str(manual_task_id) + ")",
+                exact=True).click()
+            dialog.get_by_role("button", name="审核关联").click()
+            page.get_by_role("button", name="确认关联到此目标").wait_for(
+                state="visible", timeout=15000)
+
+        before_link_requests = len(link_requests)
+        before_confirms = len(confirmation_requests)
+        choose_existing_task()
+        # Staging the selection must not issue the relation POST.
+        if (len(link_requests) != before_link_requests
+                or len(confirmation_requests) != before_confirms):
+            raise RuntimeError("PERSONAL_OS_EXISTING_TASK_SELECTED_WROTE_LINK")
+        page.get_by_role("button", name="暂不关联").click()
+        if page.get_by_role("button", name="确认关联到此目标").count():
+            raise RuntimeError("PERSONAL_OS_EXISTING_TASK_CANCEL_STILL_PENDING")
+        if (len(link_requests) != before_link_requests
+                or len(confirmation_requests) != before_confirms):
+            raise RuntimeError("PERSONAL_OS_EXISTING_TASK_CANCEL_WROTE_LINK")
+        print("CI_PERSONAL_OS_T007_EXISTING_TASK_CANCEL_NO_WRITE=PASS")
+
+        choose_existing_task()
+        with page.expect_response(
+            lambda resp: resp.request.method == "POST"
+            and urlsplit(resp.url).path.startswith("/api/memory/")
+            and urlsplit(resp.url).path.endswith("/confirm"),
+            timeout=20000
+        ) as linked:
+            page.get_by_role("button", name="确认关联到此目标").click()
+        response = linked.value
+        if response.status != 200:
+            raise RuntimeError("PERSONAL_OS_EXISTING_TASK_LINK_CONFIRM_FAILED")
+        fact = response.json().get("data", {})
+        manual_link_id = fact.get("id")
+        if (not isinstance(manual_link_id, int) or manual_link_id <= 0
+                or fact.get("subjectRef") != str(manual_task_id)
+                or fact.get("objectRef") != str(goal_link_id)
+                or fact.get("predicate") != "ADVANCES"
+                or fact.get("status") != "CONFIRMED"):
+            raise RuntimeError("PERSONAL_OS_EXISTING_TASK_LINK_INCORRECT")
+        page.locator(".os-context .os-evidence span").filter(
+            has_text="任务 #" + str(manual_task_id)).wait_for(
+                state="visible", timeout=15000)
+        if (len(link_requests) != before_link_requests + 1
+                or len(confirmation_requests) != before_confirms + 1):
+            raise RuntimeError("PERSONAL_OS_EXISTING_TASK_LINK_NOT_ONCE")
+        print("CI_PERSONAL_OS_T007_EXISTING_TASK_REOPENED_AND_LINKED=PASS")
+    finally:
+        if manual_task_id is not None:
+            removed = page.evaluate("""async taskId => {
+              const token = localStorage.getItem('matrix-prp-token');
+              const response = await fetch('/api/tasks/' + taskId, {
+                method: 'DELETE',
+                headers: {'Authorization': 'Bearer ' + token},
+                cache: 'no-store'
+              });
+              return response.status;
+            }""", manual_task_id)
+            if removed != 200:
+                raise RuntimeError("PERSONAL_OS_MANUAL_TASK_FIXTURE_DELETE_FAILED")
+        if manual_link_id is not None:
+            erased = page.evaluate("""async memoryId => {
+              const token = localStorage.getItem('matrix-prp-token');
+              const response = await fetch('/api/memory/' + memoryId, {
+                method: 'DELETE',
+                headers: {'Authorization': 'Bearer ' + token},
+                cache: 'no-store'
+              });
+              return response.status;
+            }""", manual_link_id)
+            if erased != 200:
+                raise RuntimeError("PERSONAL_OS_MANUAL_LINK_FIXTURE_ERASE_FAILED")
+
     page.locator(".el-segmented").get_by_text("个人记忆", exact=True).click()
     if page.locator(".os-model-results").count():
         raise RuntimeError("PERSONAL_OS_MODEL_ADVICE_PERSISTED_AFTER_TAB_CHANGE")
