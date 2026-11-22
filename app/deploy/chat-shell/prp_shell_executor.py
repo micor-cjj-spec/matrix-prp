@@ -28,6 +28,8 @@ PRIVATE_KEY = DIR/'recipient.key'
 CERT = DIR/'recipient.crt'
 STATE_DIR = Path('/var/lib/matrix-prp-chat-shell')
 STATE_DB = STATE_DIR/'claimed.sqlite3'
+ENABLE_FILE = DIR/'execution.enabled'
+ENABLE_VALUE = b'PRP_CHAT_SHELL_ALLOW_V1\n'
 EXEC_USER = 'prp-shell'
 MAX_OUTPUT = 10000
 
@@ -49,6 +51,23 @@ def require_root_only():
     if acct.pw_uid<=0 or acct.pw_gid<=0:
         raise InvalidJob('invalid execution identity')
     return acct
+
+def require_execution_enabled(path=ENABLE_FILE, expected_owner=0):
+    """Server-side default deny, independent of the GitHub Actions switch.
+
+    The root-owned marker must be installed ONLY after separate E2E review.
+    A stolen SSH deploy key cannot bypass this host-local gate.
+    """
+    try:
+        st=path.lstat()
+        if (not stat.S_ISREG(st.st_mode) or st.st_uid!=expected_owner
+                or stat.S_IMODE(st.st_mode)!=0o400
+                or st.st_size != len(ENABLE_VALUE)):
+            raise InvalidJob('server-side execution disabled')
+        if path.read_bytes()!=ENABLE_VALUE:
+            raise InvalidJob('server-side execution disabled')
+    except OSError as exc:
+        raise InvalidJob('server-side execution disabled') from exc
 
 def claim(job_id, nonce):
     # Durable host-side one-use barrier, committed BEFORE running a shell.
@@ -100,6 +119,7 @@ def process_request(request,account,now=None):
     ciphertext=b64_decode(request['ciphertext'],40000)
     data=strict_json(openssl_cms_decrypt(ciphertext,PRIVATE_KEY,CERT))
     job=validate_payload(data,job_id,now=now)
+    require_execution_enabled()
     claim(job['jobId'],job['nonce'])
     result=execute(job['command'],job['runSeconds'],account)
     result.update({'version':1,'jobId':job['jobId']})
