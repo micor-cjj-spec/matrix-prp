@@ -2,6 +2,7 @@
 from io import StringIO
 import contextlib
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -51,6 +52,36 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
 
     def check(self, obj):
         return m.analyze(obj, self.scripts)
+
+    def test_future_source_requires_exact_create_empty_digest_and_does_not_grant_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for n in range(1, 30):
+                (root / f"V{n}__historic.sql").write_text("-- unchanged synthetic history\\n")
+            future = root / "V30__new_empty_table.sql"
+            future.write_text("CREATE TABLE prp_example (id BIGINT PRIMARY KEY);\\n")
+            contract = root / "migration-policy.json"
+            rule = {
+                "schema_version": 1,
+                "rules": [{
+                    "version": 30,
+                    "file": future.name,
+                    "sha256": hashlib.sha256(future.read_bytes()).hexdigest(),
+                    "mode": "create-empty",
+                    "tables": ["prp_example"],
+                }],
+            }
+            contract.write_text(json.dumps(rule), encoding="utf-8")
+            source = m.source_scripts(root, contract)
+            self.assertEqual(set(source), set(range(1, 30)))
+            self.assertNotIn(30, source)
+            future.write_text("CREATE TABLE prp_changed (id BIGINT PRIMARY KEY);\\n")
+            with self.assertRaisesRegex(ValueError, "FUTURE_MIGRATION_CONTRACT_DIGEST_MISMATCH"):
+                m.source_scripts(root, contract)
+            future.unlink()
+            (root / "V31__version_gap.sql").write_text("CREATE TABLE prp_x (id BIGINT);\\n")
+            with self.assertRaisesRegex(ValueError, "FUTURE_MIGRATION_VERSION_GAP"):
+                m.source_scripts(root, contract)
 
     def test_expected_local_migrations_are_strict_1_to_29(self):
         self.assertEqual(set(self.scripts), set(range(1, 30)))
