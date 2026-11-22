@@ -17,6 +17,24 @@ from protocol import (ACTOR, REPOSITORY, InvalidJob, MAGIC_RESULT,
                       MAX_RESULT_B64, b64_decode, parse_command_comment)
 ISSUE = 277
 
+def ssh_failure_category(stderr):
+    """Only fixed diagnostic labels: never log SSH stderr or remote output."""
+    hint = stderr[:4096].lower() if isinstance(stderr, bytes) else b''
+    if b'prp_shell_request_rejected' in hint:
+        return 'REMOTE_REQUEST_REJECTED'
+    if b'prp_shell_gateway_rejected' in hint:
+        return 'REMOTE_GATEWAY_REJECTED'
+    if b'permission denied' in hint or b'authentication failed' in hint:
+        return 'SSH_AUTH_DENIED'
+    if b'host key verification failed' in hint or b'remote host identification has changed' in hint:
+        return 'SSH_HOST_KEY_REJECTED'
+    if b'connection closed' in hint or b'connection reset' in hint:
+        return 'SSH_CONNECTION_CLOSED'
+    if b'sudo:' in hint:
+        return 'REMOTE_SUDO_REJECTED'
+    return 'SSH_UNCLASSIFIED'
+
+
 def verify_github_event(event, repo=None, ref=None):
     if repo != REPOSITORY or ref != 'refs/heads/main' or not isinstance(event,dict):
         raise InvalidJob('repository or branch mismatch')
@@ -46,7 +64,9 @@ def ssh_exchange(job_id,ciphertext,host,private_key,known_hosts):
         key_path.chmod(0o600); known_path.chmod(0o600)
         if not private_key.strip() or not known_hosts.strip():
             raise InvalidJob('SSH credentials unavailable')
-        command=['ssh','-T','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
+        command=['ssh','-T','-p','22','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
+                 '-o','PasswordAuthentication=no',
+                 '-o','KbdInteractiveAuthentication=no',
                  '-o','StrictHostKeyChecking=yes',
                  '-o',f'UserKnownHostsFile={known_path}',
                  '-o','ClearAllForwardings=yes','-o','ConnectTimeout=15',
@@ -56,8 +76,14 @@ def ssh_exchange(job_id,ciphertext,host,private_key,known_hosts):
         try:
             completed=subprocess.run(command,input=request,capture_output=True,timeout=65)
         except subprocess.TimeoutExpired as exc:
+            print('PRP_CHAT_SHELL_SSH_TIMEOUT', file=sys.stderr, flush=True)
             raise InvalidJob('SSH timed out, command status uncertain') from exc
-    if completed.returncode or len(completed.stdout) > 85000:
+    if completed.returncode:
+        print('PRP_CHAT_SHELL_SSH_' + ssh_failure_category(completed.stderr),
+              file=sys.stderr, flush=True)
+        raise InvalidJob('remote execution rejected or unavailable')
+    if len(completed.stdout) > 85000:
+        print('PRP_CHAT_SHELL_SSH_RESPONSE_OVERSIZED', file=sys.stderr, flush=True)
         raise InvalidJob('remote execution rejected or unavailable')
     try:
         result=json.loads(completed.stdout)
@@ -96,8 +122,10 @@ def main():
         raise InvalidJob('event oversized')
     event=json.loads(event_bytes)
     job_id,ciphertext=verify_github_event(event,os.getenv('GITHUB_REPOSITORY'),os.getenv('GITHUB_REF'))
+    print('PRP_CHAT_SHELL_EVENT_ACCEPTED', flush=True)
     response=ssh_exchange(job_id,ciphertext,os.environ.get('PRP_SHELL_HOST'),
              os.environ.get('PRP_SHELL_SSH_KEY',''),os.environ.get('PRP_SHELL_KNOWN_HOSTS',''))
+    print('PRP_CHAT_SHELL_ENCRYPTED_SSH_REPLY_VALID', flush=True)
     post_private_result(job_id,response,os.getenv('GH_TOKEN',''))
     print('PRP_CHAT_SHELL_ENCRYPTED_RESULT_POSTED')
 
