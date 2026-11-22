@@ -51,6 +51,63 @@ class ReleaseStatusTests(unittest.TestCase):
         d["deployed_commit"] = SHA
         self.assertEqual(evaluate(d)["state"], "LIVE_VERIFIED")
 
+    def test_failed_smoke_is_blocked_even_with_matching_deployment(self):
+        for deployed in (None, SHA):
+            with self.subTest(deployed=deployed):
+                d = payload()
+                d["publication_hold"] = False
+                d["checks"]["production_smoke"] = "fail"
+                d["deployed_commit"] = deployed
+                result = evaluate(d)
+                self.assertEqual(result["state"], "BLOCKED")
+                self.assertFalse(result["release_eligible"])
+                self.assertFalse(result["live_verified"])
+                self.assertIn("production_smoke", result["blockers"])
+
+    def test_successful_smoke_with_different_deployed_sha_is_blocked(self):
+        d = payload()
+        d["publication_hold"] = False
+        d["checks"]["production_smoke"] = "pass"
+        d["deployed_commit"] = "b" * 40
+        result = evaluate(d)
+        self.assertEqual(result["state"], "BLOCKED")
+        self.assertFalse(result["release_eligible"])
+        self.assertFalse(result["live_verified"])
+        self.assertIn("deployed_commit_mismatch", result["blockers"])
+
+    def test_successful_smoke_without_deployed_sha_is_blocked(self):
+        d = payload()
+        d["publication_hold"] = False
+        d["checks"]["production_smoke"] = "pass"
+        result = evaluate(d)
+        self.assertEqual(result["state"], "BLOCKED")
+        self.assertIn("deployed_commit_missing", result["blockers"])
+
+    def test_skipped_smoke_is_not_live(self):
+        d = payload()
+        d["publication_hold"] = False
+        d["checks"]["production_smoke"] = "skipped"
+        result = evaluate(d)
+        self.assertEqual(result["state"], "READY_NOT_LIVE")
+        self.assertFalse(result["live_verified"])
+
+    def test_old_live_deployment_before_smoke_is_normal_preflight(self):
+        d = payload()
+        d["publication_hold"] = False
+        d["deployed_commit"] = "b" * 40
+        result = evaluate(d)
+        self.assertEqual(result["state"], "READY_NOT_LIVE")
+        self.assertTrue(result["release_eligible"])
+        self.assertFalse(result["live_verified"])
+
+    def test_hold_takes_precedence_over_smoke_failure(self):
+        d = payload()
+        d["checks"]["production_smoke"] = "fail"
+        result = evaluate(d)
+        self.assertEqual(result["state"], "HELD")
+        self.assertIn("publication_hold", result["blockers"])
+        self.assertIn("production_smoke", result["blockers"])
+
     def test_failed_backup_is_blocker(self):
         d = payload()
         d["publication_hold"] = False
