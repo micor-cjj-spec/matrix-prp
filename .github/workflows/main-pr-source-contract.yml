@@ -1,0 +1,25 @@
+name: main-pr-source-guard-contract
+
+# A safe PR-only unit test for the *candidate* checker. Not the enforcement gate.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - app/deploy/check_main_pr_source.py
+      - app/deploy/test_main_pr_source_gate.py
+      - .github/workflows/main-pr-source-guard.yml
+      - .github/workflows/main-pr-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  source-guard-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify same-repo dev allow, forks/features/unknown event deny
+        run: python3 -m unittest discover -s app/deploy -p test_main_pr_source_gate.py -v
