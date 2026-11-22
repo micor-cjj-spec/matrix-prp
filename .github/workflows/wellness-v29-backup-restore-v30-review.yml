@@ -1,0 +1,131 @@
+name: PRP Wellness V29 backup restored V30 clone (synthetic CI only)
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  wellness-synthetic-v29-restore-v30:
+    name: Synthetic V29 mysqldump, independent MySQL restore, V30 clone migration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Guard and run strictly disposable V29 SQL snapshot to V30 clone test
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != true ||
+                "${RUNNER_OS:-}" != Linux ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ||
+                ! "${GITHUB_RUN_ATTEMPT:-}" =~ ^[0-9]+$ ||
+                -z "${RUNNER_TEMP:-}" ]]; then
+            echo "CI_ONLY_ISOLATION_REQUIRED" >&2
+            exit 2
+          fi
+          umask 077
+          marker="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          source_container="prp-ci-wellness-v29-seed-${marker}"
+          clone_container="prp-ci-wellness-v30-clone-${marker}"
+          network="prp-ci-wellness-clone-net-${marker}"
+          source_volume="prp-ci-wellness-v29-data-${marker}"
+          clone_volume="prp-ci-wellness-v30-data-${marker}"
+          tmp="$(mktemp -d "${RUNNER_TEMP}/prp-ci-wellness-v29-v30.XXXXXXXX")"
+          cleanup() {
+            docker rm -f "$source_container" "$clone_container" >/dev/null 2>&1 || true
+            docker volume rm "$source_volume" "$clone_volume" >/dev/null 2>&1 || true
+            docker network rm "$network" >/dev/null 2>&1 || true
+            rm -f -- "$tmp/synthetic-v29.sql" "$tmp/tampered.sql" || true
+            rmdir -- "$tmp" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          export MATRIX_PRP_FLYWAY_DB_USER=prp_ci
+          export MATRIX_PRP_FLYWAY_DB_PASSWORD="$(openssl rand -hex 24)"
+          root_password="$(openssl rand -hex 24)"
+          export CI_WELLNESS_V29_V30_ONLY=YES
+          export CI_WELLNESS_SOURCE_URL="jdbc:mysql://127.0.0.1:13320/prp_wellness_v29_restore_ci?useSSL=false&allowPublicKeyRetrieval=true"
+          export CI_WELLNESS_CLONE_URL="jdbc:mysql://127.0.0.1:13321/prp_wellness_v29_restore_ci?useSSL=false&allowPublicKeyRetrieval=true"
+
+          docker network create "$network" >/dev/null
+          docker volume create "$source_volume" >/dev/null
+          docker volume create "$clone_volume" >/dev/null
+          docker run -d --rm --name "$source_container" --network "$network" \
+            -p 127.0.0.1:13320:3306 --memory 1536m --cpus 1.25 \
+            --mount "type=volume,source=$source_volume,target=/var/lib/mysql" \
+            -e MYSQL_ROOT_PASSWORD="$root_password" \
+            -e MYSQL_DATABASE=prp_wellness_v29_restore_ci \
+            -e MYSQL_USER="$MATRIX_PRP_FLYWAY_DB_USER" \
+            -e MYSQL_PASSWORD="$MATRIX_PRP_FLYWAY_DB_PASSWORD" \
+            mysql:8.4 >/dev/null
+          docker run -d --rm --name "$clone_container" --network "$network" \
+            -p 127.0.0.1:13321:3306 --memory 1536m --cpus 1.25 \
+            --mount "type=volume,source=$clone_volume,target=/var/lib/mysql" \
+            -e MYSQL_ROOT_PASSWORD="$root_password" \
+            -e MYSQL_DATABASE=prp_wellness_v29_restore_ci \
+            -e MYSQL_USER="$MATRIX_PRP_FLYWAY_DB_USER" \
+            -e MYSQL_PASSWORD="$MATRIX_PRP_FLYWAY_DB_PASSWORD" \
+            mysql:8.4 >/dev/null
+
+          for container in "$source_container" "$clone_container"; do
+            ready=0
+            for attempt in $(seq 1 75); do
+              if docker exec -e MYSQL_PWD="$root_password" "$container" \
+                  mysql --protocol=TCP -h 127.0.0.1 -uroot \
+                  -D prp_wellness_v29_restore_ci -Nse 'SELECT 1' >/dev/null 2>&1; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [[ "$ready" != 1 ]]; then
+              echo "DISPOSABLE_WELLNESS_MYSQL_UNAVAILABLE" >&2
+              exit 3
+            fi
+          done
+
+          cd app/backend
+          chmod +x mvnw
+          export CI_WELLNESS_RESTORE_PHASE=seed
+          ./mvnw -B -ntp -Dtest=IsolatedV29BackupRestoreWellnessV30IT test
+
+          docker exec -e MYSQL_PWD="$root_password" "$source_container" \
+            mysqldump --protocol=TCP -h 127.0.0.1 -uroot \
+            --single-transaction --quick --hex-blob \
+            --routines --events --triggers --set-gtid-purged=OFF \
+            --no-tablespaces --default-character-set=utf8mb4 \
+            --databases prp_wellness_v29_restore_ci > "$tmp/synthetic-v29.sql"
+          test -s "$tmp/synthetic-v29.sql"
+          sha="$(sha256sum "$tmp/synthetic-v29.sql" | cut -d' ' -f1)"
+          test "${#sha}" -eq 64
+          cp -- "$tmp/synthetic-v29.sql" "$tmp/tampered.sql"
+          printf '\n-- synthetic tamper simulation\n' >> "$tmp/tampered.sql"
+          test "$(sha256sum "$tmp/tampered.sql" | cut -d' ' -f1)" != "$sha"
+          rm -f -- "$tmp/tampered.sql"
+          test "$(sha256sum "$tmp/synthetic-v29.sql" | cut -d' ' -f1)" = "$sha"
+          echo "CI_SYNTHETIC_V29_ARCHIVE_INTEGRITY_CHECK=PASS"
+
+          docker exec -e MYSQL_PWD="$root_password" "$clone_container" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            -D prp_wellness_v29_restore_ci -Nse \
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()" \
+            | grep -qx 0
+          docker exec -i -e MYSQL_PWD="$root_password" "$clone_container" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            < "$tmp/synthetic-v29.sql"
+
+          export CI_WELLNESS_RESTORE_PHASE=verify_clone
+          ./mvnw -B -ntp -Dtest=IsolatedV29BackupRestoreWellnessV30IT test
+          echo "CI_FULL_SYNTHETIC_WELLNESS_V29_DUMP_RESTORE_V30_CLONE=PASS"
+          echo "NO_LIVE_PRP_DATABASE_OR_PRODUCTION_BACKUP_ACCESSED=YES"
+          echo "PRODUCTION_DEPLOYMENT_APPROVED=NO"
