@@ -93,3 +93,29 @@
 - 旧环境设计参考：`app/deploy/mcp-staging/README.md`、`compose.yaml`、`check_env.py` 与 `app/deploy/mcp-oauth-stage/README.md`。这些文件**没有**提供本独立 Canary 可直接执行的部署方案。
 - G0/B2 边界：`app/deploy/mcp-oauth/keycloak-resource-guard/G0-EXACT-CLIENT-DELTA-REVIEW-20261027.md`、`B2-RELEASE-GATE.md`，原任务 #149 保持独立 NO-GO。
 - **本文件仅是可审查的准备工件**：未创建主机/域名/容器/测试用户，未备份、未签发凭据、未连接真实 ChatGPT、未改变权限或分支发布状态。
+
+
+## 8. 只读计划配置静态门禁（离线、非部署）
+
+已增加 `app/scripts/mcp218-canary-plan.mjs`，只验证**尚未部署的非密钥 JSON 方案**中的命名隔离、最小 Scope、工具名单及安全开关，不访问网络/主机/数据库，也不创建或修改任何资源。它不能证明实际 DNS、网络、Volume、端口、issuer 或 Keycloak 安全，不能替代独立审批，也不提供部署命令。
+
+自检可在任何拥有 Node.js 22 的本地工作区执行：
+
+```sh
+node --test app/scripts/mcp218-canary-plan.test.mjs
+node app/scripts/mcp218-canary-plan.mjs /path/to/private/nonsecret-canary-plan.json
+```
+
+**第二条命令需要在单独准备的、无任何密码/JWT/私钥/令牌的 JSON 计划上执行**。这些配置项必须全部具备：
+
+- `purpose: "mcp218-review-video-readonly"`、`release_gate: "PREPARATION_ONLY"`。
+- `project` 使用全新 `prp-mcp218-...` 项目名，`mysql_schema` 使用独立 `matrix_prp_mcp218_...`，`mysql_volume` 和 `keycloak_volume` 使用彼此不同的 `mcp218_...` 名称。
+- `resource_url` 必须是新的可信 HTTPS 域名加 `/api/mcp`，`issuer_url` 是**另一域名**加 `/realms/prp-mcp218`。禁止旧 `prp-test.micor.top` / `auth-test.micor.top`、生产域名、localhost、裸 IP 和示例域名。**静态通过不证明 DNS 已存在或真实证书有效**。
+- `database_source: "new-empty"`、`keycloak_source: "new-empty"`、`data_policy: "synthetic-only"`。
+- `published`、`mcp_enabled`、`oauth_enabled`、`write_enabled`、`additional_read_tools_enabled`、`review_video_read_tools_enabled` **全部为 JSON 布尔 `false`**，任何提前激活均拒绝。
+- `advertised_scopes` **严格且仅有** `["prp.reviews.read", "prp.video.read"]`；`expected_tools` **严格且仅有** `["prp_reviews_list", "prp_video_folders", "prp_video_progress"]`。
+- 禁止出现任何额外 JSON 字段，包括 `client_secret`、数据库口令或原始凭据。失败输出仅使用固定错误代码，不回显配置值。
+
+脚本成功时只会输出 `MCP218_PLAN_SHAPE_PASS_ONLY_NO_DEPLOY_AUTHORIZATION`；失败输出 `MCP218_PLAN_NO_GO` 和错误分类，退出码为 2。这个通过标志**绝不是** `approved-install.safe.json`、`fresh-b2-restore.safe.json`、真实 G0/B2 审批或上线许可。
+
+本轮离线 26 项测试覆盖现有 V2/旧端口项目名、生产数据库、共享卷、旧公共域名、额外 Scope/工具、写入提前开启、仿造发布批准和机密字段污染等拒绝路径。真实的 Compose 渲染、网络资源占用、受信任证书、恢复演练、owner 授权与撤销仍全部为**独立待办**。
