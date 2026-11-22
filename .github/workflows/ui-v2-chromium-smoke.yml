@@ -2,7 +2,7 @@ name: UI V2 Chromium and WebKit smoke (synthetic only)
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - app/scripts/ui_v2_browser_smoke.py
       - .github/workflows/ui-v2-chromium-smoke.yml
