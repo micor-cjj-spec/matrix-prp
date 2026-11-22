@@ -1,9 +1,17 @@
 package com.matrix.prp;
 
+import static com.matrix.prp.ontology.PersonalOntology.NodeType.LITERAL;
+import static com.matrix.prp.ontology.PersonalOntology.NodeType.PERSON;
 import static com.matrix.prp.ontology.PersonalOntology.Relation.DECLARES_SKILL;
+import static com.matrix.prp.ontology.PersonalOntology.Relation.HAS_BACKGROUND;
+import static com.matrix.prp.ontology.PersonalOntology.Relation.PREFERS;
 import static com.matrix.prp.ontology.PersonalOntology.Sensitivity.RESTRICTED;
+import static com.matrix.prp.ontology.PersonalOntology.Sensitivity.NORMAL;
+import static com.matrix.prp.ontology.PersonalOntologyAssertionGuard.EvidenceSource.CHAT_MESSAGE;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.matrix.prp.ai.AiStore;
 import com.matrix.prp.auth.model.UserAccount;
 import com.matrix.prp.auth.repository.UserStore;
 import com.matrix.prp.memory.PersonalMemoryService;
@@ -36,6 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 @ActiveProfiles("video-integration")
 class PersonalOsAiConcurrencyDatabaseIT {
     @Autowired UserStore users;
+    @Autowired AiStore chats;
     @Autowired JdbcTemplate jdbc;
     @Autowired PersonalMemoryService memories;
 
@@ -95,6 +104,104 @@ class PersonalOsAiConcurrencyDatabaseIT {
         return jdbc.queryForObject("""
             SELECT id FROM prp_personal_assertions WHERE user_id=? AND request_key=?
             """,Long.class,owner,key);
+    }
+
+    /**
+     * T-007 U06/U07: disposable real MySQL conversation/source revocation and
+     * two independent synthetic principals. Never touches an existing account.
+     * Not a substitute for two-session browser/provider manual acceptance.
+     */
+    @Test void revokedChatEvidenceRemainsManageableButNeverModelVisible()
+            throws Exception {
+        String database=jdbc.execute((ConnectionCallback<String>) connection ->
+            connection.getMetaData().getURL());
+        if (!"true".equals(System.getenv("GITHUB_ACTIONS"))
+                || !"Linux".equals(System.getenv("RUNNER_OS"))
+                || database==null || !database.matches(
+                    "jdbc:mysql://(localhost|127\\.0\\.0\\.1):3306/matrix_prp(\\?.*)?"))
+            throw new SecurityException("DISPOSABLE_PERSONAL_OS_SOURCE_MYSQL_ONLY");
+
+        UserAccount owner=users.create(key("src_owner_"),"Synthetic Source Owner",
+            "CI-only-irrelevant-password-hash",false);
+        UserAccount other=users.create(key("src_other_"),"Synthetic Foreign Owner",
+            "CI-only-irrelevant-password-hash",false);
+        var chat=chats.create(owner.id(),"Synthetic chat source");
+        String quote="I prefer concise checklists";
+        long messageId=chats.append(owner.id(),chat.id(),"user",
+            "Synthetic user source: "+quote+" for learning.");
+        try {
+            as(owner);
+            var manual=memories.propose(new PersonalMemoryService.Proposed(
+                PERSON,Long.toString(owner.id()),PREFERS,LITERAL,null,
+                "CI-only personal preference backed by chat",CHAT_MESSAGE,
+                Long.toString(messageId),null,null,NORMAL,key("normal_src_")));
+            var confirmed=memories.confirm(manual.id());
+            assertThat(memories.listCurrent())
+                .extracting(PersonalMemoryService.Memory::id).contains(confirmed.id());
+            assertThat(memories.sourcePreview(confirmed.id()).messageId())
+                .isEqualTo(messageId);
+            var pending=memories.proposeAiCandidate(new PersonalMemoryService.AiCandidate(
+                HAS_BACKGROUND,"CI-only pending sourced background",null,null,
+                RESTRICTED,key("candidate_src_"),messageId,quote));
+            assertThat(pending.status()).isEqualTo("PENDING");
+            assertThat(pending.sourceType()).isEqualTo(CHAT_MESSAGE);
+
+            as(other);
+            assertThat(memories.listCurrent()).isEmpty();
+            assertThat(memories.listNormalHistory()).isEmpty();
+            assertThat(memories.pending()).isEmpty();
+            assertThatThrownBy(() -> memories.get(confirmed.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                    .isEqualTo(HttpStatus.NOT_FOUND));
+            assertThatThrownBy(() -> memories.sourcePreview(confirmed.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                    .isEqualTo(HttpStatus.NOT_FOUND));
+            assertThatThrownBy(() -> memories.proposeAiCandidate(
+                new PersonalMemoryService.AiCandidate(HAS_BACKGROUND,
+                    "CI-only foreign sourced attempt",null,null,RESTRICTED,
+                    key("foreign_src_"),messageId,quote)))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                    .isEqualTo(HttpStatus.NOT_FOUND));
+
+            as(owner);
+            chats.softDelete(owner.id(),chat.id());
+            assertThat(memories.listCurrent())
+                .extracting(PersonalMemoryService.Memory::id)
+                .doesNotContain(confirmed.id());
+            assertThat(memories.listNormalHistory())
+                .extracting(PersonalMemoryService.Memory::id).contains(confirmed.id());
+            assertThat(memories.pending())
+                .extracting(PersonalMemoryService.Memory::id).contains(pending.id());
+            assertThatThrownBy(() -> memories.sourcePreview(confirmed.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                    .isEqualTo(HttpStatus.NOT_FOUND));
+            assertThatThrownBy(() -> memories.confirm(pending.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode())
+                    .isEqualTo(HttpStatus.NOT_FOUND));
+
+            memories.erase(pending.id());
+            memories.erase(confirmed.id());
+            assertThat(memories.listNormalHistory())
+                .extracting(PersonalMemoryService.Memory::id)
+                .doesNotContain(confirmed.id());
+            assertThat(memories.pending())
+                .extracting(PersonalMemoryService.Memory::id)
+                .doesNotContain(pending.id());
+        } finally {
+            SecurityContextHolder.clearContext();
+            jdbc.update("DELETE FROM prp_personal_assertions WHERE user_id IN (?,?)",
+                owner.id(),other.id());
+            jdbc.update("DELETE FROM prp_ai_messages WHERE conversation_id=?",chat.id());
+            jdbc.update("DELETE FROM prp_ai_conversation_meta WHERE conversation_id=?",chat.id());
+            jdbc.update("DELETE FROM prp_ai_conversations WHERE id=? AND user_id=?",
+                chat.id(),owner.id());
+            jdbc.update("DELETE FROM prp_users WHERE id IN (?,?)",owner.id(),other.id());
+        }
     }
 
     @Test void concurrentDistinctKeysAndCompetingConfirmationsCannotBothWin()
