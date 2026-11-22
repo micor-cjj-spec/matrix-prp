@@ -12,7 +12,7 @@ export function checkCanaryPlan(plan) {
   for (const [key,value] of Object.entries(exact)) if(plan[key]!==value) issues.push("INVALID_"+key.toUpperCase());
   const validName = (name,regex) => typeof name === "string" && regex.test(name);
   if(!validName(plan.project,/^prp-mcp218-[a-z0-9]+(?:-[a-z0-9]+)*$/)) issues.push("ISOLATED_PROJECT_REQUIRED");
-  if(!validName(plan.mysql_schema,/^matrix_prp_mcp218_[a-z0-9_]+$/)) issues.push("ISOLATED_MYSQL_SCHEMA_REQUIRED");
+  if(!validName(plan.mysql_schema,/^matrix_prp_mcp218_[a-z0-9_]+$/) || plan.mysql_schema.length>64) issues.push("ISOLATED_MYSQL_SCHEMA_REQUIRED");
   if(!validName(plan.mysql_volume,/^mcp218_[a-z0-9_]+$/)||!validName(plan.keycloak_volume,/^mcp218_[a-z0-9_]+$/)||plan.mysql_volume===plan.keycloak_volume) issues.push("DISTINCT_ISOLATED_VOLUMES_REQUIRED");
   const scopeNames=["prp.reviews.read","prp.video.read"];
   const toolNames=["prp_reviews_list","prp_video_folders","prp_video_progress"];
