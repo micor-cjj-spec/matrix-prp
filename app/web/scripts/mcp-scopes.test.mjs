@@ -25,3 +25,20 @@ test('write scopes are not selected by default', () => {
  assert.deepEqual(defaultMcpReadScopes(advertisedMcpScopes(['prp.tasks.read','prp.wellness.read','prp.records.read','prp.practice.read'])), ['prp.wellness.read'])
  assert.deepEqual(defaultMcpReadScopes(advertisedMcpScopes(['prp.tasks.read'])), ['prp.tasks.read'])
 })
+
+test('first-party linking uses discovered read scopes and cannot imply a task grant', () => {
+ const view = readFileSync(new URL('../src/views/McpClientsView.vue', import.meta.url), 'utf8')
+ const callback = readFileSync(new URL('../src/views/McpOidcCallbackView.vue', import.meta.url), 'utf8')
+ // An independent review/video-only realm advertises no task or wellness read.
+ // Owner must deliberately select and approve the displayed read scopes.
+ assert.deepEqual(defaultMcpReadScopes(advertisedMcpScopes([
+   'prp.reviews.read', 'prp.video.read'
+ ])), [])
+ assert.match(view, /const readableScopeLabels = computed/)
+ assert.match(view, /scope\.value\.endsWith\('\.read'\)/)
+ assert.match(view, /readableScopeLabels\.join\('、'\)/)
+ assert.match(view, /身份绑定本身不会新增数据读取授权/)
+ assert.doesNotMatch(view, /批准“读取任务”权限/)
+ assert.match(callback, /身份关联不会自动新增读取权限/)
+ assert.doesNotMatch(callback, /尝试读取自己的 PRP 任务/)
+})
