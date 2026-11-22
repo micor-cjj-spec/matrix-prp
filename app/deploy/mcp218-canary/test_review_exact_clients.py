@@ -44,7 +44,7 @@ class ReviewOnlyExactClientTests(unittest.TestCase):
         # Independent Realm, same approved identifier: never alter the
         # frontend's fail-closed client-id check to accommodate a proposal.
         from pathlib import Path
-        frontend = (Path(__file__).resolve().parents[3] / "web" / "src"
+        frontend = (Path(__file__).resolve().parents[2] / "web" / "src"
                     / "utils" / "mcpOidcAuthorizeUrl.ts").read_text(encoding="utf-8")
         self.assertEqual(FIRST_PARTY_ID, "prp-first-party-link")
         self.assertIn("params.get('client_id') !== 'prp-first-party-link'", frontend)
