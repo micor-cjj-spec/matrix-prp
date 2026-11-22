@@ -312,6 +312,26 @@
       "reason": "Opt-in first-party knowledge extraction and ephemeral outbound consent are not MCP tools; any future MCP candidate write requires separately reviewed owner grant and scope."
     },
     {
+      "route": "POST /api/ai/personal-os/goals/{goalId}/model/confirm",
+      "status": "excluded",
+      "reason": "T-005 first-party-only reviewed snapshot and one-time model-sharing workflow; no MCP model access or autonomous task write."
+    },
+    {
+      "route": "POST /api/ai/personal-os/goals/{goalId}/model/preview",
+      "status": "excluded",
+      "reason": "T-005 first-party-only reviewed snapshot and one-time model-sharing workflow; no MCP model access or autonomous task write."
+    },
+    {
+      "route": "POST /api/ai/personal-os/goals/{goalId}/model/suggest",
+      "status": "excluded",
+      "reason": "T-005 first-party-only reviewed snapshot and one-time model-sharing workflow; no MCP model access or autonomous task write."
+    },
+    {
+      "route": "POST /api/ai/personal-os/goals/{goalId}/preview",
+      "status": "excluded",
+      "reason": "T-005 first-party career planning evidence preview returns owner-only personal facts; no model/MCP scope or third-party export authorization. T-006 separate review required."
+    },
+    {
       "route": "POST /api/ai/settings/providers/{provider}/test",
       "status": "excluded",
       "reason": "Provider credential validation stays in interactive settings UI"

@@ -10,6 +10,8 @@ import {
   fetchPersonalGoalContext, fetchPersonalGoals, fetchPrivateMemories, invalidatePersonalMemory,
   proposePersonalMemory, replacePersonalMemory, fetchMemoryChatSource, fetchNormalMemoryHistory,
   type ChatEvidenceSource, type GoalStatus, type MemoryPredicate, type MemorySensitivity,
+  previewGoalModelSharing, confirmGoalModelSharing, suggestGoalModelAdvice,
+  type PlanningModelReview, type PlanningModelAdvice,
   type PersonalGoal, type PersonalGoalLink, type PersonalMemory,
 } from '@/api/personalOs'
 
@@ -67,6 +69,19 @@ const timelineDomain = ref('life')
 const selectedGoalId = ref<number | null>(null)
 const context = ref<PersonalGoalLink[]>([])
 const contextLoading = ref(false)
+const sharePersonalFacts = ref(false)
+const adviceReview = ref<PlanningModelReview | null>(null)
+const adviceOutput = ref<PlanningModelAdvice | null>(null)
+const adviceBusy = ref(false)
+let adviceGeneration = 0
+
+function clearPlanningAdvice() {
+  ++adviceGeneration
+  adviceReview.value = null
+  adviceOutput.value = null
+  adviceBusy.value = false
+}
+watch(sharePersonalFacts, clearPlanningAdvice)
 const correctionTarget = ref<PersonalMemory | null>(null)
 const correctionText = ref('')
 const correctionRequestKey = ref('')
@@ -236,6 +251,7 @@ async function loadData() {
 }
 
 async function selectGoal(id: number) {
+  clearPlanningAdvice()
   selectedGoalId.value = id
   context.value = []
   contextLoading.value = true
@@ -257,6 +273,59 @@ async function selectGoal(id: number) {
   } finally {
     if (request === goalContextGeneration && generation === loadGeneration
         && identity === auth.token) contextLoading.value = false
+  }
+}
+
+async function reviewGoalModelSharing() {
+  const goal = selectedGoal.value
+  if (!goal || goal.domain !== 'career' || adviceBusy.value) return
+  clearPlanningAdvice()
+  const generation = adviceGeneration
+  const identity = auth.token
+  adviceBusy.value = true
+  try {
+    const review = await previewGoalModelSharing(goal.id, sharePersonalFacts.value)
+    if (generation !== adviceGeneration || identity !== auth.token
+        || selectedGoalId.value !== goal.id || activeTab.value !== 'goals') return
+    adviceReview.value = review
+  } catch {
+    if (generation === adviceGeneration) ElMessage.error('共享预览失败，请检查目标状态或重新登录')
+  } finally {
+    if (generation === adviceGeneration) adviceBusy.value = false
+  }
+}
+
+async function generateGoalModelAdvice() {
+  const review = adviceReview.value
+  if (!review || adviceBusy.value || selectedGoalId.value !== review.goalId) return
+  try {
+    await ElMessageBox.confirm(
+      '你已查看下方完整共享快照。确认后仅本次发送给 '
+        + review.provider + ' / ' + review.model
+        + '，可能产生模型费用。建议不会自动创建任务。',
+      '确认向外部模型共享资料',
+      { confirmButtonText: '确认仅本次发送', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch { return }
+  const generation = adviceGeneration
+  const identity = auth.token
+  adviceBusy.value = true
+  try {
+    const modelToken = await confirmGoalModelSharing(review.goalId, review.previewId)
+    if (generation !== adviceGeneration || identity !== auth.token
+        || selectedGoalId.value !== review.goalId || activeTab.value !== 'goals') return
+    const result = await suggestGoalModelAdvice(review.goalId, modelToken)
+    if (generation !== adviceGeneration || identity !== auth.token
+        || selectedGoalId.value !== review.goalId || activeTab.value !== 'goals') return
+    adviceReview.value = null
+    adviceOutput.value = result
+    ElMessage.success('建议已生成；尚未创建任务')
+  } catch {
+    if (generation !== adviceGeneration) return
+    clearPlanningAdvice()
+    ElMessage.error('建议生成失败或授权已失效，请重新预览后确认')
+  } finally {
+    if (generation === adviceGeneration) adviceBusy.value = false
   }
 }
 
@@ -427,6 +496,7 @@ async function saveCorrection() {
 // Never reuse old-account data or accept delayed responses after an auth switch.
 watch(() => auth.token, (next, prior) => {
   if (next === prior) return
+  clearPlanningAdvice()
   ++loadGeneration
   ++goalContextGeneration
   ++privateRequestGeneration
@@ -454,6 +524,7 @@ watch(() => auth.token, (next, prior) => {
 
 // Private facts must not persist across tabs, even while the view remains mounted.
 watch(activeTab, (next) => {
+  clearPlanningAdvice()
   // Cancel stale responses and immediately clear data from inactive panels.
   ++loadGeneration
   if (next !== 'memory') {
@@ -479,6 +550,7 @@ watch(activeTab, (next) => {
 })
 
 onUnmounted(() => {
+  clearPlanningAdvice()
   // Discard both normal and private in-flight responses after route exit.
   ++loadGeneration
   ++goalContextGeneration
@@ -589,6 +661,35 @@ onMounted(async () => {
               <span>{{ link.objectValue || (link.objectType + ' #' + (link.objectRef || '—')) }}</span>
               <small>事实 #{{ link.assertionId }} · 已确认</small>
             </div>
+            <section v-if="selectedGoal.domain === 'career'" class="os-model-panel" aria-label="AI 职业规划">
+              <h3>AI 职业规划 · 单次授权</h3>
+              <p class="os-help">先在本机生成共享预览，核对后才能发送给已选模型。只用已确认、有效且授权的事实，不会自动创建任务。</p>
+              <el-checkbox v-model="sharePersonalFacts" :disabled="adviceBusy">
+                本次额外包含已确认的普通个人事实（默认不选；受限和敏感事实永不包含）
+              </el-checkbox>
+              <div class="os-card-actions">
+                <el-button :loading="adviceBusy" @click="reviewGoalModelSharing">预览将共享的内容</el-button>
+                <el-button v-if="adviceReview" type="primary" :loading="adviceBusy"
+                  @click="generateGoalModelAdvice">核对完成，确认仅本次发送</el-button>
+              </div>
+              <div v-if="adviceReview" class="os-model-review">
+                <p><strong>接收模型：</strong>{{ adviceReview.provider }} / {{ adviceReview.model }}</p>
+                <p><strong>授权过期：</strong>{{ new Date(adviceReview.expiresAtMillis).toLocaleTimeString() }}（过期须重新预览）</p>
+                <p>以下 JSON 是将发送给外部模型的完整业务快照；查看内容后再确认。</p>
+                <pre class="os-model-json">{{ JSON.stringify(adviceReview.snapshot, null, 2) }}</pre>
+              </div>
+              <div v-if="adviceOutput" class="os-model-results">
+                <h3>待核验的 AI 建议（未创建任务）</h3>
+                <article v-for="(proposal, index) in adviceOutput.proposals" :key="index" class="os-model-proposal">
+                  <strong>{{ proposal.title }}</strong>
+                  <p>{{ proposal.rationale }}</p>
+                  <small>证据：{{ proposal.evidenceRefs.join('、') }}</small>
+                  <p v-if="proposal.assumptions.length">待核实：{{ proposal.assumptions.join('；') }}</p>
+                </article>
+                <p class="os-help">{{ adviceOutput.limitation }}</p>
+                <el-button @click="reviewGoalModelSharing">重新预览后再生成</el-button>
+              </div>
+            </section>
           </div>
         </div>
       </section>
@@ -803,6 +904,14 @@ onMounted(async () => {
 .os-context p,.os-help { color: var(--el-text-color-secondary); font-size: 13px; line-height: 1.65; }
 .os-evidence { border-left: 3px solid #6e99a8; padding: 5px 13px; display: grid; gap: 5px; margin-bottom: 12px; }
 .os-evidence span { overflow-wrap: anywhere; }
+.os-model-panel { border-top: 1px solid var(--el-border-color-light); margin-top: 18px; padding-top: 18px; min-width: 0; }
+.os-model-panel :deep(.el-checkbox) { white-space: normal; height: auto; align-items: start; }
+.os-model-panel :deep(.el-checkbox__label) { white-space: normal; line-height: 1.6; overflow-wrap: anywhere; }
+.os-model-review,.os-model-results { margin-top: 15px; padding: 14px; border-radius: 12px; border: 1px solid var(--el-border-color-light); min-width: 0; }
+.os-model-json { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
+.os-model-proposal { padding: 12px 0; border-top: 1px solid var(--el-border-color-light); overflow-wrap: anywhere; }
+.os-model-proposal p { margin: 7px 0; }
+.os-model-proposal small { color: var(--el-text-color-secondary); }
 .os-memory-card p { overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.65; }
 .os-memory-heading strong { font-size: 14px; }
 .os-secondary-heading { margin-top: 24px; }
