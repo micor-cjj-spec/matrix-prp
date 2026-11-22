@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 6,
-  "updated_at": "2026-11-22T07:30:54.719Z",
+  "version": 7,
+  "updated_at": "2026-11-22T07:31:47.882Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -78,6 +78,19 @@
         "status": "READY",
         "replayed": false
       }
+    },
+    {
+      "request_id": "1f52c168-862e-498d-aad0-5760b9f86265",
+      "fingerprint": "edc88266e6fa2363b41c7fabbf361a1368907a6ba54f1b547aa8229b807801e0",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "release",
+        "task_id": "T-002",
+        "request_id": "1f52c168-862e-498d-aad0-5760b9f86265",
+        "version": 7,
+        "status": "READY",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -120,19 +133,13 @@
       "task_id": "T-002",
       "issue_number": 134,
       "title": "GitHub 需求与任务模板、PR 规范",
-      "status": "CLAIMED",
+      "status": "READY",
       "depends_on": [],
       "allowed_paths": [
         ".github/ISSUE_TEMPLATE/",
         ".github/PULL_REQUEST_TEMPLATE.md"
       ],
-      "claim": {
-        "claim_id": "714a1a99-f879-40a7-aa9e-1fe7f4fe8ecd",
-        "worker_id": "chatB_20261122_v1pilot",
-        "actor": "micor-cjj-spec",
-        "claimed_at": "2026-11-22T07:20:00.508Z",
-        "generation": 1
-      }
+      "claim": null
     },
     {
       "task_id": "T-003",
