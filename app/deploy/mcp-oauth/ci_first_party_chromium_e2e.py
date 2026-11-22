@@ -89,16 +89,29 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
                                  exact=False).wait_for(state="visible", timeout=20000)
                 if page.get_by_text("读取任务", exact=True).count() != 0:
                     raise RuntimeError("BROWSER_REVIEW_VIDEO_TASK_SCOPE_MISADVERTISED")
-                stage = "BROWSER_EXPLICIT_REVIEW_VIDEO_OWNER_GRANT"
-                for label in ("读取复盘摘要", "读取视频目录和学习进度"):
-                    page.locator(".scope-option").filter(
-                        has_text=label).locator("label").click(timeout=15000)
+                for label, category in (
+                        ("读取复盘摘要", "REVIEW"),
+                        ("读取视频目录和学习进度", "VIDEO")):
+                    stage = "BROWSER_SELECT_" + category + "_READ"
+                    option = page.locator(".scope-option").filter(has_text=label)
+                    # Click the visible Element Plus text, not the hidden
+                    # checkbox input or an assumed HTML wrapper tag.
+                    target = option.locator(".el-checkbox__label")
+                    if target.count() != 1:
+                        raise RuntimeError("BROWSER_SCOPE_LABEL_SHAPE_INVALID")
+                    target.click(timeout=15000)
+                    if not option.locator('input[type="checkbox"]').is_checked():
+                        raise RuntimeError("BROWSER_SCOPE_CHECKBOX_NOT_SELECTED")
+                stage = "BROWSER_VERIFY_EXACT_SCOPE_SELECTION"
                 if page.locator('.scope-option input[type="checkbox"]:checked').count() != 2:
                     raise RuntimeError("BROWSER_OWNER_REVIEW_VIDEO_CHECKBOXES_NOT_SELECTED")
+                stage = "BROWSER_FILL_OWNER_GRANT_FIELDS"
                 page.get_by_placeholder("OAuth client_id").fill(CHATGPT)
                 page.get_by_placeholder(
                     "密码只发送给 PRP，不提供给 AI 客户端").fill(prp_password)
+                stage = "BROWSER_SUBMIT_OWNER_GRANT"
                 page.get_by_role("button", name="批准此客户端").click()
+                stage = "BROWSER_WAIT_OWNER_GRANT_ACTIVE"
                 page.locator(".client-row").filter(
                     has_text=CHATGPT).get_by_text(
                         "已授权", exact=True).wait_for(state="visible", timeout=30000)
