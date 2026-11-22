@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @TestPropertySource(properties={
     "matrix-prp.mcp.enabled=true",
     "matrix-prp.mcp.write-enabled=false",
-    "matrix-prp.mcp.additional-read-tools-enabled=true",
+    "matrix-prp.mcp.review-video-read-tools-enabled=true",
     "matrix-prp.mcp.oauth.enabled=true",
     "matrix-prp.mcp.expanded-user-ids=2",
     "matrix-prp.mcp.oauth.issuer=https://issuer.example.test",
