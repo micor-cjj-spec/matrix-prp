@@ -274,3 +274,50 @@ jobs:
           test -z "$(git -C merged ls-files -u)"
           test "$(git -C merged rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           echo "MCP218_LOCAL_MERGE_ABORTED_NO_REMOTE_CHANGE"
+
+  signed-review-video-ephemeral:
+    name: Real disposable signed Keycloak review/video PKCE (NOT ChatGPT)
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # Generate every credential at runtime, in RUNNER_TEMP. Do not use repo
+      # secrets, production credentials, hosted Keycloak or existing V2 hosts.
+      MCP_E2E_REVIEW_VIDEO: "true"
+      MCP_E2E_FIRST_PARTY: "true"
+      MCP_E2E_EXACT_CHATGPT: "true"
+      MCP_E2E_CRUD: "false"
+    steps:
+      - name: Checkout exact combined Draft head with credentials disabled
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Use Java 21 for disposable PRP backend
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Check no-install candidate and CI shell before creating ephemeral services
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$MCP_E2E_REVIEW_VIDEO" = true
+          test "$MCP_E2E_FIRST_PARTY" = true
+          test "$MCP_E2E_EXACT_CHATGPT" = true
+          test "$MCP_E2E_CRUD" = false
+          bash -n app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          python3 -m py_compile app/deploy/mcp-oauth/ci_review_video_pkce.py
+          python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -q
+      - name: Exercise disposable Keycloak JWT signature, PKCE, owner read and revoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          echo "MCP218_DISPOSABLE_SIGNED_REVIEW_VIDEO_PKCE=PASS"
+          echo "EXTERNAL_CHATGPT_ASSERTION=NOT_TESTED"
+          echo "NEW_MCP218_REALM_AND_SPA=NOT_INSTALLED"
+          echo "G0_B2_OR_DEPLOY_APPROVAL=NO"
