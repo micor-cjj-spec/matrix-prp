@@ -87,17 +87,38 @@ class McpOAuthToolManifestTests {
     }
 
     @Test
-    void reviewAndVideoScopesRemainSeparateAndAreNeverDefaultExposed() {
-        assertThat(McpToolConfiguration.exposedNames("prp.reviews.read,prp.video.read", false))
-            .isEmpty();
-        assertThat(McpToolConfiguration.exposedNames("prp.reviews.read", false, true))
-            .containsExactly("prp_reviews_list");
-        assertThat(McpToolConfiguration.exposedNames("prp.video.read", false, true))
-            .containsExactlyInAnyOrder("prp_video_folders", "prp_video_progress");
-        assertThat(McpToolConfiguration.exposedNames("prp.wellness.read", false, true))
-            .doesNotContain("prp_reviews_list", "prp_video_folders", "prp_video_progress");
-        assertThat(McpToolConfiguration.exposedNames("prp.reviews.read,prp.video.read", false, true))
+    void reviewAndVideoHaveTheirOwnOptInIndependentOfOtherReadTools() {
+        String scopes = "prp.reviews.read,prp.video.read";
+        assertThat(McpToolConfiguration.exposedNames(scopes, false)).isEmpty();
+        // The old catch-all flag must not accidentally activate new capabilities.
+        assertThat(McpToolConfiguration.exposedNames(scopes, false, true)).isEmpty();
+        assertThat(McpToolConfiguration.exposedNames(scopes, false, false, true))
             .containsExactlyInAnyOrder("prp_reviews_list", "prp_video_folders", "prp_video_progress");
+        assertThat(McpToolConfiguration.exposedNames("prp.reviews.read", false, false, true))
+            .containsExactly("prp_reviews_list");
+        assertThat(McpToolConfiguration.exposedNames("prp.video.read", false, false, true))
+            .containsExactlyInAnyOrder("prp_video_folders", "prp_video_progress");
+        assertThat(McpToolConfiguration.exposedNames("prp.wellness.read", false, false, true))
+            .doesNotContain("prp_reviews_list", "prp_video_folders", "prp_video_progress");
+    }
+
+    @Test
+    void existingEightScopeStagingCanEnableOnlyThreeNewReviewVideoTools() {
+        String existing = "prp.tasks.read,prp.finance.read,prp.wellness.read,"
+            + "prp.write.create,prp.write.update,prp.write.delete,"
+            + "prp.write.status,prp.write.confirm";
+        String expanded = existing + ",prp.reviews.read,prp.video.read";
+        var baseline = McpToolConfiguration.exposedNames(existing, true, false, false);
+        var defaultOff = McpToolConfiguration.exposedNames(expanded, true, false, false);
+        assertThat(defaultOff).isEqualTo(baseline);
+        var justReviewVideo = McpToolConfiguration.exposedNames(expanded, true, false, true);
+        assertThat(justReviewVideo).containsAll(baseline).hasSize(baseline.size() + 3)
+            .contains("prp_reviews_list", "prp_video_folders", "prp_video_progress")
+            .doesNotContain("prp_tasks_search", "prp_tasks_summary", "prp_wellness_trends",
+                "prp_wellness_goals", "prp_wellness_frequent_foods", "prp_wellness_dishes");
+        var onlyOriginalOptional = McpToolConfiguration.exposedNames(expanded, true, true, false);
+        assertThat(onlyOriginalOptional).doesNotContain(
+            "prp_reviews_list", "prp_video_folders", "prp_video_progress");
     }
 
     @Test
