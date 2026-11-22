@@ -1,4 +1,6 @@
 """End-to-end offline bridge contract: no actual GitHub API, SSH or server calls."""
+import contextlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -9,7 +11,7 @@ from unittest import mock
 from protocol import (InvalidJob, b64_decode, b64_encode, build_command,
                       create_result_identity, openssl_cms_encrypt,
                       parse_command_comment, parse_result_comment)
-from github_bridge import ssh_exchange, post_private_result
+from github_bridge import ssh_exchange, post_private_result, ssh_failure_category
 
 class BridgeTransportContract(unittest.TestCase):
     @classmethod
@@ -45,6 +47,9 @@ class BridgeTransportContract(unittest.TestCase):
         argv=fake.call_args.args[0]
         self.assertIn('-T',argv)
         self.assertIn('BatchMode=yes',argv)
+        self.assertIn('PasswordAuthentication=no',argv)
+        self.assertIn('KbdInteractiveAuthentication=no',argv)
+        self.assertEqual(argv[argv.index('-p')+1], '22')
         self.assertIn('StrictHostKeyChecking=yes',argv)
         self.assertIn('ClearAllForwardings=yes',argv)
         self.assertEqual(argv[-2:],['prp-chat-shell@127.0.0.1','run'])
@@ -70,6 +75,32 @@ class BridgeTransportContract(unittest.TestCase):
         self.assertNotIn('secret simulated result',encoded_comment)
         self.assertNotIn(command,encoded_comment)
         self.assertNotIn('dummy-gh-token',encoded_comment)
+
+    def test_ssh_failure_labels_are_fixed_and_do_not_leak_stderr(self):
+        # SSH stderr can contain host details or attacker-controlled text.
+        cases = [
+            (b'Permission denied (publickey).', 'SSH_AUTH_DENIED'),
+            (b'Host key verification failed.', 'SSH_HOST_KEY_REJECTED'),
+            (b'Connection closed by remote host', 'SSH_CONNECTION_CLOSED'),
+            (b'PRP_SHELL_REQUEST_REJECTED', 'REMOTE_REQUEST_REJECTED'),
+            (b'sudo: a password is required', 'REMOTE_SUDO_REJECTED'),
+            (b'unexpected failure', 'SSH_UNCLASSIFIED'),
+        ]
+        for stderr, code in cases:
+            with self.subTest(code=code):
+                output = io.StringIO()
+                message = stderr + b' PRIVATE_TEST_DATA_MUST_NOT_BE_LOGGED'
+                failed = subprocess.CompletedProcess([], 255, b'', message)
+                with (mock.patch('github_bridge.subprocess.run', return_value=failed),
+                      contextlib.redirect_stderr(output)):
+                    with self.assertRaises(InvalidJob):
+                        ssh_exchange('test-id', 'ciphertext', '127.0.0.1',
+                                     'dummy-test-key', 'dummy-known-host')
+                self.assertEqual(ssh_failure_category(message), code)
+                self.assertEqual(output.getvalue().strip(),
+                                 'PRP_CHAT_SHELL_SSH_' + code)
+                self.assertNotIn('PRIVATE_TEST_DATA_MUST_NOT_BE_LOGGED',
+                                 output.getvalue())
 
     def test_wrong_ssh_response_job_id_rejected_without_result_post(self):
         job_id,comment,_,_=build_command('id -u',self.crt.read_bytes(),now=1795344000)
