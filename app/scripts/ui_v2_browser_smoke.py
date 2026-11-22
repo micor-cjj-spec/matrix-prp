@@ -268,6 +268,39 @@ def check_viewport(browser, width, height):
              "Every unfiltered group should contain a registered app entry")
         page.screenshot(path=str(ARTIFACTS / f"apps-all-{width}.png"), full_page=True)
         print(f"PASS {width}px complete unfiltered app catalog visual capture", flush=True)
+        if mobile:
+            # A full-page screenshot flattens fixed tab bars differently
+            # between Chromium and WebKit. Verify the *actual* viewport hit
+            # targets after normal page scrolling instead of inferring whether
+            # category filters are blocked from a stitched full-page image.
+            all_filter = group_filters.first
+            all_filter.scroll_into_view_if_needed(timeout=5000)
+            all_filter.evaluate("""node => {
+                const target = node.getBoundingClientRect()
+                window.scrollBy(0, target.top - 112)
+            }""")
+            for category_name in ["全部", "学习"]:
+                option = group_filters.filter(has_text=category_name).first
+                option_bounds = option.bounding_box()
+                nav_bounds = page.locator("nav.prp-mobile-tabs").bounding_box()
+                must(option_bounds is not None and nav_bounds is not None,
+                     "Category filter / mobile tab bar missing bounding box")
+                must(option_bounds["y"] >= 0 and
+                     option_bounds["y"] + option_bounds["height"] <= nav_bounds["y"] - 6,
+                     "Category filter overlaps the fixed mobile navigation: " + category_name)
+                hittable = option.evaluate("""node => {
+                    const box = node.getBoundingClientRect()
+                    const element = document.elementFromPoint(
+                        box.left + box.width / 2, box.top + box.height / 2)
+                    return element === node || node.contains(element)
+                }""")
+                must(hittable, "Category filter covered by another element: " + category_name)
+            page.screenshot(
+                path=str(ARTIFACTS / f"apps-filters-viewport-{width}.png"),
+                full_page=False,
+            )
+            print(f"PASS {width}px mobile category filters are visible and clickable above nav",
+                  flush=True)
         page.get_by_placeholder("搜索应用名称或分类").fill("视频")
         must(page.locator(".prp-apps-group-list a.prp-app-card").count() >= 1,
              "Searching 视频 should show registered video app")
