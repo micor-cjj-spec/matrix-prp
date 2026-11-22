@@ -350,3 +350,25 @@ test('AI and manual meal editors support thirty items and pending card additions
   assert.match(dialog, /meal\.items\.length < 30/)
   assert.match(wellness, /draftItems\.value\.length > 30/)
 })
+
+
+test('chat authentication transitions erase owner messages and reject delayed old-account responses', () => {
+  const view = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
+  const section = view.slice(view.indexOf('watch(() => auth.token,'), view.indexOf('const streamError = ref('))
+  assert.match(section, /\+\+chatAuthGeneration/)
+  assert.match(section, /controller\?\.abort\(\)/)
+  assert.match(section, /\+\+activeSelectionRequest/)
+  for (const field of ['selectedId.value = null','messages.value = []','blocksByMessage.value = {}',
+    'conversations.value = []','selectedScopes.value = []','preview.value = null',
+    'usage.value = null','settings.value = null','chatPhoto.value = null']) {
+    assert.ok(section.includes(field), `missing auth boundary cleanup: ${field}`)
+  }
+  for (const fn of ['loadSettings','refresh','loadMoreConversations','select','loadOlder',
+    'prepareInlineDiet','confirmPreviousHealthDraft','send']) {
+    const start = view.indexOf(`async function ${fn}(`)
+    assert.ok(start >= 0, `missing ${fn}`)
+    const tail = view.slice(start, start + 3200)
+    assert.match(tail, /chatAuthGeneration/, `${fn} must enforce owner-epoch validity`)
+  }
+  assert.match(view, /if \(generation !== chatAuthGeneration\) return/)
+})

@@ -8,6 +8,8 @@ content and user data are NEVER written to stdout or logs.
 """
 import base64
 import hashlib
+import socket
+from http.client import HTTPSConnection
 from html.parser import HTMLParser
 from http.cookiejar import CookieJar
 import json
@@ -47,6 +49,31 @@ class SafeRedirect(HTTPRedirectHandler):
                 or target.port is not None):
             raise RuntimeError("OAuth attempted an unexpected cross-origin redirect")
         return super().redirect_request(request, fp, code, msg, headers, url)
+
+
+class LoopbackHTTPSConnection(HTTPSConnection):
+    """CI-only direct IPv4 transport, retaining original TLS SNI/hostname checks.
+
+    The disposable Nginx listener is bound to 127.0.0.1:443. Some runner
+    environments resolve .localhost names to IPv6, or lack consistent DNS
+    treatment. Never attempt off-runner network connections from this driver.
+    """
+    def connect(self):
+        if (self.host not in {"auth-e2e.localhost", "prp-e2e.localhost"}
+                or self.port != 443 or self._tunnel_host):
+            raise OSError("Unapproved disposable OAuth HTTPS destination")
+        raw = socket.create_connection(("127.0.0.1", 443), self.timeout,
+                                       self.source_address)
+        try:
+            self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+        except Exception:
+            raw.close()
+            raise
+
+
+class LoopbackHTTPSHandler(HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(LoopbackHTTPSConnection, req, context=self._context)
 
 
 class Forms(HTMLParser):
@@ -431,10 +458,9 @@ def main():
     context = ssl.create_default_context(cafile=ca)
     # Authenticate against the actual HTTPS staging-style proxy and retain
     # browser cookies for the Keycloak login/consent pages.
-    # All E2E URLs use synthetic *.localhost or 127.0.0.1 addresses.
-    # Explicitly bypass runner-provided HTTP(S) proxies for the disposable
-    # loopback stack; retain the exact CA and HTTPS certificate validation.
-    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context),
+    # Every endpoint in this disposable suite resolves to the local runner.
+    # Never inherit runner proxy environment variables for localhost OAuth probes.
+    opener = build_opener(ProxyHandler({}), LoopbackHTTPSHandler(context=context),
                           HTTPCookieProcessor(CookieJar()), SafeRedirect())
     admin_pass = os.environ["MCP_E2E_KC_ADMIN_PASSWORD"]
     user_password = os.environ["MCP_E2E_KC_USER_PASSWORD"]
