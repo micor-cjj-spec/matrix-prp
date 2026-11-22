@@ -157,14 +157,33 @@ class FlywayMigrationIT {
         assertThat(count(url,"SELECT COUNT(*) FROM flyway_schema_history WHERE version='30'"))
                 .isZero();
 
-        Flyway migration = flyway(url);
-        int pending = migration.info().pending().length;
-        assertThat(pending).isEqualTo(1);
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
+        // Proposed release ordering: health V30 first, owner-scoped Personal OS V31 after.
+        // Stage the real migrations on a disposable CI MySQL schema only.
+        Flyway healthMigration=Flyway.configure().dataSource(url,user(),password())
+                .locations("classpath:db/migration")
+                .target(org.flywaydb.core.api.MigrationVersion.fromVersion("30"))
+                .cleanDisabled(true).load();
+        assertThat(healthMigration.info().pending().length).isEqualTo(1);
+        assertThat(healthMigration.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(count(url,preUpgradeMealQuery)).isEqualTo(1);
         assertThat(count(url,"SELECT COUNT(*) FROM flyway_schema_history"
                 +" WHERE version='30' AND script='V30__wellness_analysis_details.sql' AND success=1"))
                 .isEqualTo(1);
+        // Apply V31 separately, proving version 30 remains immutable and V31 is additive.
+        Flyway migration = flyway(url);
+        int pending = migration.info().pending().length;
+        assertThat(pending).isEqualTo(1);
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(count(url,"SELECT COUNT(*) FROM flyway_schema_history"
+                +" WHERE version='31' AND script='V31__personal_os_goals_and_assertions.sql' AND success=1"))
+                .isEqualTo(1);
+        assertThat(count(url,"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()"
+                +" AND table_name IN ('prp_goals','prp_personal_assertions')")).isEqualTo(2);
+        assertThat(count(url,"SELECT COUNT(*) FROM prp_goals")).isZero();
+        assertThat(count(url,"SELECT COUNT(*) FROM prp_personal_assertions")).isZero();
+        assertThat(count(url,preUpgradeMealQuery)).isEqualTo(1);
+        assertThat(count(url,"SELECT COUNT(*) FROM prp_wellness_meal_analyses")).isZero();
+        assertThat(count(url,"SELECT COUNT(*) FROM prp_wellness_meal_item_nutrients")).isZero();
         assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(count(url,"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()"
                 +" AND table_name='prp_ai_conversations'")).isEqualTo(5);
@@ -192,7 +211,7 @@ class FlywayMigrationIT {
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThat(existingAiRowSnapshot(url)).isEqualTo(originalRow);
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(17 + pendingToV29 + pending);
+        assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")).isEqualTo(17 + pendingToV29 + 1 + pending);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('prp_ai_conversations','prp_ai_messages','prp_ai_usage','prp_ai_preferences','prp_ai_provider_credentials','prp_ai_agent_tasks','prp_ai_codex_jobs','prp_ai_message_blocks','prp_ai_tool_audit','prp_ai_conversation_meta')")).isEqualTo(10);
         assertThat(count(url, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() " +
                 "AND table_name='prp_ai_conversations' AND column_name IN ('deleted_at','is_pinned','title_source')"))
