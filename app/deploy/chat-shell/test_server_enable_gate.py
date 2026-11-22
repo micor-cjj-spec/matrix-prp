@@ -42,6 +42,36 @@ class HostExecutionGate(unittest.TestCase):
             with self.assertRaises(InvalidJob):
                 executor.require_execution_enabled(flag, os.getuid()+1)
 
+    def test_valid_encrypted_command_fails_closed_before_claim(self):
+        import subprocess
+        import protocol
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory)
+            private=folder/'server.key'
+            certificate=folder/'server.crt'
+            generated=subprocess.run(
+                ['openssl','req','-new','-x509','-nodes',
+                 '-newkey','rsa:3072','-days','1','-subj','/CN=PRP-closed-gate-test',
+                 '-keyout',str(private),'-out',str(certificate)],
+                capture_output=True,timeout=20)
+            self.assertEqual(generated.returncode,0)
+            job_id,comment,_,_=protocol.build_command(
+                'true',certificate.read_bytes(),timeout=5)
+            _,ciphertext=protocol.parse_command_comment(comment)
+            original_gate=executor.require_execution_enabled
+            missing_marker=folder/'never-created.enabled'
+            with (mock.patch.object(executor,'PRIVATE_KEY',private),
+                  mock.patch.object(executor,'CERT',certificate),
+                  mock.patch.object(executor,'require_execution_enabled',
+                    side_effect=lambda: original_gate(missing_marker,os.getuid())),
+                  mock.patch.object(executor,'claim') as claim,
+                  mock.patch.object(executor,'execute') as execute):
+                with self.assertRaises(InvalidJob):
+                    executor.process_request({
+                        'jobId':job_id,'ciphertext':ciphertext},None)
+                claim.assert_not_called()
+                execute.assert_not_called()
+
     def test_disabled_rejects_before_replay_claim_or_shell_execution(self):
         request={'jobId':'test-job','ciphertext':b64_encode(b'test-ciphertext')}
         with (mock.patch.object(executor,'openssl_cms_decrypt',return_value=b'{}'),
