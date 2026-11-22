@@ -119,3 +119,18 @@ node app/scripts/mcp218-canary-plan.mjs /path/to/private/nonsecret-canary-plan.j
 脚本成功时只会输出 `MCP218_PLAN_SHAPE_PASS_ONLY_NO_DEPLOY_AUTHORIZATION`；失败输出 `MCP218_PLAN_NO_GO` 和错误分类，退出码为 2。这个通过标志**绝不是** `approved-install.safe.json`、`fresh-b2-restore.safe.json`、真实 G0/B2 审批或上线许可。
 
 离线安全测试现包含 36 项：原有 30 项函数与 CLI 组合检查，再覆盖 6 种生产 OAuth 与跨工作流主机名复用的拒绝路径。所有自动测试必须以**最新确切提交**的 GitHub Actions 结果为验收证据，不能继承旧 SHA 的成功状态。真实的 Compose 渲染、网络资源占用、受信任证书、恢复演练、owner 授权与撤销仍全部为**独立待办**。
+
+
+## 9. 独立 Realm 候选：纯内存生成与明确阻塞
+
+现有 `app/deploy/mcp-oauth/build_realm.py` 生成的旧 `prp-mcp` Realm 默认含 `prp.tasks.read`、财务、健康及写入 Scope，原 `review_exact_client_registrations.py` 也固定旧 `prp-test` Resource 和 task-only Client。这两者**不是 #218 Canary 可直接使用的模板**。
+
+已新增 `app/deploy/mcp218-canary/review_realm.py`，仅提供 `build_review_video_candidate(resource)` 纯内存函数，复用旧构建器的基础安全默认和 `basic` 受签名身份映射，但把新候选：
+- Realm 精确定为 `prp-mcp218`；不触及原有 `prp-mcp` Realm。
+- Data Scope 精确定为 `prp.reviews.read`、`prp.video.read`，另保留 OIDC 必需的 `basic` 身份 Client Scope；**不生成**任务、财务、健康、写入、离线持久化授权 Scope。
+- 唯一 Client 为 bearer-only `matrix-prp-mcp218-resource`，绑定传入的新 `https://mcp218-.../api/mcp`；没有 ChatGPT 登录 Client、Keycloak 管理员、回调 URL、测试用户或 owner grant。
+- 拒绝现有域名、非 HTTPS、非精确 `/api/mcp`、携带密码/端口/query/fragment 的 URL，以及不符合 `mcp218-` 命名的目标。
+
+**重要：此函数不生成可直接部署的包，不提供安装入口，也不执行任何文件/网络写操作。** 它的通过证据只能证明可构造候选 Realm JSON 结构，不能证明 Keycloak 接受导入、真实 Issuer/JWKS 可用、OpenAI client 能签名、PRP owner-link 已工作；这些继续是**独立环境真实审批及 E2E**，没有取消 #149 或 G0/B2 阻塞。
+
+新的 Python unittest 专项检查 Realm/Scope/Client 数量、无第三方登录 Client、无旧任务权限、OIDC subject 安全映射、不修改原构建器、不访问网络、旧域名/注入拒绝和上游构建器结构漂移。GitHub Actions 中以 `python3 -m unittest discover -v -s app/deploy/mcp218-canary -p 'test_review_realm.py'` 执行，**必须以当前 SHA 最新实际 CI 完成结果为准**。
