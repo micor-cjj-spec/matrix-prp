@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { fetchRecords, type RecordItem } from '@/api/records'
-import { createTask } from '@/api/tasks'
+import { createTask, fetchTasks, type TaskItem } from '@/api/tasks'
 import {
   changePersonalGoalStatus, confirmPersonalMemory, createPersonalGoal,
   erasePersonalMemory, fetchConfirmedMemories, fetchMemoryCandidates,
@@ -84,8 +84,28 @@ const taskDraftForm = reactive({ title: '', description: '', priority: 'medium' 
 // A task exists independently before the owner explicitly confirms its goal relation.
 const taskLinkPending = ref<{
   goalId: number; taskId: number; ownerToken: string; requestKey: string
+  source: 'new' | 'existing'
 } | null>(null)
 const taskLinkBusy = ref(false)
+// Existing tasks must be fetched only after the owner opens the picker.
+// Clear both loaded titles and selection on account, goal, tab or route changes.
+const taskPickerOpen = ref(false)
+const taskPickerBusy = ref(false)
+const taskPickerTasks = ref<TaskItem[]>([])
+const taskPickerTaskId = ref<number | null>(null)
+const taskPickerGoalId = ref<number | null>(null)
+const taskPickerOwnerToken = ref<string | null>(null)
+let taskPickerGeneration = 0
+
+function clearTaskPicker() {
+  ++taskPickerGeneration
+  taskPickerOpen.value = false
+  taskPickerBusy.value = false
+  taskPickerTasks.value = []
+  taskPickerTaskId.value = null
+  taskPickerGoalId.value = null
+  taskPickerOwnerToken.value = null
+}
 
 function clearPendingTaskLink() {
   taskLinkPending.value = null
@@ -107,6 +127,7 @@ function clearPlanningAdvice() {
   adviceBusy.value = false
   clearTaskDraft()
   clearPendingTaskLink()
+  clearTaskPicker()
 }
 watch(sharePersonalFacts, clearPlanningAdvice)
 const correctionTarget = ref<PersonalMemory | null>(null)
@@ -401,7 +422,8 @@ async function saveAdviceTaskDraft() {
         || activeTab.value !== 'goals') return
     clearTaskDraft()
     taskLinkPending.value = {
-      goalId, taskId: created.id, ownerToken: identity, requestKey: requestKey('task_link'),
+      goalId, taskId: created.id, ownerToken: identity,
+      requestKey: requestKey('task_link'), source: 'new',
     }
     ElMessage.success(`任务 #${created.id} 已创建；如要关联目标，请单独确认`)
   } catch {
@@ -412,6 +434,58 @@ async function saveAdviceTaskDraft() {
   }
 }
 
+/** Deliberate owner-only read: never fetch task titles on page initialization. */
+async function openExistingTaskPicker() {
+  const goalId = selectedGoalId.value
+  const identity = auth.token
+  if (!goalId || !identity || activeTab.value !== 'goals'
+      || taskLinkBusy.value || taskLinkPending.value !== null) return
+  clearTaskPicker()
+  taskPickerOpen.value = true
+  taskPickerBusy.value = true
+  taskPickerGoalId.value = goalId
+  taskPickerOwnerToken.value = identity
+  const generation = taskPickerGeneration
+  try {
+    const [tasks, links] = await Promise.all([
+      fetchTasks(), fetchPersonalGoalContext(goalId),
+    ])
+    if (generation !== taskPickerGeneration || identity !== auth.token
+        || selectedGoalId.value !== goalId || activeTab.value !== 'goals') return
+    context.value = links
+    const alreadyLinked = new Set(links
+      .filter(link => link.predicate === 'ADVANCES'
+        && link.subjectType === 'TASK' && link.objectType === 'GOAL')
+      .map(link => link.subjectRef))
+    taskPickerTasks.value = tasks.filter(task =>
+      task.status !== 'canceled' && !alreadyLinked.has(String(task.id)))
+  } catch {
+    if (generation === taskPickerGeneration) {
+      clearTaskPicker()
+      ElMessage.error('已有任务加载失败，请确认当前账号权限后重试')
+    }
+  } finally {
+    if (generation === taskPickerGeneration) taskPickerBusy.value = false
+  }
+}
+
+/** Stage an existing task; opening/selecting it never creates a link. */
+function stageExistingTaskLink() {
+  const goalId = taskPickerGoalId.value
+  const taskId = taskPickerTaskId.value
+  const identity = taskPickerOwnerToken.value
+  if (!taskPickerOpen.value || taskPickerBusy.value || taskLinkBusy.value
+      || taskLinkPending.value !== null || !goalId || !taskId
+      || !identity || identity !== auth.token
+      || selectedGoalId.value !== goalId || activeTab.value !== 'goals'
+      || !taskPickerTasks.value.some(task => task.id === taskId)) return
+  taskLinkPending.value = {
+    goalId, taskId, ownerToken: identity,
+    requestKey: requestKey('task_link'), source: 'existing',
+  }
+  clearTaskPicker()
+}
+
 /** Separate owner click; proposal + confirmation reuse the reviewed owner-scoped ontology API. */
 async function confirmGoalTaskLink() {
   const pending = taskLinkPending.value
@@ -419,6 +493,18 @@ async function confirmGoalTaskLink() {
       || activeTab.value !== 'goals' || selectedGoalId.value !== pending.goalId) return
   taskLinkBusy.value = true
   try {
+    // A fresh owner-scoped read avoids known duplicates after another tab
+    // established this relation. Server authorization is still authoritative.
+    const latestLinks = await fetchPersonalGoalContext(pending.goalId)
+    if (taskLinkPending.value !== pending || pending.ownerToken !== auth.token
+        || selectedGoalId.value !== pending.goalId || activeTab.value !== 'goals') return
+    if (latestLinks.some(link => link.predicate === 'ADVANCES'
+        && link.subjectType === 'TASK' && link.subjectRef === String(pending.taskId))) {
+      context.value = latestLinks
+      taskLinkPending.value = null
+      ElMessage.info('该任务已经关联到当前目标，无需重复关联')
+      return
+    }
     // The stable request key allows a retry after a lost response without
     // creating another task or another association.
     const candidate = await proposeGoalTaskLink(
@@ -782,9 +868,13 @@ onMounted(async () => {
               <span>{{ describeGoalLink(link) }}</span>
               <small>事实 #{{ link.assertionId }} · 已确认</small>
             </div>
+            <div class="os-card-actions">
+              <el-button :disabled="taskLinkBusy || taskLinkPending !== null"
+                @click="openExistingTaskPicker">关联已有任务（先选择）</el-button>
+            </div>
             <div v-if="taskLinkPending && taskLinkPending.goalId === selectedGoal.id"
               class="os-evidence" role="status">
-              <strong>任务 #{{ taskLinkPending.taskId }} 已创建，尚未关联目标</strong>
+              <strong>任务 #{{ taskLinkPending.taskId }} {{ taskLinkPending.source === 'new' ? '已创建' : '已选中' }}，尚未关联目标</strong>
               <p>任务已经独立保存。只有再次点击确认，才会把此任务记录为推进当前目标的已确认关系。</p>
               <div class="os-card-actions">
                 <el-button type="primary" :loading="taskLinkBusy" @click="confirmGoalTaskLink">确认关联到此目标</el-button>
@@ -973,6 +1063,26 @@ onMounted(async () => {
             <small>{{ record.moduleCode }} · #{{ record.id }}</small></div>
         </article>
       </section>
+
+      <el-dialog v-model="taskPickerOpen" title="选择已有任务关联目标"
+        width="min(92vw, 520px)" destroy-on-close @closed="clearTaskPicker">
+        <p class="os-help">这里只读取本人现有任务，不会创建任务，也不会自动建立目标关联；选定任务后仍需再次确认。</p>
+        <el-skeleton v-if="taskPickerBusy" :rows="3" animated />
+        <template v-else>
+          <el-empty v-if="!taskPickerTasks.length" description="暂无可关联的任务" />
+          <el-select v-else v-model="taskPickerTaskId" filterable clearable
+            placeholder="选择本人现有任务" aria-label="选择已有任务" style="width:100%">
+            <el-option v-for="task in taskPickerTasks" :key="task.id"
+              :label="`${task.title} (#${task.id})`" :value="task.id" />
+          </el-select>
+        </template>
+        <template #footer>
+          <el-button @click="clearTaskPicker">取消</el-button>
+          <el-button type="primary" :disabled="taskPickerBusy || !taskPickerTaskId ||
+            taskPickerOwnerToken !== auth.token || taskPickerGoalId !== selectedGoalId"
+            @click="stageExistingTaskLink">审核关联</el-button>
+        </template>
+      </el-dialog>
 
       <el-dialog v-model="taskDraftOpen" title="采纳 AI 建议为任务" width="min(92vw, 520px)"
         destroy-on-close :close-on-click-modal="!taskDraftSaving"
