@@ -48,6 +48,8 @@ test('AI record change distinguishes confirmed mutation from failed record-list 
   assert.match(aiChange, /if\(refreshed\) ElMessage\.success/)
   assert.match(aiChange, /已修改或删除，但列表刷新失败/)
   assert.match(aiChange, /confirmStarted/)
+  assert.match(aiChange, /confirmOutcomeUncertain\.value=true/)
+  assert.match(aiChange, /saving\|\|confirmOutcomeUncertain/)
   assert.match(aiChange, /确认请求结果未核实/)
 })
 
@@ -60,6 +62,8 @@ test('AI draft confirmation checks owner-scoped status without replaying a POST'
   assert.match(save, /checked\.data\.data\.status === 'CONSUMED'/)
   assert.match(save, /已核实草稿保存成功/)
   assert.match(save, /回读也失败/)
+  assert.match(aiRecorder, /confirmOutcomeUncertain\.value = true/)
+  assert.match(aiRecorder, /confirming \|\| confirmOutcomeUncertain/)
   assert.equal((save.match(/apiClient\.post<ApiResponse<Outcome>>/g) ?? []).length, 1,
     'failed confirmation must not replay POST automatically')
 })
