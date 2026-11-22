@@ -146,11 +146,25 @@ test('mobile PWA permits native pinch zoom without losing iOS safe areas', () =>
   const html = source('web/index.html')
   const globalCss = source('web/src/styles/main.css')
   const viewport = html.match(/<meta name="viewport" content="([^"]+)"/)?.[1] ?? ''
+  const restrictedViewport = text =>
+    /(?:^|,)\s*(?:maximum-scale|minimum-scale|user-scalable)\s*=/.test(text)
+  const restrictedRootTouch = css =>
+    /html\s*\{[^}]*touch-action\s*:\s*(?:none|pan-x|pan-y)(?:\s|;|!)/s.test(css)
+
+  // Negative-control fixtures make sure the guard actually rejects forbidden
+  // source. A double-escaped regex could silently pass the good source while
+  // failing to detect all future regressions.
+  assert.ok(restrictedViewport('width=device-width, user-scalable=no'))
+  assert.ok(restrictedViewport('width=device-width, maximum-scale=1.0'))
+  assert.ok(restrictedViewport('width=device-width, minimum-scale=1'))
+  assert.ok(restrictedRootTouch('html { touch-action: pan-x pan-y; }'))
+  assert.ok(restrictedRootTouch('html { touch-action: none; }'))
+
   assert.ok(viewport.includes('width=device-width') && viewport.includes('viewport-fit=cover'),
     'mobile viewport must retain device width and iOS safe-area support')
-  assert.ok(!/(?:^|,)\\s*(?:maximum-scale|minimum-scale|user-scalable)\\s*=/.test(viewport),
+  assert.ok(!restrictedViewport(viewport),
     'mobile viewport must not prevent browser zoom or cap magnification')
-  assert.ok(!/html\\s*\\{[^}]*touch-action:\\s*(?:none|pan-x|pan-y)/s.test(globalCss),
+  assert.ok(!restrictedRootTouch(globalCss),
     'global html touch-action must not suppress pinch zoom')
   assert.ok(!entry.includes("addEventListener('gesturestart'"),
     'do not prevent Safari gesturestart from activating user-controlled zoom')
