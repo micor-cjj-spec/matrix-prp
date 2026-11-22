@@ -122,11 +122,12 @@ class ReadinessTests(unittest.TestCase):
             data = json.loads(
                 (Path(__file__).resolve().parent.parent / "migration-policy.json").read_text()
             )
-            data["rules"].append(dict(data["rules"][-1]))
+            original_rules = data["rules"]
+            data["rules"] = original_rules + [dict(original_rules[-1])]
             policy.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(EvidenceBlocked, "MIGRATION_POLICY_UNVERIFIED"):
                 reviewed_flyway_version(policy)
-            data["rules"] = [r for r in data["rules"] if r["version"] != 30]
+            data["rules"] = [r for r in original_rules if r["version"] != 30]
             policy.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(EvidenceBlocked, "MIGRATION_POLICY_UNVERIFIED"):
                 reviewed_flyway_version(policy)
