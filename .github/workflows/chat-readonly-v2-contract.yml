@@ -1,0 +1,24 @@
+name: PRP ChatGPT readonly V2 contract (offline only)
+on:
+  pull_request:
+    paths:
+      - 'app/deploy/chat-readonly-v2/**'
+      - '.github/workflows/chat-readonly-v2-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Reject dynamic shell and unsafe responses using synthetic fixtures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m py_compile app/deploy/chat-readonly-v2/readonly_ops.py app/deploy/chat-readonly-v2/test_readonly_ops.py
+          python3 -m unittest discover -s app/deploy/chat-readonly-v2 -p 'test_*.py' -v
