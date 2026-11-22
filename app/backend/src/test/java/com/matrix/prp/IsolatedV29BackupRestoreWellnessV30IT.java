@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
@@ -144,6 +145,40 @@ class IsolatedV29BackupRestoreWellnessV30IT {
         return HexFormat.of().formatHex(digest.digest());
     }
 
+    /**
+     * Preserve business rows plus exactly the original V7 baseline and V8-V29
+     * Flyway records. The older V28 helper fingerprints installed_rank<=28,
+     * which incorrectly includes the newly appended V30 record when a V7
+     * baseline occupies the first history row (V30 then has rank 24).
+     */
+    private Map<String, String> preservedV29Fingerprints(String url) throws Exception {
+        Map<String, String> original = new LinkedHashMap<>(helper.preservedFingerprints(url));
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        String query = "SELECT installed_rank,version,script,checksum,success "
+                + "FROM flyway_schema_history WHERE CAST(version AS UNSIGNED) "
+                + "BETWEEN 7 AND 29 ORDER BY installed_rank";
+        int records = 0;
+        try (Connection connection = connect(url);
+             var queryStatement = connection.createStatement();
+             ResultSet rows = queryStatement.executeQuery(query)) {
+            int width = rows.getMetaData().getColumnCount();
+            while (rows.next()) {
+                records++;
+                for (int index = 1; index <= width; index++) {
+                    String value = rows.getString(index);
+                    digest.update((value == null ? "<NULL>" : value)
+                            .getBytes(StandardCharsets.UTF_8));
+                    digest.update((byte) 0x1f);
+                }
+                digest.update((byte) 0x0a);
+            }
+        }
+        assertThat(records).as("exact historical V7 baseline plus SQL V8-V29")
+                .isEqualTo(23);
+        original.put("history", HexFormat.of().formatHex(digest.digest()));
+        return original;
+    }
+
     private long oldMealCount(String url) throws Exception {
         return count(url, "SELECT COUNT(*) FROM prp_wellness_meals m "
                 + "JOIN prp_wellness_meal_items i ON i.meal_id=m.id "
@@ -186,7 +221,7 @@ class IsolatedV29BackupRestoreWellnessV30IT {
         assertThat(enrichmentTableCount(SOURCE_URL)).isZero();
         assertThat(count(SOURCE_URL, "SELECT COUNT(*) FROM flyway_schema_history "
                 + "WHERE version='29' AND success=1")).isEqualTo(1);
-        assertThat(helper.preservedFingerprints(SOURCE_URL)).hasSize(8);
+        assertThat(preservedV29Fingerprints(SOURCE_URL)).hasSize(8);
         assertThat(mealFingerprint(SOURCE_URL)).hasSize(64);
         System.out.println("CI_SYNTHETIC_V29_WELLNESS_SOURCE_SEEDED=PASS");
         System.out.println("NO_REAL_DATABASE_OR_USER_DATA_ACCESSED=YES");
@@ -199,8 +234,8 @@ class IsolatedV29BackupRestoreWellnessV30IT {
         assertThat(restoredV29.validateWithResult().validationSuccessful).isTrue();
         assertHistoricBaseline(SOURCE_URL, 29);
         assertHistoricBaseline(CLONE_URL, 29);
-        Map<String, String> original = helper.preservedFingerprints(SOURCE_URL);
-        assertThat(helper.preservedFingerprints(CLONE_URL))
+        Map<String, String> original = preservedV29Fingerprints(SOURCE_URL);
+        assertThat(preservedV29Fingerprints(CLONE_URL))
                 .containsExactlyInAnyOrderEntriesOf(original);
         String originalMeal = mealFingerprint(SOURCE_URL);
         assertThat(mealFingerprint(CLONE_URL)).isEqualTo(originalMeal);
@@ -238,7 +273,7 @@ class IsolatedV29BackupRestoreWellnessV30IT {
                 + "(meal_item_id,source_type,confidence_level) "
                 + "VALUES(999999999,'USER_ESTIMATE','UNVERIFIED')"));
         assertThat(mealFingerprint(CLONE_URL)).isEqualTo(originalMeal);
-        assertThat(helper.preservedFingerprints(CLONE_URL))
+        assertThat(preservedV29Fingerprints(CLONE_URL))
                 .containsExactlyInAnyOrderEntriesOf(original);
         assertThat(upgraded.migrate().migrationsExecuted).isZero();
 
@@ -248,7 +283,7 @@ class IsolatedV29BackupRestoreWellnessV30IT {
         assertThat(count(SOURCE_URL, "SELECT COUNT(*) FROM flyway_schema_history "
                 + "WHERE version='30'")).isZero();
         assertThat(mealFingerprint(SOURCE_URL)).isEqualTo(originalMeal);
-        assertThat(helper.preservedFingerprints(SOURCE_URL))
+        assertThat(preservedV29Fingerprints(SOURCE_URL))
                 .containsExactlyInAnyOrderEntriesOf(original);
         assertHistoricBaseline(SOURCE_URL, 29);
 
