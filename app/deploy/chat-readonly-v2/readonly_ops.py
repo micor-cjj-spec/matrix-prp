@@ -119,7 +119,10 @@ def project_health_liveness(http_status, response_body):
     if type(http_status) is not int:
         return result
     if http_status != 200:
-        if 400 <= http_status < 600:
+        # A 4xx HTTP response means the endpoint replied but may require auth,
+        # use another route, or be rate-limited. It cannot prove host liveness
+        # is down. Classify conservatively without exposing status or body.
+        if 500 <= http_status < 600:
             result["liveness"] = "unreachable"
         return result
     if type(response_body) is not bytes or len(response_body) > 2048:
