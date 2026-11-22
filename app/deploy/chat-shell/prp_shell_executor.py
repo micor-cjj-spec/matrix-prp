@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -I
 """Root-owned forced-SSH execution target; OFF unless separately installed.
 
 Accept only an encrypted GitHub-comment envelope over stdin. A dedicated
@@ -15,6 +15,8 @@ import sqlite3
 import stat
 import subprocess
 import sys
+# -I disables user PYTHONPATH; load only the independently installed root-owned module.
+sys.path.insert(0, '/usr/local/sbin')
 import tempfile
 import time
 
@@ -116,6 +118,7 @@ def process_request(request,account,now=None):
 
 def main():
     account=require_root_only()
+    os.environ['PATH']='/usr/sbin:/usr/bin:/sbin:/bin'
     message=sys.stdin.buffer.read(42000)
     if len(message)>41000:
         raise InvalidJob('transport oversized')
