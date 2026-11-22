@@ -91,7 +91,7 @@ def reviewed_flyway_version(policy_path=None):
                           object_pairs_hook=_reject_duplicate_fields)
     except (OSError, UnicodeError, ValueError):
         raise EvidenceBlocked("MIGRATION_POLICY_UNVERIFIED") from None
-    _need(type(data) is dict and data.get("schema_version") == 1,
+    _need(type(data) is dict and type(data.get("schema_version")) is int and data["schema_version"] == 1,
           "MIGRATION_POLICY_UNVERIFIED")
     rules = data.get("rules")
     _need(type(rules) is list and bool(rules), "MIGRATION_POLICY_UNVERIFIED")
