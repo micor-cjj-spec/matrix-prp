@@ -19,6 +19,8 @@ Existing known environments are distinct and must not be overwritten:
 
 4. BLOCKED:CODE means stop. DECLARED_EVIDENCE_CONSISTENT_REVIEW_REQUIRED confirms **only that the operator's claims are mutually consistent**; it is **not** a verified deployment, UAT PASS or permission to touch OAuth or live data. A distinct reviewer must confirm the observations and approvals.
 
+The parser **rejects duplicate JSON keys and unknown fields** (including extra purported approvals) rather than ignoring unreviewed assertions. The evidence schema is exact for version `health-v2-stage-readiness-v1`; adding an attestation field requires a separately reviewed schema and tests. Never use a successful offline JSON check as proof of a live observation.
+
 ### JSON structure (deliberately incomplete / must fail until verified)
 
     {
