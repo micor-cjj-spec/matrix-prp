@@ -259,6 +259,7 @@ def run(page, origin):
         raise RuntimeError("PERSONAL_OS_MODEL_REVIEW_CONSENT_SEQUENCE_INVALID")
     if task_writes:
         raise RuntimeError("PERSONAL_OS_MODEL_ADVICE_AUTO_WROTE_TASK")
+    print("CI_T007_STAGE_MODEL_ADVICE_VISIBLE=PASS")
 
     # A model suggestion is untrusted review text, never an automatic task.
     # Opening and canceling the owner draft must not write anything.
@@ -266,10 +267,12 @@ def run(page, origin):
     draft_dialog = page.locator(".el-dialog").filter(
         has=page.get_by_text("采纳 AI 建议为任务", exact=True))
     draft_dialog.wait_for(state="visible", timeout=15000)
+    print("CI_T007_STAGE_TASK_REVIEW_OPENED=PASS")
     if task_writes:
         raise RuntimeError("PERSONAL_OS_TASK_DRAFT_OPEN_AUTO_WROTE")
     draft_dialog.get_by_role("button", name="取消", exact=True).click()
     draft_dialog.wait_for(state="hidden", timeout=15000)
+    print("CI_T007_STAGE_TASK_REVIEW_CANCELED=PASS")
     if task_writes:
         raise RuntimeError("PERSONAL_OS_TASK_DRAFT_CANCEL_WROTE")
 
@@ -279,6 +282,7 @@ def run(page, origin):
     try:
         page.get_by_role("button", name="采纳为任务（先审核）").click()
         draft_dialog.wait_for(state="visible", timeout=15000)
+        print("CI_T007_STAGE_TASK_REVIEW_REOPENED=PASS")
         if "CI-only evidence-reviewed action" not in draft_dialog.inner_text():
             raise RuntimeError("PERSONAL_OS_TASK_DRAFT_TITLE_NOT_REVIEWABLE")
         with page.expect_response(lambda r:
@@ -286,6 +290,7 @@ def run(page, origin):
                 and r.request.method == "POST", timeout=20000) as saved_response:
             draft_dialog.get_by_role("button", name="确认创建任务").click()
         response = saved_response.value
+        print("CI_T007_STAGE_TASK_SAVE_RESPONSE_SEEN=PASS")
         if response.status != 200:
             raise RuntimeError("PERSONAL_OS_OWNER_TASK_SAVE_FAILED")
         body = response.json()
@@ -309,6 +314,7 @@ def run(page, origin):
         }""", created_task_id)
         if not persisted:
             raise RuntimeError("PERSONAL_OS_OWNER_TASK_NOT_PERSISTED")
+        print("CI_T007_STAGE_TASK_PERSISTED=PASS")
     finally:
         if created_task_id is not None:
             status = page.evaluate("""async taskId => {
