@@ -246,3 +246,101 @@ test('snapshot rejects duplicated parent and task Issue numbers',()=>{
  const state=make();state.tasks[1].issue_number=132
  assertCode(()=>validateSnapshot(state),'TASK_ISSUE')
 })
+
+
+test('release and re-claim archive an old checkpoint; explicit owner-verified recovery is still possible', () => {
+  const first = claim(make(), 'T-001', 'workerOld')
+  const saved = applyCommand(first.state, command('checkpoint', 'T-001', {
+    worker_id: 'workerOld', claim_id: first.claim_id,
+    checkpoint: { summary: 'Previous claim saved a checkpoint',
+      next_step: 'Review the original feature branch',
+      branch: 'feature/old', head_sha: 'a'.repeat(40) }
+  }), actor).snapshot
+  const released = applyCommand(saved, command('release', 'T-001', {
+    worker_id: 'workerOld', claim_id: first.claim_id
+  }), actor).snapshot
+  assert.equal(released.tasks[0].checkpoint.archived, undefined)
+  const next = claim(released, 'T-001', 'workerNew')
+  assert.equal(next.state.tasks[0].checkpoint.archived, true)
+  assert.equal(next.state.tasks[0].checkpoint.worker_id, 'workerOld')
+  assert.equal(next.state.tasks[0].checkpoint.head_sha, 'a'.repeat(40))
+
+  const base = {
+    worker_id: 'workerNew', claim_id: next.claim_id,
+    expected_claim_id: next.claim_id, expected_version: next.state.version,
+    new_worker_id: 'workerRecovery', expected_head_sha: 'b'.repeat(40),
+    note: 'Owner is reconstructing the new claimant after a crash'
+  }
+  const context = { ...actor, recoveryAuthorized: true, gitEvidenceVerified: true }
+  assertCode(() => applyCommand(next.state, command('takeover', 'T-001', base), context),
+    'RECOVERY_CHECKPOINT_ARCHIVED')
+  assertCode(() => applyCommand(next.state, command('handoff', 'T-001', base), actor),
+    'RECOVERY_CHECKPOINT_ARCHIVED')
+
+  const checkpoint = { summary: 'Verified new claimant remote Git reference',
+    next_step: 'Inspect Git history and continue after approval',
+    branch: 'feature/new', head_sha: 'b'.repeat(40) }
+  const recoveredCommand = command('takeover', 'T-001', { ...base, checkpoint })
+  assertCode(() => applyCommand(next.state, recoveredCommand,
+    { ...actor, recoveryAuthorized: true }), 'RECOVERY_GIT_EVIDENCE_REQUIRED')
+  assertCode(() => applyCommand(next.state, command('takeover', 'T-001', {
+    ...base, expected_claim_id: first.claim_id, checkpoint
+  }), context), 'STALE_RECOVERY_CLAIM')
+  assertCode(() => applyCommand(next.state, command('takeover', 'T-001', {
+    ...base, checkpoint: { ...checkpoint, head_sha: 'c'.repeat(40) }
+  }), context), 'STALE_RECOVERY_HEAD')
+
+  const recovered = applyCommand(next.state, recoveredCommand, context)
+  const task = recovered.snapshot.tasks[0]
+  assert.equal(task.claim.worker_id, 'workerRecovery')
+  assert.equal(task.claim.generation, 2)
+  assert.notEqual(task.claim.claim_id, next.claim_id)
+  assert.equal(task.checkpoint.origin, 'owner_verified_git')
+  assert.equal(task.checkpoint.worker_id, 'workerNew')
+  assert.equal(task.checkpoint.archived, undefined)
+  assert.equal(task.handoff_history.at(-1).type, 'takeover')
+  assertCode(() => applyCommand(recovered.snapshot, command('start', 'T-001', {
+    worker_id: 'workerNew', claim_id: next.claim_id
+  }), actor), 'STALE_OR_FOREIGN_CLAIM')
+  validateSnapshot(recovered.snapshot)
+})
+
+test('re-claim by the same worker label cannot reuse its prior claim checkpoint', () => {
+  const first = claim(make(), 'T-001', 'workerSame')
+  const saved = applyCommand(first.state, command('checkpoint', 'T-001', {
+    worker_id: 'workerSame', claim_id: first.claim_id,
+    checkpoint: { summary: 'Saved in the old claim generation',
+      next_step: 'Validate current claim before resuming',
+      branch: 'feature/prior-claim', head_sha: 'a'.repeat(40) }
+  }), actor).snapshot
+  const released = applyCommand(saved, command('release', 'T-001', {
+    worker_id: 'workerSame', claim_id: first.claim_id
+  }), actor).snapshot
+  const renewed = claim(released, 'T-001', 'workerSame')
+  assert.equal(renewed.state.tasks[0].checkpoint.archived, true)
+  assert.notEqual(renewed.claim_id, first.claim_id)
+  assertCode(() => applyCommand(renewed.state, command('takeover', 'T-001', {
+    worker_id: 'workerSame', claim_id: renewed.claim_id,
+    expected_claim_id: renewed.claim_id, new_worker_id: 'workerNext',
+    expected_version: renewed.state.version, expected_head_sha: 'a'.repeat(40),
+    note: 'Cannot reuse a checkpoint from a previous claim'
+  }), { ...actor, recoveryAuthorized: true, gitEvidenceVerified: true }),
+  'RECOVERY_CHECKPOINT_ARCHIVED')
+})
+
+test('client cannot forge checkpoint archival metadata', () => {
+  const first = claim(make(), 'T-001', 'workerOld')
+  const incoming = { summary: 'A checkpoint with reserved metadata',
+    next_step: 'Reject client-controlled lifecycle metadata',
+    branch: 'feature/test', head_sha: 'a'.repeat(40), archived: true }
+  assertCode(() => applyCommand(first.state, command('checkpoint', 'T-001', {
+    worker_id: 'workerOld', claim_id: first.claim_id, checkpoint: incoming
+  }), actor), 'CHECKPOINT_METADATA_RESERVED')
+  assertCode(() => applyCommand(first.state, command('takeover', 'T-001', {
+    worker_id: 'workerOld', claim_id: first.claim_id,
+    expected_claim_id: first.claim_id, expected_version: first.state.version,
+    new_worker_id: 'workerNew', expected_head_sha: 'a'.repeat(40),
+    note: 'Reject forged archived flag', checkpoint: incoming
+  }), { ...actor, recoveryAuthorized: true, gitEvidenceVerified: true }),
+  'CHECKPOINT_METADATA_RESERVED')
+})
