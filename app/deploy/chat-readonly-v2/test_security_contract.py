@@ -260,7 +260,11 @@ class V2SecurityContractTests(unittest.TestCase):
         for bad in ({**base, "path": "/etc/shadow"},
                     {**base, "usedBytes": -1},
                     {**base, "usagePercent": 33},
-                    {**base, "totalBytes": True}):
+                    {**base, "totalBytes": True},
+                    {**base, "freeBytes": 40960},
+                    {**base, "totalBytes": 1 << 63},
+                    {**base, "usedBytes": 1 << 63},
+                    {**base, "freeBytes": 1 << 63}):
             with self.subTest(bad=bad), self.assertRaises(RejectedRequest):
                 encode_result(self.job, "host_root_fs_usage", NOW, data=bad)
 
