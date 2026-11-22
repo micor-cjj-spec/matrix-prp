@@ -75,7 +75,45 @@ def _reject_duplicate_fields(pairs):
     return out
 
 
-def review(evidence, expected_sha):
+def reviewed_flyway_version(policy_path=None):
+    """Resolve the expected last Flyway migration from this reviewed checkout.
+
+    A Health-only candidate ends at V30; a combined Health + Personal OS
+    candidate includes V31. Never trust the operator's reported version as
+    the expected version or silently accept a partial migration.
+    """
+    path = Path(policy_path) if policy_path is not None else (
+        Path(__file__).resolve().parent.parent / "migration-policy.json"
+    )
+    try:
+        _need(path.is_file() and path.stat().st_size <= 32768, "MIGRATION_POLICY_UNVERIFIED")
+        data = json.loads(path.read_text(encoding="utf-8"),
+                          object_pairs_hook=_reject_duplicate_fields)
+    except (OSError, UnicodeError, ValueError):
+        raise EvidenceBlocked("MIGRATION_POLICY_UNVERIFIED") from None
+    _need(type(data) is dict and type(data.get("schema_version")) is int and data["schema_version"] == 1,
+          "MIGRATION_POLICY_UNVERIFIED")
+    rules = data.get("rules")
+    _need(type(rules) is list and bool(rules), "MIGRATION_POLICY_UNVERIFIED")
+    versions = []
+    has_health_v30 = False
+    for rule in rules:
+        _need(type(rule) is dict, "MIGRATION_POLICY_UNVERIFIED")
+        version = rule.get("version")
+        filename = rule.get("file")
+        _need(type(version) is int and version >= 1
+              and type(filename) is str
+              and filename.startswith("V" + str(version) + "__")
+              and filename.endswith(".sql"),
+              "MIGRATION_POLICY_UNVERIFIED")
+        versions.append(version)
+        has_health_v30 |= (version == 30 and filename == "V30__wellness_analysis_details.sql")
+    _need(len(versions) == len(set(versions)) and has_health_v30,
+          "MIGRATION_POLICY_UNVERIFIED")
+    return max(versions)
+
+
+def review(evidence, expected_sha, *, policy_path=None):
     """Validate the shape of self-reported evidence, not its real-world truth."""
     _need(type(expected_sha) is str and _SHA.fullmatch(expected_sha), "INVALID_EXPECTED_SHA")
     ev = _object(evidence, "INVALID_EVIDENCE")
@@ -106,7 +144,10 @@ def review(evidence, expected_sha):
     for key in ("backend_image_digest", "web_image_digest"):
         digest = _value(observed, key)
         _need(type(digest) is str and _IMAGE.fullmatch(digest), "IMAGE_DIGEST_UNVERIFIED")
-    _need(_value(observed, "flyway_version") == 30 and type(_value(observed, "flyway_version")) is int, "FLYWAY_V30_NOT_VERIFIED")
+    expected_flyway = reviewed_flyway_version(policy_path)
+    _need(type(_value(observed, "flyway_version")) is int
+          and _value(observed, "flyway_version") == expected_flyway,
+          "FLYWAY_REVIEWED_VERSION_NOT_VERIFIED")
     _need(_value(observed, "flyway_failed_count") == 0 and type(_value(observed, "flyway_failed_count")) is int, "FLYWAY_HISTORY_NOT_CLEAN")
     _need(_value(observed, "https_hostname_verified") is True, "HTTPS_NOT_VERIFIED")
     _need(_value(observed, "oidc_issuer_host") == oidc_host, "OIDC_ISSUER_MISMATCH")

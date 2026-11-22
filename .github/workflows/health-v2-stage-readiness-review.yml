@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - review/health-v2-stage-readiness-20261122-0250
+      - 'test/health-v2-*'
     paths:
       - app/deploy/health-v2/**
       - .github/workflows/health-v2-stage-readiness-review.yml
