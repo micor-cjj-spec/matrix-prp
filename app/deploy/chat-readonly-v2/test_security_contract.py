@@ -178,6 +178,23 @@ class V2SecurityContractTests(unittest.TestCase):
             with self.assertRaises(RejectedRequest):
                 ReplayLedger(file).claim(self.job, "a" * 32, NOW + 100, NOW)
 
+    def test_replay_ledger_rejects_symlink_ancestor_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            actual = folder / "actual"
+            private = actual / "private"
+            private.mkdir(parents=True)
+            private.chmod(0o700)
+            alias = folder / "alias"
+            alias.symlink_to(actual, target_is_directory=True)
+            path_via_alias = alias / "private" / "ledger.sqlite"
+            with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                ReplayLedger(path_via_alias).claim(
+                    self.job, "a" * 32, NOW + 100, NOW)
+            self.assertFalse((private / "ledger.sqlite").exists())
+            self.assertTrue(ReplayLedger(private / "ledger.sqlite").claim(
+                self.job, "a" * 32, NOW + 100, NOW))
+
     def test_sqlite_open_does_not_recreate_disappearing_database(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ledger.sqlite"
