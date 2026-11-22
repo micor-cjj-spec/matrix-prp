@@ -1,0 +1,36 @@
+name: PRP Main Source Gate
+
+# A fail-closed PR check, NOT a replacement for GitHub branch/ruleset protection.
+# Admins must configure this check as required on main and protect dev.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  main-source-gate:
+    name: main-source-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # Do not check out untrusted PR code, run PR scripts or access secrets.
+      - name: Permit only same-repository dev PRs targeting main
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          TARGET_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != pull_request || "$BASE_BRANCH" != main ||
+                "$HEAD_BRANCH" != dev || "$HEAD_REPOSITORY" != "$TARGET_REPOSITORY" ||
+                -z "$TARGET_REPOSITORY" ]]; then
+            echo '::error::main only accepts a PR from this repository dev branch; separate protected-branch rules are also required'
+            exit 1
+          fi
+          echo 'PASS: main PR source is the same repository dev branch (PR check only; not a release authorization)'
