@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Bell, ChatDotRound, DataAnalysis, Grid, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { isMobileKeyboardVisible } from '@/utils/mobileViewport'
 import { domains, features } from '@/generated/features'
 
 const route = useRoute()
@@ -14,7 +15,7 @@ const keyboardVisible = ref(false)
 const chatViewportHeight = ref('100dvh')
 function updateKeyboardVisibility() {
   const viewport = window.visualViewport
-  keyboardVisible.value = Boolean(viewport && window.innerHeight - viewport.height - viewport.offsetTop > 150)
+  keyboardVisible.value = isMobileKeyboardVisible(window.innerHeight, viewport)
   // When the keyboard is open, constrain the fixed chat shell to the visible
   // viewport. When it closes, restore CSS dvh to avoid stale iOS dimensions.
   chatViewportHeight.value = keyboardVisible.value && viewport
