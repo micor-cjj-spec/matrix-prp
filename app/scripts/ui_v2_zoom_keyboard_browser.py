@@ -58,11 +58,42 @@ def test(browser, width, height):
 
     context.route("**/*", intercept)
     page = context.new_page()
+    console_errors = []
+    failed_requests = []
+    bad_responses = []
     page.on("pageerror", lambda e: errors.append(str(e)[:400]))
+    page.on("console", lambda m: console_errors.append(m.text[:400]) if m.type == "error" else None)
+    page.on("requestfailed", lambda r: failed_requests.append(r.method + " " + urlsplit(r.url).path[:180]))
+    page.on("response", lambda r: bad_responses.append(str(r.status) + " " + urlsplit(r.url).path[:180])
+            if r.status >= 400 else None)
     try:
         page.goto(BASE + "chat", wait_until="domcontentloaded", timeout=30000)
         textarea = page.locator(".chat-input textarea")
-        textarea.wait_for(timeout=16000)
+        try:
+            textarea.wait_for(timeout=11000)
+        except Exception:
+            # Diagnose direct-link navigation without weakening the browser assertion.
+            details = page.evaluate("""() => ({
+                url: location.href,
+                title: document.title,
+                readyState: document.readyState,
+                hasSyntheticToken: Boolean(localStorage.getItem('matrix-prp-token')),
+                appText: document.querySelector('#app')?.innerText?.slice(0, 1100) ?? '',
+                chatElements: document.querySelectorAll('.chat-input').length,
+                loginInputs: document.querySelectorAll('input[type=password]').length,
+                routeLinks: [...document.querySelectorAll('nav a')].slice(0, 8).map(x => x.href),
+            })""")
+            print("BOOT_DIAG " + json.dumps({
+                "viewport": [width, height],
+                "engine": os.getenv("PRP_UI_BROWSER"),
+                "details": details, "exceptions": errors[:8],
+                "console_errors": console_errors[:8],
+                "failed_requests": failed_requests[:8],
+                "bad_responses": bad_responses[:8],
+                "unexpected_requests": unexpected[:8],
+            }, ensure_ascii=False), flush=True)
+            page.screenshot(path=str(ARTIFACTS / f"chat-init-failure-{width}.png"), full_page=False)
+            raise
         nav = page.locator("nav.prp-mobile-tabs")
         expect(nav).to_be_visible()
         assert nav.locator("a").count() == 4, "The four primary tabs must remain"
