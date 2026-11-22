@@ -289,6 +289,8 @@ def run(page, origin):
     # Only a distinct explicit save click may persist one synthetic task via
     # the regular first-party task API. We delete the CI-owned task afterward.
     created_task_id = None
+    created_link_id = None
+    goal_link_id = None
     try:
         page.get_by_role("button", name="采纳为任务（先审核）").click()
         draft_dialog.wait_for(state="visible", timeout=15000)
@@ -347,6 +349,81 @@ def run(page, origin):
         if not persisted:
             raise RuntimeError("PERSONAL_OS_OWNER_TASK_NOT_PERSISTED")
         print("CI_T007_STAGE_TASK_PERSISTED=PASS")
+
+        # The task exists; until a SECOND explicit owner click there must be
+        # no TASK -> ADVANCES -> GOAL relationship. Query real isolated MySQL
+        # through the authenticated first-party API, not Vue component state.
+        goal_link_id = page.evaluate("""async () => {
+          const token = localStorage.getItem('matrix-prp-token');
+          const response = await fetch('/api/goals', {
+            headers: {'Authorization': 'Bearer ' + token}, cache: 'no-store'
+          });
+          if (!response.ok) return null;
+          const goals = (await response.json()).data;
+          const goal = goals.find(g => g.title === 'CI-only first-party goal');
+          return goal ? goal.id : null;
+        }""")
+        if not isinstance(goal_link_id, int) or goal_link_id <= 0:
+            raise RuntimeError("PERSONAL_OS_GOAL_FOR_TASK_LINK_MISSING")
+
+        def read_task_links():
+            return page.evaluate("""async ({goalId, taskId}) => {
+              const token = localStorage.getItem('matrix-prp-token');
+              const response = await fetch('/api/goals/' + goalId + '/context', {
+                headers: {'Authorization': 'Bearer ' + token}, cache: 'no-store'
+              });
+              if (!response.ok) return null;
+              const links = (await response.json()).data;
+              return links.filter(x => x.predicate === 'ADVANCES'
+                && x.subjectType === 'TASK' && x.subjectRef === String(taskId)
+                && x.objectType === 'GOAL' && x.objectRef === String(goalId));
+            }""", {"goalId": goal_link_id, "taskId": created_task_id})
+
+        if read_task_links() != []:
+            raise RuntimeError("PERSONAL_OS_TASK_AUTO_LINKED_WITHOUT_APPROVAL")
+        link_requests = []
+        confirmation_requests = []
+        def observe_owner_link(req):
+            path = urlsplit(req.url).path
+            if req.method == "POST" and path == "/api/memory/candidates":
+                link_requests.append(1)
+            if (req.method == "POST" and path.startswith("/api/memory/")
+                    and path.endswith("/confirm")):
+                confirmation_requests.append(1)
+        page.on("request", observe_owner_link)
+        page.get_by_role("button", name="确认关联到此目标").wait_for(
+            state="visible", timeout=15000)
+        if link_requests or confirmation_requests:
+            raise RuntimeError("PERSONAL_OS_TASK_LINK_WROTE_BEFORE_OWNER_CLICK")
+        with page.expect_response(
+            lambda resp: resp.request.method == "POST"
+            and urlsplit(resp.url).path.startswith("/api/memory/")
+            and urlsplit(resp.url).path.endswith("/confirm"),
+            timeout=20000
+        ) as link_confirmed:
+            page.get_by_role("button", name="确认关联到此目标").click()
+        confirmed = link_confirmed.value
+        if confirmed.status != 200:
+            raise RuntimeError("PERSONAL_OS_TASK_LINK_CONFIRM_NOT_SUCCESS")
+        fact = confirmed.json().get("data", {})
+        created_link_id = fact.get("id")
+        if (not isinstance(created_link_id, int) or created_link_id <= 0
+                or fact.get("predicate") != "ADVANCES"
+                or fact.get("subjectType") != "TASK"
+                or fact.get("subjectRef") != str(created_task_id)
+                or fact.get("objectType") != "GOAL"
+                or fact.get("objectRef") != str(goal_link_id)
+                or fact.get("status") != "CONFIRMED"):
+            raise RuntimeError("PERSONAL_OS_TASK_LINK_INCORRECT_RELATION")
+        if len(link_requests) != 1 or len(confirmation_requests) != 1:
+            raise RuntimeError("PERSONAL_OS_TASK_LINK_NOT_EXACTLY_ONE_REVIEW")
+        page.locator(".os-context .os-evidence span").filter(
+            has_text="任务 #" + str(created_task_id)).wait_for(
+                state="visible", timeout=15000)
+        links = read_task_links()
+        if not isinstance(links, list) or len(links) != 1:
+            raise RuntimeError("PERSONAL_OS_TASK_LINK_NOT_READABLE_AFTER_CONFIRM")
+        print("CI_PERSONAL_OS_T007_OWNER_CONFIRMED_GOAL_TASK_LINK=PASS")
     finally:
         if created_task_id is not None:
             status = page.evaluate("""async taskId => {
@@ -359,6 +436,32 @@ def run(page, origin):
             }""", created_task_id)
             if status != 200:
                 raise RuntimeError("PERSONAL_OS_CI_TASK_CLEANUP_FAILED")
+            # Revoking a referenced task must make the confirmed association
+            # disappear from the goal's default context, not leak a stale ID.
+            if created_link_id is not None and goal_link_id is not None:
+                stale = page.evaluate("""async ({goalId, taskId}) => {
+                  const token = localStorage.getItem('matrix-prp-token');
+                  const response = await fetch('/api/goals/' + goalId + '/context', {
+                    headers: {'Authorization': 'Bearer ' + token}, cache: 'no-store'
+                  });
+                  if (!response.ok) return null;
+                  const links = (await response.json()).data;
+                  return links.filter(x => x.predicate === 'ADVANCES'
+                    && x.subjectType === 'TASK' && x.subjectRef === String(taskId));
+                }""", {"goalId": goal_link_id, "taskId": created_task_id})
+                if stale != []:
+                    raise RuntimeError("PERSONAL_OS_REVOKED_TASK_STILL_IN_GOAL_CONTEXT")
+                erased = page.evaluate("""async memoryId => {
+                  const token = localStorage.getItem('matrix-prp-token');
+                  const response = await fetch('/api/memory/' + memoryId, {
+                    method: 'DELETE', headers: {'Authorization': 'Bearer ' + token},
+                    cache: 'no-store'
+                  });
+                  return response.status;
+                }""", created_link_id)
+                if erased != 200:
+                    raise RuntimeError("PERSONAL_OS_CI_TASK_LINK_ERASURE_FAILED")
+                print("CI_PERSONAL_OS_T007_REVOKED_TASK_LINK_EXCLUDED=PASS")
     print("CI_PERSONAL_OS_T007_OWNER_REVIEWED_TASK_ADOPTION=PASS")
     page.locator(".el-segmented").get_by_text("个人记忆", exact=True).click()
     if page.locator(".os-model-results").count():
