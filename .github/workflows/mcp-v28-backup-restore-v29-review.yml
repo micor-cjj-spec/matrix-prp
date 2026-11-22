@@ -31,6 +31,40 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: app/backend/pom.xml
+      - name: Bootstrap the pinned Maven 3.9.16 from verified distribution
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd app/backend
+          chmod +x mvnw
+          # Prefer the repository's wrapper; only its transport may fall back.
+          if ./mvnw --version; then
+            printf 'CI_PINNED_MAVEN_BINARY=%s/mvnw\n' "$PWD" >> "$GITHUB_ENV"
+            echo 'CI_MAVEN_WRAPPER_BOOTSTRAP_READY=YES'
+          else
+            # Maven Central distribution downloads repeatedly failed on GitHub
+            # runners. Use the exact SAME version from official Apache releases.
+            # SHA-512 is independently published by downloads.apache.org.
+            archive="$RUNNER_TEMP/apache-maven-3.9.16-bin.zip"
+            destination="$RUNNER_TEMP/maven-3.9.16-verified"
+            expected='ed41650d42485cfc243fad22158caf9cbb5dc408ce7a09ddb94dd42a019de929ca43065bfa450612cf12bf78b5cafa3884b96c090de326ff590448c933454af3'
+            curl --fail --silent --show-error --location \
+              --retry 3 --retry-delay 3 --connect-timeout 12 --max-time 90 \
+              'https://downloads.apache.org/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.zip' \
+              --output "$archive"
+            printf '%s  %s\n' "$expected" "$archive" | sha512sum --check --status || {
+              echo '::error::CI_APACHE_MAVEN_3_9_16_SHA512_MISMATCH' >&2
+              exit 1
+            }
+            mkdir -p "$destination"
+            unzip -q "$archive" -d "$destination"
+            rm -f -- "$archive"
+            binary="$destination/apache-maven-3.9.16/bin/mvn"
+            test -x "$binary"
+            "$binary" --version | grep -Fq 'Apache Maven 3.9.16'
+            printf 'CI_PINNED_MAVEN_BINARY=%s\n' "$binary" >> "$GITHUB_ENV"
+            echo 'CI_APACHE_MAVEN_3_9_16_SHA512_VERIFIED=YES'
+          fi
       - name: Run strictly disposable synthetic V28 snapshot to V29 restore test
         shell: bash
         run: |
@@ -107,7 +141,7 @@ jobs:
           cd app/backend
           chmod +x mvnw
           export PRP_CI_V28_RESTORE_PHASE=seed
-          ./mvnw -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
+          "$CI_PINNED_MAVEN_BINARY" -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
 
           docker exec -e MYSQL_PWD="$root_pw" "$src" \
             mysqldump --protocol=TCP -h 127.0.0.1 -uroot \
@@ -135,7 +169,7 @@ jobs:
             < "$temp/synthetic-v28.sql"
 
           export PRP_CI_V28_RESTORE_PHASE=verify_clone
-          ./mvnw -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
+          "$CI_PINNED_MAVEN_BINARY" -B -ntp -Dtest=IsolatedV28BackupRestoreMcpV29IT test
           echo "CI_FULL_SYNTHETIC_V28_DUMP_RESTORE_V29_CLONE=PASS"
           echo "NO_LIVE_HOST_V2_PRODUCTION_DB_OR_OFFHOST_BACKUP_ACCESSED=YES"
           echo "NO_G0_B2_OR_PRODUCTION_EXPORT_PERMISSION=YES"
