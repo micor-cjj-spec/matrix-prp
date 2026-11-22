@@ -45,7 +45,7 @@ PRP 主仓库公开。Issue 正文、评论和 GitHub Actions 输出不能存放
    - prp-chat-shell：专用 SSH 接入、强制只执行 gateway.sh，禁止 SFTP/端口转发/交互式 Shell；
    - prp-shell：实际执行命令的低权限账号，不属于 sudo 等特权组。
 3. 服务器独立生成 root-only RSA 私钥/公开证书。将**公开证书**经 SHA256 指纹核对后添加到可信 main 仓库路径；私钥永久留在服务器，不能交给 GitHub、GPT 或普通执行账号。
-4. 根管理员从审阅过的固定版本安装协议脚本、网关与执行器；精确配置 sudoers 仅允许运行这一条固定 Python 执行器命令（无参数）。配置 root-only 重放 SQLite 目录，不触碰现有 prp-deploy 和 prp-inspect SSH 账号。
+4. 根管理员从审阅过的固定版本安装协议脚本、网关与执行器；**网关脚本为 root:root 0555（供 SSH 非 root 账号执行），执行器 root:root 0500，protocol.py root:root 0400**。精确配置 sudoers 仅允许运行这一条固定 Python 执行器命令（无参数），不得授予 shell、docker、sudo 通配符。配置 root-only 重放 SQLite 目录，不触碰现有 prp-deploy 和 prp-inspect SSH 账号。
 5. 配置 GitHub Actions 独立 production-shell 环境中的 PRP_SHELL_HOST、PRP_SHELL_SSH_KEY、PRP_SHELL_KNOWN_HOSTS。不得复用 PRP_DEPLOY_* 或发布密钥，不要授予 workflows: write 或 contents: write。
 6. 先在**隔离测试机**验证带符号命令、unicode、标准输出/错误、退出码、重复评论、非 owner 评论、重放、证书错误、过期、超过 30 秒、输出截断、撤销 SSH 密钥。最后才考虑在正式 PRP 服务器上启用。
 
@@ -63,3 +63,11 @@ PRP 主仓库公开。Issue 正文、评论和 GitHub Actions 输出不能存放
 - GitHub 事件的 owner 身份只能证明提交评论的 GitHub 用户，不证明实际聊天批准；账户被盗即会产生严重风险。
 - GitHub Actions 的运行和发回结果可能由于队列、网络、超时而不确定；重复触发只能拒绝，不自动重跑。
 - 撤销独立 SSH 密钥和 production-shell 环境 Secrets 即能切断该通道；现有部署路径不应受到影响。
+
+## 2026-11-22 手动初始化进度
+
+- 已在 Debian 13 生产服务器上创建 `prp-shell` 和 `prp-chat-shell` 两个账号；root-only 加密密钥目录、重放目录和 RSA 证书已存在。
+- 已在服务器本地按固定 commit `ff75e80a` 执行全部 11 项离线测试，全部通过；公钥证书 SHA-256 指纹匹配。校验通过后，执行器、网关与协议模块安装在 `/usr/local/sbin/`。
+- 安装时网关误设为 `0500`，**必须先改为 `0555`**，否则非 root 的 SSH 接入账号无法启动它；脚本仍须 root 所有且父目录不可写。
+- **尚未添加专用 SSH authorized_keys、sudoers、Actions Secrets 或将触发工作流合入 main**；此时远程执行通道不可用。
+- 上述 11 项是离线单元测试，尚不能替代独立 SSH 授权、Actions 端到端测试与安全审查。GitHub CI 尚在排队。
