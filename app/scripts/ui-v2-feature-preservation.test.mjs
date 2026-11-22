@@ -141,3 +141,19 @@ test('sidebar supporting labels maintain WCAG AA contrast at both gradient stops
     }
   }
 })
+
+test('mobile PWA permits native pinch zoom without losing iOS safe areas', () => {
+  const html = source('web/index.html')
+  const globalCss = source('web/src/styles/main.css')
+  const viewport = html.match(/<meta name="viewport" content="([^"]+)"/)?.[1] ?? ''
+  assert.ok(viewport.includes('width=device-width') && viewport.includes('viewport-fit=cover'),
+    'mobile viewport must retain device width and iOS safe-area support')
+  assert.ok(!/(?:^|,)\\s*(?:maximum-scale|minimum-scale|user-scalable)\\s*=/.test(viewport),
+    'mobile viewport must not prevent browser zoom or cap magnification')
+  assert.ok(!/html\\s*\\{[^}]*touch-action:\\s*(?:none|pan-x|pan-y)/s.test(globalCss),
+    'global html touch-action must not suppress pinch zoom')
+  assert.ok(!entry.includes("addEventListener('gesturestart'"),
+    'do not prevent Safari gesturestart from activating user-controlled zoom')
+  assert.ok(globalCss.includes('font-size: 16px !important'),
+    'retain the iOS form-input font size safeguard against involuntary focus zoom')
+})
