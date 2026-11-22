@@ -101,6 +101,67 @@ def must(condition, message):
         raise AssertionError(message)
 
 
+
+def check_rendered_sidebar_contrast(page):
+    """Read actual computed styles in the browser, not only source CSS tokens."""
+    details = page.evaluate("""() => {
+        const sidebar = document.querySelector('aside.prp-sidebar')
+        if (!sidebar) throw new Error('Desktop sidebar missing')
+        const extractRgb = value => {
+            const groups = [...value.matchAll(/rgba?\(([^)]*)\)/g)]
+            return groups.map(group => {
+                const values = group[1].match(/\d+(?:\.\d+)?/g)
+                if (!values || values.length < 3)
+                    throw new Error('Unsupported computed CSS color: ' + value)
+                return values.slice(0, 3).map(Number)
+            })
+        }
+        const gradient = getComputedStyle(sidebar).backgroundImage
+        const backgrounds = extractRgb(gradient)
+        const labels = [
+            { selector: '.prp-brand .brand-copy small', expected: '个人成长与生活空间' },
+            { selector: '.nav-caption', expected: '个人工作空间' },
+        ].map(({selector, expected}) => {
+            const node = sidebar.querySelector(selector)
+            if (!node) throw new Error('Sidebar label missing: ' + selector)
+            const style = getComputedStyle(node)
+            const rect = node.getBoundingClientRect()
+            return {
+                selector, expected, text: node.textContent.trim(),
+                color: extractRgb(style.color)[0],
+                visible: style.display !== 'none' && style.visibility !== 'hidden'
+                         && rect.width > 0 && rect.height > 0,
+            }
+        })
+        return { backgrounds, labels, gradient }
+    }""")
+
+    def luminance(channels):
+        values = [channel / 255 for channel in channels]
+        linear = [value / 12.92 if value <= 0.04045
+                  else ((value + 0.055) / 1.055) ** 2.4 for value in values]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    must(len(details["backgrounds"]) == 2,
+         "Expected both computed sidebar gradient stops: " + details["gradient"])
+    for label in details["labels"]:
+        must(label["visible"] and label["text"] == label["expected"],
+             "Desktop sidebar supporting label hidden or altered: " + label["selector"])
+        must(label["color"] is not None and len(label["color"]) == 3,
+             "Cannot read rendered text color: " + label["selector"])
+        for background in details["backgrounds"]:
+            text_luminance = luminance(label["color"])
+            bg_luminance = luminance(background)
+            contrast = (max(text_luminance, bg_luminance) + 0.05) / (
+                min(text_luminance, bg_luminance) + 0.05
+            )
+            must(contrast >= 4.5,
+                 "Rendered WCAG AA contrast under 4.5:1 for "
+                 + label["selector"] + " (" + f"{contrast:.2f}" + ":1)")
+    print("PASS 1280px browser-computed sidebar subtitle/caption contrast >= 4.5:1 "
+          "at both gradient stops", flush=True)
+
+
 def open_tab(page, target, mobile):
     nav = page.locator("nav.prp-mobile-tabs" if mobile else "nav.prp-main-nav")
     must(nav.is_visible(), "Expected navigation not visible")
@@ -161,6 +222,9 @@ def check_viewport(browser, width, height):
         must(page.locator("nav.prp-main-nav a").count() == 4, "Desktop nav != 4")
         must(page.locator("nav.prp-mobile-tabs a").count() == 4, "Mobile nav != 4")
         must(page.locator("nav.prp-mobile-tabs").is_visible() == mobile, "Responsive tabbar visibility")
+
+        if not mobile:
+            check_rendered_sidebar_contrast(page)
 
         button = page.locator(".home-v2-complete-button")
         button.wait_for(timeout=15000)
