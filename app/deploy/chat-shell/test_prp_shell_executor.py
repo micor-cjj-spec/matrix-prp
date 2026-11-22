@@ -101,7 +101,8 @@ class SignedJobContract(unittest.TestCase):
             path = Path(directory) / "used.sqlite3"
             with mock.patch.object(module, "STATE_DIR", Path(directory)), \
                  mock.patch.object(module, "STATE_DB", path), \
-                 mock.patch.object(module, "_protected_dir"):
+                 mock.patch.object(module, "_protected_dir"), \
+                 mock.patch.object(module, "_protected_file"):
                 job_id = str(uuid4())
                 module.claim_once(job_id, "a" * 32)
                 with self.assertRaisesRegex(module.Denied, "REPLAY_DENIED"):
