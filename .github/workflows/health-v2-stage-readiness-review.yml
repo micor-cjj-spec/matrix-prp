@@ -1,0 +1,39 @@
+name: Health V2 staging evidence preflight (review only)
+
+on:
+  push:
+    branches:
+      - review/health-v2-stage-readiness-20261122-0250
+    paths:
+      - app/deploy/health-v2/**
+      - .github/workflows/health-v2-stage-readiness-review.yml
+  pull_request:
+    branches:
+      - main
+      - integration/wellness-v2-main-aligned-ci-20261122
+    paths:
+      - app/deploy/health-v2/**
+      - .github/workflows/health-v2-stage-readiness-review.yml
+
+permissions:
+  contents: read
+
+jobs:
+  offline-readiness-contract:
+    name: Synthetic offline stage attestation guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed commit without saved credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test fail-closed offline staging evidence contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s app/deploy/health-v2 -p 'test_*.py' -v
+          echo 'HEALTH_V2_STAGE_ATTESTATION_OFFLINE_TESTS=PASS'
+          echo 'REAL_HOST_VALIDATION=NOT_PERFORMED'
+          echo 'UAT_APPROVAL=NOT_GRANTED'
+          echo 'PRODUCTION_DEPLOYMENT_APPROVED=NO'

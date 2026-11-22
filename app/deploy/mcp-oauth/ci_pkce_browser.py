@@ -147,6 +147,18 @@ def wait_ready(opener, url, max_seconds=150):
     raise RuntimeError("Temporary environment not healthy: " + stage)
 
 
+def disposable_https_opener(ca_file):
+    """Connect only to the isolated CI HTTPS vhosts; ignore inherited proxies.
+
+    Each browser flow gets its own cookie jar, a disposable CA trust context,
+    and the same origin-bound redirect policy. Never disable TLS verification.
+    """
+    return build_opener(
+        ProxyHandler({}),
+        HTTPSHandler(context=ssl.create_default_context(cafile=ca_file)),
+        HTTPCookieProcessor(CookieJar()), SafeRedirect())
+
+
 def add_user(opener, admin_password, username, password):
     admin_token = json_response(request(opener, ADMIN + "/realms/master/protocol/openid-connect/token",
         data={"grant_type": "password", "client_id": "admin-cli",
@@ -428,14 +440,9 @@ def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
         raise RuntimeError("This test requires an isolated GitHub Actions runner")
     ca = os.environ["MCP_E2E_CA_CERT"]
-    context = ssl.create_default_context(cafile=ca)
-    # Authenticate against the actual HTTPS staging-style proxy and retain
-    # browser cookies for the Keycloak login/consent pages.
-    # All E2E URLs use synthetic *.localhost or 127.0.0.1 addresses.
-    # Explicitly bypass runner-provided HTTP(S) proxies for the disposable
-    # loopback stack; retain the exact CA and HTTPS certificate validation.
-    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context),
-                          HTTPCookieProcessor(CookieJar()), SafeRedirect())
+    # Preserve current-main sanitized diagnostics; use the reviewed HTTPS
+    # handler with isolated CA, cookie jar, no inherited proxies, safe redirects.
+    opener = disposable_https_opener(ca)
     admin_pass = os.environ["MCP_E2E_KC_ADMIN_PASSWORD"]
     user_password = os.environ["MCP_E2E_KC_USER_PASSWORD"]
     prp_password = os.environ["MCP_E2E_PRP_PASSWORD"]
