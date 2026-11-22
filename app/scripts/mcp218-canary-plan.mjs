@@ -29,7 +29,8 @@ export function checkCanaryPlan(plan) {
     const host=value.slice(prefix.length,-suffix.length);
     if(host.includes("/")||host.includes(":")||host.includes("@")||host.includes("?")||host.includes("#"))return null;
     const labels=host.split(".");
-    if(labels.length<2||labels.some(x=>!(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(x))))return null;
+    // Match the Realm candidate and DNS format: ASCII labels <=63, full host <=253.
+    if(host.length>253||labels.length<2||labels.some(x=>x.length>63||!(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(x))))return null;
     const banned=new Set(["micor.top","www.micor.top","api.micor.top","prp.micor.top","auth.micor.top","prp-test.micor.top","auth-test.micor.top","localhost"]);
     if(banned.has(host)||/\.(invalid|example|test|localhost|local)$/.test(host))return null;
     if(/^[0-9.]+$/.test(host))return null;
