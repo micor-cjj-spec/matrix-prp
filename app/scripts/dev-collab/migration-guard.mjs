@@ -9,6 +9,7 @@ const STATE='prp-collab-state'
 const PROPOSAL='proposal/prp-collab-state-scope-20261101'
 const FILE='requirements/REQ-20261031-001.json'
 const SHA=/^[a-f0-9]{40}$/
+const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
 const OWNER='micor-cjj-spec'
 const OWNER_ID=123868412
 const FIELDS=['task_id','issue_number','title','status','depends_on','allowed_paths','claim']
@@ -82,6 +83,30 @@ export function verifyExactTaskDelta(before,after){
     from_version:before.version,to_version:after.version,changed_state_file:FILE}
 }
 
+/** Solo owner approval exists ONLY for the authenticated issues.opened runner.
+ * The raw ChatGPT message is not proof. issue-migrate.mjs must first validate
+ * the original GitHub event against its current owner-authored Issue.
+ * The manual workflow CLI cannot provide ownerIssue and retains review gating. */
+function verifyOwnerIssuedApproval(ownerIssue,stateSha,proposalSha,reviews){
+  const cmd=ownerIssue?.command
+  requireRule(ownerIssue?.oneShotMigration===true &&
+    ownerIssue.actor===OWNER && ownerIssue.actorId===OWNER_ID &&
+    Number.isSafeInteger(ownerIssue.source_issue) && ownerIssue.source_issue>0 &&
+    cmd?.type==='migrate_v1' &&
+    cmd.requirement_id==='REQ-20261031-001' &&
+    UUID.test(cmd.request_id||'') &&
+    cmd.expected_state_sha===stateSha &&
+    cmd.expected_proposal_sha===proposalSha,
+    'OWNER_ISSUE_PROOF_REQUIRED')
+  // Solo does not mean disregarding an existing explicit adverse review.
+  // Conservatively block on ANY exact-head CHANGES_REQUESTED record, including
+  // dismissed/replaced comments; an owner must prepare a new reviewed proposal.
+  requireRule(Array.isArray(reviews)&&reviews.length<100,'REVIEW_PAGINATION_INCOMPLETE')
+  requireRule(!reviews.some(r=>r?.state==='CHANGES_REQUESTED' &&
+    r?.commit_id===proposalSha),'OWNER_ISSUE_CHANGES_REQUESTED')
+  return true
+}
+
 /** Read-only attestation; never authorizes merge, task acceptance or deployment. */
 export function verifyMigrationEvidence(input){
   const {before,after,pr,prFiles,reviews,rule,appId,ruleId,
@@ -106,7 +131,11 @@ export function verifyMigrationEvidence(input){
       appInstallation?.repositories?.length===1 &&
       appInstallation.repositories[0]?.full_name===REPO,'APP_INSTALLATION_SCOPE')
   }
-  const independentReview=mode==='apply'
+  const soloOwnerIssue=input.ownerIssue!==undefined
+    ? (requireRule(mode==='apply','OWNER_ISSUE_APPLY_ONLY'),
+       verifyOwnerIssuedApproval(input.ownerIssue,stateSha,proposalSha,reviews))
+    : false
+  const independentReview=mode==='apply'&&!soloOwnerIssue
     ? verifyIndependentProposalReview(pr,reviews,proposalSha) : null
   return {status:mode==='apply'?'APP_WRITE_PRECONDITIONS_OBSERVED':'READ_ONLY_PRECHECK_PASSED',
     mode,expected_state_sha:stateSha,expected_proposal_sha:proposalSha,
@@ -114,6 +143,7 @@ export function verifyMigrationEvidence(input){
     designated_app_bypass_verified:rulePolicy.appCanBypass,
     bypass_actor_list_visible:rulePolicy.bypassActorsVerified,
     independent_review_verified:independentReview!==null,
+    owner_issue_approval_verified:soloOwnerIssue===true,
     independent_reviewer:independentReview?.reviewer??null,
     state_write_authorized_by_this_report:false,production_deploy_authorized:false}
 }

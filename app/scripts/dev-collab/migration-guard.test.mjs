@@ -237,3 +237,50 @@ test('manual apply rereads reviewer approval, PR identity and App scope after co
  const run=spawnSync('bash',['-n',new URL('./migration-transaction.sh',import.meta.url).pathname],{encoding:'utf8'})
  assert.equal(run.status,0,run.stderr)
 })
+
+test('solo approval needs a pinned verified GitHub Owner Issue, not chat text or a self review',()=>{
+ const e=input()
+ e.mode='apply'
+ e.pr.draft=false
+ e.approvalPhrase='APPLY-REQ-20261031-001-V1'
+ e.appInstallation={total_count:1,repositories:[{full_name:'micor-cjj-spec/matrix-prp'}]}
+ // Historical manual mode retains the original independent review gate.
+ fails(e,'INDEPENDENT_REVIEW_REQUIRED')
+ const command={type:'migrate_v1',request_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  requirement_id:'REQ-20261031-001',
+  expected_state_sha:z,expected_proposal_sha:h}
+ const authorized={oneShotMigration:true,actor:'micor-cjj-spec',
+  actorId:123868412,source_issue:265,command}
+ e.ownerIssue=authorized
+ const report=verifyMigrationEvidence(e)
+ assert.equal(report.owner_issue_approval_verified,true)
+ assert.equal(report.independent_review_verified,false)
+ assert.equal(report.state_write_authorized_by_this_report,false)
+ for(const invalid of [
+  {...authorized,actorId:456},
+  {...authorized,actor:'stranger'},
+  {...authorized,source_issue:0},
+  {...authorized,oneShotMigration:false},
+  {...authorized,command:{...command,expected_state_sha:'a'.repeat(40)}},
+  {...authorized,command:{...command,type:'claim'}},
+  {...authorized,command:{...command,request_id:'unstructured chat consent'}}
+ ]){
+  e.ownerIssue=invalid
+  fails(e,'OWNER_ISSUE_PROOF_REQUIRED')
+ }
+ e.ownerIssue=authorized
+ e.reviews=[{state:'CHANGES_REQUESTED',commit_id:h}]
+ fails(e,'OWNER_ISSUE_CHANGES_REQUESTED')
+ e.reviews=[]
+ e.pr.draft=true
+ fails(e,'PROPOSAL_STILL_DRAFT')
+ e.pr.draft=false
+ e.appInstallation={total_count:2,repositories:[{full_name:'micor-cjj-spec/matrix-prp'}]}
+ fails(e,'APP_INSTALLATION_SCOPE')
+})
+
+test('read-only preflight never accepts a fabricated owner Issue approval',()=>{
+ const e=input()
+ e.ownerIssue={oneShotMigration:true}
+ fails(e,'OWNER_ISSUE_APPLY_ONLY')
+})
