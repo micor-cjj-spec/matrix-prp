@@ -6,9 +6,11 @@ on:
   push:
     branches:
       - docs/mcp218-isolated-review-video-canary-preflight-20261122
+      - fix/mcp218-canary-plan-dns-boundaries-20261122
   pull_request:
     branches:
       - fix/mcp218-review-video-optin-isolation-20261122
+      - docs/mcp218-isolated-review-video-canary-preflight-20261122
 
 permissions:
   contents: read
