@@ -97,8 +97,10 @@ public class WellnessController {
     @DeleteMapping("/meals/{id}")
     public ApiResponse<Void> deleteMeal(@PathVariable long id) { service.deleteMeal(id); return ApiResponse.success(); }
     @PostMapping("/meals/{id}/copy")
-    public ApiResponse<Meal> copyMeal(@PathVariable long id, @RequestParam @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate date) {
-        return ApiResponse.success(service.copyMeal(id, date));
+    public ApiResponse<Meal> copyMeal(@PathVariable long id,
+            @RequestParam @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required=false) String idempotencyKey) {
+        return ApiResponse.success(service.copyMeal(id, date, idempotencyKey));
     }
 
     @GetMapping("/exercises")
@@ -143,6 +145,11 @@ public class WellnessController {
     @GetMapping("/summary/daily")
     public ApiResponse<DailySummary> summary(@RequestParam @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate date) {
         return ApiResponse.success(service.daily(date));
+    }
+    /** First-party nutrition visualization only; no MCP route or model raw data. */
+    @GetMapping("/summary/nutrition-trends")
+    public ApiResponse<List<NutritionTrendPoint>> nutritionTrends(@RequestParam(defaultValue="30") int days) {
+        return ApiResponse.success(service.nutritionTrends(days));
     }
     @GetMapping("/summary/trends")
     public ApiResponse<List<TrendPoint>> trends(@RequestParam(defaultValue="30") int days) {
