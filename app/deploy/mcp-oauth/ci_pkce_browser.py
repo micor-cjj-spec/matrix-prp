@@ -140,22 +140,38 @@ def json_response(response, stage):
 
 def wait_ready(opener, url, max_seconds=150):
     until = time.monotonic() + max_seconds
-    last_http = None
-    last_exception = None
+    attempts = 0
+    last_http_status = "none"
+    last_error_type = "none"
     while time.monotonic() < until:
+        attempts += 1
         try:
-            last_http = request(opener, url)[0]
-            if last_http == 200:
+            status = request(opener, url)[0]
+            last_http_status = str(status)
+            last_error_type = "none"
+            if status == 200:
                 return
         except (OSError, ValueError, ssl.SSLError) as error:
-            # Print only the error class, never request URLs, headers, bodies,
-            # cookies, credentials, tokens or exception text.
-            last_exception = type(error).__name__
+            # Diagnostic data is deliberately restricted to the exception class.
+            # Never log exception text, response bodies, URLs or credentials.
+            reason = getattr(error, "reason", error)
+            # URLError wraps the underlying OS/DNS/TLS exception. Keep just
+            # its class and numeric errno, never the raw exception message.
+            last_error_type = type(error).__name__ + ":" + type(reason).__name__
+            reason_errno = getattr(reason, "errno", None)
+            if isinstance(reason_errno, int):
+                last_error_type += ":" + str(reason_errno)
+            verify_code = getattr(reason, "verify_code", None)
+            if isinstance(verify_code, int):
+                # OpenSSL X509_V_ERR_* numeric code only, never certificate text.
+                last_error_type += ":x509=" + str(verify_code)
         time.sleep(3)
     stage = "Keycloak" if "auth-" in url else "PRP"
-    diagnostic = (" HTTP_" + str(last_http) if last_http is not None else "")
-    diagnostic += (" transport_" + last_exception if last_exception else "")
-    raise RuntimeError("Temporary environment not healthy: " + stage + diagnostic)
+    print("E2E_DIAG_PYTHON_READY stage=" + stage
+          + " attempts=" + str(attempts)
+          + " last_http=" + last_http_status
+          + " last_error_type=" + last_error_type, file=sys.stderr)
+    raise RuntimeError("Temporary environment not healthy: " + stage)
 
 
 def add_user(opener, admin_password, username, password):
