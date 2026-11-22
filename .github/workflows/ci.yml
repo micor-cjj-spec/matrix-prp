@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/multi-user-foundation, fix/mcp218-review-video-optin-isolation-20261122]
+    branches: [main, feat/multi-user-foundation]
   pull_request:
     branches: [main, fix/mcp-v24-lineage-conflict-20261022, feat/mcp-review-video-optin-scopes-20261121]
 
