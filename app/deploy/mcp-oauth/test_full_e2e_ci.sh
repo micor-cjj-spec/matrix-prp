@@ -370,6 +370,8 @@ java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
   > "$tmp/prp-backend.log" 2>&1 &
 backend_pid="$!"
 
+# Test isolated TLS/proxy/redirect guard before attempting real PKCE.
+python3 -m unittest discover -s app/deploy/mcp-oauth -p test_ci_callback.py -q
 # Only generic PASS/failure step names are printed by the browser driver.
 # If isolated readiness fails, emit only bounded non-secret diagnostics:
 # Keycloak container state and HTTP status of synthetic public OIDC discovery.
