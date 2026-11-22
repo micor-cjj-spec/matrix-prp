@@ -52,6 +52,13 @@ public class VideoLibraryService {
                 "WHERE user_id=? ORDER BY sort_order,id", folderRow, CurrentUser.id());
     }
 
+    /** Bounded metadata-only query for optional MCP reads; no storage access. */
+    public List<Folder> foldersLimited(int limit) {
+        if (limit < 1 || limit > 50) throw new IllegalArgumentException("Folder limit must be 1..50");
+        return jdbc.query("SELECT id,parent_id,name,sort_order FROM prp_video_folders " +
+                "WHERE user_id=? ORDER BY sort_order,id LIMIT ?", folderRow, CurrentUser.id(), limit);
+    }
+
     public Folder createFolder(FolderRequest request) {
         long user = CurrentUser.id();
         requireFolder(user, request.parentId());
@@ -101,6 +108,22 @@ public class VideoLibraryService {
                 "WHERE a.user_id=?" + (folderId == null ? "" : " AND a.folder_id=?") +
                 " ORDER BY a.created_at DESC,a.id DESC";
         return folderId == null ? jdbc.query(query, videoRow, user) : jdbc.query(query, videoRow, user, folderId);
+    }
+
+    /** SQL-bounded read of owner's video metadata and persisted viewing progress. */
+    public List<Video> videosLimited(Long folderId, int limit) {
+        if (limit < 1 || limit > 30) throw new IllegalArgumentException("Video limit must be 1..30");
+        if (folderId != null && folderId <= 0) throw new IllegalArgumentException("folderId must be positive");
+        long user = CurrentUser.id();
+        if (folderId != null) requireFolder(user, folderId);
+        String query = "SELECT a.id,a.folder_id,a.title,a.size_bytes,a.created_at, " +
+                "COALESCE(p.position_seconds,0) AS position_seconds, " +
+                "COALESCE(p.duration_seconds,0) AS duration_seconds FROM prp_video_assets a " +
+                "LEFT JOIN prp_video_progress p ON p.video_id=a.id AND p.user_id=a.user_id " +
+                "WHERE a.user_id=?" + (folderId == null ? "" : " AND a.folder_id=?") +
+                " ORDER BY a.created_at DESC,a.id DESC LIMIT ?";
+        return folderId == null ? jdbc.query(query, videoRow, user, limit)
+                : jdbc.query(query, videoRow, user, folderId, limit);
     }
 
     public Video updateVideo(long id, VideoUpdate request) {

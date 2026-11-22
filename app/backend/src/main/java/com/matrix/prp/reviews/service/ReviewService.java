@@ -24,6 +24,12 @@ public class ReviewService {
         return reviewRepository.list(filter);
     }
 
+    /** Separate bounded read path for MCP; REST list remains unchanged. */
+    public List<ReviewItem> listLimited(ReviewFilter filter, int limit) {
+        if (limit < 1 || limit > 20) throw new IllegalArgumentException("Review limit must be 1..20");
+        return reviewRepository.listLimited(filter, limit);
+    }
+
     public ReviewItem create(CreateReviewRequest request) {
         return reviewRepository.create(request);
     }
