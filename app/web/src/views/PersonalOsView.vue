@@ -177,6 +177,14 @@ function describeMemory(item: PersonalMemory) {
   return `${item.objectType} · #${item.objectRef ?? '—'}`
 }
 
+function describeGoalLink(link: PersonalGoalLink) {
+  // In TASK --ADVANCES--> GOAL, the selected goal is the object;
+  // show the actual task subject rather than repeating this goal ID.
+  if (link.predicate === 'ADVANCES' && link.subjectType === 'TASK')
+    return `任务 #${link.subjectRef}`
+  return link.objectValue || `${link.objectType} #${link.objectRef || '—'}`
+}
+
 // These fields are never fetched during page initialization or general refresh.
 async function togglePrivateMemories() {
   if (privateOpen.value) {
@@ -771,7 +779,7 @@ onMounted(async () => {
             <el-skeleton v-if="contextLoading" :rows="2" animated />
             <div v-for="link in context" :key="link.assertionId" class="os-evidence">
               <strong>{{ relationLabels[link.predicate] || link.predicate }}</strong>
-              <span>{{ link.objectValue || (link.objectType + ' #' + (link.objectRef || '—')) }}</span>
+              <span>{{ describeGoalLink(link) }}</span>
               <small>事实 #{{ link.assertionId }} · 已确认</small>
             </div>
             <div v-if="taskLinkPending && taskLinkPending.goalId === selectedGoal.id"
