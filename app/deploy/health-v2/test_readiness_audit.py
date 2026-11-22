@@ -65,6 +65,10 @@ class ReadinessTests(unittest.TestCase):
     def test_production_database(self):
         self.assert_blocked(lambda d: d["stage"].update(database_name="matrix_prp"), "SHARED_OR_PRODUCTION_DB")
 
+    def test_shared_v2_database_is_not_a_dedicated_health_stage(self):
+        self.assert_blocked(lambda d: d["stage"].update(database_name="matrix_prp_mcp_stage_v2"), "SHARED_OR_PRODUCTION_DB")
+        self.assert_blocked(lambda d: d["stage"].update(database_name="matrix_prp_mcp_stage_v2_clone"), "SHARED_OR_PRODUCTION_DB")
+
     def test_real_data_forbidden(self):
         self.assert_blocked(lambda d: d["stage"].update(production_data_used=True), "UNSAFE_PRODUCTION_DATA_USED")
 
