@@ -148,8 +148,6 @@ def run_case(browser, width, deep_link):
                   "Health workflow missing: " + tab)
         check(page.locator(".nutrition-panel").count() == 1,
               "Nutrition completeness panel missing")
-        check(page.get_by_text("营养信息不完整", exact=False).count() >= 0,
-              "Unexpected nutrition state")
         check(page.locator(".nutrition-panel").inner_text().find("完整度 0%") != -1,
               "Unknown macros must not display as fully known")
         check("—" in page.locator(".nutrition-panel").inner_text(),
@@ -163,7 +161,8 @@ def run_case(browser, width, deep_link):
         page.get_by_role("button", name="2026-11-20：没有记录热量").click()
         check("没有记录热量" in page.locator(".trend-selection").inner_text(),
               "Missing data must remain missing")
-        page.get_by_role("radio", name="蛋白质").click()
+        page.locator(".trend-controls .el-radio-button__inner").filter(
+            has_text="蛋白质").click()
         page.get_by_role("group", name="近14天蛋白质趋势").wait_for(timeout=10000)
 
         # Check user workflow tabs without creating meals, drafts or changes.
