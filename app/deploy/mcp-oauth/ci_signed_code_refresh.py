@@ -137,11 +137,7 @@ def run():
     if os.environ.get("MCP_E2E_CRUD") == "true":
         raise RuntimeError("SIGNED_USER_TEST_REQUIRES_READONLY_STAGE")
     browser.CLIENT = CLIENT  # Exclusive to this standalone process.
-    context = ssl.create_default_context(cafile=os.environ["MCP_E2E_CA_CERT"])
-    opener = browser.build_opener(
-        browser.HTTPSHandler(context=context),
-        browser.HTTPCookieProcessor(CookieJar()), browser.SafeRedirect(),
-    )
+    opener = browser.disposable_https_opener(os.environ["MCP_E2E_CA_CERT"])
     browser.wait_ready(opener, browser.ISSUER + "/.well-known/openid-configuration")
     with tempfile.TemporaryDirectory(prefix="mcp-signed-browser-", dir=os.environ["RUNNER_TEMP"]) as folder:
         key, cert = signed.create_keypair(Path(folder))
