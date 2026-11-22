@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { fetchRecords, type RecordItem } from '@/api/records'
+import { createTask } from '@/api/tasks'
 import {
   changePersonalGoalStatus, confirmPersonalMemory, createPersonalGoal,
   erasePersonalMemory, fetchConfirmedMemories, fetchMemoryCandidates,
@@ -11,7 +12,7 @@ import {
   proposePersonalMemory, replacePersonalMemory, fetchMemoryChatSource, fetchNormalMemoryHistory,
   type ChatEvidenceSource, type GoalStatus, type MemoryPredicate, type MemorySensitivity,
   previewGoalModelSharing, confirmGoalModelSharing, suggestGoalModelAdvice,
-  type PlanningModelReview, type PlanningModelAdvice,
+  type PlanningModelReview, type PlanningModelAdvice, type PlanningModelProposal,
   type PersonalGoal, type PersonalGoalLink, type PersonalMemory,
 } from '@/api/personalOs'
 
@@ -74,12 +75,27 @@ const adviceReview = ref<PlanningModelReview | null>(null)
 const adviceOutput = ref<PlanningModelAdvice | null>(null)
 const adviceBusy = ref(false)
 let adviceGeneration = 0
+const taskDraftOpen = ref(false)
+const taskDraftSaving = ref(false)
+const taskDraftGoalId = ref<number | null>(null)
+const taskDraftOwnerToken = ref<string | null>(null)
+const taskDraftForm = reactive({ title: '', description: '', priority: 'medium' })
+
+function clearTaskDraft() {
+  taskDraftOpen.value = false
+  taskDraftGoalId.value = null
+  taskDraftOwnerToken.value = null
+  taskDraftForm.title = ''
+  taskDraftForm.description = ''
+  taskDraftForm.priority = 'medium'
+}
 
 function clearPlanningAdvice() {
   ++adviceGeneration
   adviceReview.value = null
   adviceOutput.value = null
   adviceBusy.value = false
+  clearTaskDraft()
 }
 watch(sharePersonalFacts, clearPlanningAdvice)
 const correctionTarget = ref<PersonalMemory | null>(null)
@@ -326,6 +342,49 @@ async function generateGoalModelAdvice() {
     ElMessage.error('建议生成失败或授权已失效，请重新预览后确认')
   } finally {
     if (generation === adviceGeneration) adviceBusy.value = false
+  }
+}
+
+function openAdviceTaskDraft(proposal: PlanningModelProposal) {
+  const advice = adviceOutput.value
+  if (!advice || !auth.token || activeTab.value !== 'goals'
+      || selectedGoalId.value !== advice.goalId
+      || !advice.proposals.includes(proposal) || taskDraftSaving.value) return
+  clearTaskDraft()
+  taskDraftGoalId.value = advice.goalId
+  taskDraftOwnerToken.value = auth.token
+  taskDraftForm.title = proposal.title.slice(0, 120)
+  taskDraftForm.description = proposal.rationale.slice(0, 400)
+  taskDraftOpen.value = true
+}
+
+async function saveAdviceTaskDraft() {
+  if (!taskDraftOpen.value || taskDraftSaving.value
+      || !auth.token || auth.token !== taskDraftOwnerToken.value
+      || selectedGoalId.value !== taskDraftGoalId.value || activeTab.value !== 'goals'
+      || !adviceOutput.value || adviceOutput.value.goalId !== taskDraftGoalId.value
+      || !taskDraftForm.title.trim()) return
+  const identity = auth.token
+  const goalId = taskDraftGoalId.value
+  taskDraftSaving.value = true
+  try {
+    // AI-generated advice does NOT write tasks. This requires a separate owner click.
+    const created = await createTask({
+      moduleCode: 'learning',
+      title: taskDraftForm.title.trim().slice(0, 120),
+      description: taskDraftForm.description.trim().slice(0, 400),
+      priority: taskDraftForm.priority,
+      dueDate: null,
+    })
+    if (identity !== auth.token || goalId !== selectedGoalId.value
+        || activeTab.value !== 'goals') return
+    clearTaskDraft()
+    ElMessage.success(`任务 #${created.id} 已创建，可在任务模块编辑；尚未建立目标关系`)
+  } catch {
+    if (identity === auth.token && goalId === selectedGoalId.value)
+      ElMessage.error('任务创建结果未确认，请先到任务模块检查，避免重复提交')
+  } finally {
+    taskDraftSaving.value = false
   }
 }
 
@@ -685,6 +744,9 @@ onMounted(async () => {
                   <p>{{ proposal.rationale }}</p>
                   <small>证据：{{ proposal.evidenceRefs.join('、') }}</small>
                   <p v-if="proposal.assumptions.length">待核实：{{ proposal.assumptions.join('；') }}</p>
+                  <div class="os-card-actions">
+                    <el-button size="small" :disabled="taskDraftSaving" @click="openAdviceTaskDraft(proposal)">采纳为任务（先审核）</el-button>
+                  </div>
                 </article>
                 <p class="os-help">{{ adviceOutput.limitation }}</p>
                 <el-button @click="reviewGoalModelSharing">重新预览后再生成</el-button>
@@ -840,6 +902,34 @@ onMounted(async () => {
             <small>{{ record.moduleCode }} · #{{ record.id }}</small></div>
         </article>
       </section>
+
+      <el-dialog v-model="taskDraftOpen" title="采纳 AI 建议为任务" width="min(92vw, 520px)"
+        destroy-on-close :close-on-click-modal="!taskDraftSaving"
+        :close-on-press-escape="!taskDraftSaving" :show-close="!taskDraftSaving">
+        <p class="os-help">请核对并修改建议。只有明确点击「确认创建任务」才会写入本人任务列表；模型不会自动写入，也不会自动建立目标关系。</p>
+        <el-form label-position="top" @submit.prevent>
+          <el-form-item label="任务标题">
+            <el-input v-model="taskDraftForm.title" maxlength="120" show-word-limit aria-label="任务标题" />
+          </el-form-item>
+          <el-form-item label="任务说明">
+            <el-input v-model="taskDraftForm.description" type="textarea" :rows="3"
+              maxlength="400" show-word-limit aria-label="任务说明" />
+          </el-form-item>
+          <el-form-item label="优先级">
+            <el-select v-model="taskDraftForm.priority" aria-label="任务优先级">
+              <el-option label="低" value="low" />
+              <el-option label="中" value="medium" />
+              <el-option label="高" value="high" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button :disabled="taskDraftSaving" @click="clearTaskDraft">取消</el-button>
+          <el-button type="primary" :loading="taskDraftSaving"
+            :disabled="!taskDraftForm.title.trim() || !taskDraftOwnerToken || taskDraftOwnerToken !== auth.token"
+            @click="saveAdviceTaskDraft">确认创建任务</el-button>
+        </template>
+      </el-dialog>
 
       <el-dialog v-model="chatSourceOpen" title="原始聊天来源 · 仅本人查看"
         width="min(92vw, 540px)" append-to-body destroy-on-close @closed="clearChatSource">
