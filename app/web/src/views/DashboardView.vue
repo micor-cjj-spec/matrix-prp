@@ -139,7 +139,7 @@ onMounted(refresh)
           <div v-else class="home-task-list">
             <div v-for="task in todoItems" :key="task.id" class="home-task">
               <el-button circle plain :disabled="pendingTask !== null"
-                :loading="pendingTask === task.id" aria-label="完成任务" @click="completeTask(task.id)">
+                :loading="pendingTask === task.id" :aria-label="'完成任务：' + task.title" @click="completeTask(task.id)">
                 <el-icon><Check /></el-icon>
               </el-button>
               <div class="home-task-copy"><strong>{{ task.title }}</strong><small>{{ moduleLabel(task.moduleCode) }} · {{ priorityLabel(task.priority) }} · {{ task.dueDate || '待安排' }}</small></div>
