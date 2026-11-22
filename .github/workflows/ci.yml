@@ -387,6 +387,11 @@ jobs:
     permissions:
       contents: read
 
+  wellness-integrated-v29-restore-v30:
+    uses: ./.github/workflows/wellness-v29-backup-restore-v30-review.yml
+    permissions:
+      contents: read
+
   mcp-integrated-v24-backup-restore:
     uses: ./.github/workflows/mcp-full-v24-backup-restore-review.yml
     permissions:
