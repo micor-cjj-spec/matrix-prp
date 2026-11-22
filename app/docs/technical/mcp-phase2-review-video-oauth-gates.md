@@ -36,6 +36,19 @@ do not appear. The two flags are independent; no environment configuration is
 changed in this PR. New scopes in resource metadata are **not** token grants,
 owner consent, or proof of real ChatGPT authentication.
 
+**Owner-grant replacement guardrail:** `POST /api/mcp/clients` currently writes
+an **entire replacement scope set** for a client (not an additive grant).
+Before any authorized staging experiment, use the authenticated owner's
+existing `GET /api/mcp/clients` view to review that exact client's ACTIVE,
+non-expired scopes, and obtain explicit owner consent for the complete desired
+post-change set. A request containing **only** `prp.reviews.read,prp.video.read`
+could remove existing task/health/write scopes. Do not silently preserve
+unwanted permissions either: show the exact full set to the owner, and require
+confirmation before submitting it. For rollback, restore only the verified,
+owner-approved prior scope set after obtaining fresh authorization; do not
+invent previous grants or assume revoking the entire client is harmless. Never
+copy access tokens, owner passwords or client secrets into issues/logs.
+
 This would be a multi-capability V2 canary; it **does not satisfy** #149's
 separate frozen task-only scope contract. #149 remains NO-GO until a distinct
 owner decision; #218 remains NO-GO until exact-head CI, approval, real OAuth,
