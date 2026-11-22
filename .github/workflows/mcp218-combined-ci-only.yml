@@ -252,8 +252,8 @@ jobs:
           python3 -m unittest discover -s app/deploy/chat-shell -p test_bridge_transport.py -v
           python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -v
           node --test app/scripts/mcp218-canary-plan.test.mjs
-          chmod +x app/backend/mvnw
-          (cd app/backend && ./mvnw -B test)
+          # Do not chmod the tracked Maven wrapper: it dirties the merge worktree.
+          (cd app/backend && bash ./mvnw -B test)
           echo "MCP218_LOCAL_MERGED_TREE_TESTED_WITHOUT_GITHUB_MERGE"
       - name: Abort local merge and prove the source HEAD was never advanced
         shell: bash
@@ -263,6 +263,7 @@ jobs:
           git -C merged merge --abort
           # Maven/Python intentionally leave untracked build caches; only the
           # tracked source/index and HEAD matter after aborting a local merge.
+          git -C merged diff --name-only
           git -C merged diff --quiet
           git -C merged diff --cached --quiet
           test -z "$(git -C merged ls-files -u)"
