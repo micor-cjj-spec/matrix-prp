@@ -133,7 +133,7 @@ test('sidebar supporting labels maintain WCAG AA contrast at both gradient stops
     '.prp-shell .nav-caption',
   ]) {
     const declaration = theme.split(selector + ' {')[1]?.split('}')[0]
-    const color = declaration?.match(/(?:^|;)\\s*color:\\s*(#[0-9a-fA-F]{6})/)?.[1]
+    const color = declaration?.match(/(?:^|;)\s*color:\s*(#[0-9a-fA-F]{6})/)?.[1]
     assert.ok(color, 'missing sidebar text color for ' + selector)
     for (const background of ['#f0f4ec', '#f7f9f3']) {
       assert.ok(contrastRatio(color, background) >= 4.5,
