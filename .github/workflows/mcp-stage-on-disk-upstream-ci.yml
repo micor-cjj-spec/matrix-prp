@@ -1,0 +1,23 @@
+name: MCP staging on-disk upstream classifier (synthetic only)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/deploy/mcp-staging/classify_test_vhost_upstream_readonly.py"
+      - "app/deploy/mcp-staging/test_classify_test_vhost_upstream_readonly.py"
+      - ".github/workflows/mcp-stage-on-disk-upstream-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-classification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Synthetic classifier regressions (no host or network)
+        run: python3 -B -m unittest discover -s app/deploy/mcp-staging -p 'test_classify_test_vhost_upstream_readonly.py' -v
