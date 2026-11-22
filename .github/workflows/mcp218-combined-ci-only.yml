@@ -185,3 +185,77 @@ jobs:
           python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -v
           node --test app/scripts/mcp218-canary-plan.test.mjs
           echo "MCP218_MAIN_PYTHON_OVERLAY_ONLY_NO_ACTUAL_MERGE_OR_RELEASE"
+
+  pinned-main-merge-rehearsal:
+    name: Real local merge with pinned main and full offline regression (NO push)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - name: Checkout only the CI-only combined head with full local history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: merged
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: merged/app/backend/pom.xml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: merged/app/web/package-lock.json
+      - name: Assert exact source and reviewed main, then merge into runner ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_head="904a99602ce8f8e974323121bb67440753694b5e"
+          reviewed_main="2d8afddc4cfd39e5801133a664ed52cae342651e"
+          test "$(git -C merged rev-parse HEAD)" = "$source_head" || {
+            echo "MCP218_REHEARSAL_SOURCE_HEAD_CHANGED" >&2
+            exit 1
+          }
+          test -z "$(git -C merged status --porcelain)"
+          git -C merged cat-file -e "$reviewed_main^{commit}"
+          git -C merged cat-file -e "276f30d1d5ee6a50641e1afb65ac1e895c3c2d24^{commit}"
+          git -C merged diff --name-only "276f30d1d5ee6a50641e1afb65ac1e895c3c2d24" "$reviewed_main" > /tmp/mcp218-reviewed-main-delta
+          printf '%s\n' \
+            app/deploy/chat-shell/github_bridge.py \
+            app/deploy/chat-shell/test_bridge_transport.py > /tmp/mcp218-expected-delta
+          diff -u /tmp/mcp218-expected-delta /tmp/mcp218-reviewed-main-delta
+
+          # No push, branch rewrite, GitHub merge API, deployment, secrets, or approval.
+          # This writes only an ephemeral merge index/worktree on the Actions runner.
+          git -C merged merge --no-commit --no-ff "$reviewed_main"
+          test "$(git -C merged rev-parse HEAD)" = "$source_head"
+          test "$(git -C merged rev-parse MERGE_HEAD)" = "$reviewed_main"
+          test -z "$(git -C merged ls-files -u)"
+          git -C merged diff --cached --name-only HEAD > /tmp/mcp218-actual-merge-delta
+          diff -u /tmp/mcp218-expected-delta /tmp/mcp218-actual-merge-delta
+          git -C merged diff --check
+          echo "MCP218_ACTUAL_LOCAL_GIT_MERGE_NON_COMMITTED_EXACT_MAIN_DELTA=PASS"
+      - name: Test actual merged working-tree (full backend + canary + chat-shell)
+        working-directory: merged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse MERGE_HEAD)" = "2d8afddc4cfd39e5801133a664ed52cae342651e"
+          python3 -m unittest discover -s app/deploy/chat-shell -p test_bridge_transport.py -v
+          python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -v
+          node --test app/scripts/mcp218-canary-plan.test.mjs
+          chmod +x app/backend/mvnw
+          (cd app/backend && ./mvnw -B test)
+          echo "MCP218_LOCAL_MERGED_TREE_TESTED_WITHOUT_GITHUB_MERGE"
+      - name: Abort local merge and prove the source HEAD was never advanced
+        shell: bash
+        if: ${{ success() }}
+        run: |
+          set -euo pipefail
+          git -C merged merge --abort
+          test -z "$(git -C merged status --porcelain)"
+          test "$(git -C merged rev-parse HEAD)" = "904a99602ce8f8e974323121bb67440753694b5e"
+          echo "MCP218_LOCAL_MERGE_ABORTED_NO_REMOTE_CHANGE"
