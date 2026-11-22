@@ -1,11 +1,15 @@
 name: Deploy PRP
-run-name: PRP ${{ github.event_name == 'workflow_run' && 'auto-deploy' || inputs.action }} · ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+run-name: PRP ${{ github.event_name == 'workflow_run' && 'auto-deploy' || github.event_name == 'issue_comment' && 'chat-readonly-check' || inputs.action }} · ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 on:
   # Only a successful CI run from a push to this repository's main may deploy.
   # Production SSH remains confined to the environment-scoped publish job.
   workflow_run:
     workflows: [CI]
     types: [completed]
+  # This owner-only comment event is used solely by chat_check below.
+  # The normal protected build/publish jobs never consume issue comments.
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       action:
@@ -29,6 +33,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release_control:
+    if: github.event_name != 'issue_comment'
     runs-on: ubuntu-latest
     outputs:
       publish_allowed: ${{ steps.control.outputs.publish_allowed }}
@@ -351,3 +356,73 @@ jobs:
           COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         run: |
           printf 'PRP operation: %s\n\nCommit: `%s`\n\nRelease: `%s`\n\n[Open PRP](https://micor.top/prp/)\n' "$ACTION" "$COMMIT" "${RELEASE_ID:-r${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}" >> "$GITHUB_STEP_SUMMARY"
+
+  # Strictly READ-ONLY alternate entrypoint when the repository owner requests
+  # /prp check production in release Issue #260 through the GitHub connector.
+  # Deliberately separate from the publication pipeline; it cannot build,
+  # download a release artifact, migrate SQL, deploy or roll back.
+  chat_check:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.issue.number == 260 &&
+      github.event.issue.state == 'open' &&
+      !github.event.issue.pull_request &&
+      github.event.comment.user.login == github.repository_owner &&
+      github.event.comment.user.type == 'User' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.comment.body == '/prp check production'
+    environment:
+      name: production
+      url: https://micor.top/prp/
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Configure existing restricted SSH identity (no new secrets)
+        env:
+          SSH_KEY: ${{ secrets.PRP_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.PRP_DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/prp_deploy"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/prp_deploy" "$HOME/.ssh/known_hosts"
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS"
+          ssh-keygen -y -P '' -f "$HOME/.ssh/prp_deploy" > /dev/null 2>&1
+      - name: Verify SSH boundary and approved controller
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 app/deploy/verify_ssh_boundary.py \
+            --host "$DEPLOY_HOST" --identity "$HOME/.ssh/prp_deploy" \
+            --manifest app/deploy/controller-manifest.json
+          ssh_args=(-i "$HOME/.ssh/prp_deploy" -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ClearAllForwardings=yes)
+          ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" controller-sha256 > "$RUNNER_TEMP/prp-controller-sha256.txt"
+          python3 app/deploy/verify_controller.py \
+            --manifest app/deploy/controller-manifest.json \
+            --response "$RUNNER_TEMP/prp-controller-sha256.txt"
+      - name: Check running production and read fixed status only
+        env:
+          DEPLOY_HOST: ${{ secrets.PRP_DEPLOY_HOST }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_args=(-i "$HOME/.ssh/prp_deploy" -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ClearAllForwardings=yes)
+          ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" check
+          ssh "${ssh_args[@]}" "prp-deploy@$DEPLOY_HOST" status
+          echo 'ChatGPT owner-requested production CHECK completed; no deploy or migration invoked.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary SSH identity
+        if: always()
+        shell: bash
+        run: rm -f -- "$HOME/.ssh/prp_deploy" "$HOME/.ssh/known_hosts" "$RUNNER_TEMP/prp-controller-sha256.txt"
