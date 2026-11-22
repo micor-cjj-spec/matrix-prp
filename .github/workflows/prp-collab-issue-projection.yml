@@ -1,0 +1,57 @@
+name: PRP Collaboration Issue Projection
+
+# Explicit owner-only GitHub Issue comment sync. Does NOT mutate tasks or Git state.
+on:
+  workflow_dispatch:
+    inputs:
+      requirement_id:
+        description: 'REQ-YYYYMMDD-NNN'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prp-issue-projection-${{ inputs.requirement_id }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  sync-issue:
+    if: github.ref == 'refs/heads/main' && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require reviewed protected state branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$(gh api "repos/${GITHUB_REPOSITORY}/branches/prp-collab-state" --jq '.protected')" == true ]] || {
+            echo 'STATE_BRANCH_UNPROTECTED'; exit 2;
+          }
+      - name: Publish only a sanitized and versioned Issue comment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COLLAB_REQ_ID: ${{ inputs.requirement_id }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$COLLAB_REQ_ID" =~ ^REQ-[0-9]{8}-[0-9]{3}$ ]] || exit 2
+          git fetch --no-tags origin refs/heads/prp-collab-state
+          state_sha="$(git rev-parse FETCH_HEAD)"
+          file="$RUNNER_TEMP/$COLLAB_REQ_ID.json"
+          git show "$state_sha:requirements/$COLLAB_REQ_ID.json" > "$file"
+          node app/scripts/dev-collab/projection-cli.mjs "$file" "$state_sha"
