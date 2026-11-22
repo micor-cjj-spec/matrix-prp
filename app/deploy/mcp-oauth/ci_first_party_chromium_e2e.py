@@ -36,14 +36,15 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
         flow.json_response(flow.request(
             opener, PRP + "/api/mcp/identity/unlink", bearer=prp_bearer,
             data={"password": prp_password}), "Unlink synthetic ticket pairing")
-    requested = (["prp.reviews.read", "prp.video.read"] if review_video
-                 else ["prp.tasks.read"])
-    grant = flow.json_response(flow.request(
-        opener, PRP + "/api/mcp/clients", bearer=prp_bearer,
-        data={"clientId": CHATGPT, "scopes": requested,
-              "password": prp_password}), "Grant exact read scopes to CI client")
-    if grant.get("data", {}).get("status") != "ACTIVE":
-        raise RuntimeError("BROWSER_CHATGPT_READ_SCOPE_NOT_GRANTED")
+    if not review_video:
+        # Keep the existing task-only E2E behavior unchanged. Review/video
+        # intentionally exercises owner scope selection via the actual SPA.
+        grant = flow.json_response(flow.request(
+            opener, PRP + "/api/mcp/clients", bearer=prp_bearer,
+            data={"clientId": CHATGPT, "scopes": ["prp.tasks.read"],
+                  "password": prp_password}), "Grant task read to CI client")
+        if grant.get("data", {}).get("status") != "ACTIVE":
+            raise RuntimeError("BROWSER_CHATGPT_TASK_SCOPE_NOT_GRANTED")
     stage = "CHROMIUM_START"
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, args=[
@@ -88,6 +89,19 @@ def run(flow, opener, oauth_bearer, prp_bearer, prp_password, keycloak_password)
                                  exact=False).wait_for(state="visible", timeout=20000)
                 if page.get_by_text("读取任务", exact=True).count() != 0:
                     raise RuntimeError("BROWSER_REVIEW_VIDEO_TASK_SCOPE_MISADVERTISED")
+                stage = "BROWSER_EXPLICIT_REVIEW_VIDEO_OWNER_GRANT"
+                for label in ("读取复盘摘要", "读取视频目录和学习进度"):
+                    page.locator(".scope-option").filter(
+                        has_text=label).locator("label").click(timeout=15000)
+                if page.locator('.scope-option input[type="checkbox"]:checked').count() != 2:
+                    raise RuntimeError("BROWSER_OWNER_REVIEW_VIDEO_CHECKBOXES_NOT_SELECTED")
+                page.get_by_placeholder("OAuth client_id").fill(CHATGPT)
+                page.get_by_placeholder(
+                    "密码只发送给 PRP，不提供给 AI 客户端").fill(prp_password)
+                page.get_by_role("button", name="批准此客户端").click()
+                page.locator(".client-row").filter(
+                    has_text=CHATGPT).get_by_text(
+                        "已授权", exact=True).wait_for(state="visible", timeout=30000)
             else:
                 page.locator(".scope-option").filter(has_text="读取任务").wait_for(
                     state="visible", timeout=20000)
