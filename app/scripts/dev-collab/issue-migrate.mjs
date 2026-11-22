@@ -22,6 +22,8 @@ const gh=(p,token)=>JSON.parse(run('gh',['api',p],token?{
 export function authorizeOwnerIssuedMigration(validated,stateSha,proposalSha){
  check(validated.oneShotMigration===true&&
    validated.actor==='micor-cjj-spec'&&
+   validated.actorId===123868412&&
+   Number.isSafeInteger(validated.source_issue)&&validated.source_issue>0&&
    validated.command?.type==='migrate_v1'&&
    validated.command.requirement_id==='REQ-20261031-001'&&
    validated.command.expected_state_sha===BASE&&
@@ -62,7 +64,8 @@ export function applyOwnerIssuedMigration(validated,env){
  verifyMigrationEvidence({before,after,pr,prFiles,reviews,rule:ruleset,
    appId:Number(env.COLLAB_APP_ID),ruleId:Number(env.COLLAB_RULESET_ID),
    stateSha:BASE,proposalSha:PROPOSAL,mode:'apply',
-   approvalPhrase:'APPLY-REQ-20261031-001-V1',appInstallation:repos})
+   approvalPhrase:'APPLY-REQ-20261031-001-V1',appInstallation:repos,
+   ownerIssue:validated})
  check(getRemote(REF)===BASE&&getRemote(PROP_REF)===PROPOSAL&&
    getRemote('refs/heads/main')===env.GITHUB_SHA,'MIGRATION_CHANGED_BEFORE_PUSH')
  git('worktree','add','--detach',temp,BASE)
@@ -85,8 +88,8 @@ export function applyOwnerIssuedMigration(validated,env){
  check(authorized.oneShotMigration===true &&
    authorized.command.request_id===validated.command.request_id,
    'MIGRATION_ISSUE_REVOKED')
- // Immediately re-check the independent approval, PR identity and App scope.
- // A review dismissal or Draft reversion between preflight and commit must
+ // Immediately re-check the exact Owner Issue approval, PR identity and App scope.
+ // A review objection or Draft reversion between preflight and commit must
  // fail closed; the original one-shot owner Issue is checked above.
  const finalPr=gh('repos/'+REPO+'/pulls/144')
  const finalFiles=gh('repos/'+REPO+'/pulls/144/files?per_page=100')
@@ -97,7 +100,8 @@ export function applyOwnerIssuedMigration(validated,env){
    reviews:finalReviews,rule:finalRule,
    appId:Number(env.COLLAB_APP_ID),ruleId:Number(env.COLLAB_RULESET_ID),
    stateSha:BASE,proposalSha:PROPOSAL,mode:'apply',
-   approvalPhrase:'APPLY-REQ-20261031-001-V1',appInstallation:finalRepos})
+   approvalPhrase:'APPLY-REQ-20261031-001-V1',appInstallation:finalRepos,
+   ownerIssue:authorized})
  check(getRemote(REF)===BASE&&getRemote(PROP_REF)===PROPOSAL&&
    getRemote('refs/heads/main')===env.GITHUB_SHA,'MIGRATION_POST_REVIEW_RACE')
  git('-C',temp,'push','origin','HEAD:'+REF)
