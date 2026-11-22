@@ -1,0 +1,25 @@
+name: main-pr-source-guard
+
+# SECURITY: pull_request_target evaluates trusted BASE revision only.
+# Never checkout/run head PR code or expose secrets from this workflow.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  main-pr-source-dev:
+    name: main-pr-source-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout trusted PR base revision only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Reject every main PR unless its head is this repository's exact dev branch
+        run: python3 -I app/deploy/check_main_pr_source.py
