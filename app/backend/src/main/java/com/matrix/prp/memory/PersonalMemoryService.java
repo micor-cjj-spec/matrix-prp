@@ -296,7 +296,14 @@ public class PersonalMemoryService {
                 + " AND object_ref=? AND status IN ('PENDING','CONFIRMED') LIMIT 1",
                 (rs,row)->rs.getLong(1),owner,p.subjectType().name(),
                 p.subjectRef(),p.predicate().name(),p.objectRef());
-            if (!edges.isEmpty()) throw conflict("Goal relation already linked or pending");
+            if (!edges.isEmpty()) {
+                // Recovery after a lost reply, tab close or page reload:
+                // a different request key with the *identical* owner-scoped
+                // payload resumes the original PENDING/CONFIRMED assertion.
+                // matchingReplay rejects changed evidence, dates or sensitivity.
+                // The owner must still explicitly confirm a PENDING assertion.
+                return matchingReplay(get(edges.get(0)),p,supersedes,origin);
+            }
         }
         // Avoid obvious duplicates before any AI-suggested memory can be queued.
         if ("AI_CANDIDATE".equals(origin))
