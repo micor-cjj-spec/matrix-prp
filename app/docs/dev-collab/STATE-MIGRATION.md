@@ -22,11 +22,11 @@
 
 - **ChatGPT / owner-authored Issue 自动入口**（`issues.opened` → `issue-migrate.mjs`）：运行时代码要求真实仓库所有者身份、固定请求字段与 UUID、PR #144 非 Draft、精确旧状态和提案 SHA、App 单仓库权限、Ruleset 与发布冻结；该路径由 `verifyOwnerIssuedApproval` 校验，**目前不会强制存在独立非所有者 `APPROVED` review**，但会拒绝当前提案 SHA 上的 `CHANGES_REQUESTED`。这是一人授权的机器校验路径，不代表已经独立审查。
 - **旧手动 `workflow_dispatch` 入口**（`migration-transaction.sh`）：`mode=apply` 通过 `verifyIndependentProposalReview`，要求非仓库所有者、非作者，且 `author_association` 为 `COLLABORATOR` / `MEMBER` 的人类审查者对固定 SHA 最新有效的 `APPROVED` review；机器人、自审或旧 SHA 批准无效。
-- **待完成的治理决议**：原审批文档曾将独立人类批准描述为所有入口强制要求，与上述已实现的所有者 Issue 例外不符。正式迁移前应在 [Issue #147](https://github.com/micor-cjj-spec/matrix-prp/issues/147) 明确选择“一次性独立人类审查 + 之后零重复点击”的较强控制，或明确接受 owner-only 例外的单人保证及其风险。**本说明不做该安全决策，不授权任何实际迁移。**
+- **已确认的治理选择（2026-11-22，方案 B）**：所有者已在 ChatGPT 中明确选择接受自动 owner-authored Issue 路径的 **owner-only 单人授权保证**，不将独立人类 `APPROVED` review 作为该入口的额外门槛。独立人员审查因此**未发生、亦不应被宣称完成**。选择 B 仅确认授权策略，**不等于批准立即执行 V0→V1 迁移**；每次敏感写入仍需所有者明确提出具体操作，且必须通过严格机器校验。旧手动入口保留其独立审查要求。该决定记录于 [Issue #147](https://github.com/micor-cjj-spec/matrix-prp/issues/147)，不解除已有分支保护或生产冻结。
 
 ## ChatGPT 零点击迁移入口
 
-正式执行前，仅在用户明确要求“执行 V0→V1 迁移”并且上面的治理模式已确定时，才能考虑将 PR #144 从 Draft 标记为 Ready for review，核对固定提案 SHA 并创建 owner-authored `[PRP-COLLAB-REQUEST]` Issue（`action=migrate_v1`）。如果选定独立审查模式，应先获得符合要求的当前 SHA 批准；如果经另行明确接受 owner-only 模式，不能声称独立人类审核已完成。请求携带固定 V0/提案 SHA；迁移脚本只使用固定的内部 apply acknowledgement，不接受任意用户字符串。普通“继续”不能触发迁移。
+方案 B 已被选择，但**实际迁移尚未获得操作授权**。只有所有者后续明确要求“执行固定 V0→V1 迁移”，才能准备把 PR #144 从 Draft 标记为 Ready for review，并在复核固定提案 SHA、状态 SHA 和所有安全条件后创建 owner-authored `[PRP-COLLAB-REQUEST]` Issue（`action=migrate_v1`）。该入口不额外要求独立 `APPROVED` review，但仍拒绝当前提案 SHA 上的 `CHANGES_REQUESTED`，不声称已完成独立审查。请求携带固定 V0/提案 SHA，脚本只使用固定的内部 apply acknowledgement。普通“继续”或仅选择方案 B 不能触发迁移。
 
 GitHub issues.opened 自动触发 main 上的 Issue ingress。该工作流：
 
@@ -37,7 +37,7 @@ GitHub issues.opened 自动触发 main 上的 Issue ingress。该工作流：
 5. 只写 requirements/REQ-20261031-001.json，执行一次非强制 Git push，并重新读取远端状态 SHA。
 6. 只有远端 SHA 与新提交一致且成功回执已发布，才报告迁移成功。
 
-owner-authored Issue 是自动入口对此次指定迁移的机器可验证授权事件，**无需用户再次手动点击 GitHub Actions / Required reviewers**；但它不证明第三方独立人类审查存在，且前述单人/独立审核治理选择仍未完成。普通“继续 PRP”、领取任务或创建任务请求不代表迁移授权。
+owner-authored Issue 是自动入口对此次指定迁移的机器可验证授权事件，**无需用户再次手动点击 GitHub Actions / Required reviewers**。方案 B 已明确选择单人授权，**不代表第三方独立审查已经发生**；任何真实迁移必须由所有者另行明确要求并满足固定 SHA、非 Draft、App 权限、Ruleset、单文件差异、发布冻结及远端结果验证。普通“继续 PRP”、领取任务或创建任务请求不代表迁移授权。
 
 ## 一次性启用前置条件
 
