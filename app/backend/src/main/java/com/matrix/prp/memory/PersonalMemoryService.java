@@ -271,6 +271,12 @@ public class PersonalMemoryService {
     }
 
     private Memory proposeWithParent(Proposed p,Long supersedes,String forcedOrigin) {
+        // Two tabs may submit different request keys for the very same
+        // TASK -> GOAL edge. Acquire the owner InnoDB mutex BEFORE ownership
+        // reads, so a concurrent confirmation cannot race the duplicate check.
+        boolean taskGoalEdge = p != null && p.subjectType() == NodeType.TASK
+            && p.predicate() == Relation.ADVANCES && p.objectType() == NodeType.GOAL;
+        if (taskGoalEdge) lockOwnerForKnowledgeMutation();
         validate(p);
         String origin=forcedOrigin!=null?forcedOrigin:
             p.sourceType()==EvidenceSource.USER_INPUT?"USER_CONFIRMED":"BUSINESS_REFERENCE";
@@ -279,6 +285,17 @@ public class PersonalMemoryService {
             + " WHERE user_id=? AND request_key=? LIMIT 1",
             (rs,row)->rs.getLong(1),owner,p.requestKey());
         if (!priorIds.isEmpty()) return matchingReplay(get(priorIds.get(0)),p,supersedes,origin);
+        if (taskGoalEdge) {
+            // Exact request-key replay above is allowed. A different request
+            // key for an already pending/confirmed edge must not create
+            // duplicate knowledge, even from another tab or a retried UI flow.
+            List<Long> edges = db.query("SELECT id FROM prp_personal_assertions"
+                + " WHERE user_id=? AND subject_type='TASK' AND subject_ref=?"
+                + " AND predicate='ADVANCES' AND object_type='GOAL'"
+                + " AND object_ref=? AND status IN ('PENDING','CONFIRMED') LIMIT 1",
+                (rs,row)->rs.getLong(1),owner,p.subjectRef(),p.objectRef());
+            if (!edges.isEmpty()) throw conflict("Task already linked or pending for this goal");
+        }
         // Avoid obvious duplicates before any AI-suggested memory can be queued.
         if ("AI_CANDIDATE".equals(origin))
             requireNoExactDuplicate(owner,p.subjectRef(),p.predicate(),p.objectValue(),
