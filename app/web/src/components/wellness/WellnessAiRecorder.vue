@@ -144,6 +144,7 @@ async function save() {
   }
   confirming.value = true; error.value = ''
   const draftId = draft.value.draftId
+  const draftAction = draft.value.action
   let confirmStarted = false
   try {
     await apiClient.patch('/wellness/ai/drafts/' + encodeURIComponent(draftId), correction())
@@ -167,7 +168,7 @@ async function save() {
           const route = /^\d{4}-\d{2}-\d{2}$/.test(values.value.date)
             ? '/wellness?date=' + encodeURIComponent(values.value.date) : '/wellness'
           done.value = route
-          emit('recorded', { action: draft.value?.action || 'meal.create', route, saved: null })
+          emit('recorded', { action: draftAction, route, saved: null })
           draft.value = null; file.value = null
           ElMessage.success('已核实草稿保存成功，无需重复提交')
         } else {
