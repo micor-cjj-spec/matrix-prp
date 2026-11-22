@@ -263,6 +263,21 @@ def run():
     require(flow.jsonrpc(opener, bearer, 6, "tools/list", {})[0] == 401,
             "REVIEW_VIDEO_REVOKED_SIGNED_JWT_STILL_AUTHORIZED")
     print("PASS CI REVIEW VIDEO: missing signed scope, reduced consent and immediate revocation.")
+    if os.environ.get("MCP_E2E_CHROMIUM") == "true":
+        # A browser login is an additional proof, not a replacement for the
+        # signed-token/owner-isolation/revocation cases above. Re-create the
+        # synthetic owner link only inside this ephemeral CI test environment.
+        import ci_first_party_chromium_e2e as browser
+        browser.run(flow, opener, bearer, prp_jwt,
+                    os.environ["MCP_E2E_PRP_PASSWORD"],
+                    os.environ["MCP_E2E_KC_USER_PASSWORD"])
+        flow.json_response(flow.request(
+            opener, PRP + "/api/mcp/clients/revoke",
+            bearer=prp_jwt, data={"clientId": flow.CLIENT}),
+            "Revoke synthetic browser-linked client grant")
+        require(flow.jsonrpc(opener, bearer, 75, "tools/list", {})[0] == 401,
+                "REVIEW_VIDEO_BROWSER_GRANT_REVOCATION_FAILED")
+        print("PASS CI REVIEW VIDEO CHROMIUM: three read tools and revoked grant.")
 
 
 if __name__ == "__main__":
