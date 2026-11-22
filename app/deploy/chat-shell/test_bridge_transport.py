@@ -2,6 +2,8 @@
 import contextlib
 import io
 import json
+import shutil
+import stat
 from pathlib import Path
 import subprocess
 import tempfile
@@ -11,7 +13,7 @@ from unittest import mock
 from protocol import (InvalidJob, b64_decode, b64_encode, build_command,
                       create_result_identity, openssl_cms_encrypt,
                       parse_command_comment, parse_result_comment)
-from github_bridge import ssh_exchange, post_private_result, ssh_failure_category
+from github_bridge import ssh_exchange, post_private_result, ssh_failure_category, write_ssh_credential_file
 
 class BridgeTransportContract(unittest.TestCase):
     @classmethod
@@ -101,6 +103,35 @@ class BridgeTransportContract(unittest.TestCase):
                                  'PRP_CHAT_SHELL_SSH_' + code)
                 self.assertNotIn('PRIVATE_TEST_DATA_MUST_NOT_BE_LOGGED',
                                  output.getvalue())
+
+    def test_ssh_credentials_have_final_newline_without_leaking_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory)/'id_ed25519'
+            original = '-----BEGIN OPENSSH PRIVATE KEY-----\nexample\n-----END OPENSSH PRIVATE KEY-----'
+            write_ssh_credential_file(key, original)
+            self.assertEqual(key.read_text(), original + '\n')
+            self.assertEqual(stat.S_IMODE(key.stat().st_mode), 0o600)
+            write_ssh_credential_file(key, original + '\n')
+            self.assertEqual(key.read_text(), original + '\n')
+            with self.assertRaises(InvalidJob):
+                write_ssh_credential_file(key, '  ')
+
+    def test_generated_ed25519_key_is_usable_after_normalizing_secret(self):
+        if not shutil.which('ssh-keygen'):
+            self.skipTest('requires OpenSSH ssh-keygen on CI runner')
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory)/'id_ed25519'
+            subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519',
+                            '-N', '', '-f', str(key)], check=True,
+                           capture_output=True, timeout=15)
+            original = key.read_text()
+            self.assertTrue(original.endswith('\n'))
+            write_ssh_credential_file(key, original.rstrip('\n'))
+            parsed = subprocess.run(['ssh-keygen', '-y', '-P', '', '-f',
+                                     str(key)], capture_output=True, timeout=15)
+            self.assertEqual(parsed.returncode, 0)
+            self.assertTrue(parsed.stdout.startswith(b'ssh-ed25519 '))
+            self.assertEqual(key.read_text(), original)
 
     def test_wrong_ssh_response_job_id_rejected_without_result_post(self):
         job_id,comment,_,_=build_command('id -u',self.crt.read_bytes(),now=1795344000)
