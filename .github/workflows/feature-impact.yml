@@ -2,10 +2,15 @@ name: Feature Impact Report
 
 on:
   pull_request:
-    branches: [main, 'integrate/**']
+    branches: [main, dev, 'integrate/**']
 
 permissions:
   contents: read
+
+# Supersede older impact reports only for the same PR.
+concurrency:
+  group: prp-impact-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   impact-report:

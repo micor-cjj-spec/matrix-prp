@@ -9,6 +9,7 @@ test('all required CI and impact checks run on requirement integration PRs',()=>
     assert.ok(filter,`${name} must define pull_request branches`)
     const branches=filter[1].split(',').map(branch=>branch.trim().replace(/^['"]|['"]$/g,''))
     assert.ok(branches.includes('main')&&branches.includes('integrate/**'),name)
+    assert.ok(branches.includes('dev'),`${name} must also run for dev-targeted PRs`)
     assert.doesNotMatch(text,/pull_request_target:/,name)
   }
   const contract=read('prp-dev-collab-contract.yml')
@@ -16,7 +17,15 @@ test('all required CI and impact checks run on requirement integration PRs',()=>
 })
 test('integrate/** is not configured as a production deployment trigger',()=>{
   const ci=read('ci.yml'),deploy=read('deploy-prp.yml')
-  assert.match(ci,/push:\s*\n\s*branches: \[main, feat\/multi-user-foundation\]/)
+  // CI push on dev supports pre-merge validation, not production publication.
+  // Read the complete push branch list rather than pinning a historical list.
+  const match = ci.match(/(?:^|\n)\s*push:\s*\n\s*branches:\s*\[([^\]\n]+)\]/)
+  assert.ok(match, 'CI must declare explicit push branches')
+  const branches = match[1].split(',').map(x => x.trim().replace(/^['"]|['"]$/g, ''))
+  assert.ok(branches.includes('main') && branches.includes('dev'),
+    'main and dev CI must both run')
+  assert.ok(!branches.includes('integrate/**'),
+    'integrate/** must never be a push CI trigger')
   assert.match(deploy,/github\.event\.workflow_run\.event == 'push'/)
   assert.match(deploy,/github\.event\.workflow_run\.head_branch == 'main'/)
   assert.match(deploy,/github\.ref == 'refs\/heads\/main'/)
