@@ -2,6 +2,7 @@ name: PRP chat-approved encrypted shell (disabled until reviewed installation)
 on:
   issue_comment:
     types: [created]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -42,3 +43,49 @@ jobs:
         run: |
           set -euo pipefail
           python3 app/deploy/chat-shell/github_bridge.py
+
+  connectivity-smoke:
+    # Safe pre-activation test: no user command; the forced gateway
+    # MUST reject an empty SSH request. Execution job remains default-off.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production-shell
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - name: Verify remote forced-command rejects empty input (no shell execution)
+        shell: bash
+        env:
+          PRP_SHELL_HOST: ${{ secrets.PRP_SHELL_HOST }}
+          PRP_SHELL_SSH_KEY: ${{ secrets.PRP_SHELL_SSH_KEY }}
+          PRP_SHELL_KNOWN_HOSTS: ${{ secrets.PRP_SHELL_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "$PRP_SHELL_HOST" && -n "$PRP_SHELL_SSH_KEY" && -n "$PRP_SHELL_KNOWN_HOSTS" ]]
+          mkdir -p "$RUNNER_TEMP/prp-chat-shell"
+          printf '%s\n' "$PRP_SHELL_SSH_KEY" > "$RUNNER_TEMP/prp-chat-shell/id_ed25519"
+          printf '%s\n' "$PRP_SHELL_KNOWN_HOSTS" > "$RUNNER_TEMP/prp-chat-shell/known_hosts"
+          chmod 600 "$RUNNER_TEMP/prp-chat-shell/"*
+          set +e
+          output="$(ssh -T -p 22 \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PasswordAuthentication=no \
+            -o KbdInteractiveAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            -o ConnectionAttempts=1 \
+            -o ClearAllForwardings=yes \
+            -o "UserKnownHostsFile=$RUNNER_TEMP/prp-chat-shell/known_hosts" \
+            -i "$RUNNER_TEMP/prp-chat-shell/id_ed25519" \
+            "prp-chat-shell@$PRP_SHELL_HOST" run </dev/null 2>&1)"
+          status="$?"
+          set -e
+          if [[ "$status" -eq 2 && "$output" == *PRP_SHELL_REQUEST_REJECTED* ]]; then
+            echo 'PASS: GitHub-hosted runner connected to the restricted gateway; empty request rejected.'
+          else
+            echo "FAIL: Expected exit code 2 with PRP_SHELL_REQUEST_REJECTED; received exit code $status"
+            exit 1
+          fi
