@@ -9,6 +9,8 @@ import router from './router'
 import { useAuthStore } from './stores/auth'
 import { isFirstPartyOidcCallbackPath } from './utils/oidcCallbackPath'
 import './styles/main.css'
+import './styles/quiet-intelligence-v2.css'
+import './styles/quiet-intelligence-modules-v2.css'
 
 const app = createApp(App)
 const pinia = createPinia()
@@ -33,10 +35,6 @@ window.addEventListener('matrix-prp:unauthorized', () => {
     void router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
   }
 })
-
-// iOS Safari may ignore maximum-scale/user-scalable on web pages. Prevent
-// Safari's non-standard pinch gesture as a fallback; ordinary scrolling stays enabled.
-document.addEventListener('gesturestart', event => event.preventDefault(), { passive: false })
 
 app.mount('#app')
 
