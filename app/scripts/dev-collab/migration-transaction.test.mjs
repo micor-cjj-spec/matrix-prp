@@ -201,7 +201,7 @@ test('isolated Git: dismissed approval between migration preflight and final che
  }finally{f.cleanup()}
 })
 
-test('isolated owner Issue: dismissed human approval denies V1 migration after preflight',
+test('isolated owner Issue: active CHANGES_REQUESTED on exact head blocks solo migration',
  {timeout:45000},()=>{
  const f=setup()
  try{
@@ -211,7 +211,7 @@ test('isolated owner Issue: dismissed human approval denies V1 migration after p
    author_association:'COLLABORATOR',state:'APPROVED',commit_id:f.proposalSha,
    submitted_at:'2026-11-01T03:00:00Z'}
   f.save(f.names.reviews,[approved])
-  f.save(f.names.revokedReviews,[{...approved,state:'DISMISSED'}])
+  f.save(f.names.revokedReviews,[{...approved,state:'CHANGES_REQUESTED'}])
   // The production code retains fixed real commit pins. Only in disposable
   // test copies substitute the synthetic local Git SHA pins, no logic changes.
   const pinned=[
@@ -253,10 +253,10 @@ test('isolated owner Issue: dismissed human approval denies V1 migration after p
     GITHUB_EVENT_PATH:f.names.event,COLLAB_APP_TOKEN:'local-test-write-token',
     PRP_MOCK_REVOKE_SECOND_REVIEW:'1'}
   })
-  assert.notEqual(result.status,0,'revoked approval must block owner Issue migration')
-  assert.match(result.stderr,/MIGRATION_INDEPENDENT_REVIEW_REQUIRED/)
+  assert.notEqual(result.status,0,'an adverse exact-head review must block solo owner migration')
+  assert.match(result.stderr,/MIGRATION_OWNER_ISSUE_CHANGES_REQUESTED/)
   assert.equal(Number(readFileSync(f.names.reviewReads,'utf8').trim()),2,
-   'owner Issue must inspect approval before and after preparing its commit')
+   'owner Issue must inspect adverse review evidence before and after preparing its commit')
   assert.equal(f.state(),before,'no owner migration may change local V0 state')
  }finally{f.cleanup()}
 })
