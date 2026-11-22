@@ -44,6 +44,12 @@ public class McpIdentityLinkService {
     private final SecureRandom random = new SecureRandom();
     @Value("${matrix-prp.mcp.oauth.first-party-link.enabled:false}")
     private boolean firstPartyOidcLinkEnabled;
+    // Review/video identity linking is opt-in, separate from existing task/health.
+    @Value("${matrix-prp.mcp.review-video-read-tools-enabled:false}")
+    private boolean reviewVideoReadToolsEnabled;
+    @Value("${matrix-prp.mcp.oauth.advertised-scopes:prp.tasks.read}")
+    private String advertisedScopes = "prp.tasks.read";
+
 
 
     public McpIdentityLinkService(JdbcTemplate db, UserStore users,
@@ -153,7 +159,8 @@ public class McpIdentityLinkService {
         if (account == null || !account.enabled())
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PRP owner unavailable");
         Set<String> consent = grants.grantedScopes(owner, intendedClientId);
-        if (!consent.contains("prp.tasks.read") && !consent.contains("prp.wellness.read"))
+        if (!eligibleFirstPartyReadConsent(
+                consent, reviewVideoReadToolsEnabled, advertisedScopes))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                 "ChatGPT read permission not approved");
         List<Long> existingOwner = db.query(
@@ -179,6 +186,25 @@ public class McpIdentityLinkService {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Identity linking is permitted by the owner's *current* read consent.
+     * Preserve existing task/health behavior. Review/video consent is accepted
+     * only for an explicitly enabled and advertised capability, never by token
+     * scope alone, a write grant, or the unrelated optional-read flag.
+     */
+    static boolean eligibleFirstPartyReadConsent(
+            Set<String> consent, boolean reviewVideoEnabled, String advertisedScopes) {
+        if (consent == null) return false;
+        if (consent.contains("prp.tasks.read") || consent.contains("prp.wellness.read")) {
+            return true;
+        }
+        if (!reviewVideoEnabled || advertisedScopes == null) return false;
+        var advertised = java.util.Arrays.stream(advertisedScopes.split(",", -1))
+            .map(String::trim).collect(java.util.stream.Collectors.toSet());
+        return (consent.contains("prp.reviews.read") && advertised.contains("prp.reviews.read"))
+            || (consent.contains("prp.video.read") && advertised.contains("prp.video.read"));
     }
 
     /** A verified OAuth issuer + subject, not a client-provided PRP ID, chooses owner. */
