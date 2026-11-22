@@ -1,0 +1,39 @@
+name: MCP 218 isolated canary plan (offline only)
+
+# Review-only static validator. Runs solely on this preparation branch / its Draft PR.
+# Does not deploy, create cloud resources, access secrets or contact OAuth services.
+on:
+  push:
+    branches:
+      - docs/mcp218-isolated-review-video-canary-preflight-20261122
+  pull_request:
+    branches:
+      - fix/mcp218-review-video-optin-isolation-20261122
+
+permissions:
+  contents: read
+
+jobs:
+  canary-plan-offline-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository (read-only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check static guard source and tests
+        run: |
+          node --check app/scripts/mcp218-canary-plan.mjs
+          node --check app/scripts/mcp218-canary-plan.test.mjs
+          node --test app/scripts/mcp218-canary-plan.test.mjs
+      - name: Validate isolated review/video Realm candidate (memory only)
+        run: |
+          python3 -m py_compile app/deploy/mcp218-canary/review_realm.py app/deploy/mcp218-canary/test_review_realm.py
+          python3 -m unittest discover -v -s app/deploy/mcp218-canary -p 'test_review_realm.py'
+      - name: State non-release acceptance boundary
+        run: echo "MCP218_OFFLINE_SHAPE_TEST_ONLY_NOT_G0_B2_OR_DEPLOY_APPROVAL"
