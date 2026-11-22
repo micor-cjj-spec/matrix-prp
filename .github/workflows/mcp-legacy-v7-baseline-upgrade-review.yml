@@ -74,6 +74,47 @@ jobs:
           done < <(git ls-tree -r --name-only origin/main -- app/backend/src/main/resources/db/migration/)
           test "$count" -eq 24
           echo 'CI_MAIN_V1_V24_MIGRATION_BLOBS_UNCHANGED=YES'
+      - name: Prepare official Maven 3.9.16 distribution with SHA-512 verification (disposable CI only)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = Linux
+          test -n "${RUNNER_TEMP:-}"
+          # Exact Apache release artifact and independently published checksum:
+          # https://downloads.apache.org/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.zip.sha512
+          url='https://downloads.apache.org/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.zip'
+          checksum='ed41650d42485cfc243fad22158caf9cbb5dc408ce7a09ddb94dd42a019de929ca43065bfa450612cf12bf78b5cafa3884b96c090de326ff590448c933454af3'
+          archive="$RUNNER_TEMP/apache-maven-3.9.16-bin.zip"
+          umask 077
+          download_ok=0
+          # Bounded retries. Do not silently switch to third-party Maven mirrors.
+          for delay in 0 8 20; do
+            if (( delay > 0 )); then sleep "$delay"; fi
+            if curl --fail --location --silent --show-error \
+                --connect-timeout 10 --max-time 90 \
+                --output "$archive" "$url"; then
+              download_ok=1
+              break
+            fi
+            rm -f -- "$archive"
+          done
+          test "$download_ok" -eq 1 || {
+            echo 'CI_OFFICIAL_MAVEN_DISTRIBUTION_DOWNLOAD_FAILED' >&2
+            exit 1
+          }
+          printf '%s  %s\n' "$checksum" "$archive" | sha512sum --check --status || {
+            rm -f -- "$archive"
+            echo 'CI_MAVEN_DISTRIBUTION_CHECKSUM_MISMATCH' >&2
+            exit 1
+          }
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+          rm -f -- "$archive"
+          test -x "$RUNNER_TEMP/apache-maven-3.9.16/bin/mvn" || {
+            echo 'CI_PINNED_MAVEN_EXECUTABLE_MISSING' >&2
+            exit 1
+          }
+          echo 'CI_OFFICIAL_MAVEN_3916_SHA512_VERIFIED=YES'
       - name: Create and dispose an exclusively runner-owned MySQL schema
         shell: bash
         run: |
@@ -121,7 +162,7 @@ jobs:
           }
           cd app/backend
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=ExistingLegacyV7BaselineToMcpV28UpgradeIT test
+          "$RUNNER_TEMP/apache-maven-3.9.16/bin/mvn" -B -ntp -Dtest=ExistingLegacyV7BaselineToMcpV28UpgradeIT test
 
           # Exercise the exact production-schema metadata SELECT against
           # a SYNTHETIC, disposable `matrix_prp` schema in this CI-only
