@@ -136,8 +136,13 @@ class ReplayLedger:
         """
         try:
             parent = self.path.parent
+            # Reject symlink ancestors too: checking only the immediate parent
+            # silently allows traversal through a linked grandparent.
+            for ancestor in (parent, *parent.parents):
+                if stat.S_ISLNK(ancestor.lstat().st_mode):
+                    raise RejectedRequest("state unavailable")
             parent_stat = parent.lstat()
-            if (parent.is_symlink() or not stat.S_ISDIR(parent_stat.st_mode) or
+            if (not stat.S_ISDIR(parent_stat.st_mode) or
                     parent_stat.st_uid != os.geteuid() or
                     stat.S_IMODE(parent_stat.st_mode) != 0o700):
                 raise RejectedRequest("state unavailable")
