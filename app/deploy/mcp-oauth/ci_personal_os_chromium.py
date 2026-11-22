@@ -264,4 +264,9 @@ def run(page, origin):
         raise RuntimeError("PERSONAL_OS_MODEL_ADVICE_PERSISTED_AFTER_TAB_CHANGE")
     print("CI_PERSONAL_OS_CHROMIUM_MODEL_REVIEW_SINGLE_USE_UI=PASS")
 
+    # T-007: separate HTTP-level owner acceptance against the same temporary
+    # PRP session and real MySQL. No model, real account or extra OAuth scopes.
+    from ci_personal_os_memory_acceptance import run as run_memory_acceptance
+    run_memory_acceptance(page)
+
     print("CI_PERSONAL_OS_CHROMIUM_FIRST_PARTY_GOAL_MEMORY_PRIVACY=PASS")
