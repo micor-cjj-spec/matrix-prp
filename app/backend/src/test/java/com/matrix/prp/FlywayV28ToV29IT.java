@@ -186,7 +186,7 @@ class FlywayV28ToV29IT {
                 + "WHERE table_schema=DATABASE() AND table_name='prp_mcp_oidc_link_flows'"))
                 .isZero();
 
-        Flyway next = flyway(url, null);
+        Flyway next = flyway(url, "29");
         assertThat(next.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(next.validateWithResult().validationSuccessful).isTrue();
         assertThat(count(url, "SELECT COUNT(*) FROM flyway_schema_history")).isEqualTo(29);

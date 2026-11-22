@@ -18,7 +18,7 @@ import sys
 import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urljoin, urlsplit, parse_qs
-from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler
+from urllib.request import Request, build_opener, ProxyHandler, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler
 
 from oauth_token_check import check_token
 
@@ -121,6 +121,18 @@ def wait_ready(opener, url, max_seconds=150):
             pass
         time.sleep(3)
     raise RuntimeError("Temporary environment not healthy: " + ("Keycloak" if "auth-" in url else "PRP"))
+
+
+def disposable_https_opener(ca_file):
+    """Connect only to the isolated CI HTTPS vhosts; ignore inherited proxies.
+
+    Each browser flow gets its own cookie jar, a disposable CA trust context,
+    and the same origin-bound redirect policy. Never disable TLS verification.
+    """
+    return build_opener(
+        ProxyHandler({}),
+        HTTPSHandler(context=ssl.create_default_context(cafile=ca_file)),
+        HTTPCookieProcessor(CookieJar()), SafeRedirect())
 
 
 def add_user(opener, admin_password, username, password):
@@ -404,10 +416,8 @@ def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
         raise RuntimeError("This test requires an isolated GitHub Actions runner")
     ca = os.environ["MCP_E2E_CA_CERT"]
-    context = ssl.create_default_context(cafile=ca)
-    # Authenticate against the actual HTTPS staging-style proxy and retain
-    # browser cookies for the Keycloak login/consent pages.
-    opener = build_opener(HTTPSHandler(context=context), HTTPCookieProcessor(CookieJar()), SafeRedirect())
+    # Never inherit runner HTTP(S) proxies for disposable .localhost vhosts.
+    opener = disposable_https_opener(ca)
     admin_pass = os.environ["MCP_E2E_KC_ADMIN_PASSWORD"]
     user_password = os.environ["MCP_E2E_KC_USER_PASSWORD"]
     prp_password = os.environ["MCP_E2E_PRP_PASSWORD"]

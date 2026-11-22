@@ -29,9 +29,13 @@ trap cleanup EXIT
 # Disposable runner hosts file only; no external DNS changes.
 echo '127.0.0.1 auth-e2e.localhost prp-e2e.localhost' | sudo tee -a /etc/hosts >/dev/null
 
+# OpenSSL/Python strict X.509 validation requires the disposable CA to
+# explicitly permit certificate signing. Never weaken client TLS verification.
 openssl req -x509 -new -newkey rsa:2048 -nodes -days 1 \
   -keyout "$tmp/certs/ca.key" -out "$tmp/certs/ca.pem" \
-  -subj '/CN=PRP-E2E-Disposable-CA' >/dev/null 2>&1
+  -subj '/CN=PRP-E2E-Disposable-CA' \
+  -addext 'basicConstraints=critical,CA:TRUE' \
+  -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
 openssl req -new -newkey rsa:2048 -nodes -keyout "$tmp/certs/leaf.key" \
   -out "$tmp/certs/leaf.csr" -subj '/CN=auth-e2e.localhost' >/dev/null 2>&1
 printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
@@ -39,6 +43,10 @@ printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
 openssl x509 -req -in "$tmp/certs/leaf.csr" \
   -CA "$tmp/certs/ca.pem" -CAkey "$tmp/certs/ca.key" -CAcreateserial \
   -out "$tmp/certs/leaf.pem" -days 1 -extfile "$tmp/certs/leaf.ext" >/dev/null 2>&1
+# Regressions in CA keyUsage must fail before starting disposable services.
+# Strict path validation matches the Python/OpenSSL verification requirements.
+openssl verify -x509_strict -purpose sslserver \
+  -CAfile "$tmp/certs/ca.pem" "$tmp/certs/leaf.pem" >/dev/null
 
 cat > "$tmp/nginx/default.conf" <<'NGINX'
 server {
@@ -362,6 +370,9 @@ java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
   > "$tmp/prp-backend.log" 2>&1 &
 backend_pid="$!"
 
+# Exercise the loopback-only TLS/redirect/proxy guards without any network
+# before attempting real disposable PKCE. This prints no credentials or URLs.
+python3 -m unittest discover -s app/deploy/mcp-oauth -p test_ci_callback.py -q
 # Only generic PASS/failure step names are printed by the browser driver.
 python3 app/deploy/mcp-oauth/ci_pkce_browser.py
 echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP protocol."
