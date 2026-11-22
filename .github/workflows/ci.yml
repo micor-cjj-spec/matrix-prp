@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/multi-user-foundation]
+    branches: [main, dev, feat/multi-user-foundation]
   pull_request:
-    branches: [main, 'integrate/**', fix/mcp-v24-lineage-conflict-20261022]
+    branches: [main, dev, 'integrate/**', fix/mcp-v24-lineage-conflict-20261022]
 
 permissions:
   contents: read
