@@ -92,6 +92,50 @@ class McpFirstPartyOidcLinkTests {
     }
 
     @Test
+    void reviewOnlyConsentCannotBeginWhenDedicatedFlagIsOffOrScopeUnadvertised() {
+        authorizedOwner();
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.reviews.read"));
+        assertThatThrownBy(() -> service.begin("correct-password"))
+            .isInstanceOf(ResponseStatusException.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(
+            service, "reviewVideoReadToolsEnabled", true);
+        assertThatThrownBy(() -> service.begin("correct-password"))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(db);
+    }
+
+    @Test
+    void optedInAdvertisedReviewConsentCanBeginWithoutTaskOrWellnessGrant() {
+        authorizedOwner();
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.reviews.read"));
+        org.springframework.test.util.ReflectionTestUtils.setField(
+            service, "reviewVideoReadToolsEnabled", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(
+            service, "advertisedScopes", "prp.reviews.read,prp.video.read");
+        assertThat(service.begin("correct-password").authorizeUrl())
+            .contains("code_challenge_method=S256")
+            .contains("scope=openid")
+            .doesNotContain("prp.reviews.read", "prp.video.read");
+    }
+
+    @Test
+    void optedInAdvertisedVideoConsentCanBeginButWriteOnlyGrantCannot() {
+        authorizedOwner();
+        org.springframework.test.util.ReflectionTestUtils.setField(
+            service, "reviewVideoReadToolsEnabled", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(
+            service, "advertisedScopes", "prp.video.read");
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.video.read"));
+        assertThat(service.begin("correct-password").authorizeUrl())
+            .contains("code_challenge_method=S256");
+        clearInvocations(db);
+        when(grants.grantedScopes(7L, CHATGPT)).thenReturn(Set.of("prp.write.create"));
+        assertThatThrownBy(() -> service.begin("correct-password"))
+            .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(db);
+    }
+
+    @Test
     void mustBeSeparateFromChatgptAndUseExactHttpsCallbackAndIssuerJwks() {
         assertThatThrownBy(() -> service(false, ISSUER,
             ISSUER + "/protocol/openid-connect/certs", RESOURCE, FIRST_PARTY, CALLBACK))
