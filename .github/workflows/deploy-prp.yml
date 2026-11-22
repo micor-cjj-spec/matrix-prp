@@ -6,6 +6,8 @@ on:
   workflow_run:
     workflows: [CI]
     types: [completed]
+    # Ignore PR/feature-branch CI completions before production concurrency is acquired.
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
