@@ -304,7 +304,10 @@ echo "E2E TLS: disposable Java certificate trust configured."
   chmod +x mvnw
   # Only emit a fixed non-sensitive failure category. Raw Maven logs can
   # contain repository URLs, headers or environment details: never print them.
-  if ! ./mvnw -B -ntp -DskipTests package > "$tmp/java-build.log" 2>&1; then
+  for attempt in 1 2 3; do
+    if ./mvnw -B -ntp -DskipTests package > "$tmp/java-build.log" 2>&1; then
+      break
+    fi
     diagnostic="UNKNOWN"
     if grep -Eq 'wget: Failed to fetch|curl: Failed to fetch' "$tmp/java-build.log"; then
       diagnostic="WRAPPER_DOWNLOAD"
@@ -319,10 +322,17 @@ echo "E2E TLS: disposable Java certificate trust configured."
     elif grep -Eq 'Permission denied|No such file or directory|cannot execute' "$tmp/java-build.log"; then
       diagnostic="LAUNCH_OR_FILESYSTEM"
     fi
+    # Retry only transient network/bootstrap categories; never retry assertions,
+    # compilation, runtime, filesystem or unknown failures. Keep raw logs private.
+    if [[ "$attempt" -lt 3 && ( "$diagnostic" == "WRAPPER_DOWNLOAD" || "$diagnostic" == "DEPENDENCY_OR_NETWORK" ) ]]; then
+      echo "E2E_DIAG_MAVEN_RETRY_CATEGORY=$diagnostic ATTEMPT=$attempt" >&2
+      sleep "$((3 * attempt))"
+      continue
+    fi
     echo "E2E_DIAG_MAVEN_BUILD_CATEGORY=$diagnostic" >&2
     echo "FAIL E2E: disposable review-branch Java Maven build failed." >&2
     exit 1
-  fi
+  done
 )
 echo "E2E PRP: Java 21 JAR built from review branch."
 # Verify the ZIP central directory of the exact freshly built Spring Boot JAR.
