@@ -128,7 +128,8 @@ def project_health_liveness(http_status, response_body):
         parsed = json.loads(response_body.decode("utf-8", errors="strict"),
                             object_pairs_hook=_unique_object,
                             parse_constant=_bad_number)
-        if (type(parsed) is dict and type(parsed.get("data")) is dict and
+        if (type(parsed) is dict and parsed.get("code") == "SUCCESS" and
+                type(parsed.get("data")) is dict and
                 parsed["data"].get("status") == "UP" and
                 parsed["data"].get("service") == "matrix-prp-backend"):
             result["liveness"] = "reachable"
