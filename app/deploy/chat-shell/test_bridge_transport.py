@@ -39,15 +39,15 @@ class BridgeTransportContract(unittest.TestCase):
         mock_ssh_result=subprocess.CompletedProcess([],0,json.dumps({
             'jobId':job_id,'ciphertext':reply_cipher}).encode(),b'')
         with mock.patch('github_bridge.subprocess.run',return_value=mock_ssh_result) as fake:
-            response=ssh_exchange(job_id,cipher,'85.189.45.156',
-                     'dummy-key-not-a-real-ssh-key', '85.189.45.156 ssh-ed25519 dummy')
+            response=ssh_exchange(job_id,cipher,'127.0.0.1',
+                     'dummy-key-not-a-real-ssh-key', '127.0.0.1 ssh-ed25519 dummy')
         self.assertEqual(response,reply_cipher)
         argv=fake.call_args.args[0]
         self.assertIn('-T',argv)
         self.assertIn('BatchMode=yes',argv)
         self.assertIn('StrictHostKeyChecking=yes',argv)
         self.assertIn('ClearAllForwardings=yes',argv)
-        self.assertEqual(argv[-2:],['prp-chat-shell@85.189.45.156','run'])
+        self.assertEqual(argv[-2:],['prp-chat-shell@127.0.0.1','run'])
         sent=fake.call_args.kwargs['input']
         self.assertNotIn(command.encode(),sent)
         self.assertEqual(json.loads(sent),{'jobId':job_id,'ciphertext':cipher})
@@ -79,11 +79,11 @@ class BridgeTransportContract(unittest.TestCase):
         fake_result=subprocess.CompletedProcess([],0,json.dumps(result).encode(),b'')
         with mock.patch('github_bridge.subprocess.run',return_value=fake_result):
             with self.assertRaises(InvalidJob):
-                ssh_exchange(job_id,cipher,'85.189.45.156','dummy-key','dummy-known-hosts')
+                ssh_exchange(job_id,cipher,'127.0.0.1','dummy-key','dummy-known-hosts')
 
     def test_shell_metacharacters_cannot_enter_ssh_destination(self):
         with self.assertRaises(InvalidJob):
-            ssh_exchange('id','abcdefghi','85.189.45.156; touch /tmp/pwn',
+            ssh_exchange('id','abcdefghi','127.0.0.1; touch /tmp/pwn',
                 'dummy-key','dummy-known-hosts')
 
 if __name__=='__main__':
