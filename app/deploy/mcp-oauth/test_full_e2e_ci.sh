@@ -323,7 +323,25 @@ echo "E2E TLS: disposable Java certificate trust configured."
 (
   cd app/backend
   chmod +x mvnw
-  ./mvnw -B -ntp -DskipTests package > "$tmp/java-build.log" 2>&1
+  if ! ./mvnw -B -ntp -DskipTests package > "$tmp/java-build.log" 2>&1; then
+    # Never upload or print the raw build log: the E2E runner also owns
+    # disposable OAuth credentials. Emit only bounded, fixed classifications.
+    echo "FAIL E2E JAVA BUILD: Maven package command failed (CI-only)." >&2
+    if grep -Eqi 'No space left on device|Disk quota exceeded' "$tmp/java-build.log"; then
+      echo "E2E JAVA BUILD CATEGORY: runner storage exhausted." >&2
+    elif grep -Eqi 'Could not resolve dependencies|Could not transfer artifact|Could not find artifact|PluginResolutionException|Unknown host|Temporary failure in name resolution' "$tmp/java-build.log"; then
+      echo "E2E JAVA BUILD CATEGORY: dependency/network resolution." >&2
+    elif grep -Eqi 'COMPILATION ERROR|Compilation failure|cannot find symbol|invalid target release|testCompile' "$tmp/java-build.log"; then
+      echo "E2E JAVA BUILD CATEGORY: Java compiler or test-compile failure." >&2
+    elif grep -Eqi 'Permission denied|No such file or directory|command not found|Could not find or load main class' "$tmp/java-build.log"; then
+      echo "E2E JAVA BUILD CATEGORY: Maven wrapper or runner execution." >&2
+    elif grep -Eqi 'OutOfMemoryError|Cannot allocate memory|unable to create native thread' "$tmp/java-build.log"; then
+      echo "E2E JAVA BUILD CATEGORY: runner memory/resource exhaustion." >&2
+    else
+      echo "E2E JAVA BUILD CATEGORY: unclassified; raw log intentionally withheld." >&2
+    fi
+    exit 1
+  fi
 )
 echo "E2E PRP: Java 21 JAR built from review branch."
 # Verify the ZIP central directory of the exact freshly built Spring Boot JAR.
