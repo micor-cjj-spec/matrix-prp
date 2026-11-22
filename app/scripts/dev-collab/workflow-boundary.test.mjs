@@ -41,3 +41,13 @@ test('transaction permits non-force state-only push and retries with fresh fetch
   assert.doesNotMatch(transaction, /docker|kubectl|systemctl|ssh\s|mysql\s|psql\s/)
   assert.match(transaction, /STATE_CONTENTION_OR_PUSH_DENIED/)
 })
+
+test('state ruleset lookup uses the dedicated writer App token, not the read-only workflow token', () => {
+  const start = workflow.indexOf('      - name: Verify exact active ruleset and dedicated writer app')
+  const end = workflow.indexOf('      - name: Apply a single authenticated task command', start)
+  assert.ok(start >= 0 && end > start)
+  const rulesetGate = workflow.slice(start, end)
+  assert.match(rulesetGate, /GH_TOKEN:\s*\$\{\{ steps\.collab-token\.outputs\.token \}\}/)
+  assert.doesNotMatch(rulesetGate, /GH_TOKEN:\s*\$\{\{ github\.token \}\}/)
+  assert.match(rulesetGate, /node app\/scripts\/dev-collab\/state-rule-policy\.mjs/)
+})
