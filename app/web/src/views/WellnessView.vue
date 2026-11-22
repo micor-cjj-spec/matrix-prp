@@ -591,6 +591,19 @@ async function saveProfile() {
         <div><h1>健康中心</h1><p>饮食、运动与身体指标，记录每一天</p></div>
         <el-date-picker v-model="date" type="date" value-format="YYYY-MM-DD" :clearable="false" @change="loadDay" />
       </div>
+      <section class="wellness-v2-intro" aria-label="健康摘要与快捷操作">
+        <div class="wellness-v2-intro-info">
+          <span class="wellness-v2-kicker">WELLNESS · {{ date }}</span>
+          <h2>关照身体，也关照每一天。</h2>
+          <p>{{ calories === null ? '当天尚无摄入记录，未记录不等于零。' : '所选日期已记录 ' + n(calories) + ' kcal' }}{{ dailyGoal ? ' · 当前每日目标 ' + n(dailyGoal) + ' kcal' : '' }}</p>
+        </div>
+        <div class="wellness-v2-intro-actions">
+          <el-button type="primary" @click="activeTab='ai'">AI 快速记录</el-button>
+          <el-button @click="openMeal()">记录饮食</el-button>
+          <el-button @click="openExercise()">记录运动</el-button>
+          <el-button @click="openMetric()">记录体重</el-button>
+        </div>
+      </section>
       <el-tabs v-model="activeTab" class="wellness-tabs" @tab-change="onTabChange">
         <el-tab-pane label="AI 快速记录" name="ai">
           <WellnessAiRecorder @recorded="loadAll" />
