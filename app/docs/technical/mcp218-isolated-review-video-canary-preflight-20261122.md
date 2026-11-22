@@ -110,7 +110,7 @@ node app/scripts/mcp218-canary-plan.mjs /path/to/private/nonsecret-canary-plan.j
 
 - `purpose: "mcp218-review-video-readonly"`、`release_gate: "PREPARATION_ONLY"`。
 - `project` 使用全新 `prp-mcp218-...` 项目名，`mysql_schema` 使用独立 `matrix_prp_mcp218_...`，`mysql_volume` 和 `keycloak_volume` 使用彼此不同的 `mcp218_...` 名称。
-- `resource_url` 必须是新的可信 HTTPS 域名加 `/api/mcp`，`issuer_url` 是**另一域名**加 `/realms/prp-mcp218`。禁止旧 `prp-test.micor.top` / `auth-test.micor.top`、生产域名、localhost、裸 IP 和示例域名。**静态通过不证明 DNS 已存在或真实证书有效**。
+- `resource_url` 必须是新的可信 HTTPS 域名加 `/api/mcp`，`issuer_url` 是**另一域名**加 `/realms/prp-mcp218`。禁止旧 `prp-test.micor.top` / `auth-test.micor.top`、生产域名（特别是正式 OAuth 入口 `auth.micor.top`）、localhost、裸 IP 和示例域名。为避免与 #301 等其他线程的预览环境混淆，本 Canary 方案要求 Resource 域名的首个 DNS Label 以 `mcp218-` 开头，Issuer 以 `auth-mcp218-` 开头；这种命名仅表示规划意图，不构成真实域名所有权证明。**静态通过不证明 DNS 已存在或真实证书有效**。
 - `database_source: "new-empty"`、`keycloak_source: "new-empty"`、`data_policy: "synthetic-only"`。
 - `published`、`mcp_enabled`、`oauth_enabled`、`write_enabled`、`additional_read_tools_enabled`、`review_video_read_tools_enabled` **全部为 JSON 布尔 `false`**，任何提前激活均拒绝。
 - `advertised_scopes` **严格且仅有** `["prp.reviews.read", "prp.video.read"]`；`expected_tools` **严格且仅有** `["prp_reviews_list", "prp_video_folders", "prp_video_progress"]`。
@@ -118,4 +118,4 @@ node app/scripts/mcp218-canary-plan.mjs /path/to/private/nonsecret-canary-plan.j
 
 脚本成功时只会输出 `MCP218_PLAN_SHAPE_PASS_ONLY_NO_DEPLOY_AUTHORIZATION`；失败输出 `MCP218_PLAN_NO_GO` 和错误分类，退出码为 2。这个通过标志**绝不是** `approved-install.safe.json`、`fresh-b2-restore.safe.json`、真实 G0/B2 审批或上线许可。
 
-本轮离线 26 项测试覆盖现有 V2/旧端口项目名、生产数据库、共享卷、旧公共域名、额外 Scope/工具、写入提前开启、仿造发布批准和机密字段污染等拒绝路径。真实的 Compose 渲染、网络资源占用、受信任证书、恢复演练、owner 授权与撤销仍全部为**独立待办**。
+离线安全测试现包含 36 项：原有 30 项函数与 CLI 组合检查，再覆盖 6 种生产 OAuth 与跨工作流主机名复用的拒绝路径。所有自动测试必须以**最新确切提交**的 GitHub Actions 结果为验收证据，不能继承旧 SHA 的成功状态。真实的 Compose 渲染、网络资源占用、受信任证书、恢复演练、owner 授权与撤销仍全部为**独立待办**。
