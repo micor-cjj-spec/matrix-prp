@@ -2,12 +2,17 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/multi-user-foundation]
+    branches: [main, dev, feat/multi-user-foundation]
   pull_request:
-    branches: [main, 'integrate/**', fix/mcp-v24-lineage-conflict-20261022]
+    branches: [main, dev, 'integrate/**', fix/mcp-v24-lineage-conflict-20261022]
 
 permissions:
   contents: read
+
+# Cancel only obsolete PR checks for the same pull request; never cancel main push CI.
+concurrency:
+  group: prp-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   controller-compatibility:
