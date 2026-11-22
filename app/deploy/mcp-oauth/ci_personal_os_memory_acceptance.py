@@ -5,7 +5,10 @@ No real owner data, model provider or OAuth production permissions are used.
 Only the current test browser's ephemeral owner session may access these APIs.
 The test never prints JWTs, response bodies, fact values, or source messages.
 """
+import json
 import os
+import secrets
+import uuid
 
 
 def _call(page, method, path, payload=None, *, authenticated=True):
@@ -42,6 +45,91 @@ def _ok(page, method, path, payload=None):
 def _fact_matches(items, fact_id):
     return isinstance(items, list) and any(
         isinstance(item, dict) and item.get("id") == fact_id for item in items)
+
+
+
+def _two_owner_browser_isolation(page):
+    """U08: two real disposable PRP browser sessions and owner JWTs, no provider."""
+    if page.context.browser is None:
+        raise RuntimeError("T007_NO_DISPOSABLE_BROWSER")
+    private_fact = "CI-only isolated private preference between browser owners"
+    request = {"predicate": "PREFERS", "value": private_fact,
+               "requestKey": "ci-t007-two-owner-privacy-001"}
+    fact_id = None
+    second_context = None
+    try:
+        submitted = _ok(page, "POST", "/api/memory/ai-candidates", [request])
+        if not isinstance(submitted, list) or len(submitted) != 1:
+            raise RuntimeError("T007_TWO_OWNER_CANDIDATE_NOT_CREATED")
+        fact_id = submitted[0].get("id")
+        if not isinstance(fact_id, int) or fact_id <= 0:
+            raise RuntimeError("T007_TWO_OWNER_FACT_ID_INVALID")
+        confirmed = _ok(page, "POST", "/api/memory/" + str(fact_id) + "/confirm")
+        if confirmed.get("status") != "CONFIRMED" or confirmed.get("sensitivity") != "RESTRICTED":
+            raise RuntimeError("T007_TWO_OWNER_FACT_NOT_PRIVATE")
+        if not _fact_matches(_ok(page, "GET", "/api/memory/private"), fact_id):
+            raise RuntimeError("T007_TWO_OWNER_PRIMARY_PRIVATE_FACT_MISSING")
+
+        # stage_admin is the disposable bootstrapped owner, authorized to issue
+        # single-use invitations. Register a separate synthetic user without
+        # copying the first owner's token or granting any OAuth/MCP scope.
+        invitation = _ok(page, "POST", "/api/auth/invitations")
+        code = invitation.get("code") if isinstance(invitation, dict) else None
+        if not isinstance(code, str) or not code:
+            raise RuntimeError("T007_TWO_OWNER_INVITATION_UNAVAILABLE")
+        second_user = {
+            "username": "ci_u08_" + uuid.uuid4().hex[:12],
+            "password": secrets.token_urlsafe(24),
+            "displayName": "CI-only second owner",
+            "invitationCode": code
+        }
+        registered = _call(page, "POST", "/api/auth/register",
+                           second_user, authenticated=False)
+        second_data = registered.get("data")
+        if registered["status"] != 200 or not isinstance(second_data, dict):
+            raise RuntimeError("T007_TWO_OWNER_REGISTRATION_FAILED")
+        second_token = second_data.get("token")
+        if not isinstance(second_token, str) or not second_token:
+            raise RuntimeError("T007_TWO_OWNER_TOKEN_NOT_ISSUED")
+
+        # The second context has completely separate cookies/localStorage. The
+        # injection is origin-scoped, never applied to Keycloak or other sites.
+        second_context = page.context.browser.new_context(
+            ignore_https_errors=True, service_workers="block")
+        second_context.add_init_script("""(() => {
+          if (location.origin === 'https://prp-e2e.localhost')
+            localStorage.setItem('matrix-prp-token', %s);
+        })();""" % json.dumps(second_token))
+        second_page = second_context.new_page()
+        second_page.goto("https://prp-e2e.localhost/prp/personal-os",
+                         wait_until="domcontentloaded", timeout=30000)
+        second_page.locator(".os-hero h1").wait_for(state="visible", timeout=20000)
+        if second_page.locator(".os-alert").is_visible():
+            raise RuntimeError("T007_TWO_OWNER_PERSONAL_OS_NOT_AVAILABLE")
+        second_page.locator(".el-segmented").get_by_text(
+            "个人记忆", exact=True).click()
+        second_page.get_by_text("补充个人事实", exact=True).wait_for(
+            state="visible", timeout=15000)
+        if _fact_matches(_ok(second_page, "GET", "/api/memory/candidates"), fact_id):
+            raise RuntimeError("T007_TWO_OWNER_PENDING_CROSS_OWNER_LEAK")
+        if _fact_matches(_ok(second_page, "GET", "/api/memory"), fact_id):
+            raise RuntimeError("T007_TWO_OWNER_DEFAULT_CROSS_OWNER_LEAK")
+        if _call(second_page, "GET", "/api/memory/" + str(fact_id))["status"] != 404:
+            raise RuntimeError("T007_TWO_OWNER_DIRECT_ID_ALLOWED")
+        second_page.get_by_role("button", name="主动查看并管理").click()
+        second_page.locator(".os-private .el-empty").wait_for(
+            state="visible", timeout=15000)
+        if _fact_matches(_ok(second_page, "GET", "/api/memory/private"), fact_id):
+            raise RuntimeError("T007_TWO_OWNER_PRIVATE_API_CROSS_OWNER_LEAK")
+        if second_page.get_by_text(private_fact).count():
+            raise RuntimeError("T007_TWO_OWNER_PRIVATE_UI_CROSS_OWNER_LEAK")
+    finally:
+        if second_context is not None:
+            second_context.close()
+        if fact_id is not None:
+            _call(page, "DELETE", "/api/memory/" + str(fact_id))
+
+    print("CI_PERSONAL_OS_T007_TWO_BROWSER_OWNER_ISOLATION=PASS")
 
 
 def run(page):
@@ -159,5 +247,7 @@ def run(page):
         # Only test-owned synthetic record. Never touch unrelated memories.
         if fact_id is not None:
             _call(page, "DELETE", "/api/memory/" + str(fact_id))
+
+    _two_owner_browser_isolation(page)
 
     print("CI_PERSONAL_OS_T007_REAL_MYSQL_AI_CANDIDATE_REVIEW_DEDUP_PRIVACY=PASS")
