@@ -34,8 +34,8 @@ MAX_OUTPUT = 10000
 def require_root_only():
     if os.geteuid()!=0 or sys.argv != [sys.argv[0]]:
         raise InvalidJob('root forced-command required')
-    if os.environ.get('SSH_ORIGINAL_COMMAND')!='run':
-        raise InvalidJob('wrong SSH command')
+    # The trusted forced-command gateway already checked SSH_ORIGINAL_COMMAND.
+    # sudo env_reset intentionally strips arbitrary SSH environment variables.
     for path, kind, perm in ((DIR,stat.S_IFDIR,0o700), (PRIVATE_KEY,stat.S_IFREG,0o400),
                              (CERT,stat.S_IFREG,0o444), (STATE_DIR,stat.S_IFDIR,0o700)):
         st=path.lstat()
