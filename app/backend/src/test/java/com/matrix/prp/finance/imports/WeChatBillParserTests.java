@@ -1,6 +1,7 @@
 package com.matrix.prp.finance.imports;
 
 import static org.assertj.core.api.Assertions.*;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDateTime;
 import org.apache.poi.ss.usermodel.Row;
@@ -52,4 +53,24 @@ class WeChatBillParserTests {
         assertThatThrownBy(()->new WeChatBillParser().parse(new byte[]{1,2,3}))
             .isInstanceOf(ResponseStatusException.class);
     }
+    @Test void flagsDuplicateSourceTransactionIdsForReview() throws Exception {
+        try (var excel = new XSSFWorkbook(new ByteArrayInputStream(workbook()));
+             var output = new ByteArrayOutputStream()) {
+            var second = excel.getSheetAt(0).createRow(20);
+            String[] fields = {
+                "2026-10-14 00:27:20", "商户消费", "重复商店", "晚餐", "支出",
+                "12.00", "零钱", "支付成功", "4500000443202610148070669425", "merchant-2", ""
+            };
+            for (int i = 0; i < fields.length; i++) {
+                second.createCell(i).setCellValue(fields[i]);
+            }
+            excel.write(output);
+            var parsed = new WeChatBillParser().parse(output.toByteArray());
+            assertThat(parsed.rows()).hasSize(3);
+            assertThat(parsed.rows().get(0).reviewState()).isEqualTo("READY");
+            assertThat(parsed.rows().get(1).reviewState()).isEqualTo("REVIEW"); // refunded
+            assertThat(parsed.rows().get(2).reviewState()).isEqualTo("REVIEW"); // same source ID
+        }
+    }
+
 }
