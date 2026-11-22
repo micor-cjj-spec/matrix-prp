@@ -15,8 +15,11 @@ import sqlite3
 import stat
 import subprocess
 import sys
-# -I disables user PYTHONPATH; load only the independently installed root-owned module.
-sys.path.insert(0, '/usr/local/sbin')
+# -I disables user PYTHONPATH for the installed root executor.
+# Only prepend the trusted installed module directory when launched as a script;
+# unit tests must import the protocol from their checked-out source tree.
+if __name__ == '__main__':
+    sys.path.insert(0, '/usr/local/sbin')
 import tempfile
 import time
 
