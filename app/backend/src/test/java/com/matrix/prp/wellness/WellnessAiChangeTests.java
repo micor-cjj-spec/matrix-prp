@@ -120,4 +120,31 @@ class WellnessAiChangeTests {
         verifyNoInteractions(wellness);
     }
 
+
+    @Test void changeDraftStatusReadbackIsOwnerScopedAndDoesNotMutateHealth() {
+        owner();
+        String id="123e4567-e89b-12d3-a456-426614174000";
+        when(db.queryForList(contains("action_type IN"),eq(id),eq(17L)))
+            .thenReturn(List.of(Map.of("status","CONSUMED")),List.of(Map.of("status","PENDING")));
+        assertThat(service().getChangeStatus(id).status()).isEqualTo("CONSUMED");
+        assertThat(service().getChangeStatus(id).status()).isEqualTo("PENDING");
+        verify(db,times(2)).queryForList(
+            argThat(sql->sql.contains("user_id=?") &&
+                sql.contains("'meal.delete'") && sql.contains("'metric.update'")),
+            eq(id),eq(17L));
+        verifyNoInteractions(wellness,settings,provider,usage);
+        verify(db,never()).update(anyString(),any(Object[].class));
+    }
+
+    @Test void changeDraftStatusRejectsForeignAndMalformedIds() {
+        owner();
+        String id="123e4567-e89b-12d3-a456-426614174000";
+        when(db.queryForList(contains("action_type IN"),eq(id),eq(17L)))
+            .thenReturn(List.of());
+        assertThatThrownBy(()->service().getChangeStatus(id))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("not found");
+        assertThatThrownBy(()->service().getChangeStatus("../../other-owner"))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Invalid draft ID");
+        verifyNoInteractions(wellness,settings,provider,usage);
+    }
 }

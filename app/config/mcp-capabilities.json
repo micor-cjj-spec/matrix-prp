@@ -162,6 +162,11 @@
       "reason": "Streaming raw private audio is not a general MCP read tool"
     },
     {
+      "route": "GET /api/wellness/ai/changes/{id}/status",
+      "status": "excluded",
+      "reason": "First-party owner-only readback of an existing AI change draft confirmation; not an MCP approval, mutation or generalized draft-discovery tool"
+    },
+    {
       "route": "GET /api/wellness/body-metrics",
       "status": "partial",
       "tool": "prp_wellness_list",
