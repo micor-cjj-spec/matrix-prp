@@ -53,17 +53,27 @@ def verify_github_event(event, repo=None, ref=None):
         raise InvalidJob('invalid comment')
     return parse_command_comment(comment.get('body'))
 
+def write_ssh_credential_file(path, value):
+    """Keep GitHub secret text intact except for OpenSSH's required final LF.
+
+    Environment strings supplied from Actions may lose their trailing newline,
+    while the working workflow_dispatch smoke test explicitly adds it.
+    Never print or log credential contents.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise InvalidJob('SSH credentials unavailable')
+    path.write_text(value if value.endswith('\n') else value + '\n')
+    path.chmod(0o600)
+
+
 def ssh_exchange(job_id,ciphertext,host,private_key,known_hosts):
     if not isinstance(host,str) or not re.fullmatch(r'[A-Za-z0-9.-]{3,253}',host):
         raise InvalidJob('invalid SSH host')
     with tempfile.TemporaryDirectory() as directory:
         key_path=Path(directory)/'ssh.key'
         known_path=Path(directory)/'known_hosts'
-        key_path.write_text(private_key)
-        known_path.write_text(known_hosts)
-        key_path.chmod(0o600); known_path.chmod(0o600)
-        if not private_key.strip() or not known_hosts.strip():
-            raise InvalidJob('SSH credentials unavailable')
+        write_ssh_credential_file(key_path, private_key)
+        write_ssh_credential_file(known_path, known_hosts)
         command=['ssh','-T','-p','22','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
                  '-o','PasswordAuthentication=no',
                  '-o','KbdInteractiveAuthentication=no',
