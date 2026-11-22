@@ -131,6 +131,8 @@ jobs:
       - name: Test viewport zoom versus keyboard against local Vue preview
         working-directory: app/web
         env:
+          VITE_APP_BASE: /prp/
+          VITE_API_BASE: /api
           PRP_UI_SMOKE_URL: http://127.0.0.1:4173/prp/
           PRP_UI_SMOKE_DIR: ${{ runner.temp }}/prp-zoom
           PRP_UI_BROWSER: ${{ matrix.browser }}
