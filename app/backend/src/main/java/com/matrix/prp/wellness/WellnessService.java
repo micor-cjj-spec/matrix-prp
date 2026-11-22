@@ -297,6 +297,10 @@ public class WellnessService {
         db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
     }
     private void assertMealSlotFree(long user,LocalDate date,String type,long excludedId) {
+        // Snacks are distinct eating events, not one daily slot. Keep the owner
+        // lock and idempotency-key checks in every writer so retries cannot
+        // recreate a confirmed snack, while ordinary meals stay unique per day.
+        if ("SNACK".equals(type)) return;
         List<Long> duplicates=db.query(
             "SELECT id FROM prp_wellness_meals WHERE user_id=? AND meal_date=? AND meal_type=? " +
             "AND id<>? LIMIT 1 FOR UPDATE",
@@ -428,17 +432,41 @@ public class WellnessService {
     }
     @Transactional
     public Meal copyMeal(long id,LocalDate date) {
+        return copyMeal(id,date,null);
+    }
+
+    /**
+     * Copy is a distinct eating event, but retries of that event must keep the
+     * same idempotency key. A new key is needed for a deliberate second snack.
+     * Older clients without a key retain the original copy behavior.
+     */
+    @Transactional
+    public Meal copyMeal(long id,LocalDate date,String idempotencyKey) {
         Meal existing=meal(id);
+        String requestKey=idempotencyKey==null || idempotencyKey.isBlank()
+            ?UUID.randomUUID().toString():idempotencyKey;
+        if(requestKey.length()>80) throw new IllegalArgumentException("Invalid copy idempotency key");
+        // The persisted key is scoped to the source meal and operation. A token
+        // used for a different source or a normal meal create cannot hijack this copy.
+        String key=UUID.nameUUIDFromBytes(("meal-copy:"+id+":"+requestKey)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        Meal copy;
         if(existing.items().stream().anyMatch(i->i.foodId()<=0)) {
             List<AiMealItem> snapshots=existing.items().stream()
                 .map(i->i.foodId()>0
                     ?new AiMealItem(i.foodId(),null,i.grams(),null)
                     :new AiMealItem(null,i.foodName(),i.grams(),i.calories())).toList();
-            return addAiMeal(date,existing.mealType(),existing.note(),snapshots,
-                UUID.randomUUID().toString());
+            copy=addAiMeal(date,existing.mealType(),existing.note(),snapshots,key);
+        } else {
+            List<ItemInput> copies=existing.items().stream()
+                .map(i->new ItemInput(i.foodId(),i.grams())).toList();
+            copy=addMeal(new MealInput(date,existing.mealType(),existing.note(),copies,key));
         }
-        List<ItemInput> copies=existing.items().stream().map(i->new ItemInput(i.foodId(),i.grams())).toList();
-        return addMeal(new MealInput(date,existing.mealType(),existing.note(),copies,null));
+        if(!copy.mealDate().equals(date) || !copy.mealType().equals(existing.mealType()))
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.CONFLICT,
+                "复制幂等键已用于其他日期或餐次");
+        return copy;
     }
 
     public List<Exercise> exercises(LocalDate date) {
