@@ -38,6 +38,8 @@ PRP 主仓库公开。Issue 正文、评论和 GitHub Actions 输出不能存放
 
 **双重默认关闭保护：** GitHub Actions job 需要显式设置仓库变量 `PRP_CHAT_SHELL_ENABLED=true`；服务器新执行器也需要 root:root 0400 的 `/etc/matrix-prp-chat-shell/execution.enabled` 文件，**内容必须逐字为** `PRP_CHAT_SHELL_ALLOW_V1\n`。任一条件不存在，均不能通过常规链路执行真实命令。此标志只在单独获得生产启用授权、所有联调验收后由管理员创建。启用后每组新命令仍须用户在聊天中重新批准。撤销服务器标志或 GitHub 变量任一项即可阻止后续新任务。
 
+**关闭状态下的攻击面缩减（待安装）：** `process_request` 首先要求 root-only `execution.enabled` 文件，然后才进行 base64 解析、OpenSSL CMS 解密及任务时效检查。这样即使攻击者拿到了专用 SSH 密钥，在服务器开关关闭时也无法让 root 进程处理自定义 CMS 密文。此项顺序调整属于较新的 PR 分支代码，**服务器上已安装的 `fa2afff2` 执行器尚未包含**，不可把它误判为生产已生效保护。
+
 **本机已安装版本注意：** 服务器此前从固定 commit `ff75e80a` 安装的旧版执行器不包含上述主机端标志检查。当前仅更新了 PR 分支源码，**没有更新服务器 /usr/local/sbin/prp-chat-shell-executor**。在将该能力对外开放前必须先按固定、安全审查后的新 SHA 离线验收并原子更新服务器安装文件，不能仅设置 GitHub 变量。新版本的空输入仍会以退出码 2 拒绝，所以 `connectivity-smoke` 可在执行开关关闭时验收 SSH 连通性。
 
 **没有命令白名单**；但当前 Shell 受 Linux 用户权限约束，不能隐式获取 root。默认单命令最多 30 秒，最长命令 8192 UTF-8 字节，输出每流最多 10 KiB。超时只终止前台进程组，不能保证清理所有人为脱离进程组的后台子进程。
