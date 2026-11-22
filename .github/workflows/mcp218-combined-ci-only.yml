@@ -213,7 +213,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source_head="904a99602ce8f8e974323121bb67440753694b5e"
+          source_head="$(git -C merged rev-parse HEAD)"
+          test "$source_head" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git -C merged merge-base --is-ancestor "904a99602ce8f8e974323121bb67440753694b5e" "$source_head"
+          git -C merged diff --name-only "904a99602ce8f8e974323121bb67440753694b5e" "$source_head" > /tmp/mcp218-ci-only-source-delta
+          printf '%s\n' '.github/workflows/mcp218-combined-ci-only.yml' > /tmp/mcp218-expected-ci-only-source-delta
+          diff -u /tmp/mcp218-expected-ci-only-source-delta /tmp/mcp218-ci-only-source-delta
           reviewed_main="2d8afddc4cfd39e5801133a664ed52cae342651e"
           test "$(git -C merged rev-parse HEAD)" = "$source_head" || {
             echo "MCP218_REHEARSAL_SOURCE_HEAD_CHANGED" >&2
@@ -257,5 +262,5 @@ jobs:
           set -euo pipefail
           git -C merged merge --abort
           test -z "$(git -C merged status --porcelain)"
-          test "$(git -C merged rev-parse HEAD)" = "904a99602ce8f8e974323121bb67440753694b5e"
+          test "$(git -C merged rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           echo "MCP218_LOCAL_MERGE_ABORTED_NO_REMOTE_CHANGE"
