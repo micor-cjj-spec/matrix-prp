@@ -105,7 +105,7 @@ class PersonalMemoryServiceTests {
             any(org.springframework.jdbc.support.KeyHolder.class));
     }
 
-    @Test void duplicateTaskGoalEdgesAreRejectedAcrossDifferentRequestKeys() {
+    @Test void sameTaskGoalEdgeRecoversPendingCandidateAcrossDifferentKeys() {
         user(7);
         var edge=new PersonalMemoryService.Proposed(
             TASK,"91",ADVANCES,GOAL,"31",null,EvidenceSource.TASK,"91",
@@ -123,11 +123,18 @@ class PersonalMemoryServiceTests {
             any(org.springframework.jdbc.core.RowMapper.class),
             eq(7L),eq("TASK"),eq("91"),eq("ADVANCES"),eq("31")))
             .thenReturn(List.of(55L));
+        var prior=new PersonalMemoryService.Memory(
+            55L,TASK,"91",ADVANCES,GOAL,"31",null,
+            EvidenceSource.TASK,"91","BUSINESS_REFERENCE","PENDING","NORMAL",
+            null,null,null,java.time.LocalDateTime.of(2026,11,22,1,0));
+        when(db.query(
+            contains("WHERE id=? AND user_id=? LIMIT 1"),
+            any(org.springframework.jdbc.core.RowMapper.class),
+            eq(55L),eq(7L))).thenReturn(List.of(prior));
 
-        assertThatThrownBy(()->service.propose(edge))
-            .isInstanceOf(ResponseStatusException.class)
-            .satisfies(e->assertThat(((ResponseStatusException)e).getStatusCode())
-                .isEqualTo(HttpStatus.CONFLICT));
+        var recovered=service.propose(edge);
+        assertThat(recovered.id()).isEqualTo(55L);
+        assertThat(recovered.status()).isEqualTo("PENDING");
         verify(references,atLeastOnce()).requireOwned(TASK,"91");
         verify(references).requireOwned(GOAL,"31");
         verify(db,never()).update(any(org.springframework.jdbc.core.PreparedStatementCreator.class),
@@ -153,7 +160,7 @@ class PersonalMemoryServiceTests {
             any(org.springframework.jdbc.support.KeyHolder.class));
     }
 
-    @Test void duplicateReviewGoalEdgesAreRejectedByOwnerScopedMutex() {
+    @Test void sameReviewGoalEdgeRecoversConfirmedRelationAcrossDifferentKeys() {
         user(7);
         var edge=new PersonalMemoryService.Proposed(
             REVIEW,"42",EVALUATES,GOAL,"31",null,EvidenceSource.REVIEW,"42",
@@ -171,14 +178,46 @@ class PersonalMemoryServiceTests {
             any(org.springframework.jdbc.core.RowMapper.class),
             eq(7L),eq("REVIEW"),eq("42"),eq("EVALUATES"),eq("31")))
             .thenReturn(List.of(75L));
-        assertThatThrownBy(()->service.propose(edge))
-            .isInstanceOf(ResponseStatusException.class)
-            .satisfies(e->assertThat(((ResponseStatusException)e).getStatusCode())
-                .isEqualTo(HttpStatus.CONFLICT));
+        var prior=new PersonalMemoryService.Memory(
+            75L,REVIEW,"42",EVALUATES,GOAL,"31",null,
+            EvidenceSource.REVIEW,"42","BUSINESS_REFERENCE","CONFIRMED","NORMAL",
+            null,null,null,java.time.LocalDateTime.of(2026,11,22,1,0));
+        when(db.query(
+            contains("WHERE id=? AND user_id=? LIMIT 1"),
+            any(org.springframework.jdbc.core.RowMapper.class),
+            eq(75L),eq(7L))).thenReturn(List.of(prior));
+        var recovered=service.propose(edge);
+        assertThat(recovered.id()).isEqualTo(75L);
+        assertThat(recovered.status()).isEqualTo("CONFIRMED");
         verify(references,atLeastOnce()).requireOwned(REVIEW,"42");
         verify(references).requireOwned(GOAL,"31");
         verify(db,never()).update(any(org.springframework.jdbc.core.PreparedStatementCreator.class),
             any(org.springframework.jdbc.support.KeyHolder.class));
+    }
+
+    @Test void recoveredGoalEdgeCannotReuseModifiedEvidenceOrSensitivity() {
+        var prior=new PersonalMemoryService.Memory(
+            55L,TASK,"91",ADVANCES,GOAL,"31",null,
+            EvidenceSource.TASK,"91","BUSINESS_REFERENCE","PENDING","NORMAL",
+            null,null,null,java.time.LocalDateTime.of(2026,11,22,1,0));
+        var forged=new PersonalMemoryService.Proposed(
+            TASK,"91",ADVANCES,GOAL,"31",null,EvidenceSource.USER_INPUT,null,
+            null,null,com.matrix.prp.ontology.PersonalOntology.Sensitivity.NORMAL,
+            "different_source_01");
+        assertThatThrownBy(()->PersonalMemoryService.matchingReplay(
+            prior,forged,null,"USER_CONFIRMED"))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e->assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT));
+        var reclassified=new PersonalMemoryService.Proposed(
+            TASK,"91",ADVANCES,GOAL,"31",null,EvidenceSource.TASK,"91",
+            null,null,com.matrix.prp.ontology.PersonalOntology.Sensitivity.RESTRICTED,
+            "changed_sensitivity_01");
+        assertThatThrownBy(()->PersonalMemoryService.matchingReplay(
+            prior,reclassified,null,"BUSINESS_REFERENCE"))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e->assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT));
     }
 
     @Test void missingOrNegativeIdRejectedWithoutDatabaseAccess() {
