@@ -18,7 +18,7 @@ test('integrate/** is not configured as a production deployment trigger',()=>{
   const ci=read('ci.yml'),deploy=read('deploy-prp.yml')
   // CI push on dev supports pre-merge validation, not production publication.
   // Read the complete push branch list rather than pinning a historical list.
-  const match = ci.match(/(?:^|\\n)\\s*push:\\s*\\n\\s*branches:\\s*\\[([^\\]\\n]+)\\]/)
+  const match = ci.match(/(?:^|\n)\s*push:\s*\n\s*branches:\s*\[([^\]\n]+)\]/)
   assert.ok(match, 'CI must declare explicit push branches')
   const branches = match[1].split(',').map(x => x.trim().replace(/^['"]|['"]$/g, ''))
   assert.ok(branches.includes('main') && branches.includes('dev'),
