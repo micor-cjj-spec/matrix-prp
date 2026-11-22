@@ -18,7 +18,7 @@ import sys
 import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urljoin, urlsplit, parse_qs
-from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler, ProxyHandler
+from urllib.request import Request, build_opener, HTTPSHandler, HTTPCookieProcessor, HTTPRedirectHandler
 
 from oauth_token_check import check_token
 
@@ -113,38 +113,14 @@ def json_response(response, stage):
 
 def wait_ready(opener, url, max_seconds=150):
     until = time.monotonic() + max_seconds
-    attempts = 0
-    last_http_status = "none"
-    last_error_type = "none"
     while time.monotonic() < until:
-        attempts += 1
         try:
-            status = request(opener, url)[0]
-            last_http_status = str(status)
-            last_error_type = "none"
-            if status == 200:
+            if request(opener, url)[0] == 200:
                 return
-        except (OSError, ValueError, ssl.SSLError) as error:
-            # Diagnostic data is deliberately restricted to the exception class.
-            # Never log exception text, response bodies, URLs or credentials.
-            reason = getattr(error, "reason", error)
-            # URLError wraps the underlying OS/DNS/TLS exception. Keep just
-            # its class and numeric errno, never the raw exception message.
-            last_error_type = type(error).__name__ + ":" + type(reason).__name__
-            reason_errno = getattr(reason, "errno", None)
-            if isinstance(reason_errno, int):
-                last_error_type += ":" + str(reason_errno)
-            verify_code = getattr(reason, "verify_code", None)
-            if isinstance(verify_code, int):
-                # OpenSSL X509_V_ERR_* numeric code only, never certificate text.
-                last_error_type += ":x509=" + str(verify_code)
+        except (OSError, ValueError, ssl.SSLError):
+            pass
         time.sleep(3)
-    stage = "Keycloak" if "auth-" in url else "PRP"
-    print("E2E_DIAG_PYTHON_READY stage=" + stage
-          + " attempts=" + str(attempts)
-          + " last_http=" + last_http_status
-          + " last_error_type=" + last_error_type, file=sys.stderr)
-    raise RuntimeError("Temporary environment not healthy: " + stage)
+    raise RuntimeError("Temporary environment not healthy: " + ("Keycloak" if "auth-" in url else "PRP"))
 
 
 def add_user(opener, admin_password, username, password):
@@ -431,11 +407,7 @@ def main():
     context = ssl.create_default_context(cafile=ca)
     # Authenticate against the actual HTTPS staging-style proxy and retain
     # browser cookies for the Keycloak login/consent pages.
-    # All E2E URLs use synthetic *.localhost or 127.0.0.1 addresses.
-    # Explicitly bypass runner-provided HTTP(S) proxies for the disposable
-    # loopback stack; retain the exact CA and HTTPS certificate validation.
-    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context),
-                          HTTPCookieProcessor(CookieJar()), SafeRedirect())
+    opener = build_opener(HTTPSHandler(context=context), HTTPCookieProcessor(CookieJar()), SafeRedirect())
     admin_pass = os.environ["MCP_E2E_KC_ADMIN_PASSWORD"]
     user_password = os.environ["MCP_E2E_KC_USER_PASSWORD"]
     prp_password = os.environ["MCP_E2E_PRP_PASSWORD"]
