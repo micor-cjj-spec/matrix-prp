@@ -21,7 +21,11 @@ class WorkflowBoundary(unittest.TestCase):
                        "PRP_SHELL_SSH_KEY", "PRP_SHELL_KNOWN_HOSTS",
                        "startsWith(github.event.comment.body, '/prp-shell-v1 ')"):
             self.assertIn(marker,s)
-        self.assertNotIn('pull_request_target:',s)
+        self.assertIn('workflow_dispatch:',s)
+        self.assertIn("github.event_name == 'workflow_dispatch'",s)
+        self.assertIn('PRP_SHELL_REQUEST_REJECTED',s)
+        self.assertIn('connectivity-smoke:',s)
+                self.assertNotIn('pull_request_target:',s)
         self.assertNotIn('PRP_DEPLOY_SSH_KEY',s)
         self.assertNotIn("github.event.comment.body }}",s)
         self.assertNotIn('runs-on: self-hosted',s)
