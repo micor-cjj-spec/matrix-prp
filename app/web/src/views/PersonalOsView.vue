@@ -373,6 +373,7 @@ function openAdviceTaskDraft(proposal: PlanningModelProposal) {
 async function saveAdviceTaskDraft() {
   if (!taskDraftOpen.value || taskDraftSaving.value
       || !auth.token || auth.token !== taskDraftOwnerToken.value
+      || taskDraftGoalId.value === null
       || selectedGoalId.value !== taskDraftGoalId.value || activeTab.value !== 'goals'
       || !adviceOutput.value || adviceOutput.value.goalId !== taskDraftGoalId.value
       || !taskDraftForm.title.trim()) return
