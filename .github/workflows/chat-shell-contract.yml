@@ -4,6 +4,7 @@ on:
     paths:
       - 'app/deploy/chat-shell/**'
       - '.github/workflows/chat-shell-contract.yml'
+      - '.github/workflows/prp-chat-shell.yml'
   workflow_dispatch:
 
 permissions:
@@ -11,14 +12,13 @@ permissions:
 
 jobs:
   contract:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Compile and test signed command protocol without SSH or secrets
+      - name: Compile and test encrypted command protocol without SSH or secrets
         run: |
-          python3 -m py_compile app/deploy/chat-shell/prp_shell_executor.py
+          python3 -m py_compile app/deploy/chat-shell/protocol.py app/deploy/chat-shell/prp_shell_executor.py app/deploy/chat-shell/github_bridge.py
           python3 -m unittest discover -s app/deploy/chat-shell -p 'test_*.py' -v
