@@ -134,6 +134,25 @@ class PersonalMemoryServiceTests {
             any(org.springframework.jdbc.support.KeyHolder.class));
     }
 
+    @Test void foreignOrDeletedReviewCannotBeLinkedToOwnGoal() {
+        user(7);
+        var edge=new PersonalMemoryService.Proposed(
+            REVIEW,"88",EVALUATES,GOAL,"31",null,EvidenceSource.REVIEW,"88",
+            null,null,com.matrix.prp.ontology.PersonalOntology.Sensitivity.NORMAL,
+            "review_link_foreign_01");
+        when(db.queryForObject(
+            "SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,7L))
+            .thenReturn(7L);
+        doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND))
+            .when(references).requireOwned(REVIEW,"88");
+        assertThatThrownBy(()->service.propose(edge))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e->assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND));
+        verify(db,never()).update(any(org.springframework.jdbc.core.PreparedStatementCreator.class),
+            any(org.springframework.jdbc.support.KeyHolder.class));
+    }
+
     @Test void duplicateReviewGoalEdgesAreRejectedByOwnerScopedMutex() {
         user(7);
         var edge=new PersonalMemoryService.Proposed(
