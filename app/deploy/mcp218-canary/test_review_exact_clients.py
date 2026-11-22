@@ -40,6 +40,21 @@ class ReviewOnlyExactClientTests(unittest.TestCase):
         self.assertEqual(c["optionalClientScopes"],
                          ["prp.reviews.read", "prp.video.read"])
 
+    def test_first_party_client_id_matches_pinned_prp_frontend(self):
+        # Independent Realm, same approved identifier: never alter the
+        # frontend's fail-closed client-id check to accommodate a proposal.
+        from pathlib import Path
+        frontend = (Path(__file__).resolve().parents[3] / "web" / "src"
+                    / "utils" / "mcpOidcAuthorizeUrl.ts").read_text(encoding="utf-8")
+        self.assertEqual(FIRST_PARTY_ID, "prp-first-party-link")
+        self.assertIn("params.get('client_id') !== 'prp-first-party-link'", frontend)
+        self.assertEqual(self.first["clientId"], FIRST_PARTY_ID)
+        self.assertNotEqual(self.first["clientId"], CHATGPT_ID)
+        self.assertEqual(self.first["redirectUris"], [
+            "https://mcp218-ci-contract.micor.top/prp/me/mcp-link/callback"
+        ])
+        self.assertTrue(self.first["publicClient"])
+
     def test_first_party_exact_isolated_callback_no_data_scopes(self):
         self.assertTrue(self.first["publicClient"])
         self.assertEqual(self.first["redirectUris"],
