@@ -1,0 +1,99 @@
+name: UI V2 source acceptance (isolated draft checks)
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - ".github/workflows/ui-v2-source-acceptance.yml"
+      - "app/web/**"
+      - "app/mobile/**"
+      - "app/scripts/**"
+      - "app/docs/PRP-UI-V2-QUIET-INTELLIGENCE.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-v2-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui-source-web:
+    name: UI source Web build, typecheck and preservation tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: Install locked Web dependencies
+        working-directory: app/web
+        run: npm ci
+      - name: Execute Web build including navigation, UI-preservation and auth tests
+        working-directory: app/web
+        run: npm run build
+      - name: Verify UI source encoding
+        run: node app/scripts/check-text-encoding.mjs
+      - name: Verify /prp/ base path and authenticated callback binding (build only)
+        working-directory: app/web
+        env:
+          VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT: https://auth.micor.top/realms/prp-mcp-prod/protocol/openid-connect/auth
+        run: |
+          VITE_APP_BASE=/prp/ npm run build
+          node scripts/verify-deploy-base.mjs /prp/
+          node scripts/verify-production-mcp-binding.mjs
+
+  ui-source-mobile:
+    name: UI source Mobile H5 typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/mobile/package-lock.json
+      - name: Install locked Mobile dependencies
+        working-directory: app/mobile
+        run: npm ci
+      - name: Typecheck and compile Mobile H5
+        working-directory: app/mobile
+        run: |
+          npm run type-check
+          npm run build:h5
+
+  ui-source-impact:
+    name: UI source Feature Impact and MCP API contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate mapping and API contract
+        run: |
+          node --test app/scripts/feature-impact.test.mjs
+          node --test app/scripts/mcp-api-contract.test.mjs
+      - name: Analyze actual UI source PR diff against dev
+        run: node app/scripts/feature-impact.mjs --base "origin/${{ github.base_ref }}" --head HEAD --out impact-report.md --json impact-report.json
+      - name: Upload synthetic-only impact evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-v2-source-impact-report
+          path: |
+            impact-report.md
+            impact-report.json
+          retention-days: 14
