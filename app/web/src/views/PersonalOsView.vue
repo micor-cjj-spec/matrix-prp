@@ -10,6 +10,7 @@ import {
   erasePersonalMemory, fetchConfirmedMemories, fetchMemoryCandidates,
   fetchPersonalGoalContext, fetchPersonalGoals, fetchPrivateMemories, invalidatePersonalMemory,
   proposePersonalMemory, replacePersonalMemory, fetchMemoryChatSource, fetchNormalMemoryHistory,
+  proposeGoalTaskLink,
   type ChatEvidenceSource, type GoalStatus, type MemoryPredicate, type MemorySensitivity,
   previewGoalModelSharing, confirmGoalModelSharing, suggestGoalModelAdvice,
   type PlanningModelReview, type PlanningModelAdvice, type PlanningModelProposal,
@@ -80,6 +81,15 @@ const taskDraftSaving = ref(false)
 const taskDraftGoalId = ref<number | null>(null)
 const taskDraftOwnerToken = ref<string | null>(null)
 const taskDraftForm = reactive({ title: '', description: '', priority: 'medium' })
+// A task exists independently before the owner explicitly confirms its goal relation.
+const taskLinkPending = ref<{
+  goalId: number; taskId: number; ownerToken: string; requestKey: string
+} | null>(null)
+const taskLinkBusy = ref(false)
+
+function clearPendingTaskLink() {
+  taskLinkPending.value = null
+}
 
 function clearTaskDraft() {
   taskDraftOpen.value = false
@@ -96,6 +106,7 @@ function clearPlanningAdvice() {
   adviceOutput.value = null
   adviceBusy.value = false
   clearTaskDraft()
+  clearPendingTaskLink()
 }
 watch(sharePersonalFacts, clearPlanningAdvice)
 const correctionTarget = ref<PersonalMemory | null>(null)
@@ -349,7 +360,8 @@ function openAdviceTaskDraft(proposal: PlanningModelProposal) {
   const advice = adviceOutput.value
   if (!advice || !auth.token || activeTab.value !== 'goals'
       || selectedGoalId.value !== advice.goalId
-      || !advice.proposals.includes(proposal) || taskDraftSaving.value) return
+      || !advice.proposals.includes(proposal) || taskDraftSaving.value
+      || taskLinkPending.value !== null) return
   clearTaskDraft()
   taskDraftGoalId.value = advice.goalId
   taskDraftOwnerToken.value = auth.token
@@ -379,12 +391,53 @@ async function saveAdviceTaskDraft() {
     if (identity !== auth.token || goalId !== selectedGoalId.value
         || activeTab.value !== 'goals') return
     clearTaskDraft()
-    ElMessage.success(`任务 #${created.id} 已创建，可在任务模块编辑；尚未建立目标关系`)
+    taskLinkPending.value = {
+      goalId, taskId: created.id, ownerToken: identity, requestKey: requestKey('task_link'),
+    }
+    ElMessage.success(`任务 #${created.id} 已创建；如要关联目标，请单独确认`)
   } catch {
     if (identity === auth.token && goalId === selectedGoalId.value)
       ElMessage.error('任务创建结果未确认，请先到任务模块检查，避免重复提交')
   } finally {
     taskDraftSaving.value = false
+  }
+}
+
+/** Separate owner click; proposal + confirmation reuse the reviewed owner-scoped ontology API. */
+async function confirmGoalTaskLink() {
+  const pending = taskLinkPending.value
+  if (!pending || taskLinkBusy.value || pending.ownerToken !== auth.token
+      || activeTab.value !== 'goals' || selectedGoalId.value !== pending.goalId) return
+  taskLinkBusy.value = true
+  try {
+    // The stable request key allows a retry after a lost response without
+    // creating another task or another association.
+    const candidate = await proposeGoalTaskLink(
+      pending.goalId, pending.taskId, pending.requestKey,
+    )
+    if (taskLinkPending.value !== pending || pending.ownerToken !== auth.token
+        || selectedGoalId.value !== pending.goalId || activeTab.value !== 'goals') return
+    await confirmPersonalMemory(candidate.id)
+    if (taskLinkPending.value !== pending || pending.ownerToken !== auth.token
+        || selectedGoalId.value !== pending.goalId || activeTab.value !== 'goals') return
+    taskLinkPending.value = null
+    ElMessage.success(`任务 #${pending.taskId} 已关联到目标`)
+    const request = ++goalContextGeneration
+    try {
+      const links = await fetchPersonalGoalContext(pending.goalId)
+      if (request === goalContextGeneration && auth.token === pending.ownerToken
+          && selectedGoalId.value === pending.goalId && activeTab.value === 'goals') {
+        context.value = links
+      }
+    } catch {
+      if (request === goalContextGeneration && auth.token === pending.ownerToken)
+        ElMessage.warning('目标关联已确认，但列表刷新失败，请手动刷新')
+    }
+  } catch {
+    if (taskLinkPending.value === pending && pending.ownerToken === auth.token)
+      ElMessage.error('关联尚未确认，可重试；任务已存在，请勿重复创建任务')
+  } finally {
+    taskLinkBusy.value = false
   }
 }
 
@@ -720,6 +773,15 @@ onMounted(async () => {
               <span>{{ link.objectValue || (link.objectType + ' #' + (link.objectRef || '—')) }}</span>
               <small>事实 #{{ link.assertionId }} · 已确认</small>
             </div>
+            <div v-if="taskLinkPending && taskLinkPending.goalId === selectedGoal.id"
+              class="os-evidence" role="status">
+              <strong>任务 #{{ taskLinkPending.taskId }} 已创建，尚未关联目标</strong>
+              <p>任务已经独立保存。只有再次点击确认，才会把此任务记录为推进当前目标的已确认关系。</p>
+              <div class="os-card-actions">
+                <el-button type="primary" :loading="taskLinkBusy" @click="confirmGoalTaskLink">确认关联到此目标</el-button>
+                <el-button :disabled="taskLinkBusy" @click="clearPendingTaskLink">暂不关联</el-button>
+              </div>
+            </div>
             <section v-if="selectedGoal.domain === 'career'" class="os-model-panel" aria-label="AI 职业规划">
               <h3>AI 职业规划 · 单次授权</h3>
               <p class="os-help">先在本机生成共享预览，核对后才能发送给已选模型。只用已确认、有效且授权的事实，不会自动创建任务。</p>
@@ -745,7 +807,7 @@ onMounted(async () => {
                   <small>证据：{{ proposal.evidenceRefs.join('、') }}</small>
                   <p v-if="proposal.assumptions.length">待核实：{{ proposal.assumptions.join('；') }}</p>
                   <div class="os-card-actions">
-                    <el-button size="small" :disabled="taskDraftSaving" @click="openAdviceTaskDraft(proposal)">采纳为任务（先审核）</el-button>
+                    <el-button size="small" :disabled="taskDraftSaving || taskLinkPending !== null" @click="openAdviceTaskDraft(proposal)">采纳为任务（先审核）</el-button>
                   </div>
                 </article>
                 <p class="os-help">{{ adviceOutput.limitation }}</p>
