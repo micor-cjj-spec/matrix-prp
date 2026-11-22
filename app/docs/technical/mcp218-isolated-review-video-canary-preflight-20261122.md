@@ -134,3 +134,21 @@ node app/scripts/mcp218-canary-plan.mjs /path/to/private/nonsecret-canary-plan.j
 **重要：此函数不生成可直接部署的包，不提供安装入口，也不执行任何文件/网络写操作。** 它的通过证据只能证明可构造候选 Realm JSON 结构，不能证明 Keycloak 接受导入、真实 Issuer/JWKS 可用、OpenAI client 能签名、PRP owner-link 已工作；这些继续是**独立环境真实审批及 E2E**，没有取消 #149 或 G0/B2 阻塞。
 
 新的 Python unittest 专项检查 Realm/Scope/Client 数量、无第三方登录 Client、无旧任务权限、OIDC subject 安全映射、不修改原构建器、不访问网络、旧域名/注入拒绝和上游构建器结构漂移。离线 Node.js 方案校验与 Python Realm 候选均拒绝 DNS 标签长度超过 63 或完整主机名超过 253 个 ASCII 字符，边界测试覆盖 253 字符允许、254 字符拒绝；仅证明静态语法一致性，不证明 DNS 实际可用。GitHub Actions 中以 `python3 -m unittest discover -v -s app/deploy/mcp218-canary -p 'test_review_realm.py'` 执行，**必须以当前 SHA 最新实际 CI 完成结果为准**。
+
+
+## 10. 同一份计划的跨语言离线一致性预检（不部署）
+
+前述 `mcp218-canary-plan.mjs` 和 `review_realm.py` 单独通过，不能证明两者对于**同一份非密钥计划**输出完全一致。子 PR #312 增加 `app/deploy/mcp218-canary/check_offline_contract.py`，仅执行本地 Node.js 计划校验，再**在内存中**调用独立只读 Realm 候选，检查：
+
+- Node.js 方案语法与安全开关全部 PASS；Python 使用**同一 Resource URL** 生成候选；
+- Realm 固定 `prp-mcp218`，唯一 bearer-only `matrix-prp-mcp218-resource` 的 `resource_url` 与计划完全一致；
+- Realm 含 `basic` + 计划指定的两个复盘/视频只读 Scope，不能出现额外 client、真实用户、secret 或 credentials；
+- 缺失/超过 64KiB 的计划、非法 JSON、缺失 Node、超时、Scope/Resource 不符一律固定错误码 NO-GO，不回显 JSON、用户笔记、Token、客户端凭据。
+
+本地只读执行（需 Python 3 和 Node.js 22，传入**无凭据的待审批计划 JSON**）：
+
+```sh
+python3 app/deploy/mcp218-canary/check_offline_contract.py /path/to/nonsecret-mcp218-plan.json
+```
+
+成功只返回 `MCP218_OFFLINE_CONTRACT_PASS_ONLY_NO_DEPLOY_AUTHORIZATION`；失败返回 `MCP218_OFFLINE_CONTRACT_NO_GO` + 固定分类码，并以退出码 2 结束。该命令**仅读本地配置、执行本地 Node 校验和构建 Python 内存对象**；不访问网络、不写磁盘、不导入 Realm、不提供可安装配置或审批凭据。GitHub Actions 用合成计划和负例测试覆盖该链路；与真实 DNS/TLS、Keycloak Client、ChatGPT 登录、G0/B2 及环境部署没有任何等价关系。上述实际验收仍全部 NO-GO，只有获得单独批准才可继续。
