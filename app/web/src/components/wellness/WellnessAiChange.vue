@@ -37,7 +37,7 @@ const error=ref('')
 const done=ref('')
 const deleteAcknowledged=ref(false)
 
-async function refreshRecords(){
+async function refreshRecords(): Promise<boolean> {
   loading.value=true
   const currentId=targetId.value
   draft.value=null
@@ -54,8 +54,13 @@ async function refreshRecords(){
         .map(m=>({id:m.id,label:m.weightKg+'kg #'+m.id}))
     }
     targetId.value=records.value.some(x=>x.id===currentId)?currentId:0
-  }catch { error.value='无法读取记录，请检查网络';records.value=[] }
-  finally { loading.value=false }
+    error.value=''
+    return true
+  }catch {
+    error.value='无法读取记录，请检查网络'
+    records.value=[]
+    return false
+  } finally { loading.value=false }
 }
 watch([kind,date],()=>{void refreshRecords()})
 onMounted(()=>{void refreshRecords()})
@@ -81,19 +86,26 @@ async function confirm(){
     ElMessage.warning('请先明确勾选删除确认');return
   }
   saving.value=true;error.value=''
+  let confirmStarted=false
   try {
     if(action.value==='update'){
       await apiClient.patch('/wellness/ai/changes/'+draft.value.draftId,after.value)
     }
+    // Separate mutation confirmation from a later readback: a failed GET does
+    // not undo an already committed change or justify repeating the POST.
+    confirmStarted=true
     const r=await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/changes/'+draft.value.draftId+'/confirm',{})
     done.value=r.data.data.route
     draft.value=null
     emit('changed',r.data.data)
-    await refreshRecords()
-    ElMessage.success('已完成'+(action.value==='delete'?'删除':'修改'))
+    const refreshed=await refreshRecords()
+    if(refreshed) ElMessage.success('已完成'+(action.value==='delete'?'删除':'修改'))
+    else ElMessage.warning('健康记录已修改或删除，但列表刷新失败；请刷新页面核对，勿重复提交')
   }catch(e){
     const err=e as {response?:{data?:{message?:string}}}
-    error.value=err.response?.data?.message||'未提交：记录可能已经修改、删除，或草稿已过期'
+    error.value=confirmStarted
+      ? '修改或删除确认请求结果未核实，请先刷新记录核对是否生效，勿重复提交'
+      : (err.response?.data?.message||'草稿修改请求未确认，请核对后再试')
   }finally{saving.value=false}
 }
 </script>
