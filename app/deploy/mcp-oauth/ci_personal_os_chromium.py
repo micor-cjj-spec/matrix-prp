@@ -264,6 +264,53 @@ def run(page, origin):
         raise RuntimeError("PERSONAL_OS_MODEL_ADVICE_PERSISTED_AFTER_TAB_CHANGE")
     print("CI_PERSONAL_OS_CHROMIUM_MODEL_REVIEW_SINGLE_USE_UI=PASS")
 
+    # U10 partial mobile consent acceptance. Use the SAME first-party Vue
+    # controls, on a phone-size Chromium viewport, with the intercepted model
+    # still restricted to synthetic responses. This does not exercise a live
+    # provider or the separately disabled chat-message extraction feature.
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.locator(".el-segmented").get_by_text("我的目标", exact=True).click()
+    page.locator(".os-goal-card").filter(
+        has_text="CI-only first-party goal").locator(".os-goal-select").click()
+    page.get_by_text("AI 职业规划 · 单次授权").wait_for(
+        state="visible", timeout=15000)
+    if page.locator(".os-model-json").count():
+        raise RuntimeError("PERSONAL_OS_MOBILE_PREVIEW_RESTORED_WITHOUT_APPROVAL")
+    before_mobile_calls = len(model_calls)
+    page.get_by_role("button", name="预览将共享的内容").click()
+    page.locator(".os-model-json").wait_for(state="visible", timeout=15000)
+    if len(model_calls) != before_mobile_calls + 1 or model_calls[-1] != "preview":
+        raise RuntimeError("PERSONAL_OS_MOBILE_PREVIEW_SENT_TO_MODEL")
+    reviewed = page.locator(".os-model-review")
+    if ("ci-synthetic-provider / ci-synthetic-model" not in reviewed.inner_text()
+            or "CI-only first-party goal" not in page.locator(".os-model-json").inner_text()):
+        raise RuntimeError("PERSONAL_OS_MOBILE_PROVIDER_OR_SNAPSHOT_HIDDEN")
+    panel = page.locator(".os-model-panel")
+    bounds = panel.evaluate("""element => {
+        const p = element.getBoundingClientRect();
+        const review = element.querySelector('.os-model-review').getBoundingClientRect();
+        return {
+          viewport: window.innerWidth,
+          panelLeft: p.left,
+          panelRight: p.right,
+          reviewRight: review.right,
+          documentWidth: document.documentElement.scrollWidth
+        };
+    }""")
+    if (bounds["viewport"] != 390 or bounds["panelLeft"] < -2
+            or bounds["panelRight"] > 392 or bounds["reviewRight"] > 392
+            or bounds["documentWidth"] > 392):
+        raise RuntimeError("PERSONAL_OS_MOBILE_CONSENT_HORIZONTAL_OVERFLOW")
+    page.get_by_role("button", name="核对完成，确认仅本次发送").click()
+    page.locator(".el-message-box").get_by_role("button", name="取消").click()
+    if len(model_calls) != before_mobile_calls + 1 or task_writes:
+        raise RuntimeError("PERSONAL_OS_MOBILE_CANCEL_INVOKED_MODEL_OR_TASK")
+    page.locator(".el-segmented").get_by_text("个人记忆", exact=True).click()
+    if page.locator(".os-model-review").count():
+        raise RuntimeError("PERSONAL_OS_MOBILE_REVIEW_PERSISTED_AFTER_TAB_EXIT")
+    page.set_viewport_size({"width": 1280, "height": 800})
+    print("CI_PERSONAL_OS_T007_MOBILE_MODEL_CONSENT_CANCEL=PASS")
+
     # T-007: separate HTTP-level owner acceptance against the same temporary
     # PRP session and real MySQL. No model, real account or extra OAuth scopes.
     from ci_personal_os_memory_acceptance import run as run_memory_acceptance
