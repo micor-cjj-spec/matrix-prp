@@ -95,6 +95,26 @@ class ReadinessTests(unittest.TestCase):
     def test_invalid_type_for_port(self):
         self.assert_blocked(lambda d: d["stage"].update(gateway_port=True), "GATEWAY_PORT_COLLISION")
 
+    def test_unrecognized_root_field_is_blocked(self):
+        self.assert_blocked(lambda d: d.update(approval_note="not independently checked"), "UNRECOGNIZED_ROOT_FIELDS")
+
+    def test_unrecognized_stage_field_is_blocked(self):
+        self.assert_blocked(lambda d: d["stage"].update(trusted_extra=True), "UNRECOGNIZED_STAGE_FIELDS")
+
+    def test_unrecognized_observation_field_is_blocked(self):
+        self.assert_blocked(lambda d: d["observed"].update(flyway_checksum_verified=True), "UNRECOGNIZED_OBSERVED_FIELDS")
+
+    def test_duplicated_json_evidence_key_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "duplicate.json"
+            raw = json.dumps(synthetic())
+            self.assertIn('"owner_approved": true', raw)
+            path.write_text(raw.replace(
+                '"owner_approved": true',
+                '"owner_approved": false, "owner_approved": true',
+            ), encoding="utf-8")
+            self.assertEqual(main(["--evidence", str(path), "--expected-sha", SHA]), 2)
+
     def test_no_shell_execution_and_missing_file_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(main(["--evidence", str(Path(tmp) / "missing.json"), "--expected-sha", SHA]), 2)
