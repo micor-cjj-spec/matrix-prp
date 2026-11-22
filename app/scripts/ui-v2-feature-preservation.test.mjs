@@ -171,3 +171,13 @@ test('mobile PWA permits native pinch zoom without losing iOS safe areas', () =>
   assert.ok(globalCss.includes('font-size: 16px !important'),
     'retain the iOS form-input font size safeguard against involuntary focus zoom')
 })
+
+
+test('mobile chat controls distinguish pinch zoom from keyboard occlusion', () => {
+  assertEvery(layout, [
+    "isMobileKeyboardVisible(window.innerHeight, viewport)",
+    "import { isMobileKeyboardVisible } from '@/utils/mobileViewport'",
+  ], 'visualViewport keyboard detector')
+  const helper = source('web/src/utils/mobileViewport.ts')
+  assertEvery(helper, ['viewport.scale', 'viewport.offsetTop', 'viewport.height'], 'zoom-aware keyboard metric')
+})

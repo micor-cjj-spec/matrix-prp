@@ -351,3 +351,19 @@ test('AI and manual meal editors support thirty items and pending card additions
   assert.match(dialog, /meal\.items\.length < 30/)
   assert.match(wellness, /draftItems\.value\.length > 30/)
 })
+
+
+test('mobile visual viewport distinguishes pinch zoom from actual keyboard occlusion', async () => {
+  const { isMobileKeyboardVisible } = await import('../src/utils/mobileViewport.ts')
+  // A virtual keyboard reduces viewport space even when zoom is 100%.
+  assert.equal(isMobileKeyboardVisible(844, { height: 520, offsetTop: 0, scale: 1 }), true)
+  // Address-bar resizing and the unoccluded viewport are not a keyboard.
+  assert.equal(isMobileKeyboardVisible(844, { height: 755, offsetTop: 0, scale: 1 }), false)
+  assert.equal(isMobileKeyboardVisible(844, { height: 844, offsetTop: 0, scale: 1 }), false)
+  // 200% pinch zoom halves the visual height but must not hide bottom tabs.
+  assert.equal(isMobileKeyboardVisible(844, { height: 422, offsetTop: 0, scale: 2 }), false)
+  assert.equal(isMobileKeyboardVisible(844, { height: 380, offsetTop: 30, scale: 2 }), false)
+  // A genuine keyboard while zoomed still occupies additional physical pixels.
+  assert.equal(isMobileKeyboardVisible(844, { height: 265, offsetTop: 20, scale: 2 }), true)
+  assert.equal(isMobileKeyboardVisible(844, null), false)
+})
