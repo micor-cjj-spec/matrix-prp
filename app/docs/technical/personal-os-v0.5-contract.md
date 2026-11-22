@@ -1,4 +1,4 @@
-> **INTEGRATION CANDIDATE:** Based on unmerged wellness PR #180 V30, adds Personal OS V31. This branch is not a release or main merge authorization. 
+> **INTEGRATION CANDIDATE:** Based on unmerged wellness PR #180 V30, adds Personal OS V31. This branch is not a release or main merge authorization.
 
 # PRP Personal OS V0.5 — T-001 数据与本体契约（审查候选）
 
