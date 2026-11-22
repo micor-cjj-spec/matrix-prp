@@ -78,6 +78,58 @@ class SharedOfflinePlanContractTests(unittest.TestCase):
         with patch("check_offline_contract.build_review_video_candidate", return_value=invalid):
             self.assertEqual(offline.check_contract(self.path), "REALM_PLAN_CONTRACT_MISMATCH")
 
+    def test_login_client_review_receives_same_plan_resource_and_issuer(self):
+        self.write(PLAN)
+        from review_exact_clients import review_package
+        with patch("check_offline_contract.review_package", wraps=review_package) as factory:
+            self.assertIsNone(offline.check_contract(self.path))
+            factory.assert_called_once_with(PLAN["resource_url"], PLAN["issuer_url"])
+
+    def test_login_client_review_rejects_wrong_resource_and_issuer(self):
+        self.write(PLAN)
+        from review_exact_clients import review_package
+        original = review_package(PLAN["resource_url"], PLAN["issuer_url"])
+        for key, wrong in (
+            ("resource", "https://prp-test.micor.top/api/mcp"),
+            ("issuer", "https://auth-test.micor.top/realms/prp-mcp"),
+        ):
+            with self.subTest(key=key):
+                mutated = {**original, key: wrong}
+                with patch("check_offline_contract.review_package", return_value=mutated):
+                    self.assertEqual(offline.check_contract(self.path),
+                                     "CLIENT_PLAN_CONTRACT_MISMATCH")
+
+    def test_login_client_review_rejects_broader_scope_even_with_correct_realm(self):
+        self.write(PLAN)
+        from copy import deepcopy
+        from review_exact_clients import review_package
+        malicious = deepcopy(review_package(PLAN["resource_url"], PLAN["issuer_url"]))
+        malicious["proposed_clients"][1]["optionalClientScopes"].append("prp.write.create")
+        with patch("check_offline_contract.review_package", return_value=malicious):
+            self.assertEqual(offline.check_contract(self.path),
+                             "CLIENT_PLAN_CONTRACT_MISMATCH")
+
+    def test_login_client_review_rejects_allocated_owners_grants_and_deployable_flag(self):
+        self.write(PLAN)
+        from copy import deepcopy
+        from review_exact_clients import review_package
+        original = review_package(PLAN["resource_url"], PLAN["issuer_url"])
+        for field, value in (
+            ("actual_user_ids", [1, 2]),
+            ("expanded_user_ids_setting", "1,2"),
+            ("owner_client_grants", "ACTIVE"),
+        ):
+            with self.subTest(field=field):
+                malicious = deepcopy(original)
+                malicious["synthetic_owner_plan"][field] = value
+                with patch("check_offline_contract.review_package", return_value=malicious):
+                    self.assertEqual(offline.check_contract(self.path),
+                                     "CLIENT_PLAN_CONTRACT_MISMATCH")
+        deployable = {**original, "deployable": True}
+        with patch("check_offline_contract.review_package", return_value=deployable):
+            self.assertEqual(offline.check_contract(self.path),
+                             "CLIENT_PLAN_CONTRACT_MISMATCH")
+
     def test_secret_field_rejected_without_echo(self):
         self.write({**PLAN, "client_secret": "PRIVATE_CI_SENTINEL_SHOULD_NOT_APPEAR"})
         stdout = io.StringIO()
