@@ -29,6 +29,17 @@ test('dev and PR CI cannot enqueue auto-deploy; main push CI remains eligible', 
   assert.match(header, /cancel-in-progress: false/)
 })
 
+
+test('disposable E2E emits a fixed Maven failure class but never raw build logs', () => {
+  const script = readFileSync(
+    new URL('../../app/deploy/mcp-oauth/test_full_e2e_ci.sh', import.meta.url), 'utf8')
+  assert.match(script, /if ! \.\/mvnw -B -ntp -DskipTests package/)
+  assert.match(script, /E2E_DIAG_MAVEN_BUILD_CATEGORY=\$diagnostic/)
+  assert.match(script, /diagnostic="WRAPPER_DOWNLOAD"/)
+  assert.match(script, /diagnostic="DEPENDENCY_OR_NETWORK"/)
+  assert.doesNotMatch(script, /(?:cat|tail|head)\s+["']?\$tmp\/java-build\.log/)
+})
+
 test('release candidates originate only from successful main push CI', () => {
   assert.match(header, /workflow_run:\s*\n\s*workflows: \[CI\]/)
   assert.match(build, /github\.event\.workflow_run\.conclusion == 'success'/)
