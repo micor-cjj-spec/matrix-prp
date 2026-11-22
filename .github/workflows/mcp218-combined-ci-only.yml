@@ -33,12 +33,35 @@ jobs:
           java-version: '21'
           cache: maven
           cache-dependency-path: app/backend/pom.xml
-      - name: Run backend full unit regression
+      - name: Run pinned Maven backend suite with bounded distribution-fetch retry
         working-directory: app/backend
+        shell: bash
         run: |
           set -euo pipefail
-          chmod +x mvnw
-          ./mvnw -B test
+          # Never switch Maven version, mirror, JDK, test set, or bypass assertions.
+          pinned_url="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.16/apache-maven-3.9.16-bin.zip"
+          grep -Fxq "distributionUrl=${pinned_url}" .mvn/wrapper/maven-wrapper.properties
+          for attempt in 1 2 3; do
+            log="${RUNNER_TEMP}/mcp218-backend-maven-attempt-${attempt}.log"
+            set +e
+            bash ./mvnw -B test 2>&1 | tee "$log"
+            result=${PIPESTATUS[0]}
+            set -e
+            if (( result == 0 )); then
+              echo "MCP218_PINNED_MAVEN_BACKEND_TESTS=PASS"
+              exit 0
+            fi
+            if ! grep -Fq "wget: Failed to fetch ${pinned_url}" "$log"; then
+              echo "MCP218_BACKEND_FAILURE_NOT_DISTRIBUTION_FETCH_NO_RETRY"
+              exit "$result"
+            fi
+            if (( attempt == 3 )); then
+              echo "MCP218_PINNED_MAVEN_DISTRIBUTION_FETCH_FAILED_AFTER_THREE_ATTEMPTS"
+              exit "$result"
+            fi
+            echo "MCP218_PINNED_MAVEN_FETCH_TRANSIENT_RETRY_${attempt}_OF_2"
+            sleep $((5 * attempt * attempt))
+          done
 
   web-and-canary:
     name: Build web and validate Node/Python OAuth review contract
