@@ -33,3 +33,25 @@ test('initial health load reads the profile before daily data and respects an ex
   assert.match(section, /date\.value = wellnessToday\(\)/)
   assert.match(view, /goalForm\.effectiveFrom = wellnessToday\(\)/)
 })
+
+test('home health daily date uses the owner timezone before reading calories', () => {
+  const home = readFileSync(new URL('../src/views/DashboardView.vue', import.meta.url), 'utf8')
+  const section = home.split('async function loadHomeWellnessDay() {')[1]
+    ?? home.split('async function loadHomeWellnessDay(): Promise<DailySummary> {')[1]
+  assert.ok(section, 'home health loader is missing')
+  const logic = section.split('async function refresh()')[0]
+  assert.ok(logic.includes('await wellnessApi.profile()'), 'profile must load first')
+  assert.ok(logic.includes('dateInTimeZone(timeZone)'), 'owner business date must be used')
+  assert.ok(logic.includes('wellnessApi.daily(dateInTimeZone(timeZone))'),
+    'home health daily endpoint must receive the profile-based date')
+  assert.ok(logic.indexOf('await wellnessApi.profile()') < logic.indexOf('wellnessApi.daily('),
+    'profile request must complete before the health daily request')
+  assert.match(logic, /new Intl\.DateTimeFormat\('en-US', \{ timeZone \}\)/,
+    'invalid profile timezones must be rejected, not silently converted to device time')
+  assert.ok(home.includes('fetchDashboardSummary(), loadHomeWellnessDay()'),
+    'task summary must load independently alongside owner-timezone wellness')
+  assert.ok(home.includes('wellness.value = null'),
+    'failed profile/daily read must clear any stale health totals')
+  assert.ok(!home.includes('wellnessApi.daily(today)'),
+    'home must not use browser-local task date for health totals')
+})

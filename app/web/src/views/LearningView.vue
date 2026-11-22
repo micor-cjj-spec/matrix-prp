@@ -20,6 +20,19 @@ const canOpenKnowledge = computed(() => Boolean(auth.user?.administrator))
         </div>
       </header>
 
+      <section class="learning-v2-path" aria-label="学习快捷入口">
+        <div class="learning-v2-path-intro">
+          <p class="eyebrow">LEARN · PRACTICE · REVIEW</p>
+          <h2>让知识有路径，让成长有积累。</h2>
+          <p>从已有课程、题库和记录出发，形成持续学习的闭环。</p>
+        </div>
+        <div class="learning-v2-steps">
+          <RouterLink to="/videos"><span>01</span><strong>观看课程</strong><el-icon><ArrowRight /></el-icon></RouterLink>
+          <RouterLink to="/practice"><span>02</span><strong>刷题巩固</strong><el-icon><ArrowRight /></el-icon></RouterLink>
+          <RouterLink to="/records"><span>03</span><strong>沉淀笔记</strong><el-icon><ArrowRight /></el-icon></RouterLink>
+          <RouterLink to="/reviews"><span>04</span><strong>定期复盘</strong><el-icon><ArrowRight /></el-icon></RouterLink>
+        </div>
+      </section>
       <div class="domain-section-heading">
         <div><h2>我的学习工具</h2><p>学习内容统一归类，不再挤在一级导航中。</p></div>
       </div>

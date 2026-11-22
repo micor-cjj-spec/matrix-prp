@@ -46,7 +46,7 @@
   "globalStyle": {
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "Matrix PRP",
-    "navigationBarBackgroundColor": "#ffffff",
-    "backgroundColor": "#f6f8fb"
+    "navigationBarBackgroundColor": "#f7f8f4",
+    "backgroundColor": "#f7f8f4"
   }
 }
