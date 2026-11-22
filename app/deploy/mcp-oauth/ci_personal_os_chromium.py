@@ -382,11 +382,15 @@ def run(page, origin):
         if read_task_links() != []:
             raise RuntimeError("PERSONAL_OS_TASK_AUTO_LINKED_WITHOUT_APPROVAL")
         link_requests = []
+        link_payloads = []
         confirmation_requests = []
         def observe_owner_link(req):
             path = urlsplit(req.url).path
             if req.method == "POST" and path == "/api/memory/candidates":
                 link_requests.append(1)
+                # Only synthetic test-generated payloads exist in this CI.
+                # Keep the retry key in process memory, never print contents.
+                link_payloads.append(req.post_data_json)
             if (req.method == "POST" and path.startswith("/api/memory/")
                     and path.endswith("/confirm")):
                 confirmation_requests.append(1)
@@ -423,6 +427,25 @@ def run(page, origin):
         links = read_task_links()
         if not isinstance(links, list) or len(links) != 1:
             raise RuntimeError("PERSONAL_OS_TASK_LINK_NOT_READABLE_AFTER_CONFIRM")
+        if len(link_payloads) != 1 or not isinstance(link_payloads[0], dict):
+            raise RuntimeError("PERSONAL_OS_TASK_LINK_REPLAY_PAYLOAD_MISSING")
+        # Simulate replay after a lost HTTP response. The same server-side
+        # request key must return the same confirmed assertion ID, not insert
+        # a second relationship. This replay does not call the task API.
+        replayed_link_id = page.evaluate("""async payload => {
+          const token = localStorage.getItem('matrix-prp-token');
+          const response = await fetch('/api/memory/candidates', {
+            method: 'POST', headers: {
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json'
+            }, body: JSON.stringify(payload), cache: 'no-store'
+          });
+          if (response.status !== 200) return null;
+          return (await response.json()).data?.id ?? null;
+        }""", link_payloads[0])
+        if replayed_link_id != created_link_id or len(read_task_links()) != 1:
+            raise RuntimeError("PERSONAL_OS_TASK_LINK_REPLAY_CREATED_DUPLICATE")
+        print("CI_PERSONAL_OS_T007_LINK_REPLAY_IDEMPOTENT=PASS")
         print("CI_PERSONAL_OS_T007_OWNER_CONFIRMED_GOAL_TASK_LINK=PASS")
     finally:
         if created_task_id is not None:
