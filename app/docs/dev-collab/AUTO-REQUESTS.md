@@ -1,8 +1,8 @@
 # GPT 零点击协作：GitHub Issue 自动请求入口
 
-> **当前状态（2026-11-22）**：受控协作代码已由 [PR #271](https://github.com/micor-cjj-spec/matrix-prp/pull/271) 合并到受保护 `main`，合并后 CI 34/34 成功。[Owner 只读请求 Issue #286](https://github.com/micor-cjj-spec/matrix-prp/issues/286) / [Actions #44980594304](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44980594304) 已通过，返回脱敏回执，正式 `prp-collab-state` 保持 V0 固定 SHA `062036f7021e215ffbfdcbf5689d207a0549b68b`。**这仅验证 App Contents:read 链路，不代表 Contents:write 与受保护状态分支写入已验收；PR #144 仍为 Draft，生产发布仍冻结。**
+> **已验证状态（2026-11-22）**：协作代码经 [PR #271](https://github.com/micor-cjj-spec/matrix-prp/pull/271) 进入受保护 `main`。所有者已通过 [Issue #324](https://github.com/micor-cjj-spec/matrix-prp/issues/324) / [Actions #44995074733](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44995074733) 完成 V0→V1 一次性迁移，并真实验证并行领取、冲突拒绝、断点、交接、旧领取失效、所有者基于真实 Git 证据接管与释放（见 [#139](https://github.com/micor-cjj-spec/matrix-prp/issues/139)、[#145](https://github.com/micor-cjj-spec/matrix-prp/issues/145)）。最近核验的受保护状态 SHA 为 `6226ed6a706e20fe57e19a78c4b8119550996c1a`，需求 ACTIVE / Schema V1 / **version 10、9 个 READY、0 个占用、9 条成功写入记录**。App 非强制受保护分支 CAS 写入已有真实成功证据。历史断点修复 [PR #351](https://github.com/micor-cjj-spec/matrix-prp/pull/351) 已合并 `dev` 并通过 CI，但正式 Issue 入口仍运行 `main` 旧版代码；该回归场景尚未在正式入口验证。生产发布仍冻结。每次后续操作需重新读取实时版本。
 
-关联需求：[Issue #148](https://github.com/micor-cjj-spec/matrix-prp/issues/148)；[已合并源代码 PR #271](https://github.com/micor-cjj-spec/matrix-prp/pull/271)；[待迁移提案 PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144)。旧 PR #138 仍保留为 Draft 历史候选，不可直接再次合并覆盖安全修复。
+关联需求：[Issue #148](https://github.com/micor-cjj-spec/matrix-prp/issues/148)；[源代码 PR #271](https://github.com/micor-cjj-spec/matrix-prp/pull/271)；[迁移提案 PR #144（已执行但未合并）](https://github.com/micor-cjj-spec/matrix-prp/pull/144)；[迁移请求 #324](https://github.com/micor-cjj-spec/matrix-prp/issues/324)；[验收 #139](https://github.com/micor-cjj-spec/matrix-prp/issues/139)。旧 Draft PR #138 是历史候选，不得再合并覆盖信任根。
 
 ## 用户体验与状态源
 
@@ -16,11 +16,11 @@
 - 在新 Environment 配置 `PRP_COLLAB_APP_PRIVATE_KEY` secret，并配置 `PRP_COLLAB_APP_CLIENT_ID`、`PRP_COLLAB_APP_ID=5561446`、`PRP_COLLAB_RULESET_ID=26294671` variables。无需将凭证提供给 ChatGPT。不要将这些 Secret 复制到公开 Issue。
 - 保留现有 `prp-collab-controller` 人工审批 Environment，**不要直接把原环境解除审批来绕过安全控制**。
 - 协作入口代码已通过 PR #271 受控集成到 `main`，并完成合并后 CI 与真实只读 `probe`。本入口不会移除 `app/deploy/publication-hold.json`，也不执行 PRP 应用生产部署。
-- 正式 V0 的首次写入只允许用户**另行明确授权**的固定 V0→V1 迁移，不能先领取测试任务。PR #144 必须非 Draft，所有 SHA / delta / Ruleset / App 单仓库边界均须通过。**所有者已于 2026-11-22 选择方案 B：自动 owner-authored Issue 入口接受单人所有者授权，不额外强制独立 reviewer APPROVED；此选择不等于执行迁移的授权**。单人授权不能被描述成独立审查完成；参见 [Issue #147](https://github.com/micor-cjj-spec/matrix-prp/issues/147)。旧手动 apply 路径仍保留独立 reviewer 门槛。
+- **迁移已于 2026-11-22 获得所有者明确授权并完成。** 首次写入时固定旧状态与提案 SHA、PR #144 非 Draft、App/Ruleset 单仓库边界和发布冻结均经真实 Actions 检查。方案 B 采用 owner-only 机器校验，**不代表已获得独立人类 reviewer 批准**（见 [Issue #147](https://github.com/micor-cjj-spec/matrix-prp/issues/147)）；手动 apply 的独立 reviewer 门槛仍保留。不得重放此次一次性迁移。
 
 ## 首次启用：不修改任务状态的只读探针
 
-只读探针 **已于 2026-11-22 实际完成**（Issue #286、Actions #44980594304），并核对远端 V0 状态 SHA 未变。以下保留请求格式以供后续独立只读复验参考；不得从探针通过推断写入或迁移授权。
+只读探针 **已于 2026-11-22 完成**（Issue #286 / Actions #44980594304），当时仅证明 Contents:read；随后迁移 #324 及真实 claim/takeover/release 才分别证明 Contents:write 和 CAS 写入链路。以下探针格式用于历史说明或再次只读核验，不构成新的写入授权。
 
 由 ChatGPT GitHub 连接以仓库所有者身份创建标题严格为 `[PRP-COLLAB-REQUEST]` 的 Issue，正文仅包含：
 
@@ -37,7 +37,7 @@
 
 工作流先核验 owner-authored GitHub Issue、受保护 main 来源及发布冻结，再检查 GitHub App token 的安装仓库仅为 `micor-cjj-spec/matrix-prp`、状态分支保护和专用 Ruleset，最后读取当前远端状态 SHA 并发布脱敏回执。**不会提交 Git 变更，不会修改正式任务状态，不会触发生产部署。**
 
-探针通过仅证明 Issue → Actions → 安装令牌签发与只读权限范围核验链路可用。它**不证明 Contents: write 权限或 Ruleset bypass 真实推送成功**。后续首个正式写入试点是单独授权且独立审核的固定 V0→V1 迁移，不能把只读探针成功等同于整个零点击系统上线。
+**历史验收说明：**最初探针只验证 Issue → Actions → 专用 App 的只读权限；后续 Owner Issue #324 / Actions #44995074733 已完成固定 V0→V1 首次写入，随后多次独立请求成功。每次新状态变更仍需明确操作范围及实时状态版本。
 
 ## 请求格式：任务领取
 
@@ -91,13 +91,13 @@
 
 普通任务的路径范围采用白名单：`app/backend/src/main/java/`、`app/backend/src/test/java/`、`app/web/src/`、`app/mobile/src/`，以及非协作治理文档目录（`app/docs/ai-notes/`、`api/`、`bugs/`、`data/`、`decisions/`、`features/`、`product/`、`releases/`、`technical/`、`README.md`）。GitHub Actions 工作流、协作协调器、部署配置、后端资源配置和数据库迁移不属于普通任务范围，必须单独做治理审查。
 
-对当前 `REQ-20261031-001`，必须先完成固定 V0→V1 迁移，之后才能登记新任务；当前 V0 不会因创建任务 Issue 而被修改。多任务创建按最新状态版本逐项登记，不能并发复用同一版本。
+`REQ-20261031-001` 已完成固定 V0→V1 迁移。以后登记新任务须实时读取 ACTIVE V1 快照、依赖和下一个连续任务 ID，并使用最新 `state.version`；多任务登记必须串行提交，不能复用旧版本。历史 V0 示例只用于追溯。
 
-**当前实现已在 `main`，但真实状态写入尚未启用验收。** V0 不允许 claim / register_task 等常规写入；只有一次性固定迁移经过单独授权和完整安全门控后，才可验证写入链路。
+**正式入口已实现并通过真实写入验收：**`main` 上 owner Issue ingress 已完成迁移、claim、checkpoint、handoff、takeover、release 及预期拒绝测试；这不意味着九项开发任务 DONE。`dev` 的旧断点归档修复尚未进入正式 `main` 入口，不得声称释放后重新领取旧断点场景已在线上修复。
 
 ## 请求格式：一次性 V0 → V1 迁移
 
-**已选择方案 B，但尚未授权执行迁移。** 只有用户后续明确要求**执行此次固定 V0→V1 迁移**，并复核旧状态 SHA、提案 SHA、PR #144 非 Draft、安全约束及冻结状态后，才允许创建最终 `migrate_v1` 请求。当前代码分为两条路径：**owner-authored `issues.opened`** 通过 GitHub 事件和 Issue 身份核验，拒绝精确提案 SHA 的 `CHANGES_REQUESTED`，但**不强制独立 reviewer APPROVED**；**旧手动 `workflow_dispatch` apply** 仍强制当前 SHA 的非所有者、非作者、人类 `COLLABORATOR`/`MEMBER` reviewer 批准。方案 B 明确接受单人 owner-only 授权的风险，**不能声称完成独立审查**。普通“继续”或仅选择 B 不等于迁移授权：
+**以下是已执行的一次性迁移历史请求示例，不可重放。** 所有者采用方案 B 的 owner-authored `issues.opened` 身份校验（不强制独立 reviewer APPROVED，但会拒绝固定提案上的 CHANGES_REQUESTED）；旧手动 `workflow_dispatch` apply 仍强制合格的非所有者独立人类批准。2026-11-22 已通过 #324 完成所有者授权迁移；示例旧状态与提案 SHA 仅保留供审计。
 
 ```json
 {
@@ -110,7 +110,7 @@
 }
 ```
 
-上述自动入口通过 GitHub 原始 `issues.opened` 事件确认作者与仓库所有者身份，**不要求用户另行点击 GitHub Actions 审批**；程序仍核验 PR #144 身份、非 Draft、拒绝精确提案 SHA 上的反对审查、固定旧/新 SHA、单文件九任务精确差异、未修改的任务状态和账本、专用 App 单仓库作用域、主分支发布冻结、并发及远端 SHA。自动路径**不能声称独立人类批准已发生**。它不会自动合并 PR #144，也不会标记任务 DONE。
+当时自动入口通过 GitHub 原始 `issues.opened` 事件确认作者与仓库所有者身份，并核验 PR #144 非 Draft、固定 V0/提案 SHA、单文件九任务差异、App 作用域、发布冻结与远端 CAS。**迁移已经执行成功，提案 PR #144 未合并；不允许重复执行。** owner-only 授权不等于独立人类审查，迁移本身也不会自动标记任务 DONE。
 
 ## 请求格式：创建并登记新任务（V1 之后）
 
@@ -135,7 +135,7 @@
   "requirement_id": "REQ-20261031-001",
   "task_id": "T-010",
   "worker_id": "chat-new",
-  "expected_version": 9,
+  "expected_version": 10,
   "issue_number": 151,
   "title": "Add dashboard filtering",
   "depends_on": ["T-009"],
@@ -145,10 +145,10 @@
 
 把示例中的 Issue 编号、版本、ID、依赖和路径替换为本次读取/创建的真实值。协调器会重新从 GitHub API 读取 Task Issue，核对作者与请求作者均为仓库所有者、Issue 仍 open、标题完全匹配、清单字段逐项匹配；随后检查任务 ID 连续性、依赖存在性、Issue 编号唯一性和受限文件路径，最后通过非强制 Git CAS 写入一条 READY 任务。任务不会因登记而自动领取或启动。重复请求使用同一 UUID；不能通过复用 UUID 改写另一项操作。
 
-普通任务的路径白名单仅允许产品代码与文档目录，不允许修改 `.github/workflows/**`、`app/scripts/dev-collab/**`、迁移/协调器信任根或部署文件。任务之间的重叠范围由状态机拒绝。新任务登记仅在该需求完成受审查的 V0→V1 迁移后开放；V0 状态不接受注册。
+普通任务的路径白名单只允许产品代码与非治理文档，不允许修改 `.github/workflows/**`、`app/scripts/dev-collab/**`、迁移/协调器信任根或部署文件。任务范围冲突由状态机拒绝。新登记须处于 ACTIVE V1，**迁移先决条件已满足**，但仍必须逐项核验 Task Issue、所有者身份、路径、依赖及实时版本。
 
 ## 限制与审计
 
-当前 GitHub 连接已实际创建 owner-authored `probe` Issue #286，GitHub `issues.opened` 自动工作流 #44980594304 成功，脱敏回执确认状态 SHA 未变。**唯一尚未验证的关键能力是专用 App 的真实 Contents:write 与受保护状态分支非强制 Git CAS 推送**；不能因为 Issue 创建或 probe 成功就声称写入链路可用。后续写入必须由用户单独明确授权，并复核工作流、回执和实际远端 SHA。
+**实际写入和审计已核验：**最初探针 #286 不证明写权限；owner-authored 迁移 #324 / Actions #44995074733 实际完成受保护状态 CAS 写入，后续 #330/#331、#336、#338、#347、#340/#341/#350 也有成功回执与远端状态证据，拒绝测试 #334/#339/#348 没有修改状态。最新快照是 V1 version 10、9 READY、0 claims。新操作仍需独立授权、准确版本和 SHA 核验。
 
 非所有者请求、改写过的 Issue、非 `main` 来源、错误版本/凭证、额外 JSON 字段、重复操作碰撞和错误 Git SHA 都应失败关闭。权限不匹配时没有状态提交。不支持未经审查的 `accept`、`close` 或任意 Schema 修改。公开回执不写入认证 Token 或任何私密信息。
