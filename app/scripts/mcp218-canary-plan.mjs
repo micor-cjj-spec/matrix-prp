@@ -12,7 +12,7 @@ export function checkCanaryPlan(plan) {
   for (const [key,value] of Object.entries(exact)) if(plan[key]!==value) issues.push("INVALID_"+key.toUpperCase());
   const validName = (name,regex) => typeof name === "string" && regex.test(name);
   if(!validName(plan.project,/^prp-mcp218-[a-z0-9]+(?:-[a-z0-9]+)*$/)) issues.push("ISOLATED_PROJECT_REQUIRED");
-  if(!validName(plan.mysql_schema,/^matrix_prp_mcp218_[a-z0-9_]+$/)) issues.push("ISOLATED_MYSQL_SCHEMA_REQUIRED");
+  if(!validName(plan.mysql_schema,/^matrix_prp_mcp218_[a-z0-9_]+$/) || plan.mysql_schema.length>64) issues.push("ISOLATED_MYSQL_SCHEMA_REQUIRED");
   if(!validName(plan.mysql_volume,/^mcp218_[a-z0-9_]+$/)||!validName(plan.keycloak_volume,/^mcp218_[a-z0-9_]+$/)||plan.mysql_volume===plan.keycloak_volume) issues.push("DISTINCT_ISOLATED_VOLUMES_REQUIRED");
   const scopeNames=["prp.reviews.read","prp.video.read"];
   const toolNames=["prp_reviews_list","prp_video_folders","prp_video_progress"];
@@ -29,7 +29,8 @@ export function checkCanaryPlan(plan) {
     const host=value.slice(prefix.length,-suffix.length);
     if(host.includes("/")||host.includes(":")||host.includes("@")||host.includes("?")||host.includes("#"))return null;
     const labels=host.split(".");
-    if(labels.length<2||labels.some(x=>!(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(x))))return null;
+    // Match the Realm candidate and DNS format: ASCII labels <=63, full host <=253.
+    if(host.length>253||labels.length<2||labels.some(x=>x.length>63||!(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(x))))return null;
     const banned=new Set(["micor.top","www.micor.top","api.micor.top","prp.micor.top","auth.micor.top","prp-test.micor.top","auth-test.micor.top","localhost"]);
     if(banned.has(host)||/\.(invalid|example|test|localhost|local)$/.test(host))return null;
     if(/^[0-9.]+$/.test(host))return null;

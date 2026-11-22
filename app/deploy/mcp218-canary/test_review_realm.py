@@ -99,6 +99,26 @@ class ReviewVideoOnlyRealmCandidateTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 build_review_video_candidate(url)
 
+    def test_dns_full_hostname_length_matches_offline_plan_guard(self):
+        # Valid ASCII DNS labels <=63; hostname total length exactly 253.
+        host_253 = ".".join((
+            "mcp218-" + "a" * 56,
+            "b" * 63,
+            "c" * 63,
+            "d" * 57,
+            "top",
+        ))
+        self.assertEqual(len(host_253), 253)
+        self.assertEqual(
+            build_review_video_candidate(f"https://{host_253}/api/mcp")
+            ["clients"][0]["attributes"]["resource_url"],
+            f"https://{host_253}/api/mcp",
+        )
+        host_254 = host_253.replace("d" * 57, "d" * 58)
+        self.assertEqual(len(host_254), 254)
+        with self.assertRaisesRegex(ValueError, "REVIEW_RESOURCE_MUST_BE_DEDICATED"):
+            build_review_video_candidate(f"https://{host_254}/api/mcp")
+
     def test_reject_wrong_upstream_shape(self):
         from review_realm import build_realm
         original = build_realm(RESOURCE)

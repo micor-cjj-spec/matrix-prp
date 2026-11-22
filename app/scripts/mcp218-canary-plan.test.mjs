@@ -29,12 +29,31 @@ test("bounded non-deploy preparation plan passes shape check only", () => {
   assert.deepEqual(checkCanaryPlan(proposed), []);
 });
 
+test("DNS host of exactly 253 ASCII characters remains syntax-valid", () => {
+  const host = [
+    "mcp218-" + "a".repeat(56),
+    "b".repeat(63),
+    "c".repeat(63),
+    "d".repeat(57),
+    "top",
+  ].join(".");
+  assert.equal(host.length, 253);
+  assert.deepEqual(checkCanaryPlan({
+    ...proposed,
+    resource_url: "https://" + host + "/api/mcp",
+  }), []);
+});
+
 const refused = [
   ["no plan", null],
   ["existing V2 project", {project: "prp-mcp-v2"}],
   ["legacy stage project", {project: "prp-mcp-stage"}],
   ["production schema", {mysql_schema: "matrix_prp"}],
   ["shared volume", {keycloak_volume: proposed.mysql_volume}],
+  ["MySQL schema longer than 64 characters", {mysql_schema: "matrix_prp_mcp218_" + "x".repeat(50)}],
+  ["resource hostname label longer than 63 characters", {resource_url: "https://mcp218-" + "x".repeat(60) + ".micor.top/api/mcp"}],
+  ["issuer hostname label longer than 63 characters", {issuer_url: "https://auth-mcp218-" + "x".repeat(55) + ".micor.top/realms/prp-mcp218"}],
+  ["resource hostname longer than 253 characters", {resource_url: "https://mcp218-" + "x".repeat(50) + "." + ("y".repeat(60) + ".").repeat(4) + "micor.top/api/mcp"}],
   ["live public V2 resource", {resource_url: "https://prp-test.micor.top/api/mcp"}],
   ["live public test issuer", {issuer_url: "https://auth-test.micor.top/realms/prp-mcp218"}],
   ["production OAuth issuer", {issuer_url: "https://auth.micor.top/realms/prp-mcp218"}],

@@ -35,7 +35,7 @@ def _exact_candidate_resource(resource):
     except ValueError as exc:
         raise ValueError("REVIEW_RESOURCE_MUST_BE_NEW_HTTPS") from None
     labels = host.split(".")
-    if (len(labels) < 2 or not labels[0].startswith("mcp218-")
+    if (len(host) > 253 or len(labels) < 2 or not labels[0].startswith("mcp218-")
             or labels[0] == "mcp218-"
             or not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", part)
                        and len(part) <= 63 for part in labels)
