@@ -241,7 +241,7 @@ async function loadAll() {
   if (profileReady && !initialHealthDateResolved) {
     initialHealthDateResolved = true
     const routeDate = route.query.date
-    const routeDateSelected = typeof routeDate === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(routeDate)
+    const routeDateSelected = typeof routeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(routeDate)
     // Never overwrite a deep-linked day or one the user selected while loading.
     if (!routeDateSelected && date.value === today) date.value = wellnessToday()
   }
