@@ -15,6 +15,7 @@ jobs:
   command:
     if: >-
       github.event_name == 'issue_comment' &&
+      vars.PRP_CHAT_SHELL_ENABLED == 'true' &&
       github.ref == 'refs/heads/main' &&
       github.event.issue.number == 277 &&
       !github.event.issue.pull_request &&
