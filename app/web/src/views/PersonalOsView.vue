@@ -5,12 +5,13 @@ import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { fetchRecords, type RecordItem } from '@/api/records'
 import { createTask, fetchTasks, type TaskItem } from '@/api/tasks'
+import { fetchReviews, type ReviewItem } from '@/api/reviews'
 import {
   changePersonalGoalStatus, confirmPersonalMemory, createPersonalGoal,
   erasePersonalMemory, fetchConfirmedMemories, fetchMemoryCandidates,
   fetchPersonalGoalContext, fetchPersonalGoals, fetchPrivateMemories, invalidatePersonalMemory,
   proposePersonalMemory, replacePersonalMemory, fetchMemoryChatSource, fetchNormalMemoryHistory,
-  proposeGoalTaskLink,
+  proposeGoalTaskLink, proposeGoalReviewLink,
   type ChatEvidenceSource, type GoalStatus, type MemoryPredicate, type MemorySensitivity,
   previewGoalModelSharing, confirmGoalModelSharing, suggestGoalModelAdvice,
   type PlanningModelReview, type PlanningModelAdvice, type PlanningModelProposal,
@@ -96,6 +97,31 @@ const taskPickerTaskId = ref<number | null>(null)
 const taskPickerGoalId = ref<number | null>(null)
 const taskPickerOwnerToken = ref<string | null>(null)
 let taskPickerGeneration = 0
+// Review sources are also fetched only after deliberate owner selection.
+const reviewPickerOpen = ref(false)
+const reviewPickerBusy = ref(false)
+const reviewPickerReviews = ref<ReviewItem[]>([])
+const reviewPickerReviewId = ref<number | null>(null)
+const reviewPickerGoalId = ref<number | null>(null)
+const reviewPickerOwnerToken = ref<string | null>(null)
+let reviewPickerGeneration = 0
+const reviewLinkPending = ref<{
+  goalId: number; reviewId: number; ownerToken: string; requestKey: string
+} | null>(null)
+const reviewLinkBusy = ref(false)
+
+function clearReviewPicker() {
+  ++reviewPickerGeneration
+  reviewPickerOpen.value = false
+  reviewPickerBusy.value = false
+  reviewPickerReviews.value = []
+  reviewPickerReviewId.value = null
+  reviewPickerGoalId.value = null
+  reviewPickerOwnerToken.value = null
+}
+function clearPendingReviewLink() {
+  reviewLinkPending.value = null
+}
 
 function clearTaskPicker() {
   ++taskPickerGeneration
@@ -128,6 +154,8 @@ function clearPlanningAdvice() {
   clearTaskDraft()
   clearPendingTaskLink()
   clearTaskPicker()
+  clearReviewPicker()
+  clearPendingReviewLink()
 }
 watch(sharePersonalFacts, clearPlanningAdvice)
 const correctionTarget = ref<PersonalMemory | null>(null)
@@ -203,6 +231,8 @@ function describeGoalLink(link: PersonalGoalLink) {
   // show the actual task subject rather than repeating this goal ID.
   if (link.predicate === 'ADVANCES' && link.subjectType === 'TASK')
     return `任务 #${link.subjectRef}`
+  if (link.predicate === 'EVALUATES' && link.subjectType === 'REVIEW')
+    return `复盘 #${link.subjectRef}`
   return link.objectValue || `${link.objectType} #${link.objectRef || '—'}`
 }
 
@@ -484,6 +514,103 @@ function stageExistingTaskLink() {
     requestKey: requestKey('task_link'), source: 'existing',
   }
   clearTaskPicker()
+}
+
+/** The owner explicitly requests existing review titles; never on page startup. */
+async function openExistingReviewPicker() {
+  const goalId = selectedGoalId.value
+  const identity = auth.token
+  if (!goalId || !identity || activeTab.value !== 'goals' || reviewLinkBusy.value
+      || reviewLinkPending.value !== null) return
+  clearReviewPicker()
+  reviewPickerOpen.value = true
+  reviewPickerBusy.value = true
+  reviewPickerGoalId.value = goalId
+  reviewPickerOwnerToken.value = identity
+  const generation = reviewPickerGeneration
+  try {
+    const [reviews, links] = await Promise.all([
+      fetchReviews(), fetchPersonalGoalContext(goalId),
+    ])
+    if (generation !== reviewPickerGeneration || identity !== auth.token
+        || selectedGoalId.value !== goalId || activeTab.value !== 'goals') return
+    context.value = links
+    const alreadyLinked = new Set(links
+      .filter(link => link.predicate === 'EVALUATES'
+        && link.subjectType === 'REVIEW' && link.objectType === 'GOAL')
+      .map(link => link.subjectRef))
+    reviewPickerReviews.value = reviews.filter(review =>
+      !alreadyLinked.has(String(review.id)))
+  } catch {
+    if (generation === reviewPickerGeneration) {
+      clearReviewPicker()
+      ElMessage.error('本人复盘列表加载失败，请稍后重试')
+    }
+  } finally {
+    if (generation === reviewPickerGeneration) reviewPickerBusy.value = false
+  }
+}
+
+/** Selection alone is read-only; the owner must still confirm in the goal. */
+function stageExistingReviewLink() {
+  const goalId = reviewPickerGoalId.value
+  const reviewId = reviewPickerReviewId.value
+  const identity = reviewPickerOwnerToken.value
+  if (!reviewPickerOpen.value || reviewPickerBusy.value || reviewLinkBusy.value
+      || reviewLinkPending.value !== null || !goalId || !reviewId
+      || !identity || identity !== auth.token
+      || selectedGoalId.value !== goalId || activeTab.value !== 'goals'
+      || !reviewPickerReviews.value.some(review => review.id === reviewId)) return
+  reviewLinkPending.value = {
+    goalId, reviewId, ownerToken: identity, requestKey: requestKey('review_link'),
+  }
+  clearReviewPicker()
+}
+
+/** Separate owner confirmation and server-side review/goal/source authorization. */
+async function confirmGoalReviewLink() {
+  const pending = reviewLinkPending.value
+  if (!pending || reviewLinkBusy.value || pending.ownerToken !== auth.token
+      || activeTab.value !== 'goals' || selectedGoalId.value !== pending.goalId) return
+  reviewLinkBusy.value = true
+  try {
+    const links = await fetchPersonalGoalContext(pending.goalId)
+    if (reviewLinkPending.value !== pending || pending.ownerToken !== auth.token
+        || selectedGoalId.value !== pending.goalId || activeTab.value !== 'goals') return
+    if (links.some(link => link.predicate === 'EVALUATES'
+        && link.subjectType === 'REVIEW'
+        && link.subjectRef === String(pending.reviewId))) {
+      context.value = links
+      reviewLinkPending.value = null
+      ElMessage.info('该复盘已经关联当前目标')
+      return
+    }
+    const candidate = await proposeGoalReviewLink(
+      pending.goalId, pending.reviewId, pending.requestKey,
+    )
+    if (reviewLinkPending.value !== pending || pending.ownerToken !== auth.token
+        || selectedGoalId.value !== pending.goalId || activeTab.value !== 'goals') return
+    await confirmPersonalMemory(candidate.id)
+    if (reviewLinkPending.value !== pending || pending.ownerToken !== auth.token
+        || selectedGoalId.value !== pending.goalId || activeTab.value !== 'goals') return
+    reviewLinkPending.value = null
+    ElMessage.success(`复盘 #${pending.reviewId} 已关联到目标`)
+    const generation = ++goalContextGeneration
+    try {
+      const refreshed = await fetchPersonalGoalContext(pending.goalId)
+      if (generation === goalContextGeneration && pending.ownerToken === auth.token
+          && selectedGoalId.value === pending.goalId && activeTab.value === 'goals')
+        context.value = refreshed
+    } catch {
+      if (generation === goalContextGeneration && pending.ownerToken === auth.token)
+        ElMessage.warning('复盘关联已确认，但列表刷新失败，请手动刷新')
+    }
+  } catch {
+    if (reviewLinkPending.value === pending && pending.ownerToken === auth.token)
+      ElMessage.error('复盘关联尚未确认，可重试；原始复盘未发生改变')
+  } finally {
+    reviewLinkBusy.value = false
+  }
 }
 
 /** Separate owner click; proposal + confirmation reuse the reviewed owner-scoped ontology API. */
@@ -871,6 +998,8 @@ onMounted(async () => {
             <div class="os-card-actions">
               <el-button :disabled="taskLinkBusy || taskLinkPending !== null"
                 @click="openExistingTaskPicker">关联已有任务（先选择）</el-button>
+              <el-button :disabled="reviewLinkBusy || reviewLinkPending !== null"
+                @click="openExistingReviewPicker">关联已有复盘（先选择）</el-button>
             </div>
             <div v-if="taskLinkPending && taskLinkPending.goalId === selectedGoal.id"
               class="os-evidence" role="status">
@@ -879,6 +1008,17 @@ onMounted(async () => {
               <div class="os-card-actions">
                 <el-button type="primary" :loading="taskLinkBusy" @click="confirmGoalTaskLink">确认关联到此目标</el-button>
                 <el-button :disabled="taskLinkBusy" @click="clearPendingTaskLink">暂不关联</el-button>
+              </div>
+            </div>
+            <div v-if="reviewLinkPending && reviewLinkPending.goalId === selectedGoal.id"
+              class="os-evidence" role="status">
+              <strong>复盘 #{{ reviewLinkPending.reviewId }} 已选中，尚未关联目标</strong>
+              <p>复盘已经存在；只有明确点击确认才会建立本目标的复盘关系，不会修改复盘原文。</p>
+              <div class="os-card-actions">
+                <el-button type="primary" :loading="reviewLinkBusy"
+                  @click="confirmGoalReviewLink">确认复盘关联到此目标</el-button>
+                <el-button :disabled="reviewLinkBusy"
+                  @click="clearPendingReviewLink">暂不关联复盘</el-button>
               </div>
             </div>
             <section v-if="selectedGoal.domain === 'career'" class="os-model-panel" aria-label="AI 职业规划">
@@ -1063,6 +1203,26 @@ onMounted(async () => {
             <small>{{ record.moduleCode }} · #{{ record.id }}</small></div>
         </article>
       </section>
+
+      <el-dialog v-model="reviewPickerOpen" title="选择已有复盘关联目标"
+        width="min(92vw, 520px)" destroy-on-close @close="clearReviewPicker">
+        <p class="os-help">主动读取当前账号已有复盘；仅选择不会修改原复盘，也不会写入知识关系。</p>
+        <el-skeleton v-if="reviewPickerBusy" :rows="3" animated />
+        <template v-else>
+          <el-empty v-if="!reviewPickerReviews.length" description="暂无可关联的复盘" />
+          <el-select v-else v-model="reviewPickerReviewId" filterable clearable
+            placeholder="选择现有复盘" aria-label="选择已有复盘" style="width:100%">
+            <el-option v-for="review in reviewPickerReviews" :key="review.id"
+              :label="`${review.title} (#${review.id})`" :value="review.id" />
+          </el-select>
+        </template>
+        <template #footer>
+          <el-button @click="clearReviewPicker">取消</el-button>
+          <el-button type="primary" :disabled="reviewPickerBusy || !reviewPickerReviewId ||
+            reviewPickerOwnerToken !== auth.token || reviewPickerGoalId !== selectedGoalId"
+            @click="stageExistingReviewLink">审核复盘关联</el-button>
+        </template>
+      </el-dialog>
 
       <el-dialog v-model="taskPickerOpen" title="选择已有任务关联目标"
         width="min(92vw, 520px)" destroy-on-close @close="clearTaskPicker">
