@@ -98,7 +98,7 @@ def run_case(browser, case):
         panel.locator("select").nth(1).select_option("70")
         panel.locator("select").nth(2).select_option("delete")
         panel.get_by_role("button", name="预览删除目标").click()
-        panel.get_by_text("模拟删除目标").wait_for(timeout=12000)
+        panel.get_by_text("操作预览 · meal.delete", exact=False).wait_for(timeout=12000)
         panel.locator('input[type="checkbox"]').check()
         panel.get_by_role("button", name="确认删除").click()
         if case == "confirmed":
