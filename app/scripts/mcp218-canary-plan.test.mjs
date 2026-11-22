@@ -29,6 +29,21 @@ test("bounded non-deploy preparation plan passes shape check only", () => {
   assert.deepEqual(checkCanaryPlan(proposed), []);
 });
 
+test("DNS host of exactly 253 ASCII characters remains syntax-valid", () => {
+  const host = [
+    "mcp218-" + "a".repeat(56),
+    "b".repeat(63),
+    "c".repeat(63),
+    "d".repeat(57),
+    "top",
+  ].join(".");
+  assert.equal(host.length, 253);
+  assert.deepEqual(checkCanaryPlan({
+    ...proposed,
+    resource_url: "https://" + host + "/api/mcp",
+  }), []);
+});
+
 const refused = [
   ["no plan", null],
   ["existing V2 project", {project: "prp-mcp-v2"}],
