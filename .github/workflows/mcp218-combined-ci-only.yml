@@ -129,3 +129,59 @@ jobs:
       - run: |
           echo "MCP218_COMBINED_CI_ONLY_NO_MAIN_MERGE_NO_PRODUCTION_DEPLOY"
           echo "NO_REAL_KEYCLOAK_CLIENT_OR_GRANTS_OR_SSH"
+
+  current-main-python-overlay:
+    name: Exact current-main Python overlay rehearsal (NO merge or push)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout #218 combined source without repository credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: combined
+          persist-credentials: false
+      - name: Checkout exact latest reviewed main snapshot separately
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 2d8afddc4cfd39e5801133a664ed52cae342651e
+          path: current-main
+          fetch-depth: 4
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Assert original main delta is exactly two reviewed Chat Shell files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C current-main rev-parse HEAD)" = "2d8afddc4cfd39e5801133a664ed52cae342651e"
+          git -C current-main cat-file -e "276f30d1d5ee6a50641e1afb65ac1e895c3c2d24^{commit}"
+          git -C current-main diff --name-only "276f30d1d5ee6a50641e1afb65ac1e895c3c2d24" HEAD > /tmp/mcp218-main-files.txt
+          printf '%s\n' \
+            'app/deploy/chat-shell/github_bridge.py' \
+            'app/deploy/chat-shell/test_bridge_transport.py' > /tmp/mcp218-expected-files.txt
+          diff -u /tmp/mcp218-expected-files.txt /tmp/mcp218-main-files.txt
+          test -z "$(git -C combined status --porcelain)"
+          echo "MAIN_DELTA_PINNED_EXACT_TWO_CHAT_SHELL_FILES"
+      - name: Overlay ONLY the two verified Python files into disposable working tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in app/deploy/chat-shell/github_bridge.py app/deploy/chat-shell/test_bridge_transport.py; do
+            cp -- "current-main/$path" "combined/$path"
+            cmp -- "current-main/$path" "combined/$path"
+          done
+          git -C combined diff --check
+          git -C combined diff --name-only > /tmp/mcp218-overlaid-files.txt
+          diff -u /tmp/mcp218-expected-files.txt /tmp/mcp218-overlaid-files.txt
+          echo "NO_REMOTE_REFS_OR_BRANCHES_CHANGED"
+      - name: Run merged-view Chat Shell transport and existing MCP218 contract in isolation
+        working-directory: combined
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s app/deploy/chat-shell -p 'test_bridge_transport.py' -v
+          python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -v
+          node --test app/scripts/mcp218-canary-plan.test.mjs
+          echo "MCP218_MAIN_PYTHON_OVERLAY_ONLY_NO_ACTUAL_MERGE_OR_RELEASE"
