@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 import uuid
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -176,6 +177,29 @@ class V2SecurityContractTests(unittest.TestCase):
             os.link(target, file)
             with self.assertRaises(RejectedRequest):
                 ReplayLedger(file).claim(self.job, "a" * 32, NOW + 100, NOW)
+
+    def test_sqlite_open_does_not_recreate_disappearing_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger(path)
+            prepare = ledger._prepare_private_file
+
+            def unlink_after_check():
+                prepare()
+                path.unlink()
+
+            with patch.object(ledger, "_prepare_private_file", side_effect=unlink_after_check):
+                with self.assertRaises(RejectedRequest):
+                    ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+            self.assertFalse(path.exists())
+
+    def test_sqlite_path_with_uri_delimiters_is_not_reinterpreted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger?mode=ro#x.sqlite"
+            self.assertTrue(ReplayLedger(path).claim(self.job, "a" * 32, NOW + 100, NOW))
+            self.assertTrue(path.exists())
+            with self.assertRaisesRegex(RejectedRequest, "already claimed"):
+                ReplayLedger(path).claim(self.job, "b" * 32, NOW + 100, NOW)
 
     def test_response_disk_fields_and_job_binding(self):
         data = {"totalBytes": 102400, "usedBytes": 71680,
