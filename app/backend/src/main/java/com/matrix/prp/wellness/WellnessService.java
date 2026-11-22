@@ -297,6 +297,10 @@ public class WellnessService {
         db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
     }
     private void assertMealSlotFree(long user,LocalDate date,String type,long excludedId) {
+        // Snacks are distinct eating events, not one daily slot. Keep the owner
+        // lock and idempotency-key checks in every writer so retries cannot
+        // recreate a confirmed snack, while ordinary meals stay unique per day.
+        if ("SNACK".equals(type)) return;
         List<Long> duplicates=db.query(
             "SELECT id FROM prp_wellness_meals WHERE user_id=? AND meal_date=? AND meal_type=? " +
             "AND id<>? LIMIT 1 FOR UPDATE",
@@ -383,29 +387,75 @@ public class WellnessService {
         return meal(id);
     }
 
+    private static boolean sameAmount(BigDecimal a,BigDecimal b) {
+        return a==null?b==null:b!=null && a.compareTo(b)==0;
+    }
+    /**
+     * A note/date/type-only change must not destroy the confirmed nutrition
+     * snapshot and V30 item provenance; item IDs are the evidence foreign keys.
+     * A changed item still goes through the existing replacement behavior.
+     */
+    private static boolean sameAiMealItems(List<MealItem> saved,List<AiMealItem> requested) {
+        if(saved.size()!=requested.size()) return false;
+        for(int i=0;i<saved.size();i++) {
+            MealItem old=saved.get(i);
+            AiMealItem next=requested.get(i);
+            if(old.foodId()>0) {
+                if(next.foodId()==null || next.foodId()!=old.foodId() ||
+                   !sameAmount(old.grams(),next.grams())) return false;
+            } else {
+                if(next.foodId()!=null && next.foodId()>0 ||
+                   !Objects.equals(old.foodName(),next.name().trim()) ||
+                   !sameAmount(old.grams(),next.grams()==null?BigDecimal.ZERO:next.grams()) ||
+                   !sameAmount(old.calories(),next.calories())) return false;
+            }
+        }
+        return true;
+    }
+    private static boolean sameCatalogMealItems(List<MealItem> saved,List<ItemInput> requested) {
+        if(saved.size()!=requested.size()) return false;
+        for(int i=0;i<saved.size();i++) {
+            MealItem old=saved.get(i);
+            ItemInput next=requested.get(i);
+            if(next.foodId()==null || old.foodId()!=next.foodId() ||
+               !sameAmount(old.grams(),next.grams())) return false;
+        }
+        return true;
+    }
+
     @Transactional
     public Meal updateAiMeal(long id,LocalDate date,String type,String note,List<AiMealItem> items) {
-        Meal before=meal(id); // owner check before any mutation
         validateAiMealInput(date,type,note,items);
         long user=CurrentUser.id();
+        lockMealOwner(user); // same lock order as human label verification
+        Meal before=meal(id); // owner check inside serialized transaction
         if(!before.mealDate().equals(date) || !before.mealType().equals(type))
-            { lockMealOwner(user); assertMealSlotFree(user,date,type,id); }
+            assertMealSlotFree(user,date,type,id);
+        boolean itemsChanged=!sameAiMealItems(before.items(),items);
         db.update("UPDATE prp_wellness_meals SET meal_date=?,meal_type=?,note=? WHERE id=? AND user_id=?",
-                date,type,note,id,CurrentUser.id());
-        db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
-        insertAiItems(id,items);
+                date,type,note,id,user);
+        if(itemsChanged) {
+            db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
+            insertAiItems(id,items);
+        }
         return meal(id);
     }
 
     @Transactional
     public Meal updateMeal(long id, MealInput input) {
-        Meal before=meal(id);validateMeal(input);
+        validateMeal(input);
+        long user=CurrentUser.id();
+        lockMealOwner(user); // serialize meal edits with label confirmations and copies
+        Meal before=meal(id);
         if(!before.mealDate().equals(input.mealDate()) || !before.mealType().equals(input.mealType()))
-            { lockMealOwner(CurrentUser.id()); assertMealSlotFree(CurrentUser.id(),input.mealDate(),input.mealType(),id); }
+            assertMealSlotFree(user,input.mealDate(),input.mealType(),id);
+        boolean itemsChanged=!sameCatalogMealItems(before.items(),input.items());
         db.update("UPDATE prp_wellness_meals SET meal_date=?,meal_type=?,note=? WHERE id=? AND user_id=?",
-                input.mealDate(),input.mealType(),input.note(),id,CurrentUser.id());
-        db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
-        insertItems(id,input.items());
+                input.mealDate(),input.mealType(),input.note(),id,user);
+        if(itemsChanged) {
+            db.update("DELETE FROM prp_wellness_meal_items WHERE meal_id=?",id);
+            insertItems(id,input.items());
+        }
         return meal(id);
     }
     private void insertItems(long id,List<ItemInput> inputs) {
@@ -428,17 +478,66 @@ public class WellnessService {
     }
     @Transactional
     public Meal copyMeal(long id,LocalDate date) {
-        Meal existing=meal(id);
-        if(existing.items().stream().anyMatch(i->i.foodId()<=0)) {
-            List<AiMealItem> snapshots=existing.items().stream()
-                .map(i->i.foodId()>0
-                    ?new AiMealItem(i.foodId(),null,i.grams(),null)
-                    :new AiMealItem(null,i.foodName(),i.grams(),i.calories())).toList();
-            return addAiMeal(date,existing.mealType(),existing.note(),snapshots,
-                UUID.randomUUID().toString());
+        return copyMeal(id,date,null);
+    }
+
+    /** A new eating event needs a new token; a network retry reuses its token.
+     * Preserve the *recorded item nutrition snapshot* rather than recalculating
+     * the catalog or losing manually verified protein/carbs/fat in addAiMeal.
+     * A confirmed retry never rewrites a previously copied historical meal.
+     */
+    @Transactional
+    public Meal copyMeal(long id,LocalDate date,String idempotencyKey) {
+        if(date==null) throw new IllegalArgumentException("Missing copy date");
+        long user=CurrentUser.id();
+        lockMealOwner(user);
+        Meal existing=meal(id); // owner check inside the same serialized transaction
+        String requestKey=idempotencyKey==null || idempotencyKey.isBlank()
+            ?UUID.randomUUID().toString():idempotencyKey;
+        if(requestKey.length()>80) throw new IllegalArgumentException("Invalid copy idempotency key");
+        String key=UUID.nameUUIDFromBytes(("meal-copy:"+id+":"+requestKey)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        List<Long> found=db.query(
+            "SELECT id FROM prp_wellness_meals WHERE user_id=? AND idempotency_key=?",
+            (r,n)->r.getLong("id"),user,key);
+        if(!found.isEmpty()) {
+            Meal replay=meal(found.getFirst());
+            if(!replay.mealDate().equals(date) ||
+               !replay.mealType().equals(existing.mealType()))
+                throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "复制幂等键已用于其他日期或餐次");
+            return replay;
         }
-        List<ItemInput> copies=existing.items().stream().map(i->new ItemInput(i.foodId(),i.grams())).toList();
-        return addMeal(new MealInput(date,existing.mealType(),existing.note(),copies,null));
+        assertMealSlotFree(user,date,existing.mealType(),-1L);
+        long copiedId=insert(
+            "INSERT INTO prp_wellness_meals (user_id,meal_date,meal_type,note,idempotency_key) "+
+            "VALUES (?,?,?,?,?)",
+            user,date,existing.mealType(),existing.note(),key);
+        // Clone exact confirmed nutrition values without conflating the new
+        // meal with another user's data or recomputing historical catalog food.
+        // Each new item ID maps to its own optional V30 enrichment row.
+        for(MealItem item:existing.items()) {
+            long newItemId=insert("INSERT INTO prp_wellness_meal_items "+
+                "(meal_id,food_id,food_name,grams,calories,protein_g,carbs_g,fat_g,is_estimate) "+
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                copiedId,item.foodId()>0?item.foodId():null,item.foodName(),
+                item.grams(),item.calories(),item.proteinG(),item.carbsG(),
+                item.fatG(),item.estimate());
+            // Source provenance is retained as a *copied* historical snapshot,
+            // never presented as newly user-verified nutrition for this meal.
+            db.update("INSERT INTO prp_wellness_meal_item_nutrients "+
+                "(meal_item_id,quantity,quantity_unit,consumed_ratio,weight_min_g,weight_max_g,"+
+                "calories_min_kcal,calories_max_kcal,protein_g,carbs_g,fat_g,fiber_g,sugar_g,"+
+                "sodium_mg,source_type,confidence_level,estimate_note) "+
+                "SELECT ?,quantity,quantity_unit,consumed_ratio,weight_min_g,weight_max_g,"+
+                "calories_min_kcal,calories_max_kcal,protein_g,carbs_g,fat_g,fiber_g,sugar_g,"+
+                "sodium_mg,'COPIED_SNAPSHOT','COPIED',"+
+                "'历史餐食营养快照副本，请核对本次实际食用份量' "+
+                "FROM prp_wellness_meal_item_nutrients WHERE meal_item_id=?",
+                newItemId,item.id());
+        }
+        return meal(copiedId);
     }
 
     public List<Exercise> exercises(LocalDate date) {
@@ -543,6 +642,45 @@ public class WellnessService {
                 dayMeals.size(),minutes,exKcal,weights.isEmpty()?null:weights.get(0),goal(date),
                 dayMeals.stream().map(Meal::mealType).distinct().toList());
     }
+    /**
+     * Daily macronutrients are shown only when every recorded food item has
+     * that particular nutrient. COUNT(column) ignores unknown/null values.
+     * Thus a known 0g remains zero; a partially known total remains null.
+     * No model raw evidence or image content is returned.
+     */
+    public List<NutritionTrendPoint> nutritionTrends(int days) {
+        if(days<1||days>90) throw new IllegalArgumentException("days must be 1..90");
+        LocalDate end=today(),start=end.minusDays(days-1);
+        long owner=CurrentUser.id();
+        Map<LocalDate,NutritionTrendPoint> recorded=new HashMap<>();
+        db.query("SELECT m.meal_date,COUNT(i.id) AS items_count," +
+                "COUNT(i.protein_g) AS known_protein,COUNT(i.carbs_g) AS known_carbs," +
+                "COUNT(i.fat_g) AS known_fat,SUM(i.protein_g) AS protein_total," +
+                "SUM(i.carbs_g) AS carbs_total,SUM(i.fat_g) AS fat_total " +
+                "FROM prp_wellness_meals m " +
+                "JOIN prp_wellness_meal_items i ON i.meal_id=m.id " +
+                "WHERE m.user_id=? AND m.meal_date BETWEEN ? AND ? GROUP BY m.meal_date",
+            r->{
+                int all=r.getInt("items_count");
+                int protein=r.getInt("known_protein");
+                int carbs=r.getInt("known_carbs");
+                int fat=r.getInt("known_fat");
+                LocalDate day=r.getObject("meal_date",LocalDate.class);
+                recorded.put(day,new NutritionTrendPoint(day,
+                    protein==all?r.getBigDecimal("protein_total"):null,
+                    carbs==all?r.getBigDecimal("carbs_total"):null,
+                    fat==all?r.getBigDecimal("fat_total"):null,
+                    all,protein,carbs,fat));
+            },owner,start,end);
+        List<NutritionTrendPoint> result=new ArrayList<>(days);
+        for(int i=0;i<days;i++){
+            LocalDate day=start.plusDays(i);
+            result.add(recorded.getOrDefault(day,
+                new NutritionTrendPoint(day,null,null,null,0,0,0,0)));
+        }
+        return result;
+    }
+
     public List<TrendPoint> trends(int days) {
         if(days<1||days>90) throw new IllegalArgumentException("days must be 1..90");
         LocalDate end=today(),start=end.minusDays(days-1);
