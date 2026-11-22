@@ -25,7 +25,7 @@ class WorkflowBoundary(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch'",s)
         self.assertIn('PRP_SHELL_REQUEST_REJECTED',s)
         self.assertIn('connectivity-smoke:',s)
-                self.assertNotIn('pull_request_target:',s)
+        self.assertNotIn('pull_request_target:',s)
         self.assertNotIn('PRP_DEPLOY_SSH_KEY',s)
         self.assertNotIn("github.event.comment.body }}",s)
         self.assertNotIn('runs-on: self-hosted',s)
