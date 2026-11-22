@@ -16,6 +16,7 @@ class WorkflowBoundary(unittest.TestCase):
                        "github.event.comment.user.login == 'micor-cjj-spec'",
                        "github.event.sender.type == 'User'",
                        "github.event.comment.user.type == 'User'",
+                       "vars.PRP_CHAT_SHELL_ENABLED == 'true'",
                        "environment: production-shell",
                        "PRP_SHELL_SSH_KEY", "PRP_SHELL_KNOWN_HOSTS",
                        "startsWith(github.event.comment.body, '/prp-shell-v1 ')"):
