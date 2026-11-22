@@ -1,6 +1,6 @@
 # PRP 纯聊天批准的远程命令通道（候选 V1）
 
-状态：**DRAFT / 未合并 / 未安装 SSH 身份 / 未启用 / 禁止生产执行**。
+状态：**DRAFT / 未合并 / 已完成服务器受限 SSH 网关与环境凭据配置 / 执行开关默认关闭 / 尚不能从 GPT 触发真实命令**。
 
 ## 用户交互（无需 MCP 或审批页面）
 
@@ -33,7 +33,7 @@ PRP 主仓库公开。Issue 正文、评论和 GitHub Actions 输出不能存放
 - app/deploy/chat-shell/github_bridge.py：只接受真实所有者 micor-cjj-spec 在**固定公开 Issue #277** 发出的精确前缀评论，并通过独立 SSH 强制命令执行。
 - app/deploy/chat-shell/prp_shell_executor.py：只读取加密 stdin，校验过期/目标/命令长度/nonce，主机本地一次性认领，再切换为**独立非 root 用户 prp-shell**执行。
 - app/deploy/chat-shell/gateway.sh：独立 SSH 身份只接受 SSH_ORIGINAL_COMMAND=run。
-- .github/workflows/prp-chat-shell.yml：候选 workflow；**在 PR 尚未合并到 main 时不会生效**。独立 environment production-shell，尚无凭据。
+- .github/workflows/prp-chat-shell.yml：候选 workflow；**在 PR 尚未合并到 main 时不会生效**。独立 environment production-shell 的凭据已配置；仓库级开关 `PRP_CHAT_SHELL_ENABLED` 默认未设置，任意命令执行关闭。另有只发送空请求的 `workflow_dispatch` 联通测试。
 - .github/workflows/chat-shell-contract.yml + test_chat_shell.py：不访问生产、无 SSH secrets 的离线协议测试。
 
 **没有命令白名单**；但当前 Shell 受 Linux 用户权限约束，不能隐式获取 root。默认单命令最多 30 秒，最长命令 8192 UTF-8 字节，输出每流最多 10 KiB。超时只终止前台进程组，不能保证清理所有人为脱离进程组的后台子进程。
@@ -69,7 +69,7 @@ PRP 主仓库公开。Issue 正文、评论和 GitHub Actions 输出不能存放
 - 已在 Debian 13 生产服务器上创建 `prp-shell` 和 `prp-chat-shell` 两个账号；root-only 加密密钥目录、重放目录和 RSA 证书已存在。
 - 已在服务器本地按固定 commit `ff75e80a` 执行全部 11 项离线测试，全部通过；公钥证书 SHA-256 指纹匹配。校验通过后，执行器、网关与协议模块安装在 `/usr/local/sbin/`。
 - 安装时网关误设为 `0500`，**必须先改为 `0555`**，否则非 root 的 SSH 接入账号无法启动它；脚本仍须 root 所有且父目录不可写。
-- **尚未添加专用 SSH authorized_keys、sudoers、Actions Secrets 或将触发工作流合入 main**；此时远程执行通道不可用。
+- 专用 SSH authorized_keys、sudoers、Actions Secrets 已完成安装与本机空请求验证；**尚未将触发工作流合入 main，也未开启 repo-level 执行开关**，真实 GPT 命令执行通道不可用。
 - 上述 11 项是离线单元测试，尚不能替代独立 SSH 授权、Actions 端到端测试与安全审查。GitHub CI 尚在排队。
 - 2026-11-22 后续进度：已安装独立强制命令 SSH 网关，**本机执行空请求会返回预期拒绝**；GitHub `production-shell` 环境已配置 main-only 策略以及三个独立 Secrets（HOST / SSH_KEY / KNOWN_HOSTS）。此前的“尚未添加”项已完成，不等于 GitHub Runner 外部联通已验收。
 - **新增默认关闭开关：** GitHub Actions `command` job 必须同时满足 `vars.PRP_CHAT_SHELL_ENABLED == 'true'` 才能执行。**不要在完成正式安全评审和端到端验收前设置该变量。**
