@@ -1,0 +1,43 @@
+name: PRP chat-approved encrypted shell (disabled until reviewed installation)
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prp-chat-shell-single-flight
+  cancel-in-progress: false
+
+jobs:
+  command:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.issue.number == 277 &&
+      !github.event.issue.pull_request &&
+      github.event.sender.login == 'micor-cjj-spec' &&
+      github.event.sender.type == 'User' &&
+      github.event.comment.user.login == 'micor-cjj-spec' &&
+      github.event.comment.user.type == 'User' &&
+      startsWith(github.event.comment.body, '/prp-shell-v1 ')
+    runs-on: ubuntu-latest
+    environment: production-shell
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Submit encrypted command through separate forced-command SSH
+        env:
+          PRP_SHELL_HOST: ${{ secrets.PRP_SHELL_HOST }}
+          PRP_SHELL_SSH_KEY: ${{ secrets.PRP_SHELL_SSH_KEY }}
+          PRP_SHELL_KNOWN_HOSTS: ${{ secrets.PRP_SHELL_KNOWN_HOSTS }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 app/deploy/chat-shell/github_bridge.py
