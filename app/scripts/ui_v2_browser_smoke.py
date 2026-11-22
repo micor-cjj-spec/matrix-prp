@@ -164,6 +164,9 @@ def check_viewport(browser, width, height):
 
         button = page.locator(".home-v2-complete-button")
         button.wait_for(timeout=15000)
+        # Preserve a clean before-action homepage screenshot in each viewport.
+        # All visible content and authentication data are synthetic fixtures.
+        page.screenshot(path=str(ARTIFACTS / f"home-{width}.png"), full_page=True)
         button.click()
         # Use actual DOM detachment, not RAF-based page.wait_for_function,
         # whose browser-engine scheduling may vary on hosted runners.
@@ -186,7 +189,21 @@ def check_viewport(browser, width, height):
         must(state["writes"] == 1, "Task completion should make exactly one synthetic PATCH")
         print(f"PASS {width}px homepage, focus task update, four responsive tabs", flush=True)
 
+        # Element Plus success toast from the synthetic task action must not
+        # contaminate subsequent visual review evidence.
+        page.locator(".el-message").wait_for(state="hidden", timeout=8000)
         open_tab(page, "apps", mobile)
+        # The previous artifact only captured the 学习-filtered state. Capture
+        # every registered group before search/favorites mutate the catalog.
+        groups = page.locator(".prp-apps-group")
+        group_filters = page.locator(".prp-app-filters button")
+        must(group_filters.count() >= 2, "No registered app categories")
+        must(groups.count() == group_filters.count() - 1,
+             "Unfiltered app groups must match registered category filters")
+        must(page.locator(".prp-apps-group-list a.prp-app-card").count() >= groups.count(),
+             "Every unfiltered group should contain a registered app entry")
+        page.screenshot(path=str(ARTIFACTS / f"apps-all-{width}.png"), full_page=True)
+        print(f"PASS {width}px complete unfiltered app catalog visual capture", flush=True)
         page.get_by_placeholder("搜索应用名称或分类").fill("视频")
         must(page.locator(".prp-apps-group-list a.prp-app-card").count() >= 1,
              "Searching 视频 should show registered video app")
