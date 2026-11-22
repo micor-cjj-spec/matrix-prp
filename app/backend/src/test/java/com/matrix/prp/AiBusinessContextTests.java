@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +42,7 @@ class AiBusinessContextTests {
     @MockitoBean PracticeService practice;
     @MockitoBean WellnessService wellness;
     private final AtomicReference<List<DeepSeekClient.ChatMessage>> observed = new AtomicReference<>();
+    private final AtomicInteger modelCalls = new AtomicInteger();
 
     private String login(String name, String password) throws Exception {
         String output = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
@@ -60,9 +62,11 @@ class AiBusinessContextTests {
     @SuppressWarnings("unchecked")
     void stub() throws Exception {
         observed.set(null);
+        modelCalls.set(0);
         when(deepSeek.model()).thenReturn("deepseek-chat");
         when(deepSeek.stream(anyList(), anyInt(), any())).thenAnswer(invocation -> {
             observed.set(List.copyOf(invocation.getArgument(0)));
+            modelCalls.incrementAndGet();
             Consumer<String> send = invocation.getArgument(2);
             send.accept("Context answer");
             return new DeepSeekClient.Result("Context answer", 120, 18);
@@ -144,6 +148,11 @@ class AiBusinessContextTests {
                 "contextToken",token,"contextScopes",List.of("tasks","practice","wellness")))))
             .andExpect(request().asyncStarted()).andReturn();
         mvc.perform(asyncDispatch(streamed)).andExpect(status().isOk());
+        // HTTP 200 alone is not proof of SSE success: AiService may emit event:error
+        // and complete the response without invoking the upstream model.
+        assertThat(streamed.getResponse().getContentAsString())
+            .as("The consented stream must finish successfully")
+            .contains("event:done").doesNotContain("event:error");
         // Replay is rejected even by the original owner.
         mvc.perform(post("/api/ai/chat/stream")
             .header(HttpHeaders.AUTHORIZATION,bearer(friend)).contentType(MediaType.APPLICATION_JSON)
@@ -164,11 +173,19 @@ class AiBusinessContextTests {
             .andReturn().getResponse().getContentAsString();
         assertThat(history).contains("How am I doing?").doesNotContain("Friend learning task");
 
+        int previousModelCalls = modelCalls.get();
+        assertThat(previousModelCalls).as("The consented prompt reached the model").isGreaterThan(0);
         MvcResult next = mvc.perform(post("/api/ai/chat/stream")
             .header(HttpHeaders.AUTHORIZATION,bearer(friend)).contentType(MediaType.APPLICATION_JSON)
             .content("{\"content\":\"Another question\"}"))
             .andExpect(request().asyncStarted()).andReturn();
         mvc.perform(asyncDispatch(next)).andExpect(status().isOk());
+        assertThat(next.getResponse().getContentAsString())
+            .as("A plain follow-up must complete, not just return HTTP 200 with an SSE error")
+            .contains("event:done").doesNotContain("event:error");
+        assertThat(modelCalls.get())
+            .as("The unconsented follow-up must reach the model independently")
+            .isEqualTo(previousModelCalls + 1);
         assertThat(observed.get().getLast().content()).isEqualTo("Another question");
     }
 }
