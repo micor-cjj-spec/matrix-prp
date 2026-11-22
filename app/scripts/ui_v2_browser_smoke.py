@@ -215,7 +215,57 @@ def check_viewport(browser, width, height):
         page.screenshot(path=str(ARTIFACTS / f"chat-{width}.png"), full_page=False)
         print(f"PASS {width}px chat composer, responsive navigation (no virtual keyboard)", flush=True)
 
+        if mobile:
+            # Headless Chromium/WebKit do not open the iOS system keyboard.
+            # Emulate only the visualViewport geometry and resize event to
+            # exercise the actual Vue/CSS keyboard-aware layout state.
+            geometry = page.evaluate("""() => {
+                const vv = window.visualViewport
+                if (!vv) return null
+                const originalHeight = Object.getOwnPropertyDescriptor(vv, 'height')
+                const originalOffset = Object.getOwnPropertyDescriptor(vv, 'offsetTop')
+                const emulatedHeight = Math.max(220, window.innerHeight - 320)
+                Object.defineProperty(vv, 'height', { configurable: true, value: emulatedHeight })
+                Object.defineProperty(vv, 'offsetTop', { configurable: true, value: 0 })
+                window.__restoreSmokeViewport = () => {
+                    if (originalHeight) Object.defineProperty(vv, 'height', originalHeight)
+                    else delete vv.height
+                    if (originalOffset) Object.defineProperty(vv, 'offsetTop', originalOffset)
+                    else delete vv.offsetTop
+                    vv.dispatchEvent(new Event('resize'))
+                }
+                vv.dispatchEvent(new Event('resize'))
+                return { expectedHeight: Math.round(emulatedHeight) }
+            }""")
+            must(geometry is not None, "visualViewport unavailable for synthetic keyboard check")
+            shell = page.locator(".prp-shell-chat.prp-keyboard-open")
+            try:
+                shell.wait_for(timeout=5000)
+                must(not page.locator("nav.prp-mobile-tabs").is_visible(),
+                     "Bottom navigation must hide when the synthetic keyboard occupies the viewport")
+                actual_height = shell.evaluate(
+                    "(node) => node.style.getPropertyValue('--prp-chat-viewport-height').trim()"
+                )
+                must(actual_height == str(geometry["expectedHeight"]) + "px",
+                     "Chat shell must use the visible synthetic viewport height: " + actual_height)
+                page.screenshot(path=str(ARTIFACTS / f"chat-keyboard-simulated-{width}.png"),
+                                full_page=False)
+            finally:
+                page.evaluate("() => window.__restoreSmokeViewport?.()")
+            shell.wait_for(state="detached", timeout=5000)
+            must(page.locator("nav.prp-mobile-tabs").is_visible(),
+                 "Mobile navigation must return after synthetic keyboard closes")
+            restored_height = page.locator(".prp-shell-chat").evaluate(
+                "(node) => node.style.getPropertyValue('--prp-chat-viewport-height').trim()"
+            )
+            must(restored_height == "100dvh",
+                 "Chat viewport should restore 100dvh after synthetic keyboard closes")
+            print(f"PASS {width}px synthetic keyboard geometry, tab hiding and restoration", flush=True)
+
         open_tab(page, "me", mobile)
+        if mobile:
+            must(page.evaluate("document.activeElement?.tagName !== 'TEXTAREA'"),
+                 "Navigation should blur the previously focused chat composer")
         page.locator(".prp-profile-card").wait_for()
         must(page.locator(".prp-me-admin").count() == 0, "Admin tools exposed to non-admin")
         print(f"PASS {width}px Me page and admin-only visibility", flush=True)
