@@ -293,8 +293,13 @@ def run(page, origin):
         page.get_by_role("button", name="采纳为任务（先审核）").click()
         draft_dialog.wait_for(state="visible", timeout=15000)
         print("CI_T007_STAGE_TASK_REVIEW_REOPENED=PASS")
-        if "CI-only evidence-reviewed action" not in draft_dialog.inner_text():
+        # Element Plus el-input stores its editable title in input.value,
+        # which is deliberately absent from the dialog's inner_text().
+        # Inspect the actual owner-review field instead of its text nodes.
+        title_input = draft_dialog.locator('input[aria-label="任务标题"]')
+        if title_input.input_value() != "CI-only evidence-reviewed action":
             raise RuntimeError("PERSONAL_OS_TASK_DRAFT_TITLE_NOT_REVIEWABLE")
+        print("CI_T007_STAGE_TASK_TITLE_INPUT_REVIEWABLE=PASS")
         save_button = draft_dialog.get_by_role("button", name="确认创建任务")
         if not save_button.is_enabled():
             print("CI_T007_STAGE_TASK_SAVE_BUTTON_DISABLED=YES")
