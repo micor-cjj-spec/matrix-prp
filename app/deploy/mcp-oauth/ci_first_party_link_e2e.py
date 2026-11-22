@@ -171,11 +171,8 @@ def verify_concurrent_flow_limit(flow, prp_bearer, prp_password):
     def one_request(_):
         # Match ci_pkce_browser.main()'s disposable TLS+CookieJar transport.
         # Give every thread its OWN HTTP opener and cookie jar.
-        context = flow.ssl.create_default_context(
-            cafile=os.environ["MCP_E2E_CA_CERT"])
-        local_opener = flow.build_opener(
-            flow.HTTPSHandler(context=context),
-            flow.HTTPCookieProcessor(flow.CookieJar()), flow.SafeRedirect())
+        local_opener = flow.disposable_https_opener(
+            os.environ["MCP_E2E_CA_CERT"])
         ready.wait(timeout=10)
         result = flow.request(local_opener, url, bearer=prp_bearer,
                               data={"password": prp_password})
