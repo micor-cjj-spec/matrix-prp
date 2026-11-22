@@ -97,3 +97,59 @@ jobs:
             impact-report.md
             impact-report.json
           retention-days: 14
+
+  ui-source-browser:
+    name: UI source browser zoom and keyboard on ${{ matrix.browser }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked UI and isolated browser dependencies
+        run: |
+          npm ci --prefix app/web
+          python3 -m pip install --no-cache-dir playwright==1.55.0
+          python3 -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Build actual Vue UI without real API access
+        env:
+          VITE_APP_BASE: /prp/
+          VITE_API_BASE: /api
+        run: npm run build --prefix app/web
+      - name: Test viewport zoom versus keyboard against local Vue preview
+        env:
+          PRP_UI_SMOKE_URL: http://127.0.0.1:4173/prp/
+          PRP_UI_SMOKE_DIR: ${{ runner.temp }}/prp-zoom
+          PRP_UI_BROWSER: ${{ matrix.browser }}
+        run: |
+          set -Eeuo pipefail
+          ./app/web/node_modules/.bin/vite preview --host 127.0.0.1 --port 4173 --strictPort > "$RUNNER_TEMP/ui-zoom-preview.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in {1..30}; do
+            if curl --silent --fail --output /dev/null "$PRP_UI_SMOKE_URL"; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          python3 app/scripts/ui_v2_zoom_keyboard_browser.py
+      - name: Upload synthetic viewport screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-source-zoom-${{ matrix.browser }}
+          path: ${{ runner.temp }}/prp-zoom/
+          if-no-files-found: ignore
+          retention-days: 7
