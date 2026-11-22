@@ -62,7 +62,7 @@ def write_ssh_credential_file(path, value):
     """
     if not isinstance(value, str) or not value.strip():
         raise InvalidJob('SSH credentials unavailable')
-    path.write_text(value if value.endswith('\\n') else value + '\\n')
+    path.write_text(value if value.endswith('\n') else value + '\n')
     path.chmod(0o600)
 
 
