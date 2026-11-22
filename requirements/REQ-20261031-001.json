@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 3,
-  "updated_at": "2026-11-22T07:20:00.508Z",
+  "version": 4,
+  "updated_at": "2026-11-22T07:26:30.797Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -34,6 +34,20 @@
         "status": "CLAIMED",
         "replayed": false
       }
+    },
+    {
+      "request_id": "1e582e4d-29d2-402a-a822-6692665ff2c1",
+      "fingerprint": "05ffdc08bb805f37464d9c5cd9e515d14c5afeb3f8b0168bf106652844b606c2",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "checkpoint",
+        "task_id": "T-001",
+        "request_id": "1e582e4d-29d2-402a-a822-6692665ff2c1",
+        "checkpoint_head_sha": "4f590fe6b636b005cc518405e7f519520f0e0bec",
+        "version": 4,
+        "status": "CLAIMED",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -53,6 +67,16 @@
         "actor": "micor-cjj-spec",
         "claimed_at": "2026-11-22T07:13:32.650Z",
         "generation": 1
+      },
+      "checkpoint": {
+        "summary": "双会话 T-001 真实断点交接试点；没有修改任务源码",
+        "next_step": "验证持有者断点交接、旧领取失效，随后释放两个试点任务",
+        "branch": "pilot/req-20261031-001-t001-handoff-20261122",
+        "head_sha": "4f590fe6b636b005cc518405e7f519520f0e0bec",
+        "tests": "T-001/T-002 两个真实会话已领取；T-002 重复领取被 TASK_NOT_READY 拒绝",
+        "recorded_at": "2026-11-22T07:26:30.797Z",
+        "worker_id": "chatA_20261122_v1pilot",
+        "origin": "claimant"
       }
     },
     {
