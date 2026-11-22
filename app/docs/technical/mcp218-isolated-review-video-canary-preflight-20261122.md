@@ -133,4 +133,4 @@ node app/scripts/mcp218-canary-plan.mjs /path/to/private/nonsecret-canary-plan.j
 
 **重要：此函数不生成可直接部署的包，不提供安装入口，也不执行任何文件/网络写操作。** 它的通过证据只能证明可构造候选 Realm JSON 结构，不能证明 Keycloak 接受导入、真实 Issuer/JWKS 可用、OpenAI client 能签名、PRP owner-link 已工作；这些继续是**独立环境真实审批及 E2E**，没有取消 #149 或 G0/B2 阻塞。
 
-新的 Python unittest 专项检查 Realm/Scope/Client 数量、无第三方登录 Client、无旧任务权限、OIDC subject 安全映射、不修改原构建器、不访问网络、旧域名/注入拒绝和上游构建器结构漂移。GitHub Actions 中以 `python3 -m unittest discover -v -s app/deploy/mcp218-canary -p 'test_review_realm.py'` 执行，**必须以当前 SHA 最新实际 CI 完成结果为准**。
+新的 Python unittest 专项检查 Realm/Scope/Client 数量、无第三方登录 Client、无旧任务权限、OIDC subject 安全映射、不修改原构建器、不访问网络、旧域名/注入拒绝和上游构建器结构漂移。离线 Node.js 方案校验与 Python Realm 候选均拒绝 DNS 标签长度超过 63 或完整主机名超过 253 个 ASCII 字符，边界测试覆盖 253 字符允许、254 字符拒绝；仅证明静态语法一致性，不证明 DNS 实际可用。GitHub Actions 中以 `python3 -m unittest discover -v -s app/deploy/mcp218-canary -p 'test_review_realm.py'` 执行，**必须以当前 SHA 最新实际 CI 完成结果为准**。
