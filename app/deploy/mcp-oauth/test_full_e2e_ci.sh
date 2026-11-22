@@ -299,11 +299,25 @@ if ! keytool -importcert -noprompt -alias prp-e2e-ci-ca -storetype PKCS12 \
 fi
 echo "E2E TLS: disposable Java certificate trust configured."
 
-(
+# Preserve Maven output only in the ephemeral private runner directory.
+# A failed Maven build previously exited via set -e without a safe diagnosis.
+# Print only static categories; never echo arbitrary Maven logs or secrets.
+if ! (
   cd app/backend
   chmod +x mvnw
   ./mvnw -B -ntp -DskipTests package > "$tmp/java-build.log" 2>&1
-)
+); then
+  if grep -Eq 'wget: Failed to fetch .*apache-maven-[0-9.]+-bin.zip' "$tmp/java-build.log"; then
+    echo "FAIL E2E: Maven Wrapper distribution download failed (check CI network/rate limits)." >&2
+  elif grep -Eiq 'status code: 429|Too Many Requests' "$tmp/java-build.log"; then
+    echo "FAIL E2E: Maven Central HTTP 429 rate limiting prevented the isolated build." >&2
+  elif grep -Eq 'Non-resolvable parent POM|Could not transfer artifact|Could not resolve dependencies' "$tmp/java-build.log"; then
+    echo "FAIL E2E: Maven dependency resolution failed in the isolated build." >&2
+  else
+    echo "FAIL E2E: Java package step failed; inspect protected runner logs/artifacts." >&2
+  fi
+  exit 1
+fi
 echo "E2E PRP: Java 21 JAR built from review branch."
 # Verify the ZIP central directory of the exact freshly built Spring Boot JAR.
 # Never use literal grep over opaque compressed bytes as presence/absence proof.
