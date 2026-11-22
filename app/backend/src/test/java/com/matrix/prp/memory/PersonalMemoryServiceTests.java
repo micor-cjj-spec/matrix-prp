@@ -86,6 +86,25 @@ class PersonalMemoryServiceTests {
             .isEqualTo(com.matrix.prp.ontology.PersonalOntology.Sensitivity.NORMAL);
     }
 
+    @Test void foreignOrRevokedTaskCannotBeLinkedToOwnGoal() {
+        user(7);
+        var edge=new PersonalMemoryService.Proposed(
+            TASK,"99",ADVANCES,GOAL,"31",null,EvidenceSource.TASK,"99",
+            null,null,com.matrix.prp.ontology.PersonalOntology.Sensitivity.NORMAL,
+            "link_req_foreign01");
+        when(db.queryForObject(
+            "SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,7L))
+            .thenReturn(7L);
+        doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND))
+            .when(references).requireOwned(TASK,"99");
+        assertThatThrownBy(()->service.propose(edge))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(e->assertThat(((ResponseStatusException)e).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND));
+        verify(db,never()).update(any(org.springframework.jdbc.core.PreparedStatementCreator.class),
+            any(org.springframework.jdbc.support.KeyHolder.class));
+    }
+
     @Test void duplicateTaskGoalEdgesAreRejectedAcrossDifferentRequestKeys() {
         user(7);
         var edge=new PersonalMemoryService.Proposed(
