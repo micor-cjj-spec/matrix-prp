@@ -204,10 +204,20 @@
       "reason": "MCP meal list is limited to 50 records"
     },
     {
+      "route": "GET /api/wellness/meals/{id}/analysis",
+      "status": "excluded",
+      "reason": "Owner-scoped extraction text: first-party details only, pending separately reviewed MCP projection and scope tests"
+    },
+    {
       "route": "GET /api/wellness/summary/daily",
       "status": "mapped",
       "tool": "prp_wellness_daily",
       "reason": "Read daily structured summary"
+    },
+    {
+      "route": "GET /api/wellness/summary/nutrition-trends",
+      "status": "excluded",
+      "reason": "First-party owner-only macro nutrient trends; not part of existing MCP trend tool scope or DTO"
     },
     {
       "route": "GET /api/wellness/summary/trends",
@@ -396,6 +406,11 @@
       "status": "mapped",
       "tool": "prp_prepare_wellness_create",
       "reason": "Structured health create uses draft, scopes and approval"
+    },
+    {
+      "route": "POST /api/wellness/meals/{id}/label-verification",
+      "status": "excluded",
+      "reason": "First-party owner-confirmed nutrition correction requires explicit label and intake verification; no MCP direct write or model-driven promotion"
     },
     {
       "route": "PUT /api/ai/settings/providers/{provider}/key",

@@ -297,6 +297,10 @@ public class WellnessService {
         db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
     }
     private void assertMealSlotFree(long user,LocalDate date,String type,long excludedId) {
+        // Snacks are distinct eating events, not one daily slot. Keep the owner
+        // lock and idempotency-key checks in every writer so retries cannot
+        // recreate a confirmed snack, while ordinary meals stay unique per day.
+        if ("SNACK".equals(type)) return;
         List<Long> duplicates=db.query(
             "SELECT id FROM prp_wellness_meals WHERE user_id=? AND meal_date=? AND meal_type=? " +
             "AND id<>? LIMIT 1 FOR UPDATE",
@@ -543,6 +547,45 @@ public class WellnessService {
                 dayMeals.size(),minutes,exKcal,weights.isEmpty()?null:weights.get(0),goal(date),
                 dayMeals.stream().map(Meal::mealType).distinct().toList());
     }
+    /**
+     * Daily macronutrients are shown only when every recorded food item has
+     * that particular nutrient. COUNT(column) ignores unknown/null values.
+     * Thus a known 0g remains zero; a partially known total remains null.
+     * No model raw evidence or image content is returned.
+     */
+    public List<NutritionTrendPoint> nutritionTrends(int days) {
+        if(days<1||days>90) throw new IllegalArgumentException("days must be 1..90");
+        LocalDate end=today(),start=end.minusDays(days-1);
+        long owner=CurrentUser.id();
+        Map<LocalDate,NutritionTrendPoint> recorded=new HashMap<>();
+        db.query("SELECT m.meal_date,COUNT(i.id) AS items_count," +
+                "COUNT(i.protein_g) AS known_protein,COUNT(i.carbs_g) AS known_carbs," +
+                "COUNT(i.fat_g) AS known_fat,SUM(i.protein_g) AS protein_total," +
+                "SUM(i.carbs_g) AS carbs_total,SUM(i.fat_g) AS fat_total " +
+                "FROM prp_wellness_meals m " +
+                "JOIN prp_wellness_meal_items i ON i.meal_id=m.id " +
+                "WHERE m.user_id=? AND m.meal_date BETWEEN ? AND ? GROUP BY m.meal_date",
+            r->{
+                int all=r.getInt("items_count");
+                int protein=r.getInt("known_protein");
+                int carbs=r.getInt("known_carbs");
+                int fat=r.getInt("known_fat");
+                LocalDate day=r.getObject("meal_date",LocalDate.class);
+                recorded.put(day,new NutritionTrendPoint(day,
+                    protein==all?r.getBigDecimal("protein_total"):null,
+                    carbs==all?r.getBigDecimal("carbs_total"):null,
+                    fat==all?r.getBigDecimal("fat_total"):null,
+                    all,protein,carbs,fat));
+            },owner,start,end);
+        List<NutritionTrendPoint> result=new ArrayList<>(days);
+        for(int i=0;i<days;i++){
+            LocalDate day=start.plusDays(i);
+            result.add(recorded.getOrDefault(day,
+                new NutritionTrendPoint(day,null,null,null,0,0,0,0)));
+        }
+        return result;
+    }
+
     public List<TrendPoint> trends(int days) {
         if(days<1||days>90) throw new IllegalArgumentException("days must be 1..90");
         LocalDate end=today(),start=end.minusDays(days-1);

@@ -144,6 +144,11 @@ public class WellnessController {
     public ApiResponse<DailySummary> summary(@RequestParam @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate date) {
         return ApiResponse.success(service.daily(date));
     }
+    /** First-party nutrition visualization only; no MCP route or model raw data. */
+    @GetMapping("/summary/nutrition-trends")
+    public ApiResponse<List<NutritionTrendPoint>> nutritionTrends(@RequestParam(defaultValue="30") int days) {
+        return ApiResponse.success(service.nutritionTrends(days));
+    }
     @GetMapping("/summary/trends")
     public ApiResponse<List<TrendPoint>> trends(@RequestParam(defaultValue="30") int days) {
         return ApiResponse.success(service.trends(days));

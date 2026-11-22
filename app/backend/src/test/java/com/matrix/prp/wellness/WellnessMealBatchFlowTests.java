@@ -259,4 +259,42 @@ class WellnessMealBatchFlowTests {
             .hasMessageContaining("超过30项");
     }
 
+
+    @Test void existingSnackDoesNotBlockTwoMoreExplicitSnackDraftsOrConfirmation() throws Exception {
+        asOwner();
+        var db=mock(JdbcTemplate.class);
+        var wellness=mock(WellnessService.class);
+        when(wellness.meals(day)).thenReturn(List.of(
+            new Meal(90L,day,"SNACK","existing 07:00 snack",List.of())));
+        var service=service(db,wellness);
+        String note=day+"""
+            
+            加餐（约90 kcal）
+            苹果：90 kcal
+            加餐（约110 kcal）
+            酸奶：110 kcal
+            """;
+        var preview=service.prepareBatch(note);
+        assertThat(preview.action()).isEqualTo("meal.create_batch");
+        var groups=(List<?>)preview.values().get("meals");
+        assertThat(groups).hasSize(2);
+        assertThat(preview.values().get("alreadyExistingTypes").toString())
+            .doesNotContain("SNACK");
+        when(db.queryForList(contains("FOR UPDATE"),eq(preview.draftId()),eq(71L)))
+            .thenReturn(List.of(Map.of(
+                "action_type","meal.create_batch",
+                "payload_json",json.writeValueAsString(preview.values()),
+                "status","PENDING",
+                "expires_at",Timestamp.valueOf(LocalDateTime.now().plusMinutes(10)))));
+        when(db.update(anyString(),any(Object[].class))).thenReturn(1);
+        var generated=new java.util.concurrent.atomic.AtomicLong(201L);
+        when(wellness.addAiMeal(eq(day),eq("SNACK"),anyString(),anyList(),anyString()))
+            .thenAnswer(call->new Meal(generated.getAndIncrement(),day,"SNACK","",List.of()));
+        var saved=service.confirm(preview.draftId());
+        assertThat((List<?>)saved.saved()).hasSize(2);
+        verify(wellness).addAiMeal(eq(day),eq("SNACK"),anyString(),anyList(),eq(preview.draftId()+"-0"));
+        verify(wellness).addAiMeal(eq(day),eq("SNACK"),anyString(),anyList(),eq(preview.draftId()+"-1"));
+        verify(db).update(contains("status='CONSUMED'"),eq(preview.draftId()),eq(71L));
+        verify(wellness,never()).addFood(any());
+    }
 }
