@@ -115,7 +115,7 @@ class ReadonlyV2Tests(unittest.TestCase):
             root_filesystem_usage(lambda _: fake)
 
     def test_health_liveness_minimized_and_no_sensitive_echo(self):
-        raw = json.dumps({"data": {"status": "UP", "service": "matrix-prp-backend",
+        raw = json.dumps({"code": "SUCCESS", "data": {"status": "UP", "service": "matrix-prp-backend",
                                    "knowledgeRoot": "/internal/secret",
                                    "activeProfiles": ["production"]}}).encode()
         result = project_health_liveness(200, raw)
@@ -124,8 +124,10 @@ class ReadonlyV2Tests(unittest.TestCase):
         self.assertNotIn("production", str(result))
 
     def test_health_http200_not_sufficient(self):
-        for raw in (b"{}", b'{"data":{"status":"DOWN"}}',
-                    b'{"data":{"status":"UP","service":"other"}}',
+        for raw in (b"{}", b'{"code":"SUCCESS","data":{"status":"DOWN"}}',
+                    b'{"code":"SUCCESS","data":{"status":"UP","service":"other"}}',
+                    b'{"code":"ERROR","data":{"status":"UP","service":"matrix-prp-backend"}}',
+                    b'{"data":{"status":"UP","service":"matrix-prp-backend"}}',
                     b"invalid json", b"\\xff"):
             with self.subTest(raw=raw):
                 self.assertEqual(project_health_liveness(200, raw)["liveness"], "unknown")
