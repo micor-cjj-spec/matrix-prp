@@ -157,3 +157,73 @@ test('activation preflight rejects a substituted App or state Ruleset ID',()=>{
  assert.ok(out.blockers.includes('APP_ID_MISMATCH'))
  assert.ok(out.blockers.includes('STATE_RULESET_ID_MISMATCH'))
 })
+
+function migrated(){
+ const x=good()
+ x.headSha='6226ed6a706e20fe57e19a78c4b8119550996c1a'
+ x.stateBranch.commit.sha=x.headSha
+ x.snapshot.version=10
+ x.snapshot.tasks.push(
+  {task_id:'T-006',issue_number:141,title:'Board',status:'READY',
+   claim:null,depends_on:['T-003'],allowed_paths:['app/scripts/dev-collab/board.mjs']},
+  {task_id:'T-007',issue_number:142,title:'Security',status:'READY',
+   claim:null,depends_on:['T-001'],allowed_paths:['app/scripts/dev-collab/review-gate.mjs']},
+  {task_id:'T-008',issue_number:143,title:'CAS tests',status:'READY',
+   claim:null,depends_on:['T-003','T-007','T-009'],allowed_paths:['app/scripts/dev-collab/git-cas.test.mjs']},
+  {task_id:'T-009',issue_number:146,title:'Recovery',status:'READY',
+   claim:null,depends_on:['T-001','T-007'],allowed_paths:['app/scripts/dev-collab/recovery.mjs']}
+ )
+ return x
+}
+test('V1 read-only phase recognizes migrated task identities without granting any authority',()=>{
+ const x=migrated()
+ const result=evaluateActivationEvidence(x,{phase:'active_v1'})
+ assert.equal(result.phase,'active_v1')
+ assert.equal(result.status,'PRECONDITIONS_OBSERVED')
+ assert.deepEqual(result.blockers,[])
+ assert.equal(result.state_sha,x.headSha)
+ assert.equal(result.allow_claim,false)
+ assert.equal(result.allow_merge,false)
+ assert.equal(result.allow_deploy,false)
+})
+test('V0 bootstrap gate remains pinned and rejects migrated snapshot by default',()=>{
+ const out=evaluateActivationEvidence(migrated())
+ assert.equal(out.phase,'bootstrap_v0')
+ assert.equal(out.status,'NO_GO')
+ assert.ok(out.blockers.includes('STATE_NOT_PINNED_V0'))
+ assert.ok(out.blockers.includes('NOT_CLEAN_INITIAL_PILOT_STATE'))
+})
+test('V1 phase rejects a version bump without all four migrated task identities',()=>{
+ const x=migrated()
+ x.snapshot.tasks=x.snapshot.tasks.filter(t=>t.task_id!=='T-009')
+ const out=evaluateActivationEvidence(x,{phase:'active_v1'})
+ assert.equal(out.status,'NO_GO')
+ assert.ok(out.blockers.includes('INVALID_OR_UNMIGRATED_STATE_SNAPSHOT'))
+})
+test('V1 cannot reuse V0 state SHA or an unverified current branch ref',()=>{
+ const x=migrated()
+ x.headSha=V0
+ x.stateBranch.commit.sha=V0
+ assert.ok(evaluateActivationEvidence(x,{phase:'active_v1'}).blockers.includes('STATE_STILL_PINNED_TO_V0'))
+ const y=migrated()
+ y.stateBranch.commit.sha='a'.repeat(40)
+ assert.ok(evaluateActivationEvidence(y,{phase:'active_v1'}).blockers.includes('STATE_REF_UNVERIFIED'))
+})
+test('V1 read-only report preserves all existing App, policy, environment and hold fail-closed gates',()=>{
+ const x=migrated()
+ x.rule.bypass_actors=[]
+ x.appRule.current_user_can_bypass='never'
+ x.environmentSecrets.secrets=[]
+ x.publicationHold=null
+ const out=evaluateActivationEvidence(x,{phase:'active_v1'})
+ assert.equal(out.status,'NO_GO')
+ assert.ok(out.blockers.some(s=>s.startsWith('STATE_RULESET_')))
+ assert.ok(out.blockers.some(s=>s.startsWith('APP_TOKEN_RULESET_')))
+ assert.ok(out.blockers.includes('AUTO_ENV_APP_PRIVATE_KEY_SECRET_MISSING'))
+ assert.ok(out.blockers.includes('PUBLICATION_HOLD_MISSING_OR_INVALID'))
+})
+test('unknown preflight phase fails closed even with otherwise valid evidence',()=>{
+ const out=evaluateActivationEvidence(migrated(),{phase:'magic'})
+ assert.equal(out.status,'NO_GO')
+ assert.ok(out.blockers.includes('UNKNOWN_PREFLIGHT_PHASE'))
+})
