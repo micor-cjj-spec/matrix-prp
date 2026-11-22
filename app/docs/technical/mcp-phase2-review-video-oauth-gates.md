@@ -14,9 +14,32 @@ Draft PR #219 owns the bounded read adapter, new owner-scoped SQL `LIMIT` paths,
 | `prp_video_folders` | `prp.video.read` | No | at most 50 owner-scoped folder previews | None |
 | `prp_video_progress` | `prp.video.read` | No | at most 30 owner-scoped video metadata/progress previews | None |
 
-Scope discovery is a catalog, not authorization. The `additional-read-tools-enabled` flag defaults false and is an additional tool-visibility gate. Even when that flag is true, a tool needs the corresponding explicitly advertised scope; each request still requires verified issuer/resource-bound OAuth identity, linked PRP owner, current token scope, current owner-client grant, and the existing expanded-account/client allowlist.
+Scope discovery is a catalog, not authorization. The dedicated `review-video-read-tools-enabled` flag defaults false and is the visibility gate for exactly these three review/video tools. The separate preexisting `additional-read-tools-enabled` flag controls other optional task/health/record/practice reads and does **not** activate review/video tools. In the current eight-scope V2, enabling the older catch-all flag would expose six additional task/health read tools; this change prevents unintended co-activation. Even when the dedicated flag is true, a tool needs the corresponding explicitly advertised scope; each request still requires verified issuer/resource-bound OAuth identity, linked PRP owner, current token scope, current owner-client grant, and the existing expanded-account/client allowlist.
 
 The currently reviewed `production-wellness-only` production guard continues to reject both new scopes (including the old task/record/practice read extension configuration). **Do not add these scopes to production health consent allowlists** in this task.
+
+## Existing V2 eight-scope overlay compatibility (code-only review)
+
+Operator read-only inspection on Nov 22, 2026 confirmed that the existing
+`prp-mcp-v2-backend-1` currently advertises eight task/finance/health/write
+scopes and has writes enabled. The ninth Compose overlay
+`/root/prp-mcp-expanded-20261104/expanded-image.yaml` is the last identified
+source of those values; this Draft does not edit or restart it.
+
+After a **separate authorized deployment of code containing this dedicated flag**,
+the proposed review/video test-stage activation would require the two new scopes
+`prp.reviews.read,prp.video.read` to be intentionally added to the preserved existing
+eight, and `MATRIX_PRP_MCP_REVIEW_VIDEO_READ_TOOLS_ENABLED=true`.
+The original `MATRIX_PRP_MCP_ADDITIONAL_READ_TOOLS_ENABLED` must remain unset/false
+for a review/video-only opt-in, so the six unrelated optional task/health reads
+do not appear. The two flags are independent; no environment configuration is
+changed in this PR. New scopes in resource metadata are **not** token grants,
+owner consent, or proof of real ChatGPT authentication.
+
+This would be a multi-capability V2 canary; it **does not satisfy** #149's
+separate frozen task-only scope contract. #149 remains NO-GO until a distinct
+owner decision; #218 remains NO-GO until exact-head CI, approval, real OAuth,
+owner-client grant, revocation and rollback acceptance.
 
 ## Sensitive data excluded
 
