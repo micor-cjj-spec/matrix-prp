@@ -291,12 +291,27 @@ def check_viewport(browser, width, height):
         page.locator(".wellness-v2-intro").wait_for(timeout=20000)
         expected_tabs = ["AI 快速记录", "今日概览", "饮食", "运动", "身体指标", "目标设置"]
         for label in expected_tabs:
-            must(page.get_by_role("tab", name=label).count() == 1,
-                 "Missing health workflow tab: " + label)
+            tab = page.get_by_role("tab", name=label)
+            must(tab.count() == 1, "Missing health workflow tab: " + label)
+            tab.click()
+            must(tab.get_attribute("aria-selected") == "true",
+                 "Health tab failed to activate: " + label)
+            must(page.locator(".wellness-tabs .el-tab-pane:visible").count() == 1,
+                 "Health tab did not reveal exactly one panel: " + label)
+        overview_tab = page.get_by_role("tab", name="今日概览")
+        overview_tab.click()
+        must(overview_tab.get_attribute("aria-selected") == "true",
+             "Health overview not restored after visiting all six tabs")
+        must(page.locator(".wellness-tabs .el-tab-pane:visible").count() == 1,
+             "Health overview panel is not exclusively visible")
         must(page.locator(".prp-back-to-apps").count() == 1,
              "Missing return-to-apps link from module page")
+        # Element Plus animates the active indicator; wait for its visual
+        # transition to settle so Chromium and WebKit capture the same tab.
+        page.wait_for_timeout(280)
+        page.evaluate("window.scrollTo(0, 0)")
         page.screenshot(path=str(ARTIFACTS / f"wellness-{width}.png"), full_page=True)
-        print(f"PASS {width}px six wellness workflows and app breadcrumb", flush=True)
+        print(f"PASS {width}px six selectable wellness tabs, visible panels and app breadcrumb", flush=True)
 
         must(not exceptions, "Uncaught browser exceptions: " + "; ".join(exceptions[:4]))
     except Exception:
