@@ -213,8 +213,10 @@ def _safe_data(operation, data):
             data["totalBytes"], data["usedBytes"], data["freeBytes"],
             data["usagePercent"],
         )
-        if (any(type(v) is not int or v < 0 for v in (total, used, free)) or
+        if (any(type(v) is not int or v < 0 or v > (1 << 63) - 1
+                for v in (total, used, free)) or
                 total == 0 or used > total or free > total or
+                used + free > total or
                 type(pct) not in (int, float) or not 0 <= pct <= 100 or
                 abs(pct - 100 * used / total) > .02):
             raise RejectedRequest("invalid result")
