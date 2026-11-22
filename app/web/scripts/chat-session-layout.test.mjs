@@ -65,16 +65,17 @@ test('mobile chat has definite constrained flex height for touch scrolling', () 
   assert.match(view, /\.prp-chat-messages\{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch/)
 })
 
-test('mobile form inputs do not trigger iOS focus zoom and app viewport stays fixed', () => {
+test('mobile inputs avoid involuntary focus zoom while allowing user pinch zoom', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
   const css = readFileSync(new URL('../src/styles/main.css', import.meta.url), 'utf8')
   const chat = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
   const boot = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
-  assert.match(html, /name="viewport" content="[^"]*maximum-scale=1\.0[^"]*user-scalable=no/)
-  assert.match(css, /touch-action: pan-x pan-y/)
+  assert.match(html, /name="viewport" content="[^"]*width=device-width[^"]*viewport-fit=cover/)
+  assert.doesNotMatch(html, /(?:maximum-scale|minimum-scale|user-scalable)\s*=/)
+  assert.doesNotMatch(css, /html\s*\{[^}]*touch-action\s*:\s*(?:none|pan-x|pan-y)/s)
   assert.match(css, /\.el-textarea__inner[\s\S]*?font-size: 16px !important/)
   assert.match(chat, /:deep\(\.chat-input \.el-textarea__inner\)\{font-size:16px\}/)
-  assert.match(boot, /addEventListener\('gesturestart', event => event\.preventDefault\(\)/)
+  assert.doesNotMatch(boot, /addEventListener\(['"]gesturestart['"]/)
 })
 
 test('mobile navigation follows keyboard visibility rather than textarea focus', () => {
