@@ -2,7 +2,7 @@ name: PRP Dev Collaboration Contract
 
 on:
   pull_request:
-    branches: [main, 'integrate/**']
+    branches: [main, dev, 'integrate/**']
   workflow_dispatch:
 
 permissions:

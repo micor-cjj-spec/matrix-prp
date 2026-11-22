@@ -6,6 +6,8 @@ on:
   workflow_run:
     workflows: [CI]
     types: [completed]
+    # PR / dev CI events never enter the production concurrency queue.
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
