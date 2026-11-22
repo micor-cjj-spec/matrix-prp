@@ -115,4 +115,50 @@ class WellnessMealBatchIntentTests {
             "昨天\n午餐（约300 kcal）\n米饭：300 kcal\n晚餐（约100 kcal）\n牛奶100g",today).orElseThrow();
         assertThat(two.date()).isEqualTo(today.minusDays(1));
     }
+
+    @Test void acceptsDistinctSameDaySnacksWithoutDuplicatingPrimaryMealSlots() {
+        String source="""
+            2026-10-13
+            早餐（约150 kcal）
+            鸡蛋：150 kcal
+            加餐（约90 kcal）
+            苹果：90 kcal
+            午餐（约480 kcal）
+            米饭：480 kcal
+            加餐（约110 kcal）
+            酸奶：110 kcal
+            加餐（约45 kcal）
+            小番茄：45 kcal
+            晚餐（约320 kcal）
+            蒸土豆：320 kcal
+            """;
+        var batch=WellnessMealBatchIntent.parse(source,today).orElseThrow();
+        assertThat(batch.meals()).hasSize(6);
+        assertThat(batch.meals().stream().filter(x->"SNACK".equals(x.type())).count())
+            .isEqualTo(3L);
+        assertThat(batch.meals().stream()
+            .map(WellnessMealBatchIntent.Meal::type).toList())
+            .containsExactly("BREAKFAST","SNACK","LUNCH","SNACK","SNACK","DINNER");
+        assertThat(batch.meals().stream()
+            .filter(x->"SNACK".equals(x.type()))
+            .map(WellnessMealBatchIntent.Meal::declaredTotal).toList())
+            .extracting(java.math.BigDecimal::intValue).containsExactly(90,110,45);
+    }
+
+    @Test void repeatedBreakfastStillFailsWhenRepeatedSnacksAreAllowed() {
+        String source="""
+            2026-10-13
+            早餐
+            鸡蛋：150 kcal
+            加餐
+            苹果：90 kcal
+            加餐
+            酸奶：110 kcal
+            早餐
+            牛奶：120 kcal
+            """;
+        assertThatThrownBy(()->WellnessMealBatchIntent.parse(source,today))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("重复或不合法的主餐次");
+    }
 }

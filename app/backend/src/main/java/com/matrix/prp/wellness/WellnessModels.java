@@ -64,4 +64,13 @@ public final class WellnessModels {
                                BigDecimal latestWeightKg, Goal goal, List<String> recordedMealTypes) {}
     public record TrendPoint(LocalDate date, BigDecimal calories, Integer exerciseMinutes,
                              BigDecimal weightKg) {}
+    /**
+     * Owner-scoped first-party REST trend. Null means unrecorded or incomplete,
+     * never zero. Counts distinguish missing and partially known nutrition.
+     * This DTO is intentionally not exposed through existing MCP trend tools.
+     */
+    public record NutritionTrendPoint(LocalDate date, BigDecimal proteinG,
+                                     BigDecimal carbsG, BigDecimal fatG,
+                                     int foodItemCount, int knownProteinCount,
+                                     int knownCarbsCount, int knownFatCount) {}
 }
