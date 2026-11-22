@@ -226,6 +226,16 @@ def check_viewport(browser, width, height):
         must(bounds is not None and bounds["y"] >= 0 and
              bounds["y"] + bounds["height"] <= height + 5,
              "Chat composer is outside the browser viewport")
+        if width == 844 and height == 390:
+            # A short landscape screen must show the welcome title above the
+            # fixed composer, while retaining scrollable suggestion actions.
+            title_box = page.locator(".chat-welcome h1").bounding_box()
+            messages_box = page.locator(".prp-chat-messages").bounding_box()
+            must(title_box is not None and messages_box is not None
+                 and title_box["y"] >= messages_box["y"]
+                 and title_box["y"] + title_box["height"]
+                 <= messages_box["y"] + messages_box["height"] - 2,
+                 "Chat welcome heading clipped in synthetic mobile landscape")
         if mobile:
             must(page.locator("nav.prp-mobile-tabs").is_visible(),
                  "Mobile tabs disappeared without a virtual keyboard")

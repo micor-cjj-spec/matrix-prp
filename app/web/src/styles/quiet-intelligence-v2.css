@@ -279,6 +279,17 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
 .prp-shell-chat .prp-chat-workspace .chat-mention-menu {border-color:#dfe8dd}
 .prp-shell-chat .prp-chat-workspace .chat-mention-menu button:hover {background:#f0f6ee}
 .prp-shell-chat .prp-chat-workspace .chat-mention-menu button strong {color:#456c4c}
+/* Short mobile landscape: keep the welcome heading above the composer.
+ * Suggestions remain scrollable; do not hide any chat actions or history. */
+@media (max-width:860px) and (max-height:480px) and (orientation:landscape) {
+  .prp-shell-chat .prp-chat-workspace .chat-welcome {padding-top:6px}
+  .prp-shell-chat .prp-chat-workspace .chat-welcome-icon {
+    width:34px;height:34px;margin-bottom:6px;border-radius:12px;font-size:18px
+  }
+  .prp-shell-chat .prp-chat-workspace .chat-welcome h1 {font-size:19px;line-height:1.25}
+  .prp-shell-chat .prp-chat-workspace .chat-welcome p {margin:5px 0}
+  .prp-shell-chat .prp-chat-workspace .chat-suggestions {margin-top:9px}
+}
 /* Cross-module list-and-form pages: preserve controls while improving visual coherence. */
 .prp-shell .metric-card,.prp-shell .module-card,.prp-shell .list-item {background:#fff;border-color:#e4eae0;border-radius:16px}
 .prp-shell .metric-card strong {color:#2d503b}
