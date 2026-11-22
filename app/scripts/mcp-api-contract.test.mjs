@@ -108,3 +108,27 @@ test('computed mapping expressions fail closed instead of bypassing API inventor
   const media = '@RestController public class Media { @GetMapping(produces="application/json") public Object get(){return null;} }'
   assert.deepEqual(parseControllerRoutes(media, 'Media.java').map(x => x.route), ['GET /'])
 })
+
+test('review/video legacy REST routes are explicitly partial and media remains excluded', async () => {
+  const {readFileSync} = await import('node:fs')
+  const contract = JSON.parse(readFileSync(new URL('../config/mcp-capabilities.json', import.meta.url), 'utf8'))
+  const byRoute = new Map(contract.routes.map(item => [item.route, item]))
+  const expected = new Map([
+    ['GET /api/reviews', 'prp_reviews_list'],
+    ['GET /api/video/folders', 'prp_video_folders'],
+    ['GET /api/video/items', 'prp_video_progress']
+  ])
+  for (const [route, tool] of expected) {
+    const item = byRoute.get(route)
+    assert.ok(item, 'Missing mapping: ' + route)
+    assert.equal(item.status, 'partial', route + ' has a narrower MCP response than REST')
+    assert.equal(item.tool, tool)
+    assert.ok(item.reason.length >= 20)
+    assert.ok(item.tests.includes('app/backend/src/test/java/com/matrix/prp/mcp/McpReviewVideoOAuthTests.java'))
+  }
+  for (const route of ['GET /api/video/items/{id}/playback', 'GET /api/video/media/{id}', 'GET /api/video/uploads/{id}']) {
+    const item = byRoute.get(route)
+    assert.equal(item?.status, 'excluded', route)
+    assert.equal(item?.tool, undefined)
+  }
+})

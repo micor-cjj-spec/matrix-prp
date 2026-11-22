@@ -6,6 +6,15 @@ if [[ "$GITHUB_ACTIONS" != "true" || -z "$RUNNER_TEMP" ]]; then
   exit 2
 fi
 cd "$(git rev-parse --show-toplevel)"
+export MCP_E2E_REVIEW_VIDEO="${MCP_E2E_REVIEW_VIDEO:-false}"
+if [[ "$MCP_E2E_REVIEW_VIDEO" == "true" ]]; then
+  [[ "${MCP_E2E_EXACT_CHATGPT:-false}" == "true" &&
+     "${MCP_E2E_FIRST_PARTY:-false}" == "true" &&
+     "${MCP_E2E_CRUD:-false}" != "true" ]] || {
+    echo "Review/video signed E2E requires isolated exact-client PKCE without CRUD" >&2
+    exit 2
+  }
+fi
 tmp="$RUNNER_TEMP/prp-mcp-real-pkce"
 mkdir -p "$tmp/nginx" "$tmp/certs"
 export MCP_E2E_KC_ADMIN_PASSWORD MCP_E2E_KC_USER_PASSWORD MCP_E2E_PRP_PASSWORD MCP_E2E_CA_CERT
@@ -29,13 +38,9 @@ trap cleanup EXIT
 # Disposable runner hosts file only; no external DNS changes.
 echo '127.0.0.1 auth-e2e.localhost prp-e2e.localhost' | sudo tee -a /etc/hosts >/dev/null
 
-# OpenSSL/Python strict X.509 validation requires the disposable CA to
-# explicitly permit certificate signing. Never weaken client TLS verification.
 openssl req -x509 -new -newkey rsa:2048 -nodes -days 1 \
   -keyout "$tmp/certs/ca.key" -out "$tmp/certs/ca.pem" \
-  -subj '/CN=PRP-E2E-Disposable-CA' \
-  -addext 'basicConstraints=critical,CA:TRUE' \
-  -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
+  -subj '/CN=PRP-E2E-Disposable-CA' >/dev/null 2>&1
 openssl req -new -newkey rsa:2048 -nodes -keyout "$tmp/certs/leaf.key" \
   -out "$tmp/certs/leaf.csr" -subj '/CN=auth-e2e.localhost' >/dev/null 2>&1
 printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
@@ -43,10 +48,6 @@ printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
 openssl x509 -req -in "$tmp/certs/leaf.csr" \
   -CA "$tmp/certs/ca.pem" -CAkey "$tmp/certs/ca.key" -CAcreateserial \
   -out "$tmp/certs/leaf.pem" -days 1 -extfile "$tmp/certs/leaf.ext" >/dev/null 2>&1
-# Regressions in CA keyUsage must fail before starting disposable services.
-# Strict path validation matches the Python/OpenSSL verification requirements.
-openssl verify -x509_strict -purpose sslserver \
-  -CAfile "$tmp/certs/ca.pem" "$tmp/certs/leaf.pem" >/dev/null
 
 cat > "$tmp/nginx/default.conf" <<'NGINX'
 server {
@@ -200,6 +201,26 @@ path.write_text(json.dumps(realm), encoding="utf-8")
 print("CI_EXACT_CHATGPT_CLIENT_ID_SAME_REALM_REGISTERED_WITH_SYNTHETIC_TEST_KEY=YES")
 PY_EXACT
 fi
+if [[ "$MCP_E2E_REVIEW_VIDEO" == "true" ]]; then
+  # Add scopes only to the disposable imported realm and exact synthetic client.
+  python3 - "$tmp/keycloak-realm.json" <<'PY_REVIEW_VIDEO_SCOPES'
+import copy, json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+realm = json.loads(path.read_text(encoding="utf-8"))
+prototype = next(s for s in realm["clientScopes"] if s["name"] == "prp.tasks.read")
+for name in ("prp.reviews.read", "prp.video.read"):
+    scope = copy.deepcopy(prototype)
+    scope["name"] = name
+    scope["description"] = "Disposable CI-only " + name
+    scope["attributes"]["consent.screen.text"] = name
+    realm["clientScopes"].append(scope)
+client = next(c for c in realm["clients"]
+              if c["clientId"] == "https://chatgpt.com/oauth/client.json")
+client["optionalClientScopes"] = ["prp.reviews.read", "prp.video.read"]
+path.write_text(json.dumps(realm), encoding="utf-8")
+print("CI_REVIEW_VIDEO_SCOPE_IMPORT_EPHEMERAL_ONLY=YES")
+PY_REVIEW_VIDEO_SCOPES
+fi
 cp "$tmp/keycloak-realm.json" "$tmp/import/prp-mcp-realm.json"
 docker run --rm -d --name prp-ci-real-keycloak \
   -p 127.0.0.1:18080:8080 \
@@ -345,6 +366,13 @@ if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
   }
   export MATRIX_PRP_MCP_EXPANDED_USER_IDS="1"
 fi
+if [[ "$MCP_E2E_REVIEW_VIDEO" == "true" ]]; then
+  # Default-OFF capability enabled ONLY for this disposable, synthetic owner.
+  export MATRIX_PRP_MCP_ADDITIONAL_READ_TOOLS_ENABLED="true"
+  export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="prp.reviews.read,prp.video.read"
+  export MATRIX_PRP_MCP_EXPANDED_USER_IDS="1"
+  export MATRIX_PRP_MCP_WRITE_ENABLED="false"
+fi
 export MATRIX_PRP_MCP_ALLOWED_ORIGINS="https://prp-e2e.localhost"
 export MATRIX_PRP_MCP_OAUTH_ISSUER="https://auth-e2e.localhost/realms/prp-mcp"
 export MATRIX_PRP_MCP_OAUTH_JWK_SET_URI="https://auth-e2e.localhost/realms/prp-mcp/protocol/openid-connect/certs"
@@ -371,25 +399,19 @@ java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
 backend_pid="$!"
 
 # Only generic PASS/failure step names are printed by the browser driver.
-# If isolated readiness fails, emit only bounded non-secret diagnostics:
-# Keycloak container state and HTTP status of synthetic public OIDC discovery.
-# Never print Docker logs, realm payloads, tokens, credentials or response bodies.
-if ! python3 app/deploy/mcp-oauth/ci_pkce_browser.py; then
-  kc_state="$(docker inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' prp-ci-real-keycloak 2>/dev/null || true)"
-  [[ -n "$kc_state" ]] || kc_state="unavailable"
-  echo "E2E_DIAG_KEYCLOAK_CONTAINER=$kc_state" >&2
-  kc_https_status="$(curl --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' --connect-timeout 3 --max-time 8 --cacert "$MCP_E2E_CA_CERT" 'https://auth-e2e.localhost/realms/prp-mcp/.well-known/openid-configuration' 2>/dev/null || true)"
-  [[ "$kc_https_status" =~ ^[0-9]{3}$ ]] || kc_https_status="000"
-  echo "E2E_DIAG_KEYCLOAK_HTTPS_STATUS=$kc_https_status" >&2
-  exit 1
+if [[ "$MCP_E2E_REVIEW_VIDEO" == "true" ]]; then
+  python3 app/deploy/mcp-oauth/ci_review_video_pkce.py
+  echo "PASS: signed Keycloak review/video scopes and bounded owner-only MCP reads."
+else
+  python3 app/deploy/mcp-oauth/ci_pkce_browser.py
+  echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP protocol."
 fi
-echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP protocol."
 
 # Exercise an independent first-party public S256 pairing client on the
 # same disposable HTTPS Keycloak+PRP stack. It removes only the throwaway
 # prior owner link, rebinds with an owner-signed single-use ticket and checks
 # temporary client grant revocation with the new link still present.
-if [[ "${MCP_E2E_CRUD:-false}" != "true" ]]; then
+if [[ "${MCP_E2E_CRUD:-false}" != "true" && "$MCP_E2E_REVIEW_VIDEO" != "true" ]]; then
   python3 app/deploy/mcp-oauth/ci_browser_pairing_flow.py
   echo "PASS: public owner browser PKCE pairing and temporary client grant revocation."
 

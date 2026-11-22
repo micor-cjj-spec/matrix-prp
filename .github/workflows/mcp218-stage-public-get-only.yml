@@ -1,0 +1,52 @@
+name: 'MCP 218 staging public metadata audit (GET only, no release)'
+run-name: "MCP 218 staging GET-only · ${{ github.sha }}"
+
+on:
+  pull_request:
+    branches: [feat/mcp-review-video-read-phase1-20261121]
+    paths:
+      - ".github/workflows/mcp218-stage-public-get-only.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  public-metadata:
+    name: External staging resource and CIMD discovery without credentials
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require isolated CI and inspect allowlisted public HTTPS GET responses
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != true || "${RUNNER_OS:-}" != Linux ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            echo CI_RUNNER_ONLY >&2
+            exit 2
+          fi
+          # Scripts: fixed public HTTPS allowlists, strict TLS, no
+          # proxies/redirects, response size caps and no credentials.
+          # Failure denotes UNVERIFIED here, never proof of live outage.
+          echo STAGING_METADATA_AUDIT=GET_ONLY_NO_SECRETS
+          # Execute both independent checks even if the resource scope
+          # contract fails, so CIMD discovery has a separate verdict.
+          # Preserve exit failure; never accept an overbroad stage surface.
+          status=0
+          if ! python3 -B app/deploy/mcp-oauth/ci_public_readonly_probe.py; then
+            status=2
+          fi
+          if ! python3 -B app/deploy/mcp-oauth/chatgpt_cimd_preflight.py; then
+            status=2
+          fi
+          echo REAL_CHATGPT_OAUTH_LOGIN=NOT_TESTED
+          echo REAL_OWNER_CONSENT=NOT_TESTED
+          echo G0_B2_DEPLOYMENT_PERMISSION=NOT_GRANTED
+          if [[ "$status" -ne 0 ]]; then
+            echo PUBLIC_METADATA_ACCEPTANCE=NO_GO
+            exit "$status"
+          fi
+          echo PUBLIC_METADATA_ACCEPTANCE=PASS
