@@ -95,7 +95,7 @@ jobs:
       - name: Verify exact active ruleset and dedicated writer app
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.collab-token.outputs.token }}
           COLLAB_APP_ID: ${{ vars.PRP_COLLAB_APP_ID }}
           COLLAB_RULESET_ID: ${{ vars.PRP_COLLAB_RULESET_ID }}
         run: |
