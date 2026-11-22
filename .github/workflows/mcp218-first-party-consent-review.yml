@@ -1,0 +1,55 @@
+name: MCP218 first-party readonly consent regression (Draft only)
+run-name: MCP218 first-party consent review at ${{ github.sha }}
+on:
+  push:
+    branches:
+      - fix/mcp218-first-party-read-consent-20261122
+    paths:
+      - app/backend/src/main/java/com/matrix/prp/mcp/McpFirstPartyOidcLinkService.java
+      - app/backend/src/main/java/com/matrix/prp/mcp/McpIdentityLinkService.java
+      - app/backend/src/test/java/com/matrix/prp/mcp/McpFirstPartyOidcLinkTests.java
+      - app/backend/src/test/java/com/matrix/prp/mcp/McpFirstPartyOwnerMappingTests.java
+      - .github/workflows/mcp218-first-party-consent-review.yml
+  pull_request:
+    branches:
+      - fix/mcp218-review-video-optin-isolation-20261122
+    paths:
+      - app/backend/src/main/java/com/matrix/prp/mcp/McpFirstPartyOidcLinkService.java
+      - app/backend/src/main/java/com/matrix/prp/mcp/McpIdentityLinkService.java
+      - app/backend/src/test/java/com/matrix/prp/mcp/McpFirstPartyOidcLinkTests.java
+      - app/backend/src/test/java/com/matrix/prp/mcp/McpFirstPartyOwnerMappingTests.java
+      - .github/workflows/mcp218-first-party-consent-review.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp218-first-party-consent-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review-only-unit:
+    name: Offline first-party consent and owner-link tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Checkout branch source without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Configure Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run only isolated synthetic identity-link regressions
+        working-directory: app/backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x mvnw
+          ./mvnw -B -Dtest=McpFirstPartyOidcLinkTests,McpFirstPartyOwnerMappingTests test
+      - name: Explicitly withhold release authorization
+        run: echo "MCP218_FIRST_PARTY_UNIT_ONLY_NOT_REAL_OAUTH_OR_G0_B2_APPROVAL"

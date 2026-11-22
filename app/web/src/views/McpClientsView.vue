@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { advertisedMcpScopes, defaultMcpReadScopes } from '@/api/mcpScopes'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppLayout from '@/layouts/AppLayout.vue'
@@ -55,6 +55,10 @@ const pairError = ref('')
 const clientId = ref('')
 const scopes = ref<string[]>([])
 const availableScopes = ref<ReturnType<typeof advertisedMcpScopes>>([])
+// Reflect only the read scopes actually advertised by this deployment.
+// Displaying them never selects or grants an additional permission.
+const readableScopeLabels = computed(() => availableScopes.value
+  .filter(scope => scope.value.endsWith('.read')).map(scope => scope.label))
 async function loadScopeDiscovery() {
   try {
     const r = await fetch('/.well-known/oauth-protected-resource/api/mcp', { cache: 'no-store', credentials: 'omit', redirect: 'error' })
@@ -337,10 +341,12 @@ onMounted(() => {
       </el-card>
       <el-card shadow="never" class="section">
         <template #header>推荐：在 PRP 中通过 Keycloak 安全绑定账号</template>
-        <p>先在上方为 <code>https://chatgpt.com/oauth/client.json</code> 批准“读取任务”权限。
-          然后使用 PRP 密码确认，由 PRP 直接跳转到独立的 Keycloak 登录页面验证你的身份。
-          完成后返回 PRP，整个过程无需向聊天窗口发送密码、OAuth Token 或关联码。</p>
-        <el-alert type="info" :closable="false" title="此功能须由管理员独立启用第一方 Keycloak 客户端、回调及专用路由；当前服务器未部署。"
+        <p>先在上方为 <code>https://chatgpt.com/oauth/client.json</code> 明确批准当前环境提供、且你愿意开放的只读权限。
+          <span v-if="readableScopeLabels.length">当前可选：{{ readableScopeLabels.join('、') }}。</span>
+          <span v-else>尚未发现可用的只读权限，请先核对本环境的权限清单。</span>
+          然后使用 PRP 密码确认，由 PRP 跳转到独立的 Keycloak 登录页面验证你的身份。
+          身份绑定本身不会新增数据读取授权，也无需向聊天窗口发送密码、OAuth Token 或关联码。</p>
+        <el-alert type="info" :closable="false" title="管理员须在当前环境独立启用第一方 Keycloak 客户端、精确回调及专用路由；未经确认请勿发起绑定。"
           class="section" />
         <el-form label-position="top" @submit.prevent="beginOidcLink">
           <el-form-item label="再次输入 PRP 密码确认身份绑定">
