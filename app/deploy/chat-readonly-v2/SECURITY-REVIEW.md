@@ -54,7 +54,7 @@
 
 ### G5：健康探测语义 — 未完成真实核验
 
-- `GET /api/health` 仅证明服务的 HTTP 存活性，不代表数据库、知识库或业务可用。只在可信固定来源成功且响应 schema 匹配时输出 `reachable`；其它情况 `unknown` 或对应非健康语义。
+- `GET /api/health` 仅证明服务的 HTTP 存活性，不代表数据库、知识库或业务可用。只在可信固定来源成功且响应 schema 匹配时输出 `reachable`；HTTP 4xx（含 401/403/404/429）属于授权、路由或限流等含混情形，**只返回 `unknown`，不能据此宣称服务器不可达**；HTTP 5xx 可映射 `unreachable`，但**不等于 TCP/网络不可达**。不输出原始状态码或响应正文。
 - `GET /api/health/runtime` 可包含内部 `knowledgeRoot`、`activeProfiles` 等诊断内容；V2 不得返回原始 JSON，默认禁用这个来源。
 - 禁止把健康 API 里的硬编码 `version=0.1.0` 当成已部署的真实版本标识。只有经过验证的版本来源才能独立立项新增。
 
