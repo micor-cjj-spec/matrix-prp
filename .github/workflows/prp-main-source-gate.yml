@@ -1,9 +1,12 @@
 name: PRP Main Source Gate
 
-# A fail-closed PR check, NOT a replacement for GitHub branch/ruleset protection.
+# A fail-closed *trusted-base* PR metadata check, NOT a replacement for GitHub
+# branch/ruleset protection. pull_request_target reads the workflow from the
+# target's trusted baseline; PR code must NEVER be checked out or executed.
+# Activation requires a separate owner-approved bootstrap into the main branch.
 # Admins must configure this check as required on main and protect dev.
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
     types: [opened, reopened, synchronize, edited, ready_for_review]
 
@@ -27,7 +30,7 @@ jobs:
           TARGET_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" != pull_request || "$BASE_BRANCH" != main ||
+          if [[ "$EVENT_NAME" != pull_request_target || "$BASE_BRANCH" != main ||
                 "$HEAD_BRANCH" != dev || "$HEAD_REPOSITORY" != "$TARGET_REPOSITORY" ||
                 -z "$TARGET_REPOSITORY" ]]; then
             echo '::error::main only accepts a PR from this repository dev branch; separate protected-branch rules are also required'

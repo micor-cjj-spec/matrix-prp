@@ -17,7 +17,7 @@ const script = block[1].split('\n').map(line => line.startsWith('          ')
 function decision(input) {
   const env = {
     PATH: process.env.PATH ?? '/usr/bin:/bin',
-    EVENT_NAME: input.event ?? 'pull_request',
+    EVENT_NAME: input.event ?? 'pull_request_target',
     BASE_BRANCH: input.base ?? 'main',
     HEAD_BRANCH: input.head ?? 'dev',
     HEAD_REPOSITORY: input.headRepo ?? 'micor-cjj-spec/matrix-prp',
@@ -26,15 +26,15 @@ function decision(input) {
   return spawnSync('bash', ['-c', script], { env, encoding: 'utf8', timeout: 2000 })
 }
 
-test('main source check receives PR metadata as env, never untrusted shell interpolation', () => {
-  assert.match(workflow, /pull_request:\s*\n\s*branches: \[main\]/)
+test('trusted main-base pull_request_target receives PR metadata as env without executing PR code', () => {
+  assert.match(workflow, /pull_request_target:\s*\n\s*branches: \[main\]/)
   assert.match(workflow, /types: \[opened, reopened, synchronize, edited, ready_for_review\]/)
   assert.match(workflow, /permissions:\s*\n\s*contents: read/)
   for (const key of ['EVENT_NAME', 'BASE_BRANCH', 'HEAD_BRANCH', 'HEAD_REPOSITORY', 'TARGET_REPOSITORY']) {
     assert.match(workflow, new RegExp(`^          ${key}: \\$\\{\\{ github\\.`, 'm'))
     assert.ok(script.includes('"$' + key + '"'), 'shell must quote env ' + key)
   }
-  assert.doesNotMatch(workflow, /pull_request_target:|workflow_dispatch:|\n  push:|uses: actions\/checkout|\n\s*secrets\./)
+  assert.doesNotMatch(workflow, /\n  pull_request:|workflow_dispatch:|\n  push:|uses: actions\/checkout|\n\s*secrets\./)
   assert.ok(script.includes('set -euo pipefail'), 'shell must fail closed')
 })
 
@@ -47,7 +47,7 @@ test('only the real same-repository dev to main PR source can pass', () => {
     { head: 'feature/ui-v2' }, { head: 'main' },
     { headRepo: 'other-user/matrix-prp' },
     { targetRepo: 'another-owner/another-repo' },
-    { event: 'push' }, { event: 'workflow_dispatch' },
+    { event: 'push' }, { event: 'workflow_dispatch' }, { event: 'pull_request' },
     { headRepo: '' }, { targetRepo: '' },
   ]) {
     const result = decision(bad)
