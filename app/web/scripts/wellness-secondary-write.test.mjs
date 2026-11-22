@@ -1,0 +1,39 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+// Static regression checks for UI write acknowledgments. Real HTTP and iPhone
+// failure injection still belongs to dedicated Health V2 stage UAT.
+const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+function method(name, nextName) {
+  const start = view.indexOf('async function ' + name + '(')
+  const end = view.indexOf(nextName, start)
+  assert.ok(start >= 0 && end > start, 'Missing ' + name)
+  return view.slice(start, end)
+}
+
+for (const { name, next, mutation, saved, uncertain } of [
+  { name: 'saveExercise', next: 'async function deleteExercise', mutation: 'wellnessApi.addExercise', saved: '运动记录已保存', uncertain: '运动记录保存请求未确认' },
+  { name: 'deleteExercise', next: 'const metricDialog', mutation: 'wellnessApi.deleteExercise', saved: '运动记录已删除', uncertain: '删除请求未确认' },
+  { name: 'saveMetric', next: 'async function deleteMetric', mutation: 'wellnessApi.addMetric', saved: '身体数据已保存', uncertain: '身体数据保存请求未确认' },
+  { name: 'deleteMetric', next: 'const goalForm', mutation: 'wellnessApi.deleteMetric', saved: '身体数据已删除', uncertain: '删除请求未确认' },
+  { name: 'saveGoal', next: 'async function saveProfile', mutation: 'wellnessApi.saveGoal', saved: '健康目标已保存', uncertain: '目标保存请求未确认' },
+]) {
+  test(name + ' keeps post-write readback failure distinct from uncertain mutation', () => {
+    const body = method(name, next)
+    const writeAt = body.indexOf('await ' + mutation)
+    const warningAt = body.indexOf("ElMessage.warning('" + saved + '，但页面刷新失败')
+    const errorAt = body.indexOf("ElMessage.error('" + uncertain)
+    assert.ok(writeAt >= 0 && warningAt > writeAt, name + ': missing post-write warning')
+    assert.ok(errorAt > warningAt, name + ': missing distinct uncertain-write error')
+    assert.match(body, /loadDay\(true\)/)
+    assert.match(body, /catch \{[\s\S]+?ElMessage\.warning\(/)
+  })
+}
+test('new exercise, metric and goal writes have rapid-resubmit guards', () => {
+  for (const [name, next] of [['saveExercise', 'async function deleteExercise'],
+    ['saveMetric', 'async function deleteMetric'],
+    ['saveGoal', 'async function saveProfile']]) {
+    assert.match(method(name, next), /if \(saving\.value\) return/)
+  }
+})
