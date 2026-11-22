@@ -68,7 +68,7 @@ onMounted(()=>{void refreshRecords()})
 
 async function prepare(){
   if(!targetId.value||busy.value)return
-  busy.value=true;error.value='';done.value='';deleteAcknowledged.value=false;confirmOutcomeUncertain.value=false
+  busy.value=true;error.value='';done.value='';draft.value=null;deleteAcknowledged.value=false;confirmOutcomeUncertain.value=false
   try {
     const result=await apiClient.post<ApiResponse<Draft>>('/wellness/ai/changes/prepare',
       {kind:kind.value,recordId:targetId.value,operation:action.value,
