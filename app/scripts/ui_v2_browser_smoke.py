@@ -222,6 +222,27 @@ def check_viewport(browser, width, height):
         must(page.locator("nav.prp-main-nav a").count() == 4, "Desktop nav != 4")
         must(page.locator("nav.prp-mobile-tabs a").count() == 4, "Mobile nav != 4")
         must(page.locator("nav.prp-mobile-tabs").is_visible() == mobile, "Responsive tabbar visibility")
+        if mobile:
+            zoom = page.evaluate("""() => {
+                const meta = document.querySelector('meta[name="viewport"]')
+                const viewport = Object.fromEntries((meta?.content || '').split(',')
+                    .map(part => part.trim().split(/\s*=\s*/, 2))
+                    .filter(pair => pair.length === 2))
+                return {
+                    viewport, touchAction: getComputedStyle(document.documentElement).touchAction
+                }
+            }""")
+            must(zoom["viewport"].get("viewport-fit") == "cover",
+                 "Mobile Safari safe-area viewport-fit must be preserved")
+            must("maximum-scale" not in zoom["viewport"] and
+                 "user-scalable" not in zoom["viewport"] and
+                 "minimum-scale" not in zoom["viewport"],
+                 "Mobile viewport must not cap user-controlled pinch zoom")
+            must(zoom["touchAction"] in {"auto", "manipulation"} or
+                 "pinch-zoom" in zoom["touchAction"],
+                 "Computed html touch-action must permit pinch zoom")
+            print(f"PASS {width}px PWA viewport zoom permission and safe-area meta",
+                  flush=True)
 
         if not mobile:
             check_rendered_sidebar_contrast(page)
