@@ -74,25 +74,40 @@ jobs:
           done < <(git ls-tree -r --name-only origin/main -- app/backend/src/main/resources/db/migration/)
           test "$count" -eq 24
           echo 'CI_MAIN_V1_V24_MIGRATION_BLOBS_UNCHANGED=YES'
-      - name: Bootstrap the pinned Maven wrapper with bounded download retries
+      - name: Bootstrap the pinned Maven 3.9.16 from verified distribution
         shell: bash
         run: |
           set -Eeuo pipefail
           cd app/backend
           chmod +x mvnw
-          # Retry only Maven distribution bootstrap, never SQL/test assertions.
-          # Each wrapper attempt uses a disposable temporary download directory.
-          for attempt in 1 2 3 4; do
-            if ./mvnw --version; then
-              echo 'CI_MAVEN_WRAPPER_BOOTSTRAP_READY=YES'
-              break
-            fi
-            if [[ "$attempt" -eq 4 ]]; then
-              echo '::error::CI_PINNED_MAVEN_WRAPPER_BOOTSTRAP_FAILED' >&2
+          # Prefer the repository's wrapper; only its transport may fall back.
+          if ./mvnw --version; then
+            printf 'CI_PINNED_MAVEN_BINARY=%s/mvnw\n' "$PWD" >> "$GITHUB_ENV"
+            echo 'CI_MAVEN_WRAPPER_BOOTSTRAP_READY=YES'
+          else
+            # Maven Central distribution downloads repeatedly failed on GitHub
+            # runners. Use the exact SAME version from official Apache releases.
+            # SHA-512 is independently published by downloads.apache.org.
+            archive="$RUNNER_TEMP/apache-maven-3.9.16-bin.zip"
+            destination="$RUNNER_TEMP/maven-3.9.16-verified"
+            expected='ed41650d42485cfc243fad22158caf9cbb5dc408ce7a09ddb94dd42a019de929ca43065bfa450612cf12bf78b5cafa3884b96c090de326ff590448c933454af3'
+            curl --fail --silent --show-error --location \
+              --retry 3 --retry-delay 3 --connect-timeout 12 --max-time 90 \
+              'https://downloads.apache.org/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.zip' \
+              --output "$archive"
+            printf '%s  %s\n' "$expected" "$archive" | sha512sum --check --status || {
+              echo '::error::CI_APACHE_MAVEN_3_9_16_SHA512_MISMATCH' >&2
               exit 1
-            fi
-            sleep "$((attempt * 5))"
-          done
+            }
+            mkdir -p "$destination"
+            unzip -q "$archive" -d "$destination"
+            rm -f -- "$archive"
+            binary="$destination/apache-maven-3.9.16/bin/mvn"
+            test -x "$binary"
+            "$binary" --version | grep -Fq 'Apache Maven 3.9.16'
+            printf 'CI_PINNED_MAVEN_BINARY=%s\n' "$binary" >> "$GITHUB_ENV"
+            echo 'CI_APACHE_MAVEN_3_9_16_SHA512_VERIFIED=YES'
+          fi
       - name: Create and dispose an exclusively runner-owned MySQL schema
         shell: bash
         run: |
@@ -140,7 +155,7 @@ jobs:
           }
           cd app/backend
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=ExistingLegacyV7BaselineToMcpV28UpgradeIT test
+          "$CI_PINNED_MAVEN_BINARY" -B -ntp -Dtest=ExistingLegacyV7BaselineToMcpV28UpgradeIT test
 
           # Exercise the exact production-schema metadata SELECT against
           # a SYNTHETIC, disposable `matrix_prp` schema in this CI-only
