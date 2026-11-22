@@ -95,7 +95,7 @@ async function photoSelected(event: Event) {
     if (version !== photoSelectionVersion) return
     chatPhoto.value = result.file
     if (result.compressed)
-      ElMessage.success('照片已在本机压缩：' + photoSizeLabel(result.originalBytes) +
+      ElMessage.success('照片已在本机重新编码并移除元数据：' + photoSizeLabel(result.originalBytes) +
         ' → ' + photoSizeLabel(result.file.size))
   } catch (error) {
     if (version === photoSelectionVersion)
@@ -700,6 +700,7 @@ onBeforeUnmount(() => controller?.abort())
           <div v-if="chatPhoto" class="chat-photo-preview">
             <span>📷 {{ chatPhoto.name }}（{{ photoSizeLabel(chatPhoto.size) }}）</span>
             <button type="button" aria-label="移除照片" @click="photoSelectionVersion++; chatPhoto = null; preparingPhoto = false">移除</button>
+            <small role="note">外卖截图请先遮挡收件人、电话、地址及订单号。图片会发送给所选 AI 服务商进行识别，PRP 不保存原图。</small>
           </div>
           <div class="chat-composer">
             <el-input v-model="input" type="textarea" class="chat-input" resize="none" :autosize="{ minRows: 1, maxRows: 5 }"
