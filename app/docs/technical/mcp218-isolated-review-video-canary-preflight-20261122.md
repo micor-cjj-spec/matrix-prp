@@ -167,3 +167,12 @@ python3 app/deploy/mcp218-canary/check_offline_contract.py /path/to/nonsecret-mc
 来源：2026-11-22 核对公开 `https://chatgpt.com/oauth/client.json` 中的 Client ID、唯一回调、`private_key_jwt`/RS256 与 JWKS URL；这是对**公开协议元数据的核对**，不代表真实 ChatGPT 登录或 Keycloak 注册成功。
 
 **真实实施依旧 NO-GO：** 尚无已核实的独立主机、DNS/TLS/回调路由、可运行 Realm、授权的双 owner 数据、独立 G0/B2 恢复/回滚批准及真实 ChatGPT `Connect` 验收。即使本候选通过 CI，也**不得**安装 Client、创建账号、设置白名单、发放 Grant、改变生产或 V2，更不得合并 main。需要在具体目标确认后取得独立、明确的有状态变更审批。
+
+
+## 12. 独立目标实施交接单（仍仅审查，不可安装）
+
+新增加 [MCP218 独立目标实施包交接单](./mcp218-independent-target-implementation-review-20261122.md)，将原先分散在本方案的要求合并为**专属资源/容器与卷、MCP Resource、Issuer、SPA、精确 Client、合成 Owner、G0/B2 恢复、逐步启用及失败回滚**的责任和脱敏证据矩阵。
+
+**该文件不是部署工件或审批收据**，没有 Compose、Ingress、Realm import、密钥、运行参数或真实主机分配；不能用老的 `prp-mcp` Runner 通过结果取代新的 `prp-mcp218` 目标实测。新文档中的全部资源、DNS/TLS、真实恢复及正式 Client 仍为 **UNASSIGNED / NO-GO**；在目标负责人提供可核查证据且完成单独审批前，不生成、安装或执行实际环境配置。
+
+最新隔离浏览器/完整组合源码测试证据以 [#353](https://github.com/micor-cjj-spec/matrix-prp/pull/353) 的**确切 HEAD** `60ccba8d9115deecc9fa0b3f5c1a82569b4dfb9e` 为准：其 Push [7/7](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/45055881360) 和 PR [6/6](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/45055886640) 成功，证明合成签名 Keycloak / Chromium 第一方授权与撤销，不证明真实 ChatGPT Connect、目标部署/恢复或主线合并。
