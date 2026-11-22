@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 from urllib.parse import urlsplit
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 BASE = os.getenv("PRP_OS_MOBILE_URL", "http://127.0.0.1:4173/prp/personal-os")
 SHOTS = Path(os.getenv("PRP_OS_MOBILE_SHOTS", "/tmp/prp-os-mobile-synthetic"))
@@ -137,8 +137,38 @@ def picker(page, kind, item):
         has=page.get_by_text(title, exact=True))
     dialog.wait_for(state="visible", timeout=15000)
     dialog.locator(".el-select").click()
+    # Click the real rendered option. Never force a disabled review button:
+    # the owner must have a selected item, valid goal and matching identity.
     page.get_by_text(item, exact=True).click()
-    dialog.get_by_role("button", name=submit).click()
+    submit_button = dialog.get_by_role("button", name=submit)
+    try:
+        submit_button.click(timeout=8000)
+    except PlaywrightTimeoutError:
+        # A prior WebKit 390px job intermittently clicked a dropdown item but
+        # kept the owner-review button disabled. Log ONLY synthetic DOM state,
+        # not auth tokens, API bodies, personal messages or browser storage.
+        diagnosis = dialog.evaluate("""(root, label) => {
+          const select = root.querySelector('.el-select');
+          const buttons = Array.from(root.querySelectorAll('button'));
+          const submit = buttons.find(b => b.textContent.trim() === label);
+          const options = Array.from(document.querySelectorAll(
+            '.el-select-dropdown__item')).filter(el => el.getClientRects().length > 0);
+          return {
+            buttonDisabled: submit ? submit.disabled : null,
+            selectDisabled: select ? select.classList.contains('is-disabled') : null,
+            selectText: (select?.innerText || '').trim().slice(0, 100),
+            selectInputValue: select?.querySelector('input')?.value?.slice(0, 100) || '',
+            openOptions: options.length,
+            selectedOptions: options.filter(el => el.classList.contains('is-selected'))
+              .map(el => (el.innerText || '').trim().slice(0, 100)),
+            visibleDialog: root.getClientRects().length > 0
+          };
+        }""", submit)
+        print("CI_PERSONAL_OS_PICKER_STATE=" +
+              json.dumps({"browser": ENGINE, "width": page.viewport_size["width"],
+                          "kind": kind, **diagnosis}, ensure_ascii=False),
+              flush=True)
+        raise
     label = "确认关联到此目标" if task else "确认复盘关联到此目标"
     page.get_by_role("button", name=label).wait_for(
         state="visible", timeout=15000)
@@ -233,8 +263,14 @@ def main():
             opts["args"] = ["--no-sandbox"]
         browser = engine.launch(**opts)
         try:
+            # More attempts on WebKit surface intermittent event/selection
+            # errors; every attempt executes the full cancel/no-write path.
+            repeats = 3 if ENGINE == "webkit" else 1
             for width, height in ((390, 844), (768, 900)):
-                smoke(browser, width, height)
+                for attempt in range(1, repeats + 1):
+                    smoke(browser, width, height)
+                    print(f"CI_PERSONAL_OS_{ENGINE.upper()}_{width}_REPEAT={attempt}/{repeats}:PASS",
+                          flush=True)
         finally:
             browser.close()
     print("PASS all Personal OS synthetic mobile cross-engine checks", flush=True)
