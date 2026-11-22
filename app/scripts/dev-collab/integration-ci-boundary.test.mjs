@@ -9,6 +9,7 @@ test('all required CI and impact checks run on requirement integration PRs',()=>
     assert.ok(filter,`${name} must define pull_request branches`)
     const branches=filter[1].split(',').map(branch=>branch.trim().replace(/^['"]|['"]$/g,''))
     assert.ok(branches.includes('main')&&branches.includes('integrate/**'),name)
+    assert.ok(branches.includes('dev'),`${name} must also run for dev-targeted PRs`)
     assert.doesNotMatch(text,/pull_request_target:/,name)
   }
   const contract=read('prp-dev-collab-contract.yml')
