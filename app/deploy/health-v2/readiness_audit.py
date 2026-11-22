@@ -17,6 +17,18 @@ _SECRET = re.compile(r"(?:password|secret|credential|private_key|access_token|re
 _RESERVED_DB = {"matrix_prp", "matrix_prp_mcp_stage", "matrix_prp_mcp_newdb_review"}
 _RESERVED_HOST = {"micor.top", "www.micor.top", "prp-test.micor.top", "auth-test.micor.top", "auth.micor.top"}
 _RESERVED_PORT = {11000, 18081, 18082, 18083}
+_SCHEMA_FIELDS = {"schema", "stage", "observed"}
+_STAGE_FIELDS = {
+    "kind", "public_host", "oidc_host", "gateway_port", "database_name",
+    "db_isolated", "oidc_isolated", "test_identities_only", "owner_approved",
+    "production_mounts_present", "production_data_used", "shared_v2_modified",
+}
+_OBSERVED_FIELDS = {
+    "source_sha", "backend_source_sha", "web_source_sha",
+    "backend_image_digest", "web_image_digest", "flyway_version",
+    "flyway_failed_count", "https_hostname_verified", "oidc_issuer_host",
+    "write_enabled", "actual_runtime_observation",
+}
 
 
 class EvidenceBlocked(ValueError):
@@ -47,24 +59,32 @@ def _host(value, code):
     return value
 
 
-def _walk_no_secrets(obj):
-    if isinstance(obj, dict):
-        for key, value in obj.items():
-            _need(type(key) is str and not _SECRET.search(key), "SENSITIVE_FIELD_FORBIDDEN")
-            _walk_no_secrets(value)
-    elif isinstance(obj, list):
-        for item in obj:
-            _walk_no_secrets(item)
+def _check_fields(obj, allowed, section):
+    # Restrict the entire evidence contract. Unknown claims are not evaluated.
+    _need(not any(_SECRET.search(key) for key in obj), "SENSITIVE_FIELD_FORBIDDEN")
+    _need(set(obj) == allowed, "UNRECOGNIZED_" + section + "_FIELDS")
+
+
+def _reject_duplicate_fields(pairs):
+    # JSON normally uses last-key-wins; reject conflicting reviewer evidence.
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError("Duplicate evidence field")
+        out[key] = value
+    return out
 
 
 def review(evidence, expected_sha):
     """Validate the shape of self-reported evidence, not its real-world truth."""
     _need(type(expected_sha) is str and _SHA.fullmatch(expected_sha), "INVALID_EXPECTED_SHA")
     ev = _object(evidence, "INVALID_EVIDENCE")
-    _walk_no_secrets(ev)
+    _check_fields(ev, _SCHEMA_FIELDS, "ROOT")
     _need(_value(ev, "schema") == "health-v2-stage-readiness-v1", "UNSUPPORTED_SCHEMA")
     stage = _object(_value(ev, "stage"), "INVALID_STAGE")
     observed = _object(_value(ev, "observed"), "INVALID_OBSERVED")
+    _check_fields(stage, _STAGE_FIELDS, "STAGE")
+    _check_fields(observed, _OBSERVED_FIELDS, "OBSERVED")
 
     _need(_value(stage, "kind") == "dedicated-health-v2", "NOT_DEDICATED_HEALTH_STAGE")
     host = _host(_value(stage, "public_host"), "INVALID_STAGE_HOST")
@@ -100,7 +120,10 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         _need(args.evidence.is_file() and args.evidence.stat().st_size <= 32768, "EVIDENCE_MISSING_OR_OVERSIZE")
-        data = json.loads(args.evidence.read_text(encoding="utf-8"))
+        data = json.loads(
+            args.evidence.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_fields,
+        )
         result = review(data, args.expected_sha)
     except (EvidenceBlocked, ValueError, OSError, UnicodeError) as e:
         # Deliberately never prints raw evidence or sensitive field values.
