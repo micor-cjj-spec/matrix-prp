@@ -13,7 +13,11 @@ from review_realm import READ_SCOPES, REALM, _exact_candidate_resource
 CHATGPT_ID = "https://chatgpt.com/oauth/client.json"
 CHATGPT_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect"
 CHATGPT_JWKS = "https://chatgpt.com/oauth/jwks.json"
-FIRST_PARTY_ID = "prp-mcp218-first-party-link"
+# The shipped PRP SPA rejects any other client_id in checkedFirstPartyAuthorizeUrl.
+# Reusing the *identifier* in a separate, uninstalled Realm is safe: issuer,
+# client registration, signing keys and redirect origin remain isolated.
+# Never reuse the actual V2 Keycloak client or its owner grants.
+FIRST_PARTY_ID = "prp-first-party-link"
 
 
 def _review_issuer(issuer):
