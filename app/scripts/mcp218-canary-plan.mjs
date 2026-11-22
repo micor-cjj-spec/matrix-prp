@@ -30,7 +30,7 @@ export function checkCanaryPlan(plan) {
     if(host.includes("/")||host.includes(":")||host.includes("@")||host.includes("?")||host.includes("#"))return null;
     const labels=host.split(".");
     if(labels.length<2||labels.some(x=>!(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(x))))return null;
-    const banned=new Set(["micor.top","www.micor.top","api.micor.top","prp.micor.top","prp-test.micor.top","auth-test.micor.top","localhost"]);
+    const banned=new Set(["micor.top","www.micor.top","api.micor.top","prp.micor.top","auth.micor.top","prp-test.micor.top","auth-test.micor.top","localhost"]);
     if(banned.has(host)||/\.(invalid|example|test|localhost|local)$/.test(host))return null;
     if(/^[0-9.]+$/.test(host))return null;
     return host;
@@ -39,6 +39,10 @@ export function checkCanaryPlan(plan) {
   const issuer=endpoint(plan.issuer_url,"/realms/prp-mcp218");
   if(!resource)issues.push("NEW_HTTPS_RESOURCE_REQUIRED");
   if(!issuer)issues.push("NEW_HTTPS_ISSUER_REQUIRED");
+  // Only reserve first labels expressly scoped to this independent canary.
+  // This is a naming guard, not DNS/host ownership evidence.
+  if(resource&&!resource.split(".")[0].startsWith("mcp218-"))issues.push("DEDICATED_RESOURCE_LABEL_REQUIRED");
+  if(issuer&&!issuer.split(".")[0].startsWith("auth-mcp218-"))issues.push("DEDICATED_ISSUER_LABEL_REQUIRED");
   if(resource&&issuer&&resource===issuer)issues.push("SEPARATE_ISSUER_REQUIRED");
   return [...new Set(issues)].sort();
 }
