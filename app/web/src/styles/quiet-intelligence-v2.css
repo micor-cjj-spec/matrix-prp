@@ -1,0 +1,481 @@
+/* Matrix PRP UI V2 · Quiet Intelligence
+ * Visual-only progressive enhancement. Never remove, hide, or disable a feature,
+ * route, tab, dialog, form, permission gate, or history action.
+ * Inspired by the approved warm-neutral / evergreen PRP direction.
+ */
+:root {
+  --prp-ink:#233c32;
+  --prp-muted:#526b57;
+  --prp-line:#e3e9e0;
+  --prp-surface:#ffffff;
+  --prp-shadow:0 18px 46px rgba(34,69,51,.075);
+  --prp-v2-canvas:#f7f8f4;
+  --prp-v2-forest:#315747;
+  --prp-v2-sage:#e9f1e7;
+  --prp-v2-gold:#ad9770;
+  --el-color-primary:#416c56;
+  --el-color-primary-light-3:#719780;
+  --el-color-primary-light-5:#98b7a0;
+  --el-color-primary-light-7:#c7d9c9;
+  --el-color-primary-light-8:#dae8dc;
+  --el-color-primary-light-9:#eff5ed;
+  --el-color-primary-dark-2:#2d4c3b;
+  --el-border-color:#e2e9df;
+  --el-border-color-light:#e7ece5;
+  --el-border-color-lighter:#edf1e9;
+  --el-fill-color-light:#f3f7f1;
+  --el-fill-color-lighter:#f8faf6;
+  --el-text-color-primary:#263d32;
+  --el-text-color-regular:#53695a;
+  --el-text-color-secondary:#5c7060;
+  --el-bg-color:#fff;
+}
+html { scroll-behavior:smooth; }
+body { background:var(--prp-v2-canvas); color:var(--prp-ink); }
+body,button,input,textarea,select {font-family:Inter,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+:focus-visible {outline:3px solid #91ae94;outline-offset:3px}
+::selection {background:#dce9d7;color:#294d39}
+a,button,.el-button,.el-input__wrapper,.el-card,.prp-app-card,.home-metric,.home-domain-card { -webkit-tap-highlight-color:transparent }
+a:where(:not([class])), .prp-inline-link {color:#416d56}
+.el-button {border-radius:12px;font-weight:600;transition:background-color .18s,border-color .18s,transform .18s,box-shadow .18s}
+.el-button:not(.is-disabled):active {transform:scale(.98)}
+.el-button--primary:not(.is-link):not(.is-text) {box-shadow:0 5px 13px rgba(49,88,66,.13)}
+.el-card {border:1px solid var(--prp-line);border-radius:18px;box-shadow:0 8px 28px rgba(28,65,43,.035)}
+.el-card__header {font-weight:680;border-bottom-color:#e9eee7}
+.el-input__wrapper,.el-select__wrapper,.el-textarea__inner,.el-input-number,.el-date-editor {border-radius:11px}
+.el-input__wrapper,.el-select__wrapper {box-shadow:0 0 0 1px #e4ebe2 inset}
+.el-input__wrapper.is-focus,.el-select__wrapper.is-focused {box-shadow:0 0 0 1px #789d81 inset}
+.el-tabs__item {font-weight:600;min-height:45px}
+.el-tabs__nav-wrap::after {height:1px;background:#e5ebe2}
+.el-dialog {border-radius:20px;padding:clamp(16px,2.8vw,26px)}
+.el-dialog__title {font-weight:720;color:var(--prp-ink)}
+.el-drawer {--el-drawer-bg-color:#fafbf8}
+.el-empty__description p {color:var(--prp-muted)}
+/* 4 original first-level destinations remain Home / Apps / Chat / Me. */
+.prp-shell {grid-template-columns:246px minmax(0,1fr);background:var(--prp-v2-canvas)}
+.prp-shell .prp-sidebar {
+  border-right:1px solid #e1e8df;background:linear-gradient(155deg,#f0f4ec 0%,#f7f9f3 100%);
+  padding:29px 19px 20px;
+}
+.prp-shell .prp-brand {margin-bottom:49px;color:var(--prp-ink);gap:12px}
+.prp-shell .prp-brand .brand-mark {
+  background:linear-gradient(140deg,#234333,#547966);width:44px;height:44px;
+  border-radius:14px;box-shadow:0 7px 16px rgba(46,81,59,.18);
+  font-size:23px;font-family:Georgia,serif;font-weight:500;
+}
+.prp-shell .prp-brand .brand-copy strong {color:#2a4837;font-size:17px;letter-spacing:-.7px}
+.prp-shell .prp-brand .brand-copy small {color:#8fa193;letter-spacing:.65px}
+.prp-shell .nav-caption {color:#96a59a;letter-spacing:1.55px;margin:0 15px 13px}
+.prp-shell .prp-main-nav {gap:7px}
+.prp-shell .prp-nav-link {
+  border-radius:14px;min-height:50px;color:#526b57;font-size:14px;
+  font-weight:600;padding:0 16px;gap:13px;
+  transition:background-color .18s,color .18s,transform .18s;
+}
+.prp-shell .prp-nav-link:hover {background:#e5ede1;color:#325b45;transform:translateX(2px)}
+.prp-shell .prp-nav-link.is-active,
+.prp-shell .prp-nav-link.router-link-exact-active {background:#dce9dc;color:#315946;font-weight:720}
+.prp-shell .prp-nav-link .el-icon {font-size:19px}
+.prp-shell .prp-sidebar-footer {border-top:1px solid #e0e8de;padding-top:17px}
+.prp-shell .prp-user-avatar,.prp-shell .prp-topbar-avatar {background:#dbe9dc;color:#365e45}
+.prp-shell .prp-user-name strong {color:#405b49}
+.prp-shell .prp-workspace {padding:0 clamp(18px,3vw,50px) 56px;min-width:0}
+.prp-shell .prp-topbar {height:80px;margin-bottom:30px;border-bottom:1px solid #e8ede6}
+.prp-shell .prp-topbar-title {color:#627e6b;font-weight:650;font-size:13px}
+.prp-shell .prp-topbar-title::before {content:"";height:7px;width:7px;border-radius:50%;background:#88aa8e;box-shadow:0 0 0 4px #e8f2e8}
+.prp-shell .prp-topbar-title {min-width:0}
+.prp-shell .prp-current-page-title {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prp-shell .prp-back-to-apps {
+  display:inline-flex;align-items:center;gap:5px;padding:8px 11px;
+  border:1px solid #dfe9da;border-radius:11px;background:#fff;
+  color:#557965;text-decoration:none;white-space:nowrap;font-size:12px;
+  transition:background-color .18s,transform .18s
+}
+.prp-shell .prp-back-to-apps:hover {background:#edf5e9;color:#345c42;transform:translateX(-2px)}
+.prp-shell .prp-back-to-apps .el-icon {font-size:15px}
+@media(max-width:860px) {
+  .prp-shell .prp-back-to-apps {padding:7px 9px;min-height:36px}
+  .prp-shell .prp-topbar-title {gap:9px}
+  .prp-shell .prp-current-page-title {max-width:45vw}
+  .prp-shell .prp-topbar-title:has(.prp-back-to-apps) .prp-mobile-mark {display:none}
+}
+
+.prp-shell .prp-icon-link {color:#627a6b;transition:background-color .2s,transform .2s}
+.prp-shell .prp-icon-link:hover {background:#e4efe1;color:#315b45;transform:translateY(-1px)}
+.prp-shell .prp-page-content {max-width:1440px}
+.prp-shell .page-header,.prp-shell .prp-section-header {padding:0 0 4px}
+.prp-shell .page-header h1,.prp-shell .prp-section-header h1 {color:var(--prp-ink);letter-spacing:-.9px;font-weight:710}
+.prp-shell .page-header p,.prp-shell .prp-section-header p:last-child {color:var(--prp-muted)}
+.prp-shell .eyebrow {color:#4c7053;font-size:11px;letter-spacing:1.65px;font-weight:750}
+/* Home: retain every metric, cross-domain destination, task operation & quick link. */
+.prp-shell .home-heading {align-items:center;margin-bottom:26px}
+.prp-shell .home-heading .home-date {letter-spacing:1px;font-weight:650;color:#4f7157;font-size:12px}
+.prp-shell .home-heading h1 {color:#254534;font-size:clamp(26px,2.9vw,39px);font-weight:670;letter-spacing:-1.45px;margin:8px 0 9px}
+.prp-shell .home-heading p {color:#526b57}
+.prp-shell .home-plan-link {background:#fff;border:1px solid #dfe7dc;border-radius:14px;color:#4a7258;padding:13px 18px}
+.prp-shell .home-plan-link:hover {background:#edf4e9;color:#2e5840;border-color:#c6dac4}
+.prp-shell .home-metrics {gap:15px;margin:0 0 18px}
+.prp-shell .home-metric {min-height:158px;border:1px solid rgba(230,236,227,.95);border-radius:20px;padding:23px;box-shadow:0 9px 23px rgba(35,74,46,.035);gap:10px}
+.prp-shell .home-metric:hover,.prp-shell .home-domain-card:hover,.prp-shell .domain-tool-card:not(.is-upcoming):hover {transform:translateY(-3px);box-shadow:0 17px 34px rgba(32,75,50,.11)}
+.prp-shell .home-metric-top {color:#526b57}
+.prp-shell .home-metric strong {color:#284735;font-weight:710;letter-spacing:-.9px}
+.prp-shell .home-metric small {color:#526b57;font-size:12px}
+.prp-shell .metric-tasks {background:linear-gradient(130deg,#e9f0e6,#f5f8f0)}
+.prp-shell .metric-learning {background:linear-gradient(125deg,#edf1e6,#f8f8f0)}
+.prp-shell .metric-health {background:linear-gradient(130deg,#deede2,#f0f6e9)}
+.prp-shell .metric-finance {background:linear-gradient(125deg,#f1ede1,#faf7ee)}
+.prp-shell .home-meter {background:#d4e5d2;height:6px}
+.prp-shell .home-meter span {background:#568267}
+.prp-shell .home-main-grid {gap:17px}
+.prp-shell .home-panel {border:1px solid #e9eee6;background:#fff;border-radius:21px;padding:25px;box-shadow:0 10px 30px rgba(38,66,43,.035)}
+.prp-shell .home-panel-heading h2 {color:#2d4939;font-size:18px;font-weight:720}
+.prp-shell .home-panel-heading p {color:#526b57}
+.prp-shell .home-panel-heading a,.prp-shell .home-panel-footer a {color:#527c5c}
+.prp-shell .home-task {padding:15px 1px;border-bottom:1px solid #f0f2ed}
+.prp-shell .home-task-copy strong {font-size:14px;color:#405749;font-weight:650}
+.prp-shell .home-task-copy small {color:#5a725e;font-size:11px}
+.prp-shell .home-task-tag {background:#e8f1e5;color:#618363}
+.prp-shell .home-task-tag.is-late {background:#fff0ea;color:#ab6b57}
+.prp-shell .home-domain-card {border-radius:17px;min-height:149px;transition:transform .2s,box-shadow .2s}
+.prp-shell .color-learning {background:#eef2e6;color:#647d51}
+.prp-shell .color-health {background:#e8f3e9;color:#35735a}
+.prp-shell .color-life {background:#f7f0e5;color:#9b7b51}
+.prp-shell .color-finance {background:#eff1ed;color:#718675}
+.prp-shell .color-learning .home-domain-icon {background:#78916c}
+.prp-shell .color-health .home-domain-icon {background:#5b9274}
+.prp-shell .color-life .home-domain-icon {background:#b49a72}
+.prp-shell .color-finance .home-domain-icon {background:#8c9d87}
+.prp-shell .home-domain-card p {color:#526b57}
+.prp-shell .home-quick-card {border-radius:17px;border-color:#e5ebe2;box-shadow:0 7px 19px rgba(28,55,31,.025);color:#57816b;min-height:85px}
+.prp-shell .home-quick-card strong {color:#315541;font-size:14px}
+.prp-shell .home-quick-card span {color:#526b57}
+.prp-shell .home-quick-card:hover {border-color:#c3d8c5;background:#f9fbf7;transform:translateY(-2px)}
+/* Learning hub: all video, practice, vocal, notes, admin knowledge, task and review links stay present. */
+.prp-shell .domain-page .domain-hero {
+  border-radius:24px;background:linear-gradient(114deg,#e2ede1 0%,#f6f8ee 84%);
+  padding:36px 35px;margin-bottom:31px;border:1px solid #e5ebe0;position:relative;overflow:hidden;
+}
+.prp-shell .domain-page .domain-hero:after {content:"";position:absolute;right:-65px;top:-99px;width:240px;height:240px;border:1px solid rgba(72,115,77,.10);border-radius:50%;box-shadow:0 0 0 36px rgba(72,115,77,.045),0 0 0 76px rgba(72,115,77,.025);pointer-events:none}
+.prp-shell .domain-hero-icon {background:#446e54;width:74px;height:74px;border-radius:22px;box-shadow:0 11px 25px rgba(48,83,53,.15)}
+.prp-shell .domain-life .domain-hero {background:linear-gradient(120deg,#f4eddf,#faf8f1)}
+.prp-shell .domain-life .domain-hero-icon {background:#a78c63}
+.prp-shell .domain-hero h1 {color:#294535;letter-spacing:-1px;font-weight:690}
+.prp-shell .domain-hero p:last-child {color:#526b57}
+.prp-shell .domain-section-heading h2 {color:#2d4d3a}
+.prp-shell .domain-tool-grid {gap:17px}
+.prp-shell .domain-tool-card {border-radius:21px;border-color:#e7ede5;min-height:163px;padding:25px;background:linear-gradient(145deg,#fff,#fcfdfa)}
+.prp-shell .domain-tool-card h3 {color:#33513e;font-weight:710}
+.prp-shell .domain-tool-card p {color:#526b57;line-height:1.65}
+.prp-shell .tool-action {color:#4b7958}
+.prp-shell .tool-blue {background:#e6f0e7;color:#5a8262}
+.prp-shell .tool-violet {background:#f0ede3;color:#99815e}
+.prp-shell .tool-amber {background:#f4eee2;color:#ac8d5b}
+.prp-shell .tool-green {background:#e7f2e6;color:#60936b}
+.prp-shell .domain-help-panel {border-radius:20px;border-color:#e6ece1;padding:27px 30px;background:#fff}
+.prp-shell .domain-help-panel h2 {color:#2a4b39}
+.prp-shell .domain-help-panel p {color:#526b57}
+.prp-shell .domain-mini-links a {color:#50745e}
+.prp-shell .domain-tool-card:focus-visible,.prp-shell .home-domain-card:focus-visible,.prp-shell .prp-app-card:focus-visible {outline:3px solid #9fbea0;outline-offset:2px}
+/* Wellness: original AI, overview, meals, exercise, metrics & goal tabs and actions stay accessible. */
+.prp-shell .wellness-page {padding:0 0 42px;max-width:1310px}
+.prp-shell .wellness-page .head {margin:0 0 23px;gap:18px}
+.prp-shell .wellness-page .head h1 {font-size:clamp(27px,3vw,35px);letter-spacing:-1px;color:#274838;font-weight:700}
+.prp-shell .wellness-page .head p {color:#526b57;font-size:14px}
+.prp-shell .wellness-page .wellness-tabs {margin-top:12px}
+.prp-shell .wellness-page .el-tabs__header {margin-bottom:22px}
+.prp-shell .wellness-page .tile,.prp-shell .wellness-page .panel {border:1px solid #e4ece3;background:#fff;border-radius:19px;box-shadow:0 8px 25px rgba(39,79,46,.035)}
+.prp-shell .wellness-page .tile {min-height:150px;padding:23px;gap:11px}
+.prp-shell .wellness-page .tile.hero {background:linear-gradient(120deg,#e1eee1,#f1f7eb);border-color:#dce9da}
+.prp-shell .wellness-page .tile>span {color:#789182}
+.prp-shell .wellness-page .tile strong {color:#2e523e;font-weight:720;font-size:26px;letter-spacing:-.75px}
+.prp-shell .wellness-page .panel {padding:25px;margin:18px 0}
+.prp-shell .wellness-page .panel h2 {font-size:18px;color:#2d503b}
+.prp-shell .wellness-page .entry {border-top:1px solid #edf0ea;padding:17px 0}
+.prp-shell .wellness-page .grow strong {color:#34543e}
+.prp-shell .wellness-page .bars {gap:11px}
+.prp-shell .wellness-page .bar-track {background:#eef3eb;border-radius:11px}
+.prp-shell .wellness-page .bar-value {background:linear-gradient(#8bb39a,#4c8261);border-radius:8px 8px 0 0}
+.prp-shell .wellness-page .food-chip {border-radius:999px;padding:7px 11px;height:auto}
+.prp-shell .wellness-page .empty {background:#f4f8f1;border-radius:14px}
+.prp-shell .wellness-page .weight-chart {background:#f3f7f1;border-radius:15px}
+.prp-shell .wellness-page .actions {gap:10px;margin:17px 0 22px}
+/* App directory: category navigation is still driven by the feature registry and favorites persist. */
+.prp-shell .prp-apps-page,.prp-shell .prp-me-page {max-width:1120px}
+.prp-shell .prp-apps-search {max-width:590px;margin:0 0 28px}
+.prp-shell .prp-app-filters {gap:8px;padding-bottom:12px}
+.prp-shell .prp-app-filters button {background:#fff;border:1px solid #e3ebe0;color:#788e7c;border-radius:999px;padding:10px 18px;transition:all .16s}
+.prp-shell .prp-app-filters button:hover {border-color:#a7c4a9;background:#f6f9f4;color:#42654a}
+.prp-shell .prp-app-filters button.selected {background:#e2efdf;border-color:#c4dac1;color:#315c40}
+.prp-shell .prp-apps-grid {gap:15px}
+.prp-shell .prp-app-card {border-color:#e4ebe0;background:linear-gradient(140deg,#fff,#fdfefa);min-height:108px;padding:20px;border-radius:19px;box-shadow:0 5px 20px rgba(34,63,39,.025);transition:all .2s}
+.prp-shell .prp-app-card:hover {transform:translateY(-3px);border-color:#a6c6a6;box-shadow:0 15px 30px rgba(36,76,46,.095)}
+.prp-shell .prp-app-card-copy strong {color:#305040;font-size:15px}
+.prp-shell .prp-app-card-copy small {color:#526b57}
+.prp-shell .prp-app-icon {background:#e8f1e5;color:#4a7758;border-radius:15px}
+.prp-shell .prp-favorite-button.selected {color:#987747;background:#f6f0e1}
+.prp-shell .prp-apps-note {color:#526b57}
+
+/* Grouping changes presentation only: each entry still comes from the original registry. */
+.prp-shell .prp-apps-group-list {display:grid;gap:30px}
+.prp-shell .prp-apps-group {display:grid;gap:14px;min-width:0}
+.prp-shell .prp-apps-group-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.prp-shell .prp-apps-group-heading>div {display:flex;align-items:center;gap:13px;min-width:0}
+.prp-shell .prp-apps-group-mark {width:8px;height:28px;flex:none;border-radius:99px;background:#91a78d}
+.prp-shell .prp-apps-group:nth-child(1) .prp-apps-group-mark {background:#8fa179}
+.prp-shell .prp-apps-group:nth-child(2) .prp-apps-group-mark {background:#729a7b}
+.prp-shell .prp-apps-group:nth-child(3) .prp-apps-group-mark {background:#c1a981}
+.prp-shell .prp-apps-group:nth-child(4) .prp-apps-group-mark {background:#8f9d8e}
+.prp-shell .prp-apps-group-heading h3 {margin:0;font-size:17px;line-height:1.45;font-weight:720;color:#2d4d3a}
+.prp-shell .prp-apps-group-heading p {margin:2px 0 0;color:#657b69;font-size:12px;line-height:1.6}
+.prp-shell .prp-apps-group-heading>span {color:#66806b;font-size:12px;white-space:nowrap}
+.prp-shell .prp-apps-group .prp-apps-grid {margin-top:0}
+@media(max-width:660px) {
+  .prp-shell .prp-apps-group-list {gap:27px}
+  .prp-shell .prp-apps-group-heading h3 {font-size:16px}
+  .prp-shell .prp-apps-group-heading p {font-size:11px}
+  .prp-shell .prp-apps-group-heading>span {font-size:11px}
+  .prp-shell .prp-apps-group-heading>div {gap:10px}
+  .prp-shell .prp-apps-group-mark {height:25px}
+}
+
+.prp-shell .prp-apps-empty {border-color:#dbe7d9}
+/* Me: profile, settings, access grants, invitations, admin tools all stay in place. */
+.prp-shell .prp-profile-card {border-radius:24px;background:linear-gradient(115deg,#e3eee1,#f7f8ee);border:1px solid #e0e9dc;padding:32px 34px}
+.prp-shell .prp-profile-avatar {border-radius:22px;background:linear-gradient(140deg,#36624b,#799c7f)}
+.prp-shell .prp-profile-copy h2 {color:#2a4a38}
+.prp-shell .prp-profile-copy p {color:#526b57}
+.prp-shell .prp-profile-role {background:#e9f2e6;color:#517359}
+.prp-shell .prp-me-menu {border-radius:20px;border-color:#e6ece2;box-shadow:0 8px 24px rgba(34,65,36,.035)}
+.prp-shell .prp-me-menu-item {border-bottom:1px solid #edf1e9;padding:20px 23px;transition:background-color .17s}
+.prp-shell .prp-me-menu-item:hover {background:#f5f8f2}
+.prp-shell .prp-me-menu-icon {background:#ecf3e9;color:#5c8463}
+.prp-shell .prp-me-menu-text strong {color:#31513c;font-size:14px}
+.prp-shell .prp-me-menu-text small {color:#526b57}
+.prp-shell .prp-me-admin {border-radius:18px;border-color:#e5ece1}
+.prp-shell .prp-detail-sheet {border-radius:20px;border-color:#e3eadf}
+/* AI chat: only presentation changes; no consent, streaming, history, model switch or attachment semantics touched. */
+.prp-shell-chat {background:#f8faf6}
+.prp-shell-chat .prp-workspace-chat {padding:0}
+.prp-shell-chat .prp-chat-workspace .chat-desktop-sidebar {background:#f2f6f0;border-right-color:#e0e9dd}
+.prp-shell-chat .prp-chat-workspace .prp-chat-screen {background:#fcfdfb;color:#2b4436}
+.prp-shell-chat .prp-chat-workspace .prp-chat-header {background:#fcfdfb;border-bottom-color:#e8eee5}
+.prp-shell-chat .prp-chat-workspace .chat-title {color:#2b4d3a}
+.prp-shell-chat .prp-chat-workspace .chat-subtitle {color:#8ea092}
+.prp-shell-chat .prp-chat-workspace .chat-welcome-icon {background:#e2efdf;color:#4d7857;border-radius:19px}
+.prp-shell-chat .prp-chat-workspace .chat-welcome h1 {color:#2c4c39;letter-spacing:-.8px}
+.prp-shell-chat .prp-chat-workspace .chat-welcome p {color:#7e9383}
+.prp-shell-chat .prp-chat-workspace .chat-suggestions button {border-color:#e4ece1;background:#fff;border-radius:16px;color:#607f67;transition:transform .18s,border-color .18s,box-shadow .18s}
+.prp-shell-chat .prp-chat-workspace .chat-suggestions button:hover {transform:translateY(-2px);border-color:#b4ceba;background:#f6faf4;box-shadow:0 10px 20px rgba(38,85,51,.06)}
+.prp-shell-chat .prp-chat-workspace .chat-ai-mark {background:#e6f1e3;color:#5a8063}
+.prp-shell-chat .prp-chat-workspace .chat-message-user .chat-message-content {background:#e9f2e7;color:#344c3a}
+.prp-shell-chat .prp-chat-workspace .prp-chat-footer {background:linear-gradient(to bottom,rgba(252,253,251,.93),#fcfdfb 16%)}
+.prp-shell-chat .prp-chat-workspace .chat-composer {border:1px solid #dce9dd;box-shadow:0 8px 25px rgba(35,66,42,.075);border-radius:22px}
+.prp-shell-chat .prp-chat-workspace .chat-composer:focus-within {border-color:#8eaf95}
+.prp-shell-chat .prp-chat-workspace .chat-send {background:#3e6d50}
+.prp-shell-chat .prp-chat-workspace .chat-send:disabled {background:#ccdacf}
+.prp-shell-chat .prp-chat-workspace .chat-context-chip {border-color:#c2dcc3;background:#edf5ec;color:#4e7556}
+.prp-shell-chat .prp-chat-workspace .chat-icon-button {color:#6b8370}
+.prp-shell-chat .prp-chat-workspace .chat-icon-button:hover {background:#e8f1e5}
+.prp-shell-chat .prp-chat-workspace .chat-mention-menu {border-color:#dfe8dd}
+.prp-shell-chat .prp-chat-workspace .chat-mention-menu button:hover {background:#f0f6ee}
+.prp-shell-chat .prp-chat-workspace .chat-mention-menu button strong {color:#456c4c}
+/* Short mobile landscape: keep the welcome heading above the composer.
+ * Suggestions remain scrollable; do not hide any chat actions or history. */
+@media (max-width:860px) and (max-height:480px) and (orientation:landscape) {
+  .prp-shell-chat .prp-chat-workspace .chat-welcome {padding-top:6px}
+  .prp-shell-chat .prp-chat-workspace .chat-welcome-icon {
+    width:34px;height:34px;margin-bottom:6px;border-radius:12px;font-size:18px
+  }
+  .prp-shell-chat .prp-chat-workspace .chat-welcome h1 {font-size:19px;line-height:1.25}
+  .prp-shell-chat .prp-chat-workspace .chat-welcome p {margin:5px 0}
+  .prp-shell-chat .prp-chat-workspace .chat-suggestions {margin-top:9px}
+}
+/* Cross-module list-and-form pages: preserve controls while improving visual coherence. */
+.prp-shell .metric-card,.prp-shell .module-card,.prp-shell .list-item {background:#fff;border-color:#e4eae0;border-radius:16px}
+.prp-shell .metric-card strong {color:#2d503b}
+.prp-shell .module-card .el-icon {color:#5c8565}
+.prp-shell .item-list .list-item {padding:17px}
+.prp-shell .search-result,.prp-shell .tag-item {border-color:#e4ece1;border-radius:14px;background:#fff}
+.prp-shell .search-result:hover {background:#f4f9f2}
+.prp-shell .knowledge-node.file {color:#4f7f5b}
+.prp-shell .tasks-insight,.prp-shell .finance-grid,.prp-shell .practice-grid {gap:16px}
+.prp-shell .tasks-progress-panel,.prp-shell .tasks-focus-panel {border-color:#e1eade;border-radius:19px}
+.prp-shell .video-study-page,.prp-shell .prp-me-page,.prp-shell .prp-apps-page {padding-bottom:30px}
+/* PWA/mobile: preserve exact four tabs, safe areas and dedicated keyboard-aware chat sizing. */
+@media (max-width:1200px){
+  .prp-shell .prp-workspace {padding:0 22px 44px}
+}
+@media (max-width:860px){
+  .prp-shell {display:block;padding-bottom:calc(74px + env(safe-area-inset-bottom,0px))}
+  .prp-shell .prp-sidebar {display:none}
+  .prp-shell .prp-workspace {padding:0 15px 30px}
+  .prp-shell .prp-topbar {height:65px;margin-bottom:22px}
+  .prp-shell .prp-topbar-title::before {display:none}
+  .prp-shell .prp-mobile-mark {background:#40694f;border-radius:9px}
+  .prp-shell .prp-mobile-tabs {grid-template-columns:repeat(4,minmax(0,1fr));height:calc(68px + env(safe-area-inset-bottom,0px));background:rgba(249,251,247,.97);border-top-color:#dce8dd;box-shadow:0 -7px 25px rgba(28,72,43,.07);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+  .prp-shell .prp-mobile-tab {color:#839a88;font-size:11px}
+  .prp-shell .prp-mobile-tab.is-active {color:#355f45}
+  .prp-shell .prp-mobile-tab .el-icon {font-size:22px}
+  .prp-shell .home-heading h1 {font-size:29px}
+  .prp-shell .home-metrics {gap:10px}
+  .prp-shell .home-metric {min-height:139px;padding:17px;border-radius:17px}
+  .prp-shell .home-metric strong {font-size:22px}
+  .prp-shell .home-panel {padding:19px;border-radius:18px}
+  .prp-shell .home-domain-card {min-height:150px}
+  .prp-shell .domain-page .domain-hero {padding:24px 19px;border-radius:20px;gap:15px}
+  .prp-shell .domain-hero-icon {width:52px;height:52px;border-radius:15px}
+  .prp-shell .domain-tool-card {border-radius:18px;padding:20px}
+  .prp-shell .wellness-page {padding:0 0 30px}
+  .prp-shell .wellness-page .metric-grid {grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .prp-shell .wellness-page .tile {padding:15px;min-height:127px}
+  .prp-shell .wellness-page .panel {padding:19px;border-radius:17px}
+  .prp-shell .wellness-page .el-tabs__nav-scroll {overflow-x:auto}
+  .prp-shell .wellness-page .el-tabs__nav-wrap {max-width:100%}
+  .prp-shell .wellness-page .el-tabs__item {padding:0 15px}
+  .prp-shell .prp-apps-grid {gap:11px}
+  .prp-shell .prp-app-card {min-height:94px;padding:13px}
+  .prp-shell .prp-profile-card {padding:24px 19px}
+  /* Preserve chat's constrained flex viewport even though ordinary pages use display:block. */
+  .prp-shell.prp-shell-chat {
+    position:fixed;inset:0;z-index:10;width:100%;
+    display:flex;flex-direction:column;
+    height:var(--prp-chat-viewport-height,100dvh);
+    min-height:0;max-height:100dvh;overflow:hidden;
+    overscroll-behavior:none;
+    padding-bottom:calc(68px + env(safe-area-inset-bottom,0px));
+  }
+  .prp-shell.prp-shell-chat .prp-mobile-tabs {position:absolute;bottom:0}
+  .prp-shell.prp-shell-chat .prp-workspace-chat {
+    display:flex;flex:1 1 auto;height:auto;min-height:0;overflow:hidden;padding:0
+  }
+  .prp-shell.prp-shell-chat .prp-page-chat {display:flex;flex:1 1 auto;height:auto;min-height:0;overflow:hidden}
+  .prp-shell.prp-shell-chat.prp-keyboard-open {padding-bottom:0}
+  .prp-shell.prp-shell-chat.prp-keyboard-open .prp-mobile-tabs {display:none}
+  .prp-shell-chat .prp-workspace-chat {padding:0}
+  /* chat keyboard-specific overrides are above */
+}
+@media (max-width:390px){
+  .prp-shell .prp-workspace {padding-left:12px;padding-right:12px}
+  .prp-shell .home-heading h1 {font-size:26px}
+  .prp-shell .home-metric {padding:13px;min-height:126px}
+  .prp-shell .home-metric strong {font-size:19px}
+  .prp-shell .home-metric small {font-size:11px}
+  .prp-shell .prp-app-card {padding:15px}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after {animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+
+
+/* V2 layout accents: functional navigation points, not replacement pages. */
+.prp-shell .home-v2-focus {
+  display:grid;grid-template-columns:minmax(0,1.7fr) minmax(235px,.85fr);
+  background:linear-gradient(117deg,#284f3e,#436f52);color:#fff;
+  border:1px solid rgba(42,89,53,.3);border-radius:23px;overflow:hidden;
+  box-shadow:0 18px 40px rgba(35,78,50,.13);margin:0 0 19px;min-height:236px
+}
+.prp-shell .home-v2-focus-main {
+  position:relative;padding:31px clamp(23px,3vw,39px);
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:center;
+}
+.prp-shell .home-v2-focus-main::after {
+  content:"";position:absolute;right:-45px;top:-95px;width:240px;height:240px;
+  border:1px solid rgba(245,255,237,.09);border-radius:50%;
+  box-shadow:0 0 0 40px rgba(255,255,255,.035),0 0 0 80px rgba(255,255,255,.018);
+  pointer-events:none
+}
+.prp-shell .home-v2-kicker {display:flex;align-items:center;gap:8px;color:#d6e8d7;font-size:11px;letter-spacing:1.5px;font-weight:700;margin:0 0 14px}
+.prp-shell .home-v2-focus h2 {color:#f5faf2;font-size:clamp(20px,2.25vw,28px);line-height:1.3;letter-spacing:-.6px;margin:0 0 10px;font-weight:680;position:relative;z-index:1}
+.prp-shell .home-v2-focus-description {color:#d5e4d5;font-size:13px;line-height:1.65;margin:0 0 21px;max-width:520px;position:relative;z-index:1}
+.prp-shell .home-v2-primary-link {display:inline-flex;align-items:center;gap:9px;background:#eef5ea;color:#325d43;text-decoration:none;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:750;transition:transform .18s,background-color .18s;position:relative;z-index:1}
+
+.prp-shell .home-v2-focus-actions {display:flex;align-items:center;flex-wrap:wrap;gap:10px;position:relative;z-index:1}
+.prp-shell .home-v2-focus-actions .home-v2-complete-button {
+  min-height:44px;margin:0;background:#e9f3e3;color:#2f6044;
+  border:1px solid #d2e6d0;border-radius:12px;padding:0 17px;
+  box-shadow:none;font-size:13px;font-weight:740;gap:7px
+}
+.prp-shell .home-v2-focus-actions .home-v2-complete-button:not(.is-disabled):hover {
+  background:#fff;color:#254f3c;border-color:#fff;transform:translateY(-2px)
+}
+.prp-shell .home-v2-focus-actions .home-v2-primary-link {
+  min-height:44px;background:transparent;color:#eef6ee;
+  border:1px solid rgba(238,247,236,.38)
+}
+.prp-shell .home-v2-focus-actions .home-v2-primary-link:hover {background:rgba(255,255,255,.13);color:#fff}
+@media(max-width:390px){
+  .prp-shell .home-v2-focus-actions {width:100%}
+  .prp-shell .home-v2-focus-actions .home-v2-primary-link,
+  .prp-shell .home-v2-focus-actions .home-v2-complete-button {justify-content:center;flex:1 1 135px}
+}
+
+.prp-shell .home-v2-primary-link:hover {background:#fff;color:#2a593e;transform:translateY(-2px)}
+.prp-shell .home-v2-focus-aside {background:rgba(18,57,36,.22);border-left:1px solid rgba(255,255,255,.12);padding:27px 20px;display:flex;flex-direction:column;justify-content:center;gap:6px;min-width:0}
+.prp-shell .home-v2-focus-aside p {font-size:11px;color:#c7ddc9;letter-spacing:1.3px;margin:0 0 10px;font-weight:700}
+.prp-shell .home-v2-focus-aside a {display:flex;align-items:center;gap:10px;padding:11px;border-radius:11px;text-decoration:none;color:#edf5eb;font-size:12px;transition:background-color .18s}
+.prp-shell .home-v2-focus-aside a:hover {background:rgba(255,255,255,.10)}
+.prp-shell .home-v2-focus-aside a .el-icon:last-child {margin-left:auto;font-size:12px}
+.prp-shell .wellness-v2-intro {
+  display:flex;align-items:center;justify-content:space-between;gap:18px;
+  border-radius:22px;border:1px solid #dfeade;
+  background:linear-gradient(110deg,#e6efe2 0%,#f5f7ed 93%);
+  padding:24px 26px;margin:0 0 24px;position:relative;overflow:hidden
+}
+.prp-shell .wellness-v2-intro::after {content:"";position:absolute;width:160px;height:160px;border:1px solid #83a38b29;border-radius:50%;top:-95px;right:9%;pointer-events:none}
+.prp-shell .wellness-v2-intro-info {position:relative;z-index:1;min-width:0}
+.prp-shell .wellness-v2-kicker {font-size:11px;letter-spacing:1.4px;color:#48674c;font-weight:730}
+.prp-shell .wellness-v2-intro h2 {font-size:clamp(18px,2.1vw,23px);letter-spacing:-.5px;color:#2d5239;margin:10px 0 7px}
+.prp-shell .wellness-v2-intro p {font-size:12px;line-height:1.65;color:#4b6850;margin:0}
+.prp-shell .wellness-v2-intro-actions {display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;max-width:380px;position:relative;z-index:1}
+.prp-shell .wellness-v2-intro-actions .el-button {margin:0}
+.prp-shell .learning-v2-path {display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.35fr);gap:27px;align-items:center;border:1px solid #e5ece2;background:#fff;border-radius:22px;padding:27px;margin:0 0 28px;box-shadow:0 8px 25px rgba(29,68,35,.033)}
+.prp-shell .learning-v2-path-intro h2 {font-size:20px;font-weight:700;letter-spacing:-.5px;color:#2e4a38;line-height:1.45;margin:9px 0}
+.prp-shell .learning-v2-path-intro p:last-child {font-size:12px;color:#526b57;line-height:1.7;margin:0}
+.prp-shell .learning-v2-steps {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.prp-shell .learning-v2-steps a {display:flex;align-items:center;gap:11px;border-radius:13px;background:#f2f7f0;padding:13px;text-decoration:none;color:#436a4d;min-width:0;transition:transform .18s,background-color .18s}
+.prp-shell .learning-v2-steps a:hover {background:#e6f1e4;transform:translateY(-2px)}
+.prp-shell .learning-v2-steps span {color:#8aab8e;font-family:Georgia,serif;font-size:19px}
+.prp-shell .learning-v2-steps strong {font-size:12px;font-weight:680}
+.prp-shell .learning-v2-steps .el-icon {margin-left:auto}
+@media(max-width:1000px) {
+ .prp-shell .home-v2-focus {grid-template-columns:minmax(0,1.4fr) minmax(200px,.9fr)}
+ .prp-shell .learning-v2-path {grid-template-columns:1fr;gap:18px}
+ .prp-shell .wellness-v2-intro {flex-direction:column;align-items:stretch}
+ .prp-shell .wellness-v2-intro-actions {justify-content:flex-start;max-width:none}
+}
+@media(max-width:660px) {
+ .prp-shell .home-v2-focus {grid-template-columns:1fr;border-radius:19px}
+ .prp-shell .home-v2-focus-main {padding:23px 21px}
+ .prp-shell .home-v2-focus-aside {border-left:0;border-top:1px solid rgba(255,255,255,.1);padding:11px 16px 14px;display:grid;grid-template-columns:1fr}
+ .prp-shell .home-v2-focus-aside p {margin:3px 0 0 9px}
+ .prp-shell .home-v2-focus-aside a {padding:9px 11px}
+ .prp-shell .learning-v2-path {padding:20px;border-radius:18px}
+ .prp-shell .learning-v2-steps a {gap:7px;padding:11px}
+ .prp-shell .learning-v2-steps span {font-size:17px}
+ .prp-shell .learning-v2-steps strong {font-size:11px}
+ .prp-shell .wellness-v2-intro {padding:21px 19px;border-radius:19px}
+ .prp-shell .wellness-v2-intro-actions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .prp-shell .wellness-v2-intro-actions .el-button {width:100%;margin:0}
+}
+
+
+/* Touch-friendly interactions. The behavior/route behind each control is untouched. */
+@media (pointer:coarse) and (max-width:860px) {
+  .prp-shell .prp-back-to-apps,
+  .prp-shell .home-v2-primary-link,
+  .prp-shell .home-v2-focus-aside a,
+  .prp-shell .prp-app-filters button,
+  .prp-shell .prp-app-card,
+  .prp-shell .prp-favorite-button,
+  .prp-shell .prp-icon-link,
+  .prp-shell .wellness-page .food-chip {
+    min-height:44px;
+  }
+  .prp-shell-chat .prp-chat-workspace .chat-icon-button,
+  .prp-shell-chat .prp-chat-workspace .chat-compose-left button,
+  .prp-shell-chat .prp-chat-workspace .chat-send {
+    min-width:44px;min-height:44px;
+  }
+  .prp-shell .prp-mobile-tab {min-height:54px}
+}
