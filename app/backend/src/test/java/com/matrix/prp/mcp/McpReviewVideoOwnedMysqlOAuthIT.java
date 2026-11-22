@@ -49,7 +49,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
     "matrix-prp.mcp.enabled=true",
     "matrix-prp.mcp.oauth.enabled=true",
     "matrix-prp.mcp.write-enabled=false",
-    "matrix-prp.mcp.additional-read-tools-enabled=true",
+    "matrix-prp.mcp.review-video-read-tools-enabled=true",
     "matrix-prp.mcp.oauth.first-party-link.enabled=false",
     "matrix-prp.mcp.oauth.issuer=https://issuer.example.test",
     "matrix-prp.mcp.oauth.jwk-set-uri=https://issuer.example.test/jwks.json",

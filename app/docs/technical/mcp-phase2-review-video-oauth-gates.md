@@ -1,10 +1,10 @@
-# Review/video MCP tool registration: opt-in gates (Draft #224)
+# Review/video MCP tool registration: opt-in gates (Draft #224 + isolation Draft #278)
 
 Tracking: #218, #170. This document is **not** an approval to enable or deploy a new capability.
 
 ## Dependency
 
-Draft PR #219 owns the bounded read adapter, new owner-scoped SQL `LIMIT` paths, and baseline tests. Draft PR #224 is stacked on that exact branch and must not be merged alone; CI-only Draft PR #225 targets `main` **only to run checks** and must never be merged.
+Draft PR #219 owns the bounded read adapter, new owner-scoped SQL `LIMIT` paths, and baseline tests. Draft PR #224 is stacked on #219 for scoped tool integration; isolation Draft PR #278 is stacked on #224 for the dedicated default-OFF review/video flag. Do not merge a child before its reviewed parent. CI-only Draft PR #225 targets `main` **only to run checks** and must never be merged.
 
 ## Proposed read-only capabilities
 
@@ -14,9 +14,46 @@ Draft PR #219 owns the bounded read adapter, new owner-scoped SQL `LIMIT` paths,
 | `prp_video_folders` | `prp.video.read` | No | at most 50 owner-scoped folder previews | None |
 | `prp_video_progress` | `prp.video.read` | No | at most 30 owner-scoped video metadata/progress previews | None |
 
-Scope discovery is a catalog, not authorization. The `additional-read-tools-enabled` flag defaults false and is an additional tool-visibility gate. Even when that flag is true, a tool needs the corresponding explicitly advertised scope; each request still requires verified issuer/resource-bound OAuth identity, linked PRP owner, current token scope, current owner-client grant, and the existing expanded-account/client allowlist.
+Scope discovery is a catalog, not authorization. The dedicated `review-video-read-tools-enabled` flag defaults false and is the visibility gate for exactly these three review/video tools. The separate preexisting `additional-read-tools-enabled` flag controls other optional task/health/record/practice reads and does **not** activate review/video tools. In the current eight-scope V2, enabling the older catch-all flag would expose six additional task/health read tools; this change prevents unintended co-activation. Even when the dedicated flag is true, a tool needs the corresponding explicitly advertised scope; each request still requires verified issuer/resource-bound OAuth identity, linked PRP owner, current token scope, current owner-client grant, and the existing expanded-account/client allowlist.
 
 The currently reviewed `production-wellness-only` production guard continues to reject both new scopes (including the old task/record/practice read extension configuration). **Do not add these scopes to production health consent allowlists** in this task.
+
+## Existing V2 eight-scope overlay compatibility (code-only review)
+
+Operator read-only inspection on Nov 22, 2026 confirmed that the existing
+`prp-mcp-v2-backend-1` currently advertises eight task/finance/health/write
+scopes and has writes enabled. The ninth Compose overlay
+`/root/prp-mcp-expanded-20261104/expanded-image.yaml` is the last identified
+source of those values; this Draft does not edit or restart it.
+
+After a **separate authorized deployment of code containing this dedicated flag**,
+the proposed review/video test-stage activation would require the two new scopes
+`prp.reviews.read,prp.video.read` to be intentionally added to the preserved existing
+eight, and `MATRIX_PRP_MCP_REVIEW_VIDEO_READ_TOOLS_ENABLED=true`.
+The original `MATRIX_PRP_MCP_ADDITIONAL_READ_TOOLS_ENABLED` must remain unset/false
+for a review/video-only opt-in, so the six unrelated optional task/health reads
+do not appear. The two flags are independent; no environment configuration is
+changed in this PR. New scopes in resource metadata are **not** token grants,
+owner consent, or proof of real ChatGPT authentication.
+
+**Owner-grant replacement guardrail:** `POST /api/mcp/clients` currently writes
+an **entire replacement scope set** for a client (not an additive grant).
+Before any authorized staging experiment, use the authenticated owner's
+existing `GET /api/mcp/clients` view to review that exact client's ACTIVE,
+non-expired scopes, and obtain explicit owner consent for the complete desired
+post-change set. A request containing **only** `prp.reviews.read,prp.video.read`
+could remove existing task/health/write scopes. Do not silently preserve
+unwanted permissions either: show the exact full set to the owner, and require
+confirmation before submitting it. For rollback, restore only the verified,
+owner-approved prior scope set after obtaining fresh authorization; do not
+invent previous grants or assume revoking the entire client is harmless. Never
+copy access tokens, owner passwords or client secrets into issues/logs.
+
+This would be a multi-capability V2 canary; it **does not satisfy** #149's
+separate frozen task-only scope contract. #149 remains NO-GO until a distinct
+owner decision. #218 exact-head engineering CI passed at #278, but real deployment
+and OAuth activation remain NO-GO until independent approval, real OAuth,
+owner-client grant, revocation and rollback acceptance.
 
 ## Sensitive data excluded
 
@@ -27,7 +64,7 @@ The currently reviewed `production-wellness-only` production guard continues to 
 
 ## Required independent acceptance before activation
 
-1. Both PR heads are explicitly pinned and checked for exact branch ancestry and file scope; #225 is CI-only.
+1. All three stacked PR heads (#219 → #224 → #278) are explicitly pinned and checked for exact branch ancestry and file scope; #225 is CI-only.
 2. All required feature-impact/backend tests pass **on exact SHA** (not merely on an earlier commit).
 3. Real isolated MySQL tests verify query limits, owner isolation, foreign-folder rejection, deleted review visibility, stable order, and no unbounded ORM SELECT.
 4. Synthetic OAuth MockMvc tests verify read-only `tools/list` and `tools/call`, missing/revoked scope/owner grants, client identity restriction, and separate read-only hints. New `McpReviewVideoOwnedMysqlOAuthIT` runs against disposable MySQL 8.4 with **real PRP client grants, identity-link rows, SQL reads and MCP HTTP dispatch** for two synthetic owners, including owner revocation and missing token scope. The signed JWT decoder is deliberately mocked in that test: it does not replace independent cryptographic issuer/PKCE/Keycloak E2E, which remains required.
@@ -69,9 +106,9 @@ Before a separately approved *isolated test-stage* activation, require all of:
 1. A newly dated read-only inventory of the target Realm's exact-client policy, profiles, mappers, JWKS trust and existing clients. The October G0/B2 records in `app/deploy/mcp-oauth/keycloak-resource-guard/G0-EXACT-CLIENT-DELTA-REVIEW-20261027.md` and `B2-RELEASE-GATE.md` historically marked installation **NO-GO** and genuine current backup/restore/install approval receipts missing; do not treat these dated observations as proof of today's state or fabricate approval receipts.
 2. Explicitly authorized fresh backup plus **isolated restore and rollback evidence** for the actual target Keycloak Realm and signing state; verify original client inventory and exact audience mapper are preserved. Never modify a shared Realm, public Nginx or production database to shortcut a failed gate.
 3. Explicit review of real ChatGPT CIMD metadata, exact `https://chatgpt.com/oauth/client.json` client, registered callback, `private_key_jwt`, PKCE S256, exact `resource` and trusted HTTPS discovery. Verify real signed token's audience, issuer, client identity, scope and expiry without exposing credentials, codes, access/refresh tokens, cookies, PKCE verifier or PII in Issues.
-4. A separately approved, non-production account linkage and consent test: grant **only** `prp.reviews.read` and/or `prp.video.read` to the intended synthetic/test user; confirm no unrelated reads/writes, foreign account denial, and immediate access revocation. Do not equate this to production consent.
+4. A separately approved, non-production account linkage and consent test: first inspect the intended test client's **complete existing active owner grant**, and obtain explicit owner approval for the **complete desired replacement scope set**. On an existing eight-scope V2, preserve only the eight previously verified and still-approved scopes alongside `prp.reviews.read` and/or `prp.video.read`; **never POST only the new scopes** and inadvertently delete existing authorization. For an isolated task-only/read-only canary, use its separately approved minimal set instead; do not silently copy the V2 grants. Check no unauthorized extra reads/writes, foreign account denial, and immediate revocation of new read access without damage to pre-existing grants. Do not equate this to production consent.
 5. A production-specific **new change request and separate rollback review**: the existing `McpProductionWellnessGuard` intentionally rejects both new scopes and existing health-only grants must remain intact. **Do not disable or weaken that guard in #218.**
 
-**Rollback boundary:** in any future separately authorized test-stage activation, first turn OFF `matrix-prp.mcp.additional-read-tools-enabled`, restore the previously approved exact advertised-scope configuration, revoke only the newly granted test client scopes and verify existing task/health tools still work. Restore Keycloak policy/client changes solely through the original approved G0/B2 rollback transaction. Never delete shared Keycloak clients/volumes, rotate production keys casually, or use `docker compose down -v` against a shared environment.
+**Rollback boundary:** in any future separately authorized test-stage activation, first turn OFF **`matrix-prp.mcp.review-video-read-tools-enabled`** (the dedicated flag for these three tools), then restore the previously approved exact advertised-scope configuration. Preserve the prior `matrix-prp.mcp.additional-read-tools-enabled` setting; toggling that old flag is **not** a review/video rollback. Because `POST /api/mcp/clients` **replaces the complete client grant**, obtain owner confirmation and restore the previously verified full scope set for the exact client, rather than submitting only the two new scopes or revoking the whole client. Verify the three review/video tools disappear and existing task/health reads and authorized writes still work. Restore Keycloak policy/client changes solely through the original approved G0/B2 rollback transaction. Never delete shared Keycloak clients/volumes, rotate production keys casually, or use `docker compose down -v` against a shared environment.
 
-**Decision:** code-level review and disposable CI may be accepted as engineering evidence, but #218 is **not release approved**. Keep #219/#224 Draft, never merge #225, and do not deploy or expand production OAuth consent without a distinct user-authorized change.
+**Decision:** exact-head engineering CI at #278 `79c657f640adaca9d723b956d8db9e2d81f97f28` completed **35/35 PASS** on [run #44974637992 attempt 2](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44974637992); this commit records that earlier checkpoint, and any subsequent edit requires new exact-head verification. #218 is **not release approved**. Keep #219/#224/#278 Draft, never merge #225, and do not deploy or expand production OAuth consent without a distinct user-authorized change.
