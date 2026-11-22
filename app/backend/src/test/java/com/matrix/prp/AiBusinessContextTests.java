@@ -168,7 +168,14 @@ class AiBusinessContextTests {
             .header(HttpHeaders.AUTHORIZATION,bearer(friend)).contentType(MediaType.APPLICATION_JSON)
             .content("{\"content\":\"Another question\"}"))
             .andExpect(request().asyncStarted()).andReturn();
-        mvc.perform(asyncDispatch(next)).andExpect(status().isOk());
+        String nextStream = mvc.perform(asyncDispatch(next)).andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString();
+        // asyncDispatch returning HTTP 200 is not enough: the streaming worker may have
+        // emitted an error instead of invoking the model for this second request.
+        // In that case observed still points at the PREVIOUS, consented invocation.
+        assertThat(nextStream).contains("event:done").doesNotContain("event:error");
+        verify(deepSeek, times(2)).stream(anyList(), anyInt(), any());
+        assertThat(observed.get()).isNotNull();
         assertThat(observed.get().getLast().content()).isEqualTo("Another question");
     }
 }
