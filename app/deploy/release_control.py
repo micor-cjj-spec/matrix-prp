@@ -17,8 +17,30 @@ def publication_allowed(root):
     return False
 
 
+def publication_summary(allowed):
+    """Explain gate outcomes without implying a deployment has happened."""
+    if allowed:
+        return (
+            "### PRP production publication gate: ALLOWED (not yet deployed)\n\n"
+            "The checked-in publication hold does not block this candidate. "
+            "A successful build, protected production approval, and a successful "
+            "publish job are still required before claiming a release.\n"
+        )
+    return (
+        "### PRP production publication gate: HELD — NOT DEPLOYED\n\n"
+        "The checked-in `app/deploy/publication-hold.json` blocks normal "
+        "application publication. A green release-control job means the hold "
+        "was checked, **not** that a new version was deployed. "
+        "Explicit read-only production checks remain separate.\n"
+    )
+
+
 if __name__=='__main__':
     allowed=publication_allowed(Path(__file__).resolve().parents[2])
     with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as stream:
         stream.write('publish_allowed='+str(allowed).lower()+'\n')
     print('Ordinary publication enabled' if allowed else 'Controller upgrade only: application publication held; read-only checks remain available')
+    summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary_path:
+        with Path(summary_path).open('a', encoding='utf-8') as stream:
+            stream.write(publication_summary(allowed))
