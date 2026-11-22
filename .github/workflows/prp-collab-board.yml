@@ -1,0 +1,39 @@
+name: PRP Collaboration Board
+
+# Read-only status snapshot; never changes Git refs, Issues or production.
+on:
+  workflow_dispatch:
+    inputs:
+      requirement_id:
+        description: 'REQ-YYYYMMDD-NNN'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  show-board:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fetch and render immutable read-only state snapshot
+        shell: bash
+        env:
+          COLLAB_REQ_ID: ${{ inputs.requirement_id }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$COLLAB_REQ_ID" =~ ^REQ-[0-9]{8}-[0-9]{3}$ ]] || exit 2
+          git fetch --no-tags origin refs/heads/prp-collab-state
+          export COLLAB_STATE_SHA="$(git rev-parse FETCH_HEAD)"
+          filepath="$RUNNER_TEMP/$COLLAB_REQ_ID.json"
+          git show "$COLLAB_STATE_SHA:requirements/$COLLAB_REQ_ID.json" > "$filepath"
+          node app/scripts/dev-collab/board.mjs "$filepath" | tee -a "$GITHUB_STEP_SUMMARY"
