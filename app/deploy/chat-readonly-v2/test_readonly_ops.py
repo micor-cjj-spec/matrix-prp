@@ -114,6 +114,20 @@ class ReadonlyV2Tests(unittest.TestCase):
         with self.assertRaises(RejectedRequest):
             root_filesystem_usage(lambda _: fake)
 
+    def test_root_disk_malformed_and_huge_counters_fail_closed(self):
+        cases = (
+            SimpleNamespace(f_frsize=True, f_blocks=100, f_bfree=20, f_bavail=10),
+            SimpleNamespace(f_frsize=1024, f_blocks=100, f_bfree=20, f_bavail=30),
+            SimpleNamespace(f_frsize=4096, f_blocks=10 ** 500,
+                            f_bfree=0, f_bavail=0),
+            SimpleNamespace(f_frsize=-512, f_blocks=100,
+                            f_bfree=20, f_bavail=10),
+        )
+        for fake in cases:
+            with self.subTest(fake=fake), self.assertRaisesRegex(
+                    RejectedRequest, "metric unavailable"):
+                root_filesystem_usage(lambda _: fake)
+
     def test_health_liveness_minimized_and_no_sensitive_echo(self):
         raw = json.dumps({"code": "SUCCESS", "data": {"status": "UP", "service": "matrix-prp-backend",
                                    "knowledgeRoot": "/internal/secret",
