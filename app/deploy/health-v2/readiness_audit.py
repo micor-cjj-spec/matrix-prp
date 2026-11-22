@@ -93,7 +93,9 @@ def review(evidence, expected_sha):
     port = _value(stage, "gateway_port")
     _need(type(port) is int and 1024 <= port <= 65535 and port not in _RESERVED_PORT, "GATEWAY_PORT_COLLISION")
     db = _value(stage, "database_name")
-    _need(type(db) is str and re.fullmatch(r"[a-z][a-z0-9_]{5,63}", db) and db not in _RESERVED_DB, "SHARED_OR_PRODUCTION_DB")
+    _need(type(db) is str and re.fullmatch(r"[a-z][a-z0-9_]{5,63}", db)
+          and db not in _RESERVED_DB and not db.startswith("matrix_prp_"),
+          "SHARED_OR_PRODUCTION_DB")
     for key in ("db_isolated", "oidc_isolated", "test_identities_only", "owner_approved"):
         _need(_value(stage, key) is True, "STAGE_GUARD_" + key.upper())
     for key in ("production_mounts_present", "production_data_used", "shared_v2_modified"):
