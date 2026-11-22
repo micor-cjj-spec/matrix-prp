@@ -64,23 +64,36 @@
 
 ## 5. 安全关闭与状态核验（服务器 root）
 
-本段只包含**撤销**和验证命令，不会开启执行权限。
+本段只包含**撤销**和验证命令，不会开启执行权限。需在服务器 root 环境中使用有权读取/删除该仓库 Actions Variables 的已认证 `gh`；若 GitHub API 无法访问或权限不足，**必须报错中止，不能声称通道已安全关闭**。服务器侧与 GitHub 状态的核验仅表示查询时刻的状态，不代表其后不会被有权限的管理员再次开启。
 
 ```bash
-rm -f /etc/matrix-prp-chat-shell/execution.enabled
+set -euo pipefail
+MARKER=/etc/matrix-prp-chat-shell/execution.enabled
+REPO=micor-cjj-spec/matrix-prp
+API="repos/$REPO/actions/variables?per_page=100"
+KEY=PRP_CHAT_SHELL_ENABLED
 
-gh variable delete PRP_CHAT_SHELL_ENABLED \
-  --repo micor-cjj-spec/matrix-prp 2>/dev/null || true
+# 1. 先撤销服务器端标志，并强制核实不存在。
+rm -f -- "$MARKER"
+test ! -e "$MARKER"
 
-test ! -e /etc/matrix-prp-chat-shell/execution.enabled
+# 2. 成功调用 GitHub API 才能判断变量是否存在。
+# --paginate 处理多页；查询失败时 set -e 会终止，不得吞掉鉴权/网络错误。
+present="$(gh api --paginate --method GET "$API" \
+  --jq '.variables[] | select(.name == "PRP_CHAT_SHELL_ENABLED") | .name')"
+if [ -n "$present" ]; then
+  gh variable delete "$KEY" --repo "$REPO"
+fi
 
-VALUE="$(gh variable get PRP_CHAT_SHELL_ENABLED \
-  --repo micor-cjj-spec/matrix-prp 2>/dev/null || true)"
-
-test "$VALUE" != "true" && echo "E2E SECURELY CLOSED"
+# 3. 必须独立再次成功查询，确认变量已不存在且主机标志仍不存在。
+remaining="$(gh api --paginate --method GET "$API" \
+  --jq '.variables[] | select(.name == "PRP_CHAT_SHELL_ENABLED") | .name')"
+test -z "$remaining"
+test ! -e "$MARKER"
+echo "E2E SECURELY CLOSED"
 ```
 
-核验结果为 `E2E SECURELY CLOSED`，意味着这两项被检查的执行开关已关闭。必须同时确认与业务应用部署独立的 `app/deploy/publication-hold.json` 未被撤销。
+只有上述所有命令**逐步成功且打印** `E2E SECURELY CLOSED`，才可认为本次检查证实了两道开关在核验时刻均已关闭。若 `gh` 未登录、没有读取变量的权限、API 异常、删除失败或服务器标志仍存在，检查必须以非零状态结束，**不得输出成功结论**。仍须独立确认业务应用发布锁 `app/deploy/publication-hold.json` 未被撤销。
 
 **恢复临时测试窗口**不是例行默认操作：只有用户再次明确允许具体无副作用测试及限时授权，管理员才可按经审阅流程设置两个开关，并预设服务器侧自动撤销和失败回滚。测试结束立即主动撤销，不等待计时器。
 
