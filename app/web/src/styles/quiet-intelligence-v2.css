@@ -64,8 +64,8 @@ a:where(:not([class])), .prp-inline-link {color:#416d56}
   font-size:23px;font-family:Georgia,serif;font-weight:500;
 }
 .prp-shell .prp-brand .brand-copy strong {color:#2a4837;font-size:17px;letter-spacing:-.7px}
-.prp-shell .prp-brand .brand-copy small {color:#8fa193;letter-spacing:.65px}
-.prp-shell .nav-caption {color:#96a59a;letter-spacing:1.55px;margin:0 15px 13px}
+.prp-shell .prp-brand .brand-copy small {color:#536e59;letter-spacing:.65px}
+.prp-shell .nav-caption {color:#566e5e;letter-spacing:1.55px;margin:0 15px 13px}
 .prp-shell .prp-main-nav {gap:7px}
 .prp-shell .prp-nav-link {
   border-radius:14px;min-height:50px;color:#526b57;font-size:14px;
