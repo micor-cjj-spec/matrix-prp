@@ -16,7 +16,7 @@
 - 在新 Environment 配置 `PRP_COLLAB_APP_PRIVATE_KEY` secret，并配置 `PRP_COLLAB_APP_CLIENT_ID`、`PRP_COLLAB_APP_ID=5561446`、`PRP_COLLAB_RULESET_ID=26294671` variables。无需将凭证提供给 ChatGPT。不要将这些 Secret 复制到公开 Issue。
 - 保留现有 `prp-collab-controller` 人工审批 Environment，**不要直接把原环境解除审批来绕过安全控制**。
 - 协作入口代码已通过 PR #271 受控集成到 `main`，并完成合并后 CI 与真实只读 `probe`。本入口不会移除 `app/deploy/publication-hold.json`，也不执行 PRP 应用生产部署。
-- 正式 V0 的首次写入只允许用户单独明确授权的固定 V0→V1 迁移，不能先领取测试任务。PR #144 必须非 Draft，所有 SHA / delta / Ruleset / App 单仓库边界均须通过。独立 reviewer 是否为自动 owner Issue 的额外强制条件仍在 [Issue #147](https://github.com/micor-cjj-spec/matrix-prp/issues/147) 做治理决议；不能把当前 owner-only 代码路径说成独立审查已通过。
+- 正式 V0 的首次写入只允许用户**另行明确授权**的固定 V0→V1 迁移，不能先领取测试任务。PR #144 必须非 Draft，所有 SHA / delta / Ruleset / App 单仓库边界均须通过。**所有者已于 2026-11-22 选择方案 B：自动 owner-authored Issue 入口接受单人所有者授权，不额外强制独立 reviewer APPROVED；此选择不等于执行迁移的授权**。单人授权不能被描述成独立审查完成；参见 [Issue #147](https://github.com/micor-cjj-spec/matrix-prp/issues/147)。旧手动 apply 路径仍保留独立 reviewer 门槛。
 
 ## 首次启用：不修改任务状态的只读探针
 
@@ -97,7 +97,7 @@
 
 ## 请求格式：一次性 V0 → V1 迁移
 
-仅在用户**明确授权此次固定 V0→V1 迁移**、旧状态及候选 SHA 仍为下面的精确值、PR #144 非 Draft 且经治理模式确认后，才能创建最终 `migrate_v1` 请求。当前代码分为两条路径：**owner-authored `issues.opened`** 使用经过 GitHub 事件/Issue 身份核验的所有者特例，拒绝当前 SHA 的 `CHANGES_REQUESTED`，但**不强制独立 reviewer APPROVED**；**旧手动 `workflow_dispatch` apply** 强制当前 SHA 的非所有者、非作者、人类 `COLLABORATOR`/`MEMBER` reviewer 批准。前者是单人授权，不等于独立审查。是否为自动路径额外要求一次性独立审核，须先在 [Issue #147](https://github.com/micor-cjj-spec/matrix-prp/issues/147) 明确，不得未经治理决定直接启动真实写入。普通“继续”不等于迁移授权：
+**已选择方案 B，但尚未授权执行迁移。** 只有用户后续明确要求**执行此次固定 V0→V1 迁移**，并复核旧状态 SHA、提案 SHA、PR #144 非 Draft、安全约束及冻结状态后，才允许创建最终 `migrate_v1` 请求。当前代码分为两条路径：**owner-authored `issues.opened`** 通过 GitHub 事件和 Issue 身份核验，拒绝精确提案 SHA 的 `CHANGES_REQUESTED`，但**不强制独立 reviewer APPROVED**；**旧手动 `workflow_dispatch` apply** 仍强制当前 SHA 的非所有者、非作者、人类 `COLLABORATOR`/`MEMBER` reviewer 批准。方案 B 明确接受单人 owner-only 授权的风险，**不能声称完成独立审查**。普通“继续”或仅选择 B 不等于迁移授权：
 
 ```json
 {
