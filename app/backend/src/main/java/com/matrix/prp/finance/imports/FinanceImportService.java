@@ -64,13 +64,8 @@ public class FinanceImportService {
         catch (Exception e) { throw bad("Could not read XLSX"); }
         var bill=parser.parse(bytes);
         long owner=CurrentUser.id();
-        String source=sourceAccountOverride==null || sourceAccountOverride.isBlank()
-            ? bill.sourceAccount() : sourceAccountOverride.trim();
-        if(source.length()>128 || source.isBlank()) throw bad("Invalid source account key");
-        String filename=file.getOriginalFilename().replace('\\','/').replaceAll("^.*/","")
-            .replaceAll("[\\p{Cntrl}]","").trim();
-        if(filename.length()>255) filename=filename.substring(filename.length()-255);
-        final String safeFileName=filename;
+        String source=FinanceImportPolicy.sourceAccountKey(sourceAccountOverride,bill.sourceAccount());
+        final String safeFileName=FinanceImportPolicy.safeOriginalFilename(file.getOriginalFilename());
         String digest;
         try { digest=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
         catch (Exception e) { throw new IllegalStateException("SHA-256 unavailable",e); }
@@ -95,11 +90,9 @@ public class FinanceImportService {
         long batch=Objects.requireNonNull(key.getKey()).longValue();
         Set<String> seen=new HashSet<>();
         for(var row:bill.rows()) {
-            String status=row.reviewState();
-            if(!row.sourceTransactionId().isBlank()) {
-                if(!seen.add(row.sourceTransactionId()) || sourceAlreadyPosted(owner,source,row.sourceTransactionId()))
-                    status="DUPLICATE";
-            }
+            String status=FinanceImportPolicy.previewRowStatus(
+                row.reviewState(),row.sourceTransactionId(),seen,
+                ()->sourceAlreadyPosted(owner,source,row.sourceTransactionId()));
             jdbc.update("INSERT INTO prp_finance_import_rows "
                 +"(batch_id,user_id,source_line,source_transaction_id,merchant_transaction_id,transaction_at,"
                 +"transaction_type,counterparty,description,direction,amount,payment_method,original_status,note,"
@@ -133,10 +126,7 @@ public class FinanceImportService {
             if(entry.getKey()==null || entry.getValue()==null || entry.getKey().length()>128)
                 throw bad("Invalid payment method mapping");
             FinanceAccountEntity account=accounts.selectById(entry.getValue());
-            if(account==null || !Objects.equals(account.getUserId(),owner)
-                || !Objects.equals(account.getDeleted(),0)
-                || !"CNY".equals(account.getCurrency())) throw bad("Account must be an owned CNY account");
-            ownedAccounts.put(entry.getValue(),account);
+            ownedAccounts.put(entry.getValue(),FinanceImportPolicy.requireOwnedCnyAccount(account,owner));
         }
         var batchInfo=jdbc.query("SELECT source_account_key FROM prp_finance_import_batches WHERE id=? AND user_id=?",
             (rs,n)->rs.getString(1),batchId,owner);
@@ -156,12 +146,9 @@ public class FinanceImportService {
                 continue;
             }
             FinanceAccountEntity account=ownedAccounts.get(accountId);
-            FinanceTransactionEntity ledger=new FinanceTransactionEntity();
-            ledger.setUserId(owner);ledger.setType("expense");ledger.setAmount(row.amount());
-            ledger.setCategory("待分类");ledger.setAccount(account.getName());ledger.setAccountId(account.getId());
-            ledger.setMerchant(row.counterparty());ledger.setNote("微信账单导入：" + row.description());
-            ledger.setTransactionDate(row.at().toLocalDate());ledger.setCreatedAt(LocalDateTime.now());
-            ledger.setUpdatedAt(ledger.getCreatedAt());ledger.setDeleted(0);
+            FinanceTransactionEntity ledger=FinanceImportPolicy.newPostedExpense(
+                owner,account,row.amount(),row.counterparty(),row.description(),
+                row.at(),LocalDateTime.now());
             transactions.insert(ledger);
             // Same DB transaction: if the unique identity collides, the entire ledger insertion rolls back.
             jdbc.update("INSERT INTO prp_finance_source_links "
