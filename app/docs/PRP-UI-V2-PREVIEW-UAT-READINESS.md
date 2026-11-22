@@ -8,7 +8,7 @@
 - **Synthetic CI compatibility only**: Draft [#367](https://github.com/micor-cjj-spec/matrix-prp/pull/367), exact HEAD `ce8133816d76eb3f6e0b1a756f04f7bcc2395c7b`. It adds **one existing Health timezone test-fixture change**, not an application feature. Full CI **34/34 PASS**, UI/source browser **5/5 PASS** for this SHA. **NEVER MERGE #367 AS PRODUCT SOURCE.**
 - #366 exact-head UI/source/browser **5/5 PASS**; its full CI **33/34**, because the Health date fixture is absent. The final independent source/integration candidate must be retested at its **own** exact SHA after properly reviewed fixes. Never inherit a PASS badge from another SHA.
 - At this checkpoint: `main=2d8afddc4cfd39e5801133a664ed52cae342651e`, `dev=5834005c468a5e5178fd65278ad8de83426bb9c6`. They have diverged. Neither this document nor PR #366 is an authorization to merge.
-- Existing [UI V2 implementation and detailed UAT cases](./PRP-UI-V2-QUIET-INTELLIGENCE.md) live in the UI source branch, **not** necessarily in the unmerged dev/main trees. See its IOS-01..04, APP-01 and role/health/chat tests; do not replace those tests with this handoff.
+- Existing [UI V2 implementation and detailed UAT cases](https://github.com/micor-cjj-spec/matrix-prp/blob/f68d4ff1b91090b83046a21e1de02dfb8a8bb52c/app/docs/PRP-UI-V2-QUIET-INTELLIGENCE.md) live in the UI source branch, **not** necessarily in the unmerged dev/main trees. See its IOS-01..04, APP-01 and role/health/chat tests; do not replace those tests with this handoff.
 
 ## 2. Preview prerequisite — request actual evidence, not assumptions
 
