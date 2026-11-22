@@ -36,6 +36,7 @@ const after=ref<Fields>({date:date.value})
 const error=ref('')
 const done=ref('')
 const deleteAcknowledged=ref(false)
+const confirmOutcomeUncertain=ref(false)
 
 async function refreshRecords(): Promise<boolean> {
   loading.value=true
@@ -67,7 +68,7 @@ onMounted(()=>{void refreshRecords()})
 
 async function prepare(){
   if(!targetId.value||busy.value)return
-  busy.value=true;error.value='';done.value='';deleteAcknowledged.value=false
+  busy.value=true;error.value='';done.value='';deleteAcknowledged.value=false;confirmOutcomeUncertain.value=false
   try {
     const result=await apiClient.post<ApiResponse<Draft>>('/wellness/ai/changes/prepare',
       {kind:kind.value,recordId:targetId.value,operation:action.value,
@@ -81,7 +82,7 @@ async function prepare(){
   }finally { busy.value=false }
 }
 async function confirm(){
-  if(!draft.value||saving.value)return
+  if(!draft.value||saving.value||confirmOutcomeUncertain.value)return
   if(action.value==='delete'&&!deleteAcknowledged.value) {
     ElMessage.warning('请先明确勾选删除确认');return
   }
@@ -103,6 +104,7 @@ async function confirm(){
     else ElMessage.warning('健康记录已修改或删除，但列表刷新失败；请刷新页面核对，勿重复提交')
   }catch(e){
     const err=e as {response?:{data?:{message?:string}}}
+    if(confirmStarted) confirmOutcomeUncertain.value=true
     error.value=confirmStarted
       ? '修改或删除确认请求结果未核实，请先刷新记录核对是否生效，勿重复提交'
       : (err.response?.data?.message||'草稿修改请求未确认，请核对后再试')
@@ -127,7 +129,7 @@ async function confirm(){
       </select>
     </label>
     <small v-if="!records.length">所选日期暂无记录</small>
-    <label>操作<select v-model="action" @change="draft=null">
+    <label>操作<select v-model="action" @change="draft=null;confirmOutcomeUncertain=false">
       <option value="update">修改</option><option value="delete">删除</option>
     </select></label>
     <label v-if="action==='update'">让 AI 修改什么？（可不填，直接编辑草稿）
@@ -139,6 +141,7 @@ async function confirm(){
     </button>
     <small>仅在填写 AI 修改说明时，会将选中记录交由当前模型解析。删除操作不会发送数据给 AI。</small>
     <p v-if="error" class="change-error" role="alert">{{ error }}</p>
+    <small v-if="confirmOutcomeUncertain" role="status">本次确认按钮已锁定；请先查看健康中心是否已生效，再决定是否重新生成草稿。</small>
     <div v-if="draft" class="change-preview">
       <strong>操作预览 · {{ draft.action }}</strong>
       <small>原始数据（只读）</small>
@@ -175,7 +178,7 @@ async function confirm(){
       </label>
       <small>确认时会重新验证记录归属及原始内容。若已被他人操作改变，则拒绝本次变更。草稿有效期15分钟。</small>
       <div class="change-row">
-        <button :disabled="saving||action==='delete'&&!deleteAcknowledged" @click="confirm">
+        <button :disabled="saving||confirmOutcomeUncertain||action==='delete'&&!deleteAcknowledged" @click="confirm">
           {{ saving?'提交中…':action==='delete'?'确认删除':'确认修改' }}
         </button>
         <button class="secondary" @click="draft=null">取消</button>
