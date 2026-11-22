@@ -15,6 +15,7 @@ import stat
 import sqlite3
 import time
 import uuid
+from urllib.parse import quote
 
 from readonly_ops import RejectedRequest
 
@@ -167,7 +168,11 @@ class ReplayLedger:
         connection = None
         try:
             self._prepare_private_file()
-            connection = sqlite3.connect(str(self.path), isolation_level=None, timeout=2)
+            # mode=rw refuses recreation if the checked file disappears before SQLite opens it.
+            # Quote paths so '?' and '#' are file-name characters, not URI query flags.
+            existing_only = "file:" + quote(str(self.path), safe="/") + "?mode=rw"
+            connection = sqlite3.connect(existing_only, isolation_level=None,
+                                         timeout=2, uri=True)
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS claims ("
