@@ -471,19 +471,36 @@ function openExercise(x?: Exercise) {
   exerciseDialog.value = true
 }
 async function saveExercise() {
+  if (saving.value) return
   if (!exerciseForm.name.trim() || exerciseForm.durationMinutes < 1) { ElMessage.warning('请输入有效的运动名称和时长'); return }
   saving.value = true
   try {
     if (editExerciseId.value !== null) await wellnessApi.updateExercise(editExerciseId.value, { ...exerciseForm })
     else await wellnessApi.addExercise({ ...exerciseForm })
     exerciseDialog.value = false; date.value = exerciseForm.performedOn
-    await Promise.all([loadDay(), loadTrend()]); ElMessage.success('运动记录已保存')
-  } catch { ElMessage.error('保存运动失败') } finally { saving.value = false }
+    try {
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('运动记录已保存')
+    } catch {
+      ElMessage.warning('运动记录已保存，但页面刷新失败；请刷新页面查看，勿重复提交')
+    }
+  } catch {
+    ElMessage.error('运动记录保存请求未确认，请刷新页面核对后再重试')
+  } finally { saving.value = false }
 }
 async function deleteExercise(id: number) {
   try { await ElMessageBox.confirm('确定删除这条运动记录吗？', '确认删除') } catch { return }
-  try { await wellnessApi.deleteExercise(id); await Promise.all([loadDay(),loadTrend()]); ElMessage.success('已删除') }
-  catch { ElMessage.error('删除失败') }
+  try {
+    await wellnessApi.deleteExercise(id)
+    try {
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('已删除')
+    } catch {
+      ElMessage.warning('运动记录已删除，但页面刷新失败；请刷新页面确认，勿重复删除')
+    }
+  } catch {
+    ElMessage.error('删除请求未确认，请刷新页面核对后再试')
+  }
 }
 
 const metricDialog = ref(false)
@@ -498,23 +515,40 @@ function openMetric(x?: BodyMetric) {
   metricDialog.value = true
 }
 async function saveMetric() {
+  if (saving.value) return
   if (metricForm.weightKg <= 0) { ElMessage.warning('请填写体重'); return }
   saving.value = true
   try {
     if (editMetricId.value !== null) await wellnessApi.updateMetric(editMetricId.value, { ...metricForm })
     else await wellnessApi.addMetric({ ...metricForm })
     metricDialog.value = false
-    metrics.value = await wellnessApi.metrics(90)
-    await Promise.all([loadDay(),loadTrend()]); ElMessage.success('身体数据已保存')
-  } catch { ElMessage.error('保存身体数据失败') } finally { saving.value = false }
+    // A committed metric must never be described as a failed write if a
+    // subsequent readback request fails; a retry can create a duplicate row.
+    try {
+      metrics.value = await wellnessApi.metrics(90)
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('身体数据已保存')
+    } catch {
+      ElMessage.warning('身体数据已保存，但页面刷新失败；请刷新页面查看，勿重复提交')
+    }
+  } catch {
+    ElMessage.error('身体数据保存请求未确认，请刷新页面核对后再重试')
+  } finally { saving.value = false }
 }
 async function deleteMetric(id: number) {
   try { await ElMessageBox.confirm('确定删除这条身体指标记录吗？', '确认删除') } catch { return }
   try {
     await wellnessApi.deleteMetric(id)
-    metrics.value = await wellnessApi.metrics(90)
-    await Promise.all([loadDay(),loadTrend()]); ElMessage.success('已删除')
-  } catch { ElMessage.error('删除失败') }
+    try {
+      metrics.value = await wellnessApi.metrics(90)
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('已删除')
+    } catch {
+      ElMessage.warning('身体数据已删除，但页面刷新失败；请刷新页面确认，勿重复删除')
+    }
+  } catch {
+    ElMessage.error('删除请求未确认，请刷新页面核对后再试')
+  }
 }
 
 const goalForm = reactive({ effectiveFrom: today, dailyCalories: 0, dailyProteinG: null as number | null,
@@ -527,13 +561,21 @@ function loadGoal() {
   goalForm.weeklyActivityMinutes = current?.weeklyActivityMinutes ?? null
 }
 async function saveGoal() {
+  if (saving.value) return
   if (!goalForm.dailyCalories || goalForm.dailyCalories < 100) { ElMessage.warning('请先填写每日摄入目标'); return }
   saving.value = true
   try {
     await wellnessApi.saveGoal({ ...goalForm })
-    goals.value = await wellnessApi.goals(); await loadDay()
-    ElMessage.success('健康目标已保存')
-  } catch { ElMessage.error('保存目标失败') } finally { saving.value = false }
+    try {
+      goals.value = await wellnessApi.goals()
+      await loadDay(true)
+      ElMessage.success('健康目标已保存')
+    } catch {
+      ElMessage.warning('健康目标已保存，但页面刷新失败；请刷新页面查看，勿重复提交')
+    }
+  } catch {
+    ElMessage.error('目标保存请求未确认，请刷新页面核对后再重试')
+  } finally { saving.value = false }
 }
 async function saveProfile() {
   saving.value = true
