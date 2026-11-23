@@ -65,6 +65,25 @@ for attempt in $(seq 1 90); do
 done
 if [[ "$ready" != "1" ]]; then
   echo "FAIL: disposable PRP API health did not become ready" >&2
+  # Report fixed state fields and status only. Keep response bodies and logs private.
+  for service in mysql backend gateway; do
+    container_id="$("${compose[@]}" ps --all --quiet "$service")"
+    if [[ -n "$container_id" ]]; then
+      printf '%s ' "$service"
+      docker inspect --format 'state={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' "$container_id" || true
+    else
+      printf '%s missing\n' "$service"
+    fi
+  done
+  curl -sS --max-time 4 -H 'Host: prp-unified.example.org' \
+    -o /dev/null -w 'host-to-gateway HTTP %{http_code}\n' \
+    http://127.0.0.1:23080/api/health || true
+  for target in 127.0.0.1 backend; do
+    printf 'gateway probe to %s\n' "$target"
+    "${compose[@]}" exec -T gateway wget -T 4 -S -O /dev/null \
+      --header 'Host: prp-unified.example.org' "http://$target:8080/api/health" 2>&1 |
+      awk '/^  HTTP\// {print $1, $2} /^wget:/ {print "wget request failed"}' || true
+  done
   exit 1
 fi
 echo "PASS: disposable PRP API health"
