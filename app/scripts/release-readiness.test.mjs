@@ -96,6 +96,15 @@ test('pending, failed and skipped CI do not count as successful', () => {
   }
 })
 
+test('a later failed exact-SHA CI run overrides an older success', () => {
+  const r=assessGithubPrecheck(inputs({hold:false,
+    ciRuns:[run(A,{id:123}),run(A,{id:124,conclusion:'failure'})],
+    ciJobs:jobs()}))
+  assert.equal(r.state,'BLOCKED')
+  assert.ok(r.blockers.includes('NO_SUCCESSFUL_EXACT_MAIN_PUSH_CI'))
+  assert.equal(r.workflow_run_id,null)
+})
+
 test('missing, failed, and duplicate required CI jobs block', () => {
   const required=REQUIRED_JOBS[0]
   for(const list of [
