@@ -59,41 +59,62 @@ test('failed or unprotected integration evidence does not grant context',()=>{
    e=>e.code==='UNPROTECTED_INTEGRATION_BRANCH')
 })
 
-test('owner can close only with a separately merged and protected main integration PR',()=>{
+
+const validDevCloseApi=route=>{
+ const integral='d'.repeat(40)
+ if(route.endsWith('/pulls/139'))return {number:139,
+   head:{ref:'dev',sha,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+   base:{ref:'main',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+   merged:true,merged_at:'2026-11-23T00:00:00Z',merge_commit_sha:merge}
+ if(route.endsWith('/branches/main'))return{name:'main',protected:true,commit:{sha:branchSha}}
+ if(route.includes('/branches/'))return{
+   name:'integrate/'+req,protected:true,commit:{sha:integral}}
+ if(route.includes('/compare/')){
+   if(route.includes('/compare/'+merge+'...'))
+     return{status:'ahead',behind_by:0,base_commit:{sha:merge},
+       merge_base_commit:{sha:merge},commits:[]}
+   if(route.includes('/compare/'+integral+'...'))
+     return{status:'ahead',behind_by:0,base_commit:{sha:integral},
+       merge_base_commit:{sha:integral},commits:[]}
+ }
+ if(route.includes('/check-runs'))return checks
+ if(route.includes('/actions/runs/'))return fakeRun(route,'main','dev',139)
+ throw new Error('unexpected route '+route)
+}
+test('owner close proves accepted protected integration history inside merged dev -> main PR',()=>{
  const s=state();s.tasks[0].status='DONE';s.tasks[0].claim=null
  const command={type:'close',pr_number:139,head_sha:sha}
- const valid=route=>{
-   if(route.endsWith('/pulls/139'))return {number:139,
-     head:{ref:'integrate/'+req,sha,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
-     base:{ref:'main',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
-     merged:true,merged_at:'2026-10-31T19:00:00Z',merge_commit_sha:merge}
-   if(route.endsWith('/branches/main'))return{name:'main',protected:true,commit:{sha:branchSha}}
-   if(route.includes('/compare/'))return{status:'ahead',behind_by:0,base_commit:{sha:merge},
-     merge_base_commit:{sha:merge},commits:[]}
-   if(route.includes('/check-runs'))return checks
-   if(route.includes('/actions/runs/'))return fakeRun(route,'main','integrate/'+req,139)
-   throw new Error('unexpected route '+route)
- }
- const proof=trustedReviewContext(s,command,ctx,valid)
- assert.deepEqual(proof,{reviewerAuthorized:true,acceptanceApproved:true,integrationReviewVerified:true})
- assert.throws(()=>trustedReviewContext(s,command,ctx,route=>
-   route.endsWith('/branches/main')?{...valid(route),protected:false}:valid(route)),
-   e=>e.code==='MAIN_NOT_PROTECTED')
+ const proof=trustedReviewContext(s,command,ctx,validDevCloseApi)
+ assert.deepEqual(proof,{reviewerAuthorized:true,
+   acceptanceApproved:true,integrationReviewVerified:true})
 })
-test('cannot close a requirement with unfinished tasks even if final PR is merged',()=>{
- const s=state()
+test('main protection, integration protection and integration ancestry remain mandatory',()=>{
+ const s=state();s.tasks[0].status='DONE';s.tasks[0].claim=null
  const command={type:'close',pr_number:139,head_sha:sha}
- const fakeApproval=route=>{
-   if(route.endsWith('/pulls/139'))return{number:139,
-     head:{ref:'integrate/'+req,sha,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
-     base:{ref:'main',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
-     merged:true,merged_at:'2026-10-31T19:00:00Z',merge_commit_sha:merge}
-   if(route.endsWith('/branches/main'))return{name:'main',protected:true,commit:{sha:branchSha}}
-   if(route.includes('/compare/'))return{status:'identical',behind_by:0,
-     base_commit:{sha:merge},merge_base_commit:{sha:merge}}
-   if(route.includes('/check-runs'))return checks
-   if(route.includes('/actions/runs/'))return fakeRun(route,'main','integrate/'+req,139)
-   throw new Error('unexpected route '+route)
- }
- assert.throws(()=>trustedReviewContext(s,command,ctx,fakeApproval),e=>e.code==='INCOMPLETE_REQUIREMENT')
+ const noMain=route=>route.endsWith('/branches/main')?
+   {...validDevCloseApi(route),protected:false}:validDevCloseApi(route)
+ assert.throws(()=>trustedReviewContext(s,command,ctx,noMain),
+   e=>e.code==='MAIN_NOT_PROTECTED')
+ const noIntegration=route=>route.includes('/branches/')&&!route.endsWith('/branches/main')?
+   {...validDevCloseApi(route),protected:false}:validDevCloseApi(route)
+ assert.throws(()=>trustedReviewContext(s,command,ctx,noIntegration),
+   e=>e.code==='INTEGRATION_BRANCH_NOT_PROTECTED')
+ const noAncestry=route=>route.includes('/compare/'+'d'.repeat(40)+'...')?
+   {...validDevCloseApi(route),behind_by:1}:validDevCloseApi(route)
+ assert.throws(()=>trustedReviewContext(s,command,ctx,noAncestry),
+   e=>e.code==='INTEGRATION_NOT_IN_DEV_ANCESTRY')
+})
+test('owner cannot close if any task unfinished even with valid dev -> main evidence',()=>{
+ const command={type:'close',pr_number:139,head_sha:sha}
+ assert.throws(()=>trustedReviewContext(state(),command,ctx,validDevCloseApi),
+   e=>e.code==='INCOMPLETE_REQUIREMENT')
+})
+test('direct integration -> main cannot be accepted as final release even with green CI',()=>{
+ const s=state();s.tasks[0].status='DONE';s.tasks[0].claim=null
+ const command={type:'close',pr_number:139,head_sha:sha}
+ const direct=route=>route.endsWith('/pulls/139')?
+   {...validDevCloseApi(route),head:{...validDevCloseApi(route).head,
+     ref:'integrate/'+req}}:validDevCloseApi(route)
+ assert.throws(()=>trustedReviewContext(s,command,ctx,direct),
+   e=>e.code==='WRONG_MAIN_RELEASE_TARGET')
 })
