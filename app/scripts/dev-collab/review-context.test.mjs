@@ -76,6 +76,9 @@ const validDevCloseApi=route=>{
    if(route.includes('/compare/'+integral+'...'))
      return{status:'ahead',behind_by:0,base_commit:{sha:integral},
        merge_base_commit:{sha:integral},commits:[]}
+   if(route.includes('/compare/'+sha+'...'))
+     return{status:'ahead',behind_by:0,base_commit:{sha},
+       merge_base_commit:{sha},commits:[]}
  }
  if(route.includes('/check-runs'))return checks
  if(route.includes('/actions/runs/'))return fakeRun(route,'main','dev',139)
@@ -117,4 +120,13 @@ test('direct integration -> main cannot be accepted as final release even with g
      ref:'integrate/'+req}}:validDevCloseApi(route)
  assert.throws(()=>trustedReviewContext(s,command,ctx,direct),
    e=>e.code==='WRONG_MAIN_RELEASE_TARGET')
+})
+
+test('trusted close refuses squash-only main merge without dev head ancestry',()=>{
+ const s=state();s.tasks[0].status='DONE';s.tasks[0].claim=null
+ const command={type:'close',pr_number:139,head_sha:sha}
+ const squash=route=>route.includes('/compare/'+sha+'...')?
+   {...validDevCloseApi(route),behind_by:1}:validDevCloseApi(route)
+ assert.throws(()=>trustedReviewContext(s,command,ctx,squash),
+   e=>e.code==='DEV_HEAD_NOT_IN_MAIN_ANCESTRY')
 })
