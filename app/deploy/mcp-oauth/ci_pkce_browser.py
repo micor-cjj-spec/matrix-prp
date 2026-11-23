@@ -8,6 +8,8 @@ content and user data are NEVER written to stdout or logs.
 """
 import base64
 import hashlib
+import socket
+from http.client import HTTPSConnection
 from html.parser import HTMLParser
 from http.cookiejar import CookieJar
 import json
@@ -47,6 +49,31 @@ class SafeRedirect(HTTPRedirectHandler):
                 or target.port is not None):
             raise RuntimeError("OAuth attempted an unexpected cross-origin redirect")
         return super().redirect_request(request, fp, code, msg, headers, url)
+
+
+class LoopbackHTTPSConnection(HTTPSConnection):
+    """CI-only direct IPv4 transport, retaining original TLS SNI/hostname checks.
+
+    The disposable Nginx listener is bound to 127.0.0.1:443. Some runner
+    environments resolve .localhost names to IPv6, or lack consistent DNS
+    treatment. Never attempt off-runner network connections from this driver.
+    """
+    def connect(self):
+        if (self.host not in {"auth-e2e.localhost", "prp-e2e.localhost"}
+                or self.port != 443 or self._tunnel_host):
+            raise OSError("Unapproved disposable OAuth HTTPS destination")
+        raw = socket.create_connection(("127.0.0.1", 443), self.timeout,
+                                       self.source_address)
+        try:
+            self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+        except Exception:
+            raw.close()
+            raise
+
+
+class LoopbackHTTPSHandler(HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(LoopbackHTTPSConnection, req, context=self._context)
 
 
 class Forms(HTMLParser):
@@ -145,6 +172,18 @@ def wait_ready(opener, url, max_seconds=150):
           + " last_http=" + last_http_status
           + " last_error_type=" + last_error_type, file=sys.stderr)
     raise RuntimeError("Temporary environment not healthy: " + stage)
+
+
+def disposable_https_opener(ca_file):
+    """Connect only to the isolated CI HTTPS vhosts; ignore inherited proxies.
+
+    Each browser flow gets its own cookie jar, a disposable CA trust context,
+    and the same origin-bound redirect policy. Never disable TLS verification.
+    """
+    return build_opener(
+        ProxyHandler({}),
+        HTTPSHandler(context=ssl.create_default_context(cafile=ca_file)),
+        HTTPCookieProcessor(CookieJar()), SafeRedirect())
 
 
 def add_user(opener, admin_password, username, password):
@@ -392,7 +431,11 @@ def verify_exact_client_rejects_broad_scopes(opener):
             or os.environ.get("MCP_E2E_FIRST_PARTY") != "true"
             or ISSUER != "https://auth-e2e.localhost/realms/prp-mcp"):
         raise RuntimeError("SCOPE_NEGATIVE_DISPOSABLE_CI_ONLY")
-    forbidden_scopes = ["prp.finance.read", "prp.wellness.read"]
+    if os.environ.get("MCP_E2E_UNIFIED_PARITY") == "true":
+        # The disposable parity client explicitly allows both legacy read scopes.
+        forbidden_scopes = ["prp.records.read", "prp.wellness.write.create"]
+    else:
+        forbidden_scopes = ["prp.finance.read", "prp.wellness.read"]
     if os.environ.get('MCP_E2E_CRUD') != 'true':
         forbidden_scopes.append('prp.write.create')
     for forbidden in forbidden_scopes:
@@ -428,14 +471,9 @@ def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("RUNNER_TEMP"):
         raise RuntimeError("This test requires an isolated GitHub Actions runner")
     ca = os.environ["MCP_E2E_CA_CERT"]
-    context = ssl.create_default_context(cafile=ca)
-    # Authenticate against the actual HTTPS staging-style proxy and retain
-    # browser cookies for the Keycloak login/consent pages.
-    # All E2E URLs use synthetic *.localhost or 127.0.0.1 addresses.
-    # Explicitly bypass runner-provided HTTP(S) proxies for the disposable
-    # loopback stack; retain the exact CA and HTTPS certificate validation.
-    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context),
-                          HTTPCookieProcessor(CookieJar()), SafeRedirect())
+    # Preserve current-main sanitized diagnostics; use the reviewed HTTPS
+    # handler with isolated CA, cookie jar, no inherited proxies, safe redirects.
+    opener = disposable_https_opener(ca)
     admin_pass = os.environ["MCP_E2E_KC_ADMIN_PASSWORD"]
     user_password = os.environ["MCP_E2E_KC_USER_PASSWORD"]
     prp_password = os.environ["MCP_E2E_PRP_PASSWORD"]

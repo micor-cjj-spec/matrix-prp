@@ -14,10 +14,12 @@ def run(flow, opener, prp_jwt, password, login_password):
             or flow.ISSUER != 'https://auth-e2e.localhost/realms/prp-mcp'):
         raise RuntimeError('CRUD runner requires disposable exact-client authentication')
     base = 'https://prp-e2e.localhost'
+    parity = os.environ.get('MCP_E2E_UNIFIED_PARITY') == 'true'
+    scopes = SCOPES + (['prp.finance.read', 'prp.wellness.read'] if parity else [])
     flow.json_response(flow.request(opener, base+'/api/mcp/clients', bearer=prp_jwt,
-        data={'clientId':flow.CLIENT,'scopes':SCOPES,'password':password}), 'Synthetic CRUD grant')
+        data={'clientId':flow.CLIENT,'scopes':scopes,'password':password}), 'Synthetic CRUD grant')
     code, verifier = flow.code_pkce(opener, 'e2e-keycloak-owner', login_password,
-                                     requested_scopes='openid '+' '.join(SCOPES))
+                                     requested_scopes='openid '+' '.join(scopes))
     from pathlib import Path
     from ci_static_client_jwt import assertion, ASSERTION_TYPE
     key = os.environ.get('MCP_E2E_EXACT_CLIENT_KEY', '')
@@ -69,7 +71,45 @@ def run(flow, opener, prp_jwt, password, login_password):
     if call('prp_confirm_draft',{'draftId':removed['draftId']})['alreadySaved'] is not True:
         raise RuntimeError('CRUD deletion replay was not idempotent')
     call('prp_task_get',{'taskId':task_id},denied=True)
+    if parity:
+        check_legacy_parity(flow, opener, prp_jwt, call, approve)
     flow.json_response(flow.request(opener,base+'/api/mcp/clients',bearer=prp_jwt,
         data={'clientId':flow.CLIENT,'scopes':['prp.tasks.read'],'password':password}), 'Reduce synthetic client scopes')
     call('prp_prepare_task',{'moduleCode':'work','title':'Must be denied'},denied=True)
+    if parity:
+        call('prp_finance_month', {'month': '2026-01'}, denied=True)
+        call('prp_wellness_daily', {'date': '2026-01-15'}, denied=True)
     print('PASS E2E CRUD: real OAuth task create/read/update/delete, owner approval, replay and scope reduction.')
+
+
+def check_legacy_parity(flow, opener, owner_token, call, approve):
+    base = 'https://prp-e2e.localhost'
+    day = '2026-01-15'
+    month = '2026-01'
+    marker = 'Synthetic Unified Staging parity'
+    flow.json_response(flow.request(opener, base+'/api/wellness/exercises', bearer=owner_token,
+        data={'performedOn': day, 'name': marker, 'durationMinutes': 23}), 'Synthetic exercise')
+    if call('prp_wellness_daily', {'date': day})['exerciseMinutes'] != 23:
+        raise RuntimeError('Wellness scoped readback mismatch')
+
+    finance = call('prp_prepare_finance', {
+        'type': 'expense', 'amount': '12.50', 'category': 'food', 'note': marker, 'date': day,
+    })
+    call('prp_confirm_draft', {'draftId': finance['draftId']}, denied=True)
+    if any(row.get('note') == marker for row in call('prp_finance_month', {'month': month})['transactions']):
+        raise RuntimeError('Finance draft affected the ledger before approval')
+    approve(finance)
+    saved = call('prp_confirm_draft', {'draftId': finance['draftId']})['saved']
+    rows = call('prp_finance_month', {'month': month})['transactions']
+    if sum(row['id'] == saved['id'] and row['note'] == marker for row in rows) != 1:
+        raise RuntimeError('Finance confirmation readback mismatch')
+    if call('prp_confirm_draft', {'draftId': finance['draftId']})['alreadySaved'] is not True:
+        raise RuntimeError('Finance approval replay was not idempotent')
+
+    record = call('prp_prepare_record', {'moduleCode':'life','title':marker,'content':'CI only','date':day})
+    call('prp_confirm_draft', {'draftId': record['draftId']}, denied=True)
+    approve(record)
+    result = call('prp_confirm_draft', {'draftId': record['draftId']})
+    if result['saved']['title'] != marker or call('prp_confirm_draft', {'draftId': record['draftId']})['alreadySaved'] is not True:
+        raise RuntimeError('Personal record confirmation readback or replay mismatch')
+    print('PASS: Unified Staging wellness/finance reads and approved finance/personal-record writes.')

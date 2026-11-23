@@ -42,3 +42,41 @@ test('future declared SQL registers without changing the legacy manifest; tamper
     rmSync(scratch, { recursive: true, force: true })
   }
 })
+
+test('two distinct migration files cannot claim the same future V30 version', () => {
+  const parent = realpathSync(tmpdir())
+  const scratch = mkdtempSync(join(parent, 'matrix-policy-test-'))
+  try {
+    mkdirSync(join(scratch, 'app/scripts'), { recursive: true })
+    mkdirSync(join(scratch, 'app/deploy'), { recursive: true })
+    cpSync(join(root, 'app/docker/mysql/init'), join(scratch, 'app/docker/mysql/init'), { recursive: true })
+    const migrations = join(scratch, 'app/backend/src/main/resources/db/migration')
+    cpSync(join(root, 'app/backend/src/main/resources/db/migration'), migrations, { recursive: true })
+    const verifier = join(scratch, 'app/scripts/verify-db-migrations.mjs')
+    writeFileSync(verifier, readFileSync(join(root, 'app/scripts/verify-db-migrations.mjs')))
+    const policyPath = join(scratch, 'app/deploy/migration-policy.json')
+    const policy = JSON.parse(readFileSync(join(root, 'app/deploy/migration-policy.json'), 'utf8'))
+    const version = 30
+    assert.equal(policy.rules.find(rule => rule.version === version)?.file,
+      'V30__wellness_analysis_details.sql',
+      'V30 must remain allocated to Health in this integration-only candidate')
+    const duplicateName = 'V30__personal_os_goals_and_assertions.sql'
+    const sql = 'CREATE TABLE prp_fake_colliding_goal (id BIGINT PRIMARY KEY);'
+    writeFileSync(join(migrations, duplicateName), sql)
+    writeFileSync(policyPath, JSON.stringify(policy))
+    const run = () => spawnSync(process.execPath, [verifier], { encoding: 'utf8' })
+    const unlisted = run()
+    assert.notEqual(unlisted.status, 0, 'Unlisted duplicate-version SQL must be blocked')
+    policy.rules.push({ version, file: duplicateName, mode: 'create-empty',
+      sha256: createHash('sha256').update(sql).digest('hex'), tables: ['prp_fake_colliding_goal'] })
+    writeFileSync(policyPath, JSON.stringify(policy))
+    const colliding = run()
+    assert.notEqual(colliding.status, 0, 'Duplicate V30 policy entries must be blocked')
+    assert.match(colliding.stderr, /duplicate future migration version/,
+      'The cause must be identified as a migration-version collision')
+  } finally {
+    assert.equal(dirname(scratch), parent)
+    assert.ok(scratch.startsWith(join(parent, 'matrix-policy-test-')))
+    rmSync(scratch, { recursive: true, force: true })
+  }
+})

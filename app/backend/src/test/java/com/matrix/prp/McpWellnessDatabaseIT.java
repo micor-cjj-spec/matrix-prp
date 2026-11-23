@@ -42,6 +42,8 @@ class McpWellnessDatabaseIT {
     // Keep test dates aligned with WellnessService.metrics(), which filters by the owner's timezone.
     LocalDate ownerToday() { return LocalDate.now(java.time.ZoneId.of(wellness.profile().timezone())); }
     @AfterEach void clear() { SecurityContextHolder.clearContext(); }
+    // Match WellnessService.profile() default timezone across UTC/CST midnight.
+    // Runner-local UTC dates differ from the owner's health-day date after 16:00Z.
     McpWellnessSupport.Input input(String entity,String note) {
         return switch(entity) {
             case "meal" -> new McpWellnessSupport.Input(new McpWellnessSupport.Meal(ownerToday(),"LUNCH",note,

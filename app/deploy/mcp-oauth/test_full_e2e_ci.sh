@@ -21,6 +21,32 @@ for secret in "$MCP_E2E_KC_ADMIN_PASSWORD" "$MCP_E2E_KC_USER_PASSWORD" "$MCP_E2E
 done
 backend_pid=""
 cleanup() {
+  local result=$?
+  if [[ "$result" -ne 0 ]] && docker inspect prp-ci-real-keycloak >/dev/null 2>&1; then
+    # Only fixed state/exit-code data, no container logs, secrets, tokens,
+    # environment dumps or health-response bodies.
+    local state status
+    state="$(docker inspect --format '{{.State.Status}}/exit={{.State.ExitCode}}' prp-ci-real-keycloak 2>/dev/null || true)"
+    status="$(curl --noproxy '*' --max-time 5 -s -o /dev/null -w '%{http_code}' \
+      'http://127.0.0.1:18080/realms/prp-mcp/.well-known/openid-configuration' || true)"
+    echo "CI_E2E_KEYCLOAK_CONTAINER_STATE=${state:-unknown}"
+    if [[ "$status" =~ ^[0-9]{3}$ ]]; then
+      echo "CI_E2E_KEYCLOAK_DIRECT_HTTP_STATUS=$status"
+    else
+      echo "CI_E2E_KEYCLOAK_DIRECT_HTTP_STATUS=unavailable"
+    fi
+    # Verify the HTTPS/Nginx path using CA validation and fixed IPv4 routing.
+    # Only safe status codes and container state; never log response bodies.
+    local nginx_state tls_status
+    nginx_state="$(docker inspect --format '{{.State.Status}}/exit={{.State.ExitCode}}' prp-ci-real-nginx 2>/dev/null || true)"
+    echo "CI_E2E_NGINX_CONTAINER_STATE=${nginx_state:-unavailable}"
+    tls_status="$(curl --noproxy '*' --max-time 6 --silent --output /dev/null --write-out '%{http_code}' --cacert "$tmp/certs/ca.pem" --resolve 'auth-e2e.localhost:443:127.0.0.1' 'https://auth-e2e.localhost/realms/prp-mcp/.well-known/openid-configuration' || true)"
+    if [[ "$tls_status" =~ ^[0-9]{3}$ ]]; then
+      echo "CI_E2E_KEYCLOAK_VERIFIED_TLS_HTTP_STATUS=$tls_status"
+    else
+      echo "CI_E2E_KEYCLOAK_VERIFIED_TLS_HTTP_STATUS=unavailable"
+    fi
+  fi
   docker rm -f prp-ci-real-keycloak prp-ci-real-nginx prp-ci-real-mysql >/dev/null 2>&1 || true
   if [[ -n "$backend_pid" ]]; then kill "$backend_pid" >/dev/null 2>&1 || true; fi
 }
@@ -39,7 +65,9 @@ openssl req -x509 -new -newkey rsa:2048 -nodes -days 1 \
 openssl req -new -newkey rsa:2048 -nodes -keyout "$tmp/certs/leaf.key" \
   -out "$tmp/certs/leaf.csr" -subj '/CN=auth-e2e.localhost' >/dev/null 2>&1
 printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
-  'extendedKeyUsage=serverAuth' > "$tmp/certs/leaf.ext"
+  'extendedKeyUsage=serverAuth' \
+  'basicConstraints=critical,CA:FALSE' \
+  'keyUsage=critical,digitalSignature,keyEncipherment' > "$tmp/certs/leaf.ext"
 openssl x509 -req -in "$tmp/certs/leaf.csr" \
   -CA "$tmp/certs/ca.pem" -CAkey "$tmp/certs/ca.key" -CAcreateserial \
   -out "$tmp/certs/leaf.pem" -days 1 -extfile "$tmp/certs/leaf.ext" >/dev/null 2>&1
@@ -112,11 +140,16 @@ mkdir -p "$tmp/import"
 if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
   # Only this disposable import gains write scopes; shared staging/production is untouched.
   python3 - "$tmp/keycloak-realm.json" <<'PY'
-import copy,json,sys
+import copy,json,os,sys
 p=sys.argv[1]
 with open(p) as f:realm=json.load(f)
 prototype=next(s for s in realm['clientScopes'] if s['name']=='prp.write.create')
-for name in ['prp.write.update','prp.write.delete']:
+scopes = ['prp.write.update','prp.write.delete']
+if os.environ.get('MCP_E2E_UNIFIED_PARITY') == 'true':
+    scopes += ['prp.finance.read', 'prp.wellness.read']
+for name in scopes:
+    if any(s['name'] == name for s in realm['clientScopes']):
+        continue
     scope=copy.deepcopy(prototype);scope['name']=name;scope['description']='Synthetic CI '+name
     scope['attributes']['consent.screen.text']=name;realm['clientScopes'].append(scope)
 client=next(c for c in realm['clients'] if c['clientId']=='prp-pkce-probe')
@@ -195,6 +228,8 @@ if __import__('os').environ.get('MCP_E2E_CRUD') == 'true':
     candidate['optionalClientScopes'] = [
         'prp.tasks.read', 'prp.write.create', 'prp.write.status',
         'prp.write.confirm', 'prp.write.update', 'prp.write.delete']
+    if __import__('os').environ.get('MCP_E2E_UNIFIED_PARITY') == 'true':
+        candidate['optionalClientScopes'] += ['prp.finance.read', 'prp.wellness.read']
 realm["clients"].append(candidate)
 path.write_text(json.dumps(realm), encoding="utf-8")
 print("CI_EXACT_CHATGPT_CLIENT_ID_SAME_REALM_REGISTERED_WITH_SYNTHETIC_TEST_KEY=YES")
@@ -280,6 +315,44 @@ PY_BROWSER_NGINX
   echo "E2E Chromium: review-branch Vue build mounted read-only under /prp/."
 fi
 
+# Use the candidate gateway only in the disposable Unified Staging browser job.
+if [[ "${MCP_E2E_UNIFIED_READONLY:-false}" == "true" || "${MCP_E2E_UNIFIED_PARITY:-false}" == "true" ]]; then
+  [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" ]] || exit 2
+  if [[ "${MCP_E2E_UNIFIED_PARITY:-false}" == "true" ]]; then
+    [[ "${MCP_E2E_CRUD:-false}" == "true" &&
+       "${MCP_E2E_EXACT_CHATGPT:-false}" == "true" &&
+       "${MCP_E2E_UNIFIED_READONLY:-false}" != "true" ]] || exit 2
+  else
+    [[ "${MCP_E2E_CHROMIUM:-false}" == "true" && "${MCP_E2E_CRUD:-false}" != "true" ]] || exit 2
+  fi
+  python3 - "$tmp/nginx/default.conf" <<'PY_UNIFIED_GATEWAY'
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+path = Path(sys.argv[1])
+original = path.read_text(encoding="utf-8")
+start = "server {\n    listen 127.0.0.1:443 ssl;\n    server_name prp-e2e.localhost;"
+if original.count(start) != 1:
+    raise SystemExit("Expected exactly one disposable PRP vhost")
+gateway = subprocess.check_output(
+    [sys.executable, "app/deploy/unified-staging/render_mcp_readonly_gateway.py"]
+    + (["--legacy-approval"] if os.environ.get("MCP_E2E_UNIFIED_PARITY") == "true" else []),
+    text=True,
+)
+gateway = gateway.replace("listen 8080;", """listen 127.0.0.1:443 ssl;
+    ssl_certificate /etc/nginx/certs/leaf.pem;
+    ssl_certificate_key /etc/nginx/certs/leaf.key;""", 1)
+gateway = gateway.replace("${PRP_STAGE_HOST}", "prp-e2e.localhost")
+gateway = gateway.replace("http://backend:8080", "http://127.0.0.1:8080")
+path.write_text(original.split(start, 1)[0] + gateway, encoding="utf-8")
+PY_UNIFIED_GATEWAY
+  if [[ "${MCP_E2E_CHROMIUM:-false}" == "true" ]]; then
+    web_mount=(-v "${PWD}/app/web/dist:/usr/share/nginx/html:ro")
+  fi
+fi
+
 docker run --rm --network host \
   -v "$tmp/nginx:/etc/nginx/conf.d:ro" -v "$tmp/certs:/etc/nginx/certs:ro" \
   "${web_mount[@]}" \
@@ -358,6 +431,9 @@ if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
   # Only disposable CI can advertise write tools; production remains default OFF.
   export MATRIX_PRP_MCP_WRITE_ENABLED="true"
   export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="prp.tasks.read,prp.write.create,prp.write.status,prp.write.confirm,prp.write.update,prp.write.delete"
+  if [[ "${MCP_E2E_UNIFIED_PARITY:-false}" == "true" ]]; then
+    export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="$MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES,prp.finance.read,prp.wellness.read"
+  fi
   # The freshly created disposable schema bootstraps exactly owner ID 1.
   # Keep the real application's exact-client and account allowlist checks.
   [[ "${MCP_E2E_EXACT_CHATGPT:-false}" == "true" ]] || {
@@ -390,10 +466,10 @@ java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
   > "$tmp/prp-backend.log" 2>&1 &
 backend_pid="$!"
 
+# Exercise synthetic TLS/proxy/redirect guard before isolated browser PKCE.
+python3 -m unittest discover -s app/deploy/mcp-oauth -p test_ci_callback.py -q
+
 # Only generic PASS/failure step names are printed by the browser driver.
-# If isolated readiness fails, emit only bounded non-secret diagnostics:
-# Keycloak container state and HTTP status of synthetic public OIDC discovery.
-# Never print Docker logs, realm payloads, tokens, credentials or response bodies.
 if ! python3 app/deploy/mcp-oauth/ci_pkce_browser.py; then
   kc_state="$(docker inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' prp-ci-real-keycloak 2>/dev/null || true)"
   [[ -n "$kc_state" ]] || kc_state="unavailable"
@@ -409,7 +485,15 @@ echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP proto
 # same disposable HTTPS Keycloak+PRP stack. It removes only the throwaway
 # prior owner link, rebinds with an owner-signed single-use ticket and checks
 # temporary client grant revocation with the new link still present.
-if [[ "${MCP_E2E_CRUD:-false}" != "true" ]]; then
+if [[ "${MCP_E2E_UNIFIED_READONLY:-false}" == "true" ]]; then
+  # The candidate permits OIDC binding and keeps older pairing and approval paths closed.
+  for path in /api/mcp/link /api/mcp/clients/pairing /api/mcp/approval/drafts/ci-only/approve; do
+    status="$(curl --noproxy '*' -sS --max-time 8 --cacert "$MCP_E2E_CA_CERT" \
+      -X POST -o /dev/null -w '%{http_code}' "https://prp-e2e.localhost$path")"
+    [[ "$status" == "404" ]] || { echo "UNIFIED_GATEWAY_DENY_CONTRACT_FAILED" >&2; exit 1; }
+  done
+  echo "PASS: Unified Staging gateway, task-only catalog, owner binding, revocation, and write-route denial."
+elif [[ "${MCP_E2E_CRUD:-false}" != "true" ]]; then
   python3 app/deploy/mcp-oauth/ci_browser_pairing_flow.py
   echo "PASS: public owner browser PKCE pairing and temporary client grant revocation."
 

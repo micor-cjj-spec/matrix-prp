@@ -1,0 +1,45 @@
+name: PRP Unified Staging Disposable Runtime Smoke
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "app/deploy/unified-staging/**"
+      - ".github/workflows/prp-unified-staging-runtime-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-full-app:
+    # Never deploy a remote host. Each PR runner builds and removes its own
+    # MySQL + Java + Web test containers using synthetic-only secrets.
+    if: github.event_name == 'pull_request' && github.base_ref == 'dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Refuse non-ephemeral runners and validate script syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$GITHUB_EVENT_NAME" = "pull_request"
+          test "$GITHUB_BASE_REF" = "dev"
+          bash -n app/deploy/unified-staging/smoke_disposable.sh
+      - name: Build + boot + verify + destroy disposable PRP Staging candidate
+        shell: bash
+        env:
+          PRP_EXPORT_TESTED_IMAGES: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'staging/unified-396-integration' }}
+        run: bash app/deploy/unified-staging/smoke_disposable.sh
+      - name: Upload tested images for isolated Staging review
+        if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'staging/unified-396-integration'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prp-unified-staging-tested-images
+          path: ${{ runner.temp }}/prp-unified-staging-images/
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error

@@ -65,16 +65,17 @@ test('mobile chat has definite constrained flex height for touch scrolling', () 
   assert.match(view, /\.prp-chat-messages\{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch/)
 })
 
-test('mobile form inputs do not trigger iOS focus zoom and app viewport stays fixed', () => {
+test('mobile inputs avoid involuntary focus zoom while allowing user pinch zoom', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
   const css = readFileSync(new URL('../src/styles/main.css', import.meta.url), 'utf8')
   const chat = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
   const boot = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
-  assert.match(html, /name="viewport" content="[^"]*maximum-scale=1\.0[^"]*user-scalable=no/)
-  assert.match(css, /touch-action: pan-x pan-y/)
+  assert.match(html, /name="viewport" content="[^"]*width=device-width[^"]*viewport-fit=cover/)
+  assert.doesNotMatch(html, /(?:maximum-scale|minimum-scale|user-scalable)\s*=/)
+  assert.doesNotMatch(css, /html\s*\{[^}]*touch-action\s*:\s*(?:none|pan-x|pan-y)/s)
   assert.match(css, /\.el-textarea__inner[\s\S]*?font-size: 16px !important/)
   assert.match(chat, /:deep\(\.chat-input \.el-textarea__inner\)\{font-size:16px\}/)
-  assert.match(boot, /addEventListener\('gesturestart', event => event\.preventDefault\(\)/)
+  assert.doesNotMatch(boot, /addEventListener\(['"]gesturestart['"]/)
 })
 
 test('mobile navigation follows keyboard visibility rather than textarea focus', () => {
@@ -349,4 +350,104 @@ test('AI and manual meal editors support thirty items and pending card additions
   assert.match(card, /items\.length \}\} \/ 30/)
   assert.match(dialog, /meal\.items\.length < 30/)
   assert.match(wellness, /draftItems\.value\.length > 30/)
+})
+
+
+test('chat authentication transitions erase owner messages and reject delayed old-account responses', () => {
+  const view = readFileSync(new URL('../src/views/ChatView.vue', import.meta.url), 'utf8')
+  const section = view.slice(view.indexOf('watch(() => auth.token,'), view.indexOf('const streamError = ref('))
+  assert.match(section, /\+\+chatAuthGeneration/)
+  assert.match(section, /controller\?\.abort\(\)/)
+  assert.match(section, /\+\+activeSelectionRequest/)
+  for (const field of ['selectedId.value = null','messages.value = []','blocksByMessage.value = {}',
+    'conversations.value = []','selectedScopes.value = []','preview.value = null',
+    'usage.value = null','settings.value = null','chatPhoto.value = null']) {
+    assert.ok(section.includes(field), `missing auth boundary cleanup: ${field}`)
+  }
+  for (const fn of ['loadSettings','refresh','loadMoreConversations','select','loadOlder',
+    'prepareInlineDiet','confirmPreviousHealthDraft','send']) {
+    const start = view.indexOf(`async function ${fn}(`)
+    assert.ok(start >= 0, `missing ${fn}`)
+    const tail = view.slice(start, start + 3200)
+    assert.match(tail, /chatAuthGeneration/, `${fn} must enforce owner-epoch validity`)
+  }
+  assert.match(view, /if \(generation !== chatAuthGeneration\) return/)
+})
+
+test('wellness macro trends preserve old calorie data and refresh after label verification', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const api = readFileSync(new URL('../src/api/wellness.ts', import.meta.url), 'utf8')
+  assert.match(api, /nutritionTrends:.*get<NutritionTrendPoint\[\]>/)
+  assert.match(view, /const \[energy, nutrients\] = await Promise\.allSettled\(/)
+  assert.match(view, /trend\.value = energy\.status === 'fulfilled' \? energy\.value : \[\]/)
+  assert.match(view, /nutritionTrendUnavailable\.value = nutrients\.status === 'rejected'/)
+  const labelFlow = view.slice(view.indexOf('async function submitLabelReview()'), view.indexOf('async function openAnalysis('))
+  assert.match(labelFlow, /ElMessage\.success\('已按实际食用克数计算营养，并保存人工核实版本'\)\s+try \{\s+await Promise\.all\(\[loadDay\(true\), loadTrend\(\)\]\)/)
+  assert.match(labelFlow, /ElMessage\.warning\('营养标签已核实，但页面刷新失败/)
+  assert.match(view, /v-model="trendMetric"/)
+  assert.match(view, /@keydown\.enter\.prevent="selectedTrendDay = point\.date"/)
+  assert.match(view, /class="bar-value"\s+:class="\{ 'bar-zero': trendValue\(point\) === 0 \}"/)
+})
+
+
+test('wellness copy retry is one event while daily macro trends refresh after confirmed copy', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const api = readFileSync(new URL('../src/api/wellness.ts', import.meta.url), 'utf8')
+  assert.match(api, /copyMeal: \(id: number, date: string, idempotencyKey\?: string\)/)
+  assert.match(view, /const copyRetryKeys = new Map<string, string>\(\)/)
+  assert.match(view, /function wellnessToday\(\): string \{\s*return dateInTimeZone\(profile\.timezone\)/)
+  const dateHelper = readFileSync(new URL('../src/utils/wellnessDate.ts', import.meta.url), 'utf8')
+  assert.match(dateHelper, /timeZone, year: 'numeric'/)
+  assert.match(dateHelper, /\.formatToParts\(now\)/)
+  assert.match(view, /const targetDate = wellnessToday\(\)/)
+  assert.match(view, /const request = \`\$\{meal\.id\}:\$\{targetDate\}\`/)
+  assert.match(view, /copyRetryKeys\.get\(request\) \?\? crypto\.randomUUID\(\)/)
+  assert.match(view, /await wellnessApi\.copyMeal\(meal\.id, targetDate, key\)/)
+  assert.match(view, /copyRetryKeys\.delete\(request\)/)
+  const copyFlow = view.slice(view.indexOf('async function copyMeal(meal: Meal)'), view.indexOf('let trendRequestVersion'))
+  assert.match(copyFlow, /copyRetryKeys\.delete\(request\)[\s\S]*?try \{\s*await Promise\.all\(\[loadDay\(true\), loadTrend\(\)\]\)/)
+  assert.match(copyFlow, /catch \{\s*ElMessage\.warning\('加餐已保存，但页面刷新失败；请刷新页面查看，勿重复复制'\)/)
+  assert.match(copyFlow, /catch \{\s*ElMessage\.error\('复制请求未确认，请重试；已保存的加餐不会重复创建'\)/)
+  assert.match(view, /async function loadDay\(strict = false\)/)
+  assert.match(view, /if \(strict\) throw error/)
+  assert.match(view, /:disabled="copyingMealId !== null"/)
+  assert.match(view, /const \[energy, nutrients\] = await Promise\.allSettled\(/)
+})
+
+
+test('confirmed manual meal save never asks to resubmit when subsequent refresh fails', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const saveFlow = view.slice(view.indexOf('async function saveMeal()'), view.indexOf('async function deleteMeal('))
+  assert.match(saveFlow, /mealSubmissionKey\.value = null[\s\S]*?try \{\s*await Promise\.all\(\[loadDay\(true\), wellnessApi\.frequent\(/)
+  assert.match(saveFlow, /catch \{\s*ElMessage\.warning\('餐食已保存，但页面刷新失败；请刷新页面查看，勿重新提交'\)/)
+  assert.match(saveFlow, /catch \{[\s\S]*?ElMessage\.error\('餐食保存请求未确认，请重试；若已保存不会重复创建'\)/)
+  assert.match(view, /async function loadDay\(strict = false\)/)
+  assert.match(view, /if \(strict\) throw error/)
+})
+
+test('confirmed label verification and deletion stay confirmed if only refresh fails', () => {
+  const view = readFileSync(new URL('../src/views/WellnessView.vue', import.meta.url), 'utf8')
+  const labelFlow = view.slice(view.indexOf('async function submitLabelReview()'), view.indexOf('async function openAnalysis('))
+  assert.match(labelFlow, /await wellnessApi\.verifyMealLabel\([\s\S]*?ElMessage\.success\('已按实际食用克数计算营养，并保存人工核实版本'\)/)
+  assert.match(labelFlow, /try \{\s*await Promise\.all\(\[loadDay\(true\), loadTrend\(\)\]\)\s*\} catch \{\s*ElMessage\.warning\('营养标签已核实，但页面刷新失败/)
+  assert.match(labelFlow, /ElMessage\.error\(message \|\| '营养标签核实请求未确认，请刷新页面核对后再重试'\)/)
+  const deleteFlow = view.slice(view.indexOf('async function deleteMeal(meal: Meal)'), view.indexOf('const copyingMealId'))
+  assert.match(deleteFlow, /try \{\s*await wellnessApi\.deleteMeal\(meal\.id\)\s*\} catch \{[\s\S]*?return\s*\}/)
+  assert.match(deleteFlow, /ElMessage\.success\('已删除'\)\s*try \{\s*await Promise\.all\(\[loadDay\(true\), loadTrend\(\)\]\)/)
+  assert.match(deleteFlow, /catch \{\s*ElMessage\.warning\('餐食已删除，但页面刷新失败/)
+})
+
+test('mobile visual viewport distinguishes pinch zoom from actual keyboard occlusion', async () => {
+  const { isMobileKeyboardVisible } = await import('../src/utils/mobileViewport.ts')
+  // A virtual keyboard reduces viewport space even when zoom is 100%.
+  assert.equal(isMobileKeyboardVisible(844, { height: 520, offsetTop: 0, scale: 1 }), true)
+  // Address-bar resizing and the unoccluded viewport are not a keyboard.
+  assert.equal(isMobileKeyboardVisible(844, { height: 755, offsetTop: 0, scale: 1 }), false)
+  assert.equal(isMobileKeyboardVisible(844, { height: 844, offsetTop: 0, scale: 1 }), false)
+  // 200% pinch zoom halves the visual height but must not hide bottom tabs.
+  assert.equal(isMobileKeyboardVisible(844, { height: 422, offsetTop: 0, scale: 2 }), false)
+  assert.equal(isMobileKeyboardVisible(844, { height: 380, offsetTop: 30, scale: 2 }), false)
+  // A genuine keyboard while zoomed still occupies additional physical pixels.
+  assert.equal(isMobileKeyboardVisible(844, { height: 265, offsetTop: 20, scale: 2 }), true)
+  assert.equal(isMobileKeyboardVisible(844, null), false)
 })
