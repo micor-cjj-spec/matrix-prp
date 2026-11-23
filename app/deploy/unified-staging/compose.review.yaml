@@ -73,10 +73,13 @@ services:
     volumes:
       # Overrides the legacy MCP-enabled template only inside this review service.
       - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
-    networks: [unified_private]
+    networks: [unified_private, unified_ingress]
     security_opt: [no-new-privileges:true]
 
 networks:
+  # Allows the published loopback listener without attaching the app or DB.
+  unified_ingress:
+    driver: bridge
   unified_private:
     driver: bridge
     internal: true

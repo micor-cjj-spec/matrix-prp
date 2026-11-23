@@ -103,6 +103,8 @@ class UnifiedStageReviewTests(unittest.TestCase):
         self.assertIn("name: prp-unified-stage-review", src)
         self.assertIn("matrix_prp_unified_stage", src)
         self.assertIn('internal: true', src)
+        self.assertEqual(src.count('networks: [unified_private]'), 2)
+        self.assertEqual(src.count('networks: [unified_private, unified_ingress]'), 1)
         self.assertIn("127.0.0.1:${PRP_UNIFIED_LOOPBACK_PORT", src)
         self.assertIn('MATRIX_PRP_MCP_ENABLED: "false"', src)
         self.assertIn('MATRIX_PRP_MCP_OAUTH_ENABLED: "false"', src)

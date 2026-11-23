@@ -123,6 +123,12 @@ if [[ "$actual" != "$expected" ]]; then
 fi
 echo "PASS: disposable fresh DB Flyway matches reviewed migration policy"
 
+mapfile -t running_ids < <("${compose[@]}" ps --status running --quiet)
+if [[ "${#running_ids[@]}" == 3 ]]; then
+  echo "Disposable resource snapshot after successful probes (not a peak measurement)"
+  docker stats --no-stream --format '{{.Name}} cpu={{.CPUPerc}} memory={{.MemUsage}}' "${running_ids[@]}" || true
+fi
+
 # This tests a disposable baseline source, NOT full feature candidate integration,
 # a persistent staging host, iPhone Safari or production release readiness.
 echo "PASS: unified Staging CI disposable boot and basic isolation only"
