@@ -110,21 +110,44 @@ export function verifyRequirementClose(snapshot, acceptance){
 }
 
 
+/**
+ * Final close is allowed only after a same-repo dev -> main PR has merged.
+ * Every accepted task must already have landed in the protected integration
+ * history, which must be an ancestor of the exact tested dev PR head.
+ * Read-only proof; this function NEVER writes the state or grants release.
+ */
 export function verifyIntegrationRelease(snapshot,command,proof){
   validateSnapshot(snapshot)
   check(snapshot.tasks.every(t=>t.status==='DONE'),'INCOMPLETE_REQUIREMENT')
   check(Number.isInteger(command.pr_number) && SHA.test(command.head_sha),'MISSING_INTEGRATION_PR')
-  const {pr,branch,comparison,checks}=proof ?? {}
-  check(pr?.number===command.pr_number&&pr?.head?.sha===command.head_sha,'WRONG_PR_OR_HEAD')
-  check(pr?.head?.ref==='integrate/'+snapshot.requirement_id &&
-        pr?.head?.repo?.full_name==='micor-cjj-spec/matrix-prp' &&
-        pr?.base?.ref==='main'&&pr?.base?.repo?.full_name==='micor-cjj-spec/matrix-prp',
+  const {pr,branch,comparison,checks,integrationBranch,integrationComparison}=proof ?? {}
+  const repo='micor-cjj-spec/matrix-prp'
+  const integration='integrate/'+snapshot.requirement_id
+  check(pr?.number===command.pr_number && pr?.head?.sha===command.head_sha,'WRONG_PR_OR_HEAD')
+  check(pr?.head?.ref==='dev' && pr?.head?.repo?.full_name===repo &&
+        pr?.base?.ref==='main' && pr?.base?.repo?.full_name===repo,
         'WRONG_MAIN_RELEASE_TARGET')
-  check(pr?.merged===true&&exactIso(pr?.merged_at)&&SHA.test(pr?.merge_commit_sha),'PR_NOT_MERGED')
-  check(branch?.name==='main'&&branch?.protected===true&&SHA.test(branch?.commit?.sha),'MAIN_NOT_PROTECTED')
-  check((comparison?.status==='ahead'||comparison?.status==='identical')&&
-    comparison.behind_by===0&&comparison.base_commit?.sha===pr.merge_commit_sha&&
-    comparison.merge_base_commit?.sha===pr.merge_commit_sha,'MERGE_NOT_ON_BASE')
+  check(pr?.merged===true && exactIso(pr?.merged_at) &&
+        SHA.test(pr?.merge_commit_sha),'PR_NOT_MERGED')
+  check(branch?.name==='main' && branch?.protected===true &&
+        SHA.test(branch?.commit?.sha),'MAIN_NOT_PROTECTED')
+  check((comparison?.status==='ahead'||comparison?.status==='identical') &&
+        comparison.behind_by===0 &&
+        comparison.base_commit?.sha===pr.merge_commit_sha &&
+        comparison.merge_base_commit?.sha===pr.merge_commit_sha &&
+        Array.isArray(comparison.commits),'MERGE_NOT_ON_BASE')
+  check(integrationBranch?.name===integration &&
+        integrationBranch?.protected===true &&
+        SHA.test(integrationBranch?.commit?.sha),'INTEGRATION_BRANCH_NOT_PROTECTED')
+  check((integrationComparison?.status==='ahead' ||
+         integrationComparison?.status==='identical') &&
+        integrationComparison.behind_by===0 &&
+        integrationComparison.base_commit?.sha===integrationBranch.commit.sha &&
+        integrationComparison.merge_base_commit?.sha===integrationBranch.commit.sha &&
+        Array.isArray(integrationComparison.commits),
+        'INTEGRATION_NOT_IN_DEV_ANCESTRY')
   verifyCheckSet(checks,command.head_sha)
-  return Object.freeze({integration_pr:command.pr_number,verified:true,main_sha:branch.commit.sha})
+  return Object.freeze({integration_pr:command.pr_number,verified:true,
+    main_sha:branch.commit.sha,dev_head_sha:command.head_sha,
+    accepted_integration_sha:integrationBranch.commit.sha})
 }
