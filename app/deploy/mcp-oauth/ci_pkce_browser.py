@@ -431,7 +431,11 @@ def verify_exact_client_rejects_broad_scopes(opener):
             or os.environ.get("MCP_E2E_FIRST_PARTY") != "true"
             or ISSUER != "https://auth-e2e.localhost/realms/prp-mcp"):
         raise RuntimeError("SCOPE_NEGATIVE_DISPOSABLE_CI_ONLY")
-    forbidden_scopes = ["prp.finance.read", "prp.wellness.read"]
+    if os.environ.get("MCP_E2E_UNIFIED_PARITY") == "true":
+        # The disposable parity client explicitly allows both legacy read scopes.
+        forbidden_scopes = ["prp.records.read", "prp.wellness.write.create"]
+    else:
+        forbidden_scopes = ["prp.finance.read", "prp.wellness.read"]
     if os.environ.get('MCP_E2E_CRUD') != 'true':
         forbidden_scopes.append('prp.write.create')
     for forbidden in forbidden_scopes:
