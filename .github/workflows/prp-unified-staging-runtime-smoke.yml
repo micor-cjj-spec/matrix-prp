@@ -31,4 +31,15 @@ jobs:
           bash -n app/deploy/unified-staging/smoke_disposable.sh
       - name: Build + boot + verify + destroy disposable PRP Staging candidate
         shell: bash
+        env:
+          PRP_EXPORT_TESTED_IMAGES: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'staging/unified-396-integration' }}
         run: bash app/deploy/unified-staging/smoke_disposable.sh
+      - name: Upload tested images for isolated Staging review
+        if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'staging/unified-396-integration'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prp-unified-staging-tested-images
+          path: ${{ runner.temp }}/prp-unified-staging-images/
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error

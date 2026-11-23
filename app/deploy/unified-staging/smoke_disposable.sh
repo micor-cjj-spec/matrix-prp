@@ -132,3 +132,22 @@ fi
 # This tests a disposable baseline source, NOT full feature candidate integration,
 # a persistent staging host, iPhone Safari or production release readiness.
 echo "PASS: unified Staging CI disposable boot and basic isolation only"
+
+# Only the same-repository integration PR exports its tested runtime images.
+if [[ "${PRP_EXPORT_TESTED_IMAGES:-}" == true ]]; then
+  bundle="$RUNNER_TEMP/prp-unified-staging-images"
+  mkdir -m 700 -- "$bundle"
+  images=()
+  for service in backend gateway mysql; do
+    container_id="$("${compose[@]}" ps --quiet "$service")"
+    image_id="$(docker inspect --format '{{.Image}}' "$container_id")"
+    [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
+    image_ref="prp-unified-staging-$service:$(git rev-parse --short=12 HEAD)"
+    docker tag "$image_id" "$image_ref"
+    images+=("$image_ref")
+    printf '%s %s %s\\n' "$service" "$image_ref" "$image_id" >> "$bundle/IMAGE-IDS"
+  done
+  git rev-parse HEAD HEAD^{tree} > "$bundle/SOURCE"
+  docker save "${images[@]}" | gzip -1 > "$bundle/images.tar.gz"
+  (cd "$bundle" && sha256sum SOURCE IMAGE-IDS images.tar.gz > SHA256SUMS)
+fi
