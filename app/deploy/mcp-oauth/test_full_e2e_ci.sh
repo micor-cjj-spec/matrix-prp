@@ -21,6 +21,32 @@ for secret in "$MCP_E2E_KC_ADMIN_PASSWORD" "$MCP_E2E_KC_USER_PASSWORD" "$MCP_E2E
 done
 backend_pid=""
 cleanup() {
+  local result=$?
+  if [[ "$result" -ne 0 ]] && docker inspect prp-ci-real-keycloak >/dev/null 2>&1; then
+    # Only fixed state/exit-code data, no container logs, secrets, tokens,
+    # environment dumps or health-response bodies.
+    local state status
+    state="$(docker inspect --format '{{.State.Status}}/exit={{.State.ExitCode}}' prp-ci-real-keycloak 2>/dev/null || true)"
+    status="$(curl --noproxy '*' --max-time 5 -s -o /dev/null -w '%{http_code}' \
+      'http://127.0.0.1:18080/realms/prp-mcp/.well-known/openid-configuration' || true)"
+    echo "CI_E2E_KEYCLOAK_CONTAINER_STATE=${state:-unknown}"
+    if [[ "$status" =~ ^[0-9]{3}$ ]]; then
+      echo "CI_E2E_KEYCLOAK_DIRECT_HTTP_STATUS=$status"
+    else
+      echo "CI_E2E_KEYCLOAK_DIRECT_HTTP_STATUS=unavailable"
+    fi
+    # Verify the HTTPS/Nginx path using CA validation and fixed IPv4 routing.
+    # Only safe status codes and container state; never log response bodies.
+    local nginx_state tls_status
+    nginx_state="$(docker inspect --format '{{.State.Status}}/exit={{.State.ExitCode}}' prp-ci-real-nginx 2>/dev/null || true)"
+    echo "CI_E2E_NGINX_CONTAINER_STATE=${nginx_state:-unavailable}"
+    tls_status="$(curl --noproxy '*' --max-time 6 --silent --output /dev/null --write-out '%{http_code}' --cacert "$tmp/certs/ca.pem" --resolve 'auth-e2e.localhost:443:127.0.0.1' 'https://auth-e2e.localhost/realms/prp-mcp/.well-known/openid-configuration' || true)"
+    if [[ "$tls_status" =~ ^[0-9]{3}$ ]]; then
+      echo "CI_E2E_KEYCLOAK_VERIFIED_TLS_HTTP_STATUS=$tls_status"
+    else
+      echo "CI_E2E_KEYCLOAK_VERIFIED_TLS_HTTP_STATUS=unavailable"
+    fi
+  fi
   docker rm -f prp-ci-real-keycloak prp-ci-real-nginx prp-ci-real-mysql >/dev/null 2>&1 || true
   if [[ -n "$backend_pid" ]]; then kill "$backend_pid" >/dev/null 2>&1 || true; fi
 }
@@ -39,7 +65,9 @@ openssl req -x509 -new -newkey rsa:2048 -nodes -days 1 \
 openssl req -new -newkey rsa:2048 -nodes -keyout "$tmp/certs/leaf.key" \
   -out "$tmp/certs/leaf.csr" -subj '/CN=auth-e2e.localhost' >/dev/null 2>&1
 printf '%s\n' 'subjectAltName=DNS:auth-e2e.localhost,DNS:prp-e2e.localhost' \
-  'extendedKeyUsage=serverAuth' > "$tmp/certs/leaf.ext"
+  'extendedKeyUsage=serverAuth' \
+  'basicConstraints=critical,CA:FALSE' \
+  'keyUsage=critical,digitalSignature,keyEncipherment' > "$tmp/certs/leaf.ext"
 openssl x509 -req -in "$tmp/certs/leaf.csr" \
   -CA "$tmp/certs/ca.pem" -CAkey "$tmp/certs/ca.key" -CAcreateserial \
   -out "$tmp/certs/leaf.pem" -days 1 -extfile "$tmp/certs/leaf.ext" >/dev/null 2>&1
@@ -390,10 +418,10 @@ java -Djavax.net.ssl.trustStore="$tmp/java-truststore.p12" \
   > "$tmp/prp-backend.log" 2>&1 &
 backend_pid="$!"
 
+# Exercise synthetic TLS/proxy/redirect guard before isolated browser PKCE.
+python3 -m unittest discover -s app/deploy/mcp-oauth -p test_ci_callback.py -q
+
 # Only generic PASS/failure step names are printed by the browser driver.
-# If isolated readiness fails, emit only bounded non-secret diagnostics:
-# Keycloak container state and HTTP status of synthetic public OIDC discovery.
-# Never print Docker logs, realm payloads, tokens, credentials or response bodies.
 if ! python3 app/deploy/mcp-oauth/ci_pkce_browser.py; then
   kc_state="$(docker inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' prp-ci-real-keycloak 2>/dev/null || true)"
   [[ -n "$kc_state" ]] || kc_state="unavailable"

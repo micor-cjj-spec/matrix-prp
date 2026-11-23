@@ -1,6 +1,7 @@
 import test from 'node:test'
 import { loadTaskResources } from '../src/utils/taskLoading.ts'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   filterAndRankTasks, getNextTask, taskProgress, moduleTaskProgress,
 } from '../src/utils/taskPlanning.ts'
@@ -101,4 +102,48 @@ test('task view resource loader rejects when the task list itself fails', async 
     async () => ({ openCount: 0 }),
     async () => [{ code: 'work' }],
   ), /task API unavailable/)
+})
+
+test('Personal OS task adoption keeps creation and goal relation as separate owner-confirmed writes', () => {
+  const view = readFileSync(new URL('../src/views/PersonalOsView.vue', import.meta.url), 'utf8')
+  const api = readFileSync(new URL('../src/api/personalOs.ts', import.meta.url), 'utf8')
+  const ontology = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/ontology/PersonalOntology.java', import.meta.url), 'utf8')
+  const guard = readFileSync(new URL('../../backend/src/main/java/com/matrix/prp/ontology/PersonalOntologyReferenceGuard.java', import.meta.url), 'utf8')
+  assert.match(view, /const created = await createTask\(/)
+  assert.match(view, /taskLinkPending\.value = \{/)
+  assert.match(view, /async function confirmGoalTaskLink\(\)/)
+  assert.match(view, /await proposeGoalTaskLink\(/)
+  assert.match(view, /await confirmPersonalMemory\(candidate\.id\)/)
+  assert.match(view, /taskLinkPending\.value !== pending \|\| pending\.ownerToken !== auth\.token/)
+  assert.match(view, /关联尚未确认，可重试；任务已存在，请勿重复创建任务/)
+  assert.match(view, /@click="confirmGoalTaskLink"/)
+  assert.match(view, /link\.predicate === 'ADVANCES' && link\.subjectType === 'TASK'/)
+  assert.match(view, /return `任务 #\$\{link\.subjectRef\}`/)
+  assert.match(view, /\{\{ describeGoalLink\(link\) \}\}/)
+  assert.match(view, /@click="clearPendingTaskLink"/)
+  assert.match(view, /async function openExistingTaskPicker\(\)/)
+  assert.match(view, /fetchTasks\(\), fetchPersonalGoalContext\(goalId\)/)
+  assert.match(view, /stageExistingTaskLink\(\)/)
+  assert.match(view, /task\.status !== 'canceled' && !alreadyLinked\.has\(String\(task\.id\)\)/)
+  assert.match(view, /taskPickerOwnerToken\.value = identity/)
+  assert.match(view, /generation !== taskPickerGeneration \|\| identity !== auth\.token/)
+  assert.match(view, /@click="openExistingTaskPicker"/)
+  assert.match(view, /@click="stageExistingTaskLink"/)
+  assert.match(view, /const latestLinks = await fetchPersonalGoalContext\(pending\.goalId\)/)
+  assert.match(view, /async function openExistingReviewPicker\(\)/)
+  assert.match(view, /fetchReviews\(\), fetchPersonalGoalContext\(goalId\)/)
+  assert.match(view, /async function confirmGoalReviewLink\(\)/)
+  assert.match(view, /@click="openExistingReviewPicker"/)
+  assert.match(view, /@click="stageExistingReviewLink"/)
+  assert.match(view, /@click="confirmGoalReviewLink"/)
+  assert.match(view, /@click="clearPendingReviewLink"/)
+  assert.match(view, /return `复盘 #\$\{link\.subjectRef\}`/)
+  assert.match(view, /const candidate = await proposeGoalReviewLink\(/)
+  assert.match(api, /subjectType: 'REVIEW',[\s\S]*?predicate: 'EVALUATES',[\s\S]*?objectType: 'GOAL'/)
+  assert.match(api, /sourceType: 'REVIEW',[\s\S]*?sensitivity: 'NORMAL'/)
+  assert.match(ontology, /EVALUATES\(NodeType\.REVIEW, NodeType\.GOAL\)/)
+  assert.match(api, /subjectType: 'TASK',[\s\S]*?predicate: 'ADVANCES',[\s\S]*?objectType: 'GOAL'/)
+  assert.match(api, /sourceType: 'TASK',[\s\S]*?sensitivity: 'NORMAL'/)
+  assert.match(ontology, /ADVANCES\(NodeType\.TASK, NodeType\.GOAL\)/)
+  assert.match(guard, /case TASK -> "SELECT 1 FROM prp_tasks WHERE id=\? AND user_id=\? AND deleted=0 LIMIT 1"/)
 })

@@ -21,10 +21,23 @@ const filtered = computed(() => entries.value.filter(item =>
     || groupNames[item.group].includes(query.value.trim()))))
 const favoriteApps = computed(() => entries.value.filter(item => favorites.value.includes(item.code)))
 const categories = computed(() => groupOrder.filter(group => entries.value.some(item => item.group === group)))
+const groupDescriptions: Record<AppGroup, string> = {
+  learning: '视频、练习、声乐与知识积累',
+  health: '饮食、运动、身体指标与目标',
+  life: '计划、日常记录与生活复盘',
+  finance: '个人财务、账户与收支',
+  other: '其余已注册的实用工具',
+}
+const groupedEntries = computed(() => groupOrder
+  .map(group => ({
+    group,
+    items: filtered.value.filter(item => item.group === group),
+  }))
+  .filter(section => section.items.length > 0))
 const icons: Record<string, Component> = {
   learning: Reading, wellness: Food, life: House, finance: Money,
   videos: VideoCamera, practice: Collection, knowledge: Notebook, vocal: Headset,
-  tasks: Tickets, records: Document, reviews: EditPen, tags: CollectionTag,
+  tasks: Tickets, records: Document, reviews: EditPen, tags: CollectionTag, 'personal-os': Notebook,
   notifications: Bell,
 }
 function iconFor(item: AppEntry): Component { return icons[item.code] ?? Grid }
@@ -75,19 +88,34 @@ function toggleFavorite(code: string) {
             :class="{ selected: category === group }" :aria-pressed="category === group"
             @click="category = group">{{ groupNames[group] }}</button>
         </div>
-        <div v-if="filtered.length" class="prp-apps-grid">
-          <div v-for="item in filtered" :key="item.code" class="prp-app-entry">
-            <RouterLink :to="item.route" class="prp-app-card">
-              <span class="prp-app-icon"><el-icon><component :is="iconFor(item)" /></el-icon></span>
-              <span class="prp-app-card-copy"><strong>{{ item.name }}</strong>
-                <small>{{ groupNames[item.group] }} · {{ item.kind === 'domain' ? '应用空间' : '功能工具' }}</small></span>
-            </RouterLink>
-            <button type="button" class="prp-favorite-button" :class="{ selected: favorites.includes(item.code) }"
-              :aria-label="favorites.includes(item.code) ? '取消常用：' + item.name : '添加常用：' + item.name"
-              :aria-pressed="favorites.includes(item.code)" @click="toggleFavorite(item.code)">
-              <el-icon><Star /></el-icon>
-            </button>
-          </div>
+        <div v-if="filtered.length" class="prp-apps-group-list">
+          <section v-for="section in groupedEntries" :key="section.group"
+            class="prp-apps-group" :aria-label="groupNames[section.group] + '应用模块'">
+            <header class="prp-apps-group-heading">
+              <div>
+                <span class="prp-apps-group-mark" aria-hidden="true"></span>
+                <div>
+                  <h3>{{ groupNames[section.group] }}</h3>
+                  <p>{{ groupDescriptions[section.group] }}</p>
+                </div>
+              </div>
+              <span>{{ section.items.length }} 个入口</span>
+            </header>
+            <div class="prp-apps-grid">
+              <div v-for="item in section.items" :key="item.code" class="prp-app-entry">
+                <RouterLink :to="item.route" class="prp-app-card">
+                  <span class="prp-app-icon"><el-icon><component :is="iconFor(item)" /></el-icon></span>
+                  <span class="prp-app-card-copy"><strong>{{ item.name }}</strong>
+                    <small>{{ groupNames[item.group] }} · {{ item.kind === 'domain' ? '应用空间' : '功能工具' }}</small></span>
+                </RouterLink>
+                <button type="button" class="prp-favorite-button" :class="{ selected: favorites.includes(item.code) }"
+                  :aria-label="favorites.includes(item.code) ? '取消常用：' + item.name : '添加常用：' + item.name"
+                  :aria-pressed="favorites.includes(item.code)" @click="toggleFavorite(item.code)">
+                  <el-icon><Star /></el-icon>
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
         <p v-else class="prp-apps-empty">没有找到匹配的应用，试试其他关键词或分类。</p>
       </section>

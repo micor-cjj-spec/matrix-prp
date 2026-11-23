@@ -63,7 +63,10 @@ public class McpToolConfiguration {
         Map.entry("prp_practice_banks", "prp.practice.read"),
         Map.entry("prp_practice_questions", "prp.practice.read"),
         Map.entry("prp_practice_wrong_questions", "prp.practice.read"),
-        Map.entry("prp_practice_statistics", "prp.practice.read")
+        Map.entry("prp_practice_statistics", "prp.practice.read"),
+        Map.entry("prp_goals_list", "prp.personal_os.read"),
+        Map.entry("prp_goal_context", "prp.personal_os.read"),
+        Map.entry("prp_memory_search", "prp.personal_os.read")
     );
     // Extra read tools remain invisible unless the operator explicitly opts in.
     // This protects the existing production nine-tool health manifest.
@@ -72,20 +75,38 @@ public class McpToolConfiguration {
         "prp_wellness_frequent_foods", "prp_wellness_dishes",
         "prp_tasks_search", "prp_records_search",
         "prp_practice_subjects", "prp_practice_banks", "prp_practice_questions",
-        "prp_practice_wrong_questions", "prp_practice_statistics");
+        "prp_practice_wrong_questions", "prp_practice_statistics",
+        "prp_goals_list", "prp_goal_context", "prp_memory_search");
+    static final Set<String> PERSONAL_OS_READ_TOOLS = Set.of(
+        "prp_goals_list", "prp_goal_context", "prp_memory_search");
 
     static Set<String> exposedNames(String configured, boolean writeEnabled) {
-        return exposedNames(configured, writeEnabled, false);
+        return exposedNames(configured, writeEnabled, false, false);
     }
     static Set<String> exposedNames(String configured, boolean writeEnabled, boolean additionalReadToolsEnabled) {
+        return exposedNames(configured, writeEnabled, additionalReadToolsEnabled, false);
+    }
+    // Personal OS requires its own explicit opt-in in addition to the general read-tool gate.
+    static Set<String> exposedNames(String configured, boolean writeEnabled, boolean additionalReadToolsEnabled,
+                                    boolean personalOsReadToolsEnabled) {
         var permitted = Set.copyOf(
             McpOAuthMetadataController.parseAdvertisedScopes(configured, writeEnabled));
         return REQUIRED_SCOPE.entrySet().stream()
             .filter(entry -> !"prp_chatgpt_wellness_approval".equals(entry.getKey()))
             .filter(entry -> additionalReadToolsEnabled || !OPTIONAL_READ_TOOLS.contains(entry.getKey()))
+            .filter(entry -> personalOsReadToolsEnabled || !PERSONAL_OS_READ_TOOLS.contains(entry.getKey()))
             .filter(entry -> permitted.contains(entry.getValue()))
             .map(Map.Entry::getKey)
             .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+    /** Preserve existing direct-invocation test API; no Personal OS tools without a new opt-in. */
+    public List<McpStatelessServerFeatures.SyncToolSpecification> prpMcpSpecifications(
+            PrpMcpTools tools, McpScopeGuard scopeGuard,
+            org.springframework.beans.factory.ObjectProvider<McpClientGrantService> grantProvider,
+            McpDraftService drafts, String resource, boolean oauthEnabled, String advertisedScopes,
+            boolean writeEnabled, boolean chatgptApprovalUiEnabled, boolean additionalReadToolsEnabled) {
+        return prpMcpSpecifications(tools,scopeGuard,grantProvider,drafts,resource,oauthEnabled,
+            advertisedScopes,writeEnabled,chatgptApprovalUiEnabled,additionalReadToolsEnabled,false,false);
     }
     @Bean
     public List<McpStatelessServerFeatures.SyncToolSpecification> prpMcpSpecifications(
@@ -94,7 +115,11 @@ public class McpToolConfiguration {
             @Value("${matrix-prp.mcp.oauth.advertised-scopes:prp.tasks.read}") String advertisedScopes,
             @Value("${matrix-prp.mcp.write-enabled:false}") boolean writeEnabled,
             @Value("${matrix-prp.mcp.chatgpt-health-approval-ui-enabled:false}") boolean chatgptApprovalUiEnabled,
-            @Value("${matrix-prp.mcp.additional-read-tools-enabled:false}") boolean additionalReadToolsEnabled) {
+            @Value("${matrix-prp.mcp.additional-read-tools-enabled:false}") boolean additionalReadToolsEnabled,
+            @Value("${matrix-prp.mcp.personal-os-read-tools-enabled:false}") boolean personalOsReadToolsEnabled,
+            @Value("${matrix-prp.mcp.production-wellness-only:false}") boolean productionWellnessOnly) {
+        if (personalOsReadToolsEnabled && (!oauthEnabled || !additionalReadToolsEnabled || productionWellnessOnly))
+            throw new IllegalStateException("Personal OS MCP requires OAuth, read opt-in and non-health-only mode");
         var definitions = new SyncStatelessMcpToolProvider(List.of(tools)).getToolSpecifications();
         var expected = java.util.Set.of("prp_tasks_list", "prp_task_get", "prp_finance_month",
             "prp_wellness_daily", "prp_prepare_task", "prp_prepare_finance", "prp_prepare_record",
@@ -106,7 +131,8 @@ public class McpToolConfiguration {
             "prp_wellness_frequent_foods", "prp_wellness_dishes",
             "prp_tasks_search", "prp_records_search",
             "prp_practice_subjects", "prp_practice_banks", "prp_practice_questions",
-            "prp_practice_wrong_questions", "prp_practice_statistics");
+            "prp_practice_wrong_questions", "prp_practice_statistics",
+            "prp_goals_list", "prp_goal_context", "prp_memory_search");
         var actual = definitions.stream().map(spec -> spec.tool().name()).collect(java.util.stream.Collectors.toSet());
         if (!REQUIRED_SCOPE.keySet().equals(expected)) {
             throw new IllegalStateException("PRP MCP scope-to-tool registry mismatch");
@@ -117,9 +143,10 @@ public class McpToolConfiguration {
         if (!oauthEnabled) return definitions.stream()
             .filter(spec -> !"prp_chatgpt_wellness_approval".equals(spec.tool().name()))
             .filter(spec -> additionalReadToolsEnabled || !OPTIONAL_READ_TOOLS.contains(spec.tool().name()))
+            .filter(spec -> personalOsReadToolsEnabled || !PERSONAL_OS_READ_TOOLS.contains(spec.tool().name()))
             .toList(); // isolated old test path only; no app-only approval
         McpClientGrantService grants = grantProvider.getObject();
-        Set<String> exposed = exposedNames(advertisedScopes, writeEnabled, additionalReadToolsEnabled);
+        Set<String> exposed = exposedNames(advertisedScopes, writeEnabled, additionalReadToolsEnabled, personalOsReadToolsEnabled);
         String metadataUri = McpOAuthMetadataController.metadataUrl(
             McpOAuthResourceServerConfig.strictHttps(resource, "MCP OAuth resource"));
         return definitions.stream()
