@@ -41,4 +41,3 @@ if __name__ == "__main__":
         raise SystemExit("Usage: render_mcp_readonly_gateway.py > reviewed-gateway.conf.template")
     source = Path(__file__).with_name("nginx.conf.template").read_text(encoding="utf-8")
     sys.stdout.write(render(source))
-
