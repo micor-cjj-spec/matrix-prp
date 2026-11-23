@@ -47,11 +47,15 @@ class McpWellnessChatAppApprovalFlowTests {
     }
 
     private McpDraftService drafts(boolean enabled) {
+        return drafts(enabled, "https://micor.top/api/mcp");
+    }
+
+    private McpDraftService drafts(boolean enabled, String resource) {
         var d = new McpDraftService(db, new ObjectMapper().findAndRegisterModules(),
             Validation.buildDefaultValidatorFactory().getValidator(),
             mock(TaskService.class), mock(FinanceService.class), mock(RecordService.class),
             mock(UserStore.class), mock(PasswordEncoder.class), true,
-            "https://micor.top/api/mcp");
+            resource);
         ReflectionTestUtils.setField(d, "chatgptApprovalUiEnabled", enabled);
         return d;
     }
@@ -72,12 +76,12 @@ class McpWellnessChatAppApprovalFlowTests {
     }
 
     @SuppressWarnings("unchecked")
-    private void stubPendingConfirmQuery() throws Exception {
+    private void stubPendingConfirmQuery(String kind) throws Exception {
         when(db.query(startsWith("SELECT kind,payload_json,result_json,status,expires_at FROM"),
                 any(RowMapper.class), eq(ID), eq(2L))).thenAnswer(call -> {
             RowMapper<?> mapper = call.getArgument(1);
             ResultSet rs = mock(ResultSet.class);
-            when(rs.getString("kind")).thenReturn("WELLNESS_CREATE");
+            when(rs.getString("kind")).thenReturn(kind);
             when(rs.getString("status")).thenReturn("PENDING");
             when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(
                 LocalDateTime.now().plusMinutes(10)));
@@ -87,7 +91,7 @@ class McpWellnessChatAppApprovalFlowTests {
 
     @Test void regularConfirmNeverConsumesPendingEvenWithUiFlagEnabled() throws Exception {
         auth(CLIENT);
-        stubPendingConfirmQuery();
+        stubPendingConfirmQuery("WELLNESS_CREATE");
         assertThatThrownBy(() -> drafts(true).confirm(ID))
             .isInstanceOf(ResponseStatusException.class)
             .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
@@ -148,6 +152,75 @@ class McpWellnessChatAppApprovalFlowTests {
         assertThat(drafts(true).approveFromChatgptUi(ID, "reject").status()).isEqualTo("REJECTED");
         verify(db).update(startsWith("UPDATE prp_mcp_write_drafts SET status='REJECTED'"),
             eq(ID), eq(2L));
+        verify(db, never()).update(startsWith("UPDATE prp_mcp_write_drafts SET status='CONSUMED'"),
+            any(), any(), any());
+    }
+
+    private void taskAuth(String client, Set<String> grants) {
+        var user = new UserProfile(2L, "owner", "Owner");
+        var auth = new UsernamePasswordAuthenticationToken(user, null, List.of(
+            new SimpleGrantedAuthority("SCOPE_prp.write.create"),
+            new SimpleGrantedAuthority("SCOPE_prp.write.confirm")));
+        auth.setDetails(new McpScopeGuard.VerifiedClient(client, grants));
+        SecurityContextHolder.getContext().setAuthentication(auth);
+    }
+
+    @Test void taskApprovalRequiresPendingTaskTestOriginAndBothOwnerGrants() throws Exception {
+        var both = Set.of("prp.write.create", "prp.write.confirm");
+        var candidate = drafts(false, McpTaskApprovalUiConfiguration.TEST_RESOURCE);
+        taskAuth(CLIENT, both);
+        stubPendingApprovalQuery("TASK", "PENDING", false, "");
+        assertThatThrownBy(() -> candidate.approveTaskFromChatgptUi(ID, "approve"))
+            .isInstanceOf(ResponseStatusException.class);
+        ReflectionTestUtils.setField(candidate, "chatgptTaskApprovalUiEnabled", true);
+        taskAuth(CLIENT, Set.of("prp.write.confirm"));
+        assertThatThrownBy(() -> candidate.approveTaskFromChatgptUi(ID, "approve"))
+            .isInstanceOf(ResponseStatusException.class);
+        taskAuth("unreviewed-client", both);
+        assertThatThrownBy(() -> candidate.approveTaskFromChatgptUi(ID, "approve"))
+            .isInstanceOf(ResponseStatusException.class);
+        taskAuth(CLIENT, both);
+        var prod = drafts(false);
+        ReflectionTestUtils.setField(prod, "chatgptTaskApprovalUiEnabled", true);
+        assertThatThrownBy(() -> prod.approveTaskFromChatgptUi(ID, "approve"))
+            .isInstanceOf(ResponseStatusException.class);
+        when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED'"),
+            eq(ID), eq(2L))).thenReturn(1);
+        assertThat(candidate.approveTaskFromChatgptUi(ID, "approve").status()).isEqualTo("APPROVED");
+        verify(db, times(1)).update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED'"),
+            eq(ID), eq(2L));
+    }
+
+    @Test void taskCardRejectsOtherKindsAndNeverWritesARejectedTask() throws Exception {
+        var candidate = drafts(false, McpTaskApprovalUiConfiguration.TEST_RESOURCE);
+        ReflectionTestUtils.setField(candidate, "chatgptTaskApprovalUiEnabled", true);
+        taskAuth(CLIENT, Set.of("prp.write.create", "prp.write.confirm"));
+        for (String kind : List.of("TASK_UPDATE", "TASK_DELETE", "FINANCE", "WELLNESS_CREATE")) {
+            stubPendingApprovalQuery(kind, "PENDING", false, "");
+            assertThatThrownBy(() -> candidate.approveTaskFromChatgptUi(ID, "approve"))
+                .isInstanceOf(ResponseStatusException.class);
+        }
+        stubPendingApprovalQuery("TASK", "PENDING", true, "");
+        assertThatThrownBy(() -> candidate.approveTaskFromChatgptUi(ID, "approve"))
+            .isInstanceOf(ResponseStatusException.class);
+        stubPendingApprovalQuery("TASK", "PENDING", false, "");
+        when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status='REJECTED'"),
+            eq(ID), eq(2L))).thenReturn(1);
+        assertThat(candidate.approveTaskFromChatgptUi(ID, "reject").status()).isEqualTo("REJECTED");
+        verify(db, never()).update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED'"),
+            any(), any());
+        verify(db, never()).update(startsWith("UPDATE prp_mcp_write_drafts SET status='CONSUMED'"),
+            any(), any(), any());
+    }
+
+    @Test void taskCardFlagDoesNotAllowRegularConfirmToSavePendingTask() throws Exception {
+        var candidate = drafts(false, McpTaskApprovalUiConfiguration.TEST_RESOURCE);
+        ReflectionTestUtils.setField(candidate, "chatgptTaskApprovalUiEnabled", true);
+        taskAuth(CLIENT, Set.of("prp.write.create", "prp.write.confirm"));
+        stubPendingConfirmQuery("TASK");
+        assertThatThrownBy(() -> candidate.confirm(ID))
+            .isInstanceOfSatisfying(ResponseStatusException.class,
+                ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
         verify(db, never()).update(startsWith("UPDATE prp_mcp_write_drafts SET status='CONSUMED'"),
             any(), any(), any());
     }

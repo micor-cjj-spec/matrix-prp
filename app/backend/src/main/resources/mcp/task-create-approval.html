@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { color-scheme: light dark; font: 14px/1.55 system-ui, sans-serif; }
+body { margin: 0; padding: 16px; color: CanvasText; background: Canvas; }
+h2 { margin: 0 0 8px; font-size: 17px; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+button { border: 1px solid currentColor; border-radius: 8px; padding: 8px 12px;
+ background: Canvas; color: CanvasText; font: inherit; }
+button:disabled { opacity: .45; }
+</style>
+</head>
+<body>
+<h2>确认新增 PRP 任务</h2>
+<p id="status" role="status">等待任务草稿</p>
+<dl id="preview"></dl>
+<div class="actions">
+  <button id="approve" type="button" disabled>批准并保存</button>
+  <button id="reject" type="button" disabled>拒绝</button>
+</div>
+<script>
+(() => {
+  'use strict';
+  if (window.parent === window) return;
+  const status = document.getElementById('status');
+  const preview = document.getElementById('preview');
+  const approve = document.getElementById('approve');
+  const reject = document.getElementById('reject');
+  const waiting = new Map();
+  let nextId = 1, ready = false, draft = null, settled = false;
+  function show(text) { status.textContent = text; }
+  function setButtons() { approve.disabled = reject.disabled = !ready || !draft || settled; }
+  function send(method, params) {
+    const id = nextId++;
+    return new Promise((resolve, rejectPromise) => {
+      const timeout = setTimeout(() => {
+        waiting.delete(id);
+        rejectPromise(new Error('宿主未返回结果'));
+      }, 15000);
+      waiting.set(id, {resolve, rejectPromise, timeout});
+      window.parent.postMessage({jsonrpc:'2.0', id, method, params}, '*');
+    });
+  }
+  function structured(output) {
+    if (!output || output.error || output.isError) throw new Error('PRP 拒绝了请求');
+    if (output.structuredContent) return output.structuredContent;
+    const first = output.content?.find(item => item?.type === 'text');
+    return first ? JSON.parse(first.text) : output;
+  }
+  function render(output) {
+    if (draft || settled) return;
+    const next = structured(output);
+    if (next.kind !== 'TASK' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(next.draftId)
+        || typeof next.values?.title !== 'string' || !next.values.title.trim()
+        || typeof next.values.moduleCode !== 'string' || !next.values.moduleCode.trim()) return;
+    draft = next.draftId;
+    for (const [key, val] of [
+      ['任务', next.values.title], ['模块', next.values.moduleCode], ['说明', next.values.description],
+      ['优先级', next.values.priority], ['截止日期', next.values.dueDate], ['草稿到期', next.expiresAt]
+    ]) {
+      const label = document.createElement('dt');
+      const value = document.createElement('dd');
+      label.textContent = key;
+      value.textContent = val == null || val === '' ? '—' : String(val);
+      preview.append(label, value);
+    }
+    show('请核对后选择批准或拒绝。');
+    setButtons();
+  }
+  async function call(name, args) {
+    return structured((await send('tools/call', {name, arguments:args})).result);
+  }
+  async function decide(event, decision) {
+    if (!event.isTrusted || !ready || settled || !draft) return;
+    settled = true;
+    setButtons();
+    show('正在处理…');
+    try {
+      const result = await call('prp_chatgpt_task_approval', {draftId:draft, decision});
+      if (decision === 'reject') {
+        if (result.status !== 'REJECTED') throw new Error('拒绝状态未确认');
+        show('已拒绝，未保存任务。');
+        return;
+      }
+      if (result.status !== 'APPROVED') throw new Error('审批状态未确认');
+      const saved = await call('prp_confirm_draft', {draftId:draft});
+      if (saved.draftId !== draft || saved.kind !== 'TASK' || !saved.saved?.id) throw new Error('保存结果未确认');
+      show('任务已保存。');
+    } catch (_) {
+      show('操作结果未确认，请查询草稿状态后再处理。');
+    }
+  }
+  approve.addEventListener('click', event => decide(event, 'approve'));
+  reject.addEventListener('click', event => decide(event, 'reject'));
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || event.data?.jsonrpc !== '2.0') return;
+    const message = event.data;
+    const pending = waiting.get(message.id);
+    if (pending) {
+      waiting.delete(message.id);
+      clearTimeout(pending.timeout);
+      message.error ? pending.rejectPromise(new Error('宿主拒绝请求')) : pending.resolve(message);
+    } else if (message.method === 'ui/notifications/tool-result') {
+      try { render(message.params); } catch (_) { show('未收到可审批的任务草稿。'); }
+    }
+  });
+  send('ui/initialize', {
+    protocolVersion:'2026-01-26', appCapabilities:{}, appInfo:{name:'prp-task-approval',version:'0.1.0'}
+  }).then(response => {
+    if (!response.result?.protocolVersion) return;
+    ready = true;
+    window.parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized',params:{}}, '*');
+    setButtons();
+  }).catch(() => show('审批卡片初始化失败。'));
+  if (window.openai?.toolOutput) {
+    try { render(window.openai.toolOutput); } catch (_) { show('未收到可审批的任务草稿。'); }
+  }
+})();
+</script>
+</body>
+</html>
