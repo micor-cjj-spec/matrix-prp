@@ -98,6 +98,8 @@ public class McpDraftService {
     // Default OFF: app-only, human-click approval flow, never a model-controlled shortcut.
     @Value("${matrix-prp.mcp.chatgpt-health-approval-ui-enabled:false}")
     private boolean chatgptApprovalUiEnabled;
+    @Value("${matrix-prp.mcp.chatgpt-task-approval-ui-enabled:false}")
+    private boolean chatgptTaskApprovalUiEnabled;
 
     public McpDraftService(JdbcTemplate db, ObjectMapper json, Validator validator,
                            TaskService tasks, FinanceService finance, RecordService records,
@@ -203,10 +205,14 @@ public class McpDraftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft");
         }
         String instruction;
-        if (request instanceof McpWellnessSupport.Change change
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (kind == Kind.TASK && chatTaskApprovalEligible(
+                taskApprovalEnabled(), kind.name(), "PENDING", auth)) {
+            instruction = "Review the task in the embedded ChatGPT approval card. Only the "
+                + "app-only approval action can approve the pending draft.";
+        } else if (request instanceof McpWellnessSupport.Change change
                 && "meal".equals(change.entity())
-                && chatApprovalEligible(chatgptApprovalUiEnabled, kind.name(), "PENDING",
-                    org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication())) {
+                && chatApprovalEligible(chatgptApprovalUiEnabled, kind.name(), "PENDING", auth)) {
             instruction = "Review the immutable wellness-create draft in the embedded ChatGPT "
                 + "approval card. The ordinary confirm tool cannot approve pending drafts. "
                 + "Only the app-only approval action can mark this draft approved.";
@@ -308,6 +314,34 @@ public class McpDraftService {
      */
     @Transactional
     public Approval approveFromChatgptUi(String draftId, String decision) {
+        return approveInChat(draftId, decision, false);
+    }
+
+    @Transactional
+    public Approval approveTaskFromChatgptUi(String draftId, String decision) {
+        return approveInChat(draftId, decision, true);
+    }
+
+    private boolean taskApprovalEnabled() {
+        return chatgptTaskApprovalUiEnabled
+            && "https://prp-test.micor.top/prp/".equals(approvalBase);
+    }
+
+    static boolean chatTaskApprovalEligible(boolean enabled, String kind, String status,
+                                            org.springframework.security.core.Authentication auth) {
+        if (!enabled || !Kind.TASK.name().equals(kind) || !"PENDING".equals(status)
+                || auth == null || !auth.isAuthenticated()
+                || !(auth.getDetails() instanceof McpScopeGuard.VerifiedClient client)
+                || !"https://chatgpt.com/oauth/client.json".equals(client.clientId())) {
+            return false;
+        }
+        return java.util.Set.of("prp.write.create", "prp.write.confirm").stream()
+            .allMatch(scope -> client.grantedScopes().contains(scope)
+                && auth.getAuthorities().stream()
+                    .anyMatch(authority -> ("SCOPE_" + scope).equals(authority.getAuthority())));
+    }
+
+    private Approval approveInChat(String draftId, String decision, boolean task) {
         requireWrite();
         validId(draftId);
         if (!"approve".equals(decision) && !"reject".equals(decision))
@@ -322,9 +356,11 @@ public class McpDraftService {
             draftId, owner);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "MCP draft not found");
         var row = rows.getFirst();
-        if (!chatApprovalEligible(chatgptApprovalUiEnabled, row.kind(), row.status(), auth)
-                || !"meal".equals(readJson(row.payload()).path("entity").asText())
-                || !row.expiresAt().isAfter(LocalDateTime.now()))
+        boolean eligible = task
+            ? chatTaskApprovalEligible(taskApprovalEnabled(), row.kind(), row.status(), auth)
+            : chatApprovalEligible(chatgptApprovalUiEnabled, row.kind(), row.status(), auth)
+                && "meal".equals(readJson(row.payload()).path("entity").asText());
+        if (!eligible || !row.expiresAt().isAfter(LocalDateTime.now()))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ChatGPT UI approval not permitted");
         boolean approved = "approve".equals(decision);
         String status = approved ? "APPROVED" : "REJECTED";
