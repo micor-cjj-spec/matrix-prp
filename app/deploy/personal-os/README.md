@@ -27,7 +27,7 @@ The evidence file is strictly limited to fields named in `preview_gate.py`. Ther
 python3 -m unittest discover -s app/deploy/personal-os -p 'test_preview_gate.py' -v
 ```
 
-The top-level `app/deploy/test_personal_os_preview_gate.py` shim also exposes all 29 tests to the existing generic `app/deploy` CI discovery. No live network, Docker, MySQL or user data is used.
+The top-level `app/deploy/test_personal_os_preview_gate.py` shim also exposes all **32 tests** to the existing generic `app/deploy` CI discovery. The suite includes a test that checks the **actual candidate checkout's** V30/V31 SQL bytes against the reviewed migration policy, plus negative tests for a second SQL filename claiming either version. No live network, Docker, MySQL or user data is used.
 
 ## Deployment status
 
