@@ -54,9 +54,15 @@ import org.springframework.web.util.UriComponentsBuilder;
 @ConditionalOnProperty(prefix = "matrix-prp.mcp.oauth.first-party-link",
                        name = "enabled", havingValue = "true")
 public class McpFirstPartyOidcLinkService {
+    @Value("${matrix-prp.mcp.review-video-read-tools-enabled:false}")
+    private boolean reviewVideoReadToolsEnabled;
+    @Value("${matrix-prp.mcp.oauth.advertised-scopes:prp.tasks.read}")
+    private String advertisedScopes = "prp.tasks.read";
+
     private boolean hasLinkConsent(long owner) {
-        var consent=grants.grantedScopes(owner, CHATGPT_CLIENT_ID);
-        return consent.contains("prp.tasks.read") || consent.contains("prp.wellness.read");
+        var consent = grants.grantedScopes(owner, CHATGPT_CLIENT_ID);
+        return McpIdentityLinkService.eligibleFirstPartyReadConsent(
+            consent, reviewVideoReadToolsEnabled, advertisedScopes);
     }
     public record Begin(String authorizeUrl) {}
     public record Finish(String issuer, boolean newlyLinked) {}

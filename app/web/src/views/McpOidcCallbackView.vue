@@ -47,7 +47,7 @@ onMounted(async () => {
       <h1>PRP · Keycloak 身份绑定</h1>
       <p v-if="loading">正在验证 Keycloak 签名和一次性授权状态…</p>
       <el-alert v-else-if="success" title="身份验证和绑定成功" type="success"
-        description="现在可以在完成正式 ChatGPT OAuth 授权后，尝试读取自己的 PRP 任务。" :closable="false" />
+        description="身份关联不会自动新增读取权限。请确认当前环境的只读 Scope 已单独授权，再通过正式 ChatGPT OAuth 连接验证相应工具。" :closable="false" />
       <el-alert v-else :title="error" type="error" :closable="false" />
       <RouterLink to="/me/mcp-clients">返回 MCP 客户端授权</RouterLink>
     </section>

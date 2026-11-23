@@ -1,0 +1,371 @@
+name: MCP218 combined review/video + first-party integration (CI only)
+run-name: MCP218 combined non-release validation at ${{ github.sha }}
+
+# This is a temporary synthetic-only integration branch, not a release path.
+# No secrets, SSH, Keycloak Admin, production host, deployment or authorization.
+on:
+  push:
+    branches:
+      - integrate/mcp218-readonly-owner-link-ci-20261122
+  pull_request:
+    branches:
+      - fix/mcp218-canary-plan-dns-boundaries-20261122
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp218-combined-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-unit:
+    name: Entire backend unit suite (combined code)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Run pinned Maven backend suite with bounded distribution-fetch retry
+        working-directory: app/backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Never switch Maven version, mirror, JDK, test set, or bypass assertions.
+          pinned_url="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.16/apache-maven-3.9.16-bin.zip"
+          grep -Fxq "distributionUrl=${pinned_url}" .mvn/wrapper/maven-wrapper.properties
+          for attempt in 1 2 3; do
+            log="${RUNNER_TEMP}/mcp218-backend-maven-attempt-${attempt}.log"
+            set +e
+            bash ./mvnw -B test 2>&1 | tee "$log"
+            result=${PIPESTATUS[0]}
+            set -e
+            if (( result == 0 )); then
+              echo "MCP218_PINNED_MAVEN_BACKEND_TESTS=PASS"
+              exit 0
+            fi
+            if ! grep -Fq "wget: Failed to fetch ${pinned_url}" "$log"; then
+              echo "MCP218_BACKEND_FAILURE_NOT_DISTRIBUTION_FETCH_NO_RETRY"
+              exit "$result"
+            fi
+            if (( attempt == 3 )); then
+              echo "MCP218_PINNED_MAVEN_DISTRIBUTION_FETCH_FAILED_AFTER_THREE_ATTEMPTS"
+              exit "$result"
+            fi
+            echo "MCP218_PINNED_MAVEN_FETCH_TRANSIENT_RETRY_${attempt}_OF_2"
+            sleep $((5 * attempt * attempt))
+          done
+
+  web-and-canary:
+    name: Build web and validate Node/Python OAuth review contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: Verify canary plan and non-deployable exact-client review contract
+        run: |
+          set -euo pipefail
+          node --check app/scripts/mcp218-canary-plan.mjs
+          node --test app/scripts/mcp218-canary-plan.test.mjs
+          python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -v
+      - name: Compile app frontend and review owner-consent UI
+        working-directory: app/web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          node --test scripts/mcp-scopes.test.mjs scripts/mcp-oidc-authorize-url.test.mjs scripts/mcp-redirect-guard.test.mjs
+
+  owner-mysql:
+    name: Real disposable MySQL 8.4 review/video owner OAuth reads
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: matrix_prp
+          MYSQL_USER: matrix_prp
+          MYSQL_PASSWORD: ci-app-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Initialize fresh disposable schema from immutable migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y default-mysql-client
+          for schema in app/docker/mysql/init/*.sql; do
+            MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+          done
+          while IFS= read -r schema; do
+            version="$(basename "$schema" | sed -E 's/V([0-9]+)__.*/\1/')"
+            if (( 10#$version > 7 )); then
+              MYSQL_PWD=ci-app-password mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u matrix_prp matrix_prp < "$schema"
+            fi
+          done < <(find app/backend/src/main/resources/db/migration -name 'V*__*.sql' | sort -V)
+      - name: Prove scoped reads and revoked owner grants on actual ephemeral SQL
+        working-directory: app/backend
+        env:
+          MATRIX_PRP_DB_PASSWORD: ci-app-password
+          MATRIX_PRP_BOOTSTRAP_USERNAME: video_admin
+          MATRIX_PRP_BOOTSTRAP_PASSWORD: video-test-admin-password-2026
+          MATRIX_PRP_JWT_SECRET: ci-integration-only-secret-key-at-least-32-bytes
+          MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
+        run: |
+          set -euo pipefail
+          chmod +x mvnw
+          ./mvnw -B -Dtest=ReviewVideoReadDatabaseIT,McpReviewVideoOwnedMysqlOAuthIT test
+
+  non-release-boundary:
+    name: Explicitly no installation authority
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "MCP218_COMBINED_CI_ONLY_NO_MAIN_MERGE_NO_PRODUCTION_DEPLOY"
+          echo "NO_REAL_KEYCLOAK_CLIENT_OR_GRANTS_OR_SSH"
+
+  current-main-python-overlay:
+    name: Exact current-main Python overlay rehearsal (NO merge or push)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout #218 combined source without repository credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: combined
+          persist-credentials: false
+      - name: Checkout exact latest reviewed main snapshot separately
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 2d8afddc4cfd39e5801133a664ed52cae342651e
+          path: current-main
+          fetch-depth: 4
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Assert original main delta is exactly two reviewed Chat Shell files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C current-main rev-parse HEAD)" = "2d8afddc4cfd39e5801133a664ed52cae342651e"
+          git -C current-main cat-file -e "276f30d1d5ee6a50641e1afb65ac1e895c3c2d24^{commit}"
+          git -C current-main diff --name-only "276f30d1d5ee6a50641e1afb65ac1e895c3c2d24" HEAD > /tmp/mcp218-main-files.txt
+          printf '%s\n' \
+            'app/deploy/chat-shell/github_bridge.py' \
+            'app/deploy/chat-shell/test_bridge_transport.py' > /tmp/mcp218-expected-files.txt
+          diff -u /tmp/mcp218-expected-files.txt /tmp/mcp218-main-files.txt
+          test -z "$(git -C combined status --porcelain)"
+          echo "MAIN_DELTA_PINNED_EXACT_TWO_CHAT_SHELL_FILES"
+      - name: Overlay ONLY the two verified Python files into disposable working tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in app/deploy/chat-shell/github_bridge.py app/deploy/chat-shell/test_bridge_transport.py; do
+            cp -- "current-main/$path" "combined/$path"
+            cmp -- "current-main/$path" "combined/$path"
+          done
+          git -C combined diff --check
+          git -C combined diff --name-only > /tmp/mcp218-overlaid-files.txt
+          diff -u /tmp/mcp218-expected-files.txt /tmp/mcp218-overlaid-files.txt
+          echo "NO_REMOTE_REFS_OR_BRANCHES_CHANGED"
+      - name: Run merged-view Chat Shell transport and existing MCP218 contract in isolation
+        working-directory: combined
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s app/deploy/chat-shell -p 'test_bridge_transport.py' -v
+          python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -v
+          node --test app/scripts/mcp218-canary-plan.test.mjs
+          echo "MCP218_MAIN_PYTHON_OVERLAY_ONLY_NO_ACTUAL_MERGE_OR_RELEASE"
+
+  pinned-main-merge-rehearsal:
+    name: Real local merge with pinned main and full offline regression (NO push)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - name: Checkout only the CI-only combined head with full local history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: merged
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: merged/app/backend/pom.xml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: merged/app/web/package-lock.json
+      - name: Assert exact source and reviewed main, then merge into runner ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_head="$(git -C merged rev-parse HEAD)"
+          test "$source_head" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git -C merged merge-base --is-ancestor "904a99602ce8f8e974323121bb67440753694b5e" "$source_head"
+          git -C merged diff --name-only "904a99602ce8f8e974323121bb67440753694b5e" "$source_head" > /tmp/mcp218-ci-only-source-delta
+          printf '%s\n' \
+            '.github/workflows/mcp218-combined-ci-only.yml' \
+            'app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py' \
+            'app/deploy/mcp-oauth/ci_review_video_pkce.py' \
+            'app/deploy/mcp218-canary/review_exact_clients.py' \
+            'app/deploy/mcp218-canary/test_review_exact_clients.py' \
+            'app/docs/technical/mcp218-isolated-review-video-canary-preflight-20261122.md' \
+            'app/web/scripts/mcp-scopes.test.mjs' \
+            'app/web/src/views/McpClientsView.vue' \
+            'app/web/src/views/McpOidcCallbackView.vue' \
+            > /tmp/mcp218-expected-ci-only-source-delta
+          diff -u /tmp/mcp218-expected-ci-only-source-delta /tmp/mcp218-ci-only-source-delta
+          reviewed_main="2d8afddc4cfd39e5801133a664ed52cae342651e"
+          test "$(git -C merged rev-parse HEAD)" = "$source_head" || {
+            echo "MCP218_REHEARSAL_SOURCE_HEAD_CHANGED" >&2
+            exit 1
+          }
+          test -z "$(git -C merged status --porcelain)"
+          git -C merged cat-file -e "$reviewed_main^{commit}"
+          git -C merged cat-file -e "276f30d1d5ee6a50641e1afb65ac1e895c3c2d24^{commit}"
+          git -C merged diff --name-only "276f30d1d5ee6a50641e1afb65ac1e895c3c2d24" "$reviewed_main" > /tmp/mcp218-reviewed-main-delta
+          printf '%s\n' \
+            app/deploy/chat-shell/github_bridge.py \
+            app/deploy/chat-shell/test_bridge_transport.py > /tmp/mcp218-expected-delta
+          diff -u /tmp/mcp218-expected-delta /tmp/mcp218-reviewed-main-delta
+
+          # No push, branch rewrite, GitHub merge API, deployment, secrets, or approval.
+          # This writes only an ephemeral merge index/worktree on the Actions runner.
+          git -C merged -c user.name="MCP218 CI-only rehearsal" -c user.email="mcp218-rehearsal@example.invalid" merge --no-commit --no-ff "$reviewed_main"
+          test "$(git -C merged rev-parse HEAD)" = "$source_head"
+          test "$(git -C merged rev-parse MERGE_HEAD)" = "$reviewed_main"
+          test -z "$(git -C merged ls-files -u)"
+          git -C merged diff --cached --name-only HEAD > /tmp/mcp218-actual-merge-delta
+          diff -u /tmp/mcp218-expected-delta /tmp/mcp218-actual-merge-delta
+          git -C merged diff --check
+          echo "MCP218_ACTUAL_LOCAL_GIT_MERGE_NON_COMMITTED_EXACT_MAIN_DELTA=PASS"
+      - name: Test actual merged working-tree (full backend + canary + chat-shell)
+        working-directory: merged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse MERGE_HEAD)" = "2d8afddc4cfd39e5801133a664ed52cae342651e"
+          python3 -m unittest discover -s app/deploy/chat-shell -p test_bridge_transport.py -v
+          python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -v
+          node --test app/scripts/mcp218-canary-plan.test.mjs
+          # Do not chmod the tracked Maven wrapper: it dirties the merge worktree.
+          (cd app/backend && bash ./mvnw -B test)
+          echo "MCP218_LOCAL_MERGED_TREE_TESTED_WITHOUT_GITHUB_MERGE"
+      - name: Abort local merge and prove the source HEAD was never advanced
+        shell: bash
+        if: ${{ success() }}
+        run: |
+          set -euo pipefail
+          git -C merged merge --abort
+          # Maven/Python intentionally leave untracked build caches; only the
+          # tracked source/index and HEAD matter after aborting a local merge.
+          git -C merged diff --name-only
+          git -C merged diff --quiet
+          git -C merged diff --cached --quiet
+          test -z "$(git -C merged ls-files -u)"
+          test "$(git -C merged rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "MCP218_LOCAL_MERGE_ABORTED_NO_REMOTE_CHANGE"
+
+  signed-review-video-ephemeral:
+    name: Real disposable signed Keycloak review/video PKCE (NOT ChatGPT)
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # Generate every credential at runtime, in RUNNER_TEMP. Do not use repo
+      # secrets, production credentials, hosted Keycloak or existing V2 hosts.
+      MCP_E2E_REVIEW_VIDEO: "true"
+      MCP_E2E_FIRST_PARTY: "true"
+      MCP_E2E_EXACT_CHATGPT: "true"
+      MCP_E2E_CRUD: "false"
+      MCP_E2E_CHROMIUM: "true"
+    steps:
+      - name: Checkout exact combined Draft head with credentials disabled
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Use Java 21 for disposable PRP backend
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Use Node 22 for disposable built PRP SPA
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: Use Python 3.12 for disposable browser driver
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned disposable headless Chromium driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --no-cache-dir playwright==1.55.0
+          python3 -m playwright install --with-deps chromium
+      - name: Check no-install candidate and CI shell before creating ephemeral services
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$MCP_E2E_REVIEW_VIDEO" = true
+          test "$MCP_E2E_FIRST_PARTY" = true
+          test "$MCP_E2E_EXACT_CHATGPT" = true
+          test "$MCP_E2E_CRUD" = false
+          test "$MCP_E2E_CHROMIUM" = true
+          bash -n app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          python3 -m py_compile app/deploy/mcp-oauth/ci_review_video_pkce.py app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py
+          python3 -m unittest discover -s app/deploy/mcp-oauth -p test_ci_browser_route_review.py -q
+          python3 -m unittest discover -s app/deploy/mcp218-canary -p 'test_*.py' -q
+      - name: Exercise signed OAuth and real browser login for review/video-only owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash app/deploy/mcp-oauth/test_full_e2e_ci.sh
+          echo "MCP218_DISPOSABLE_SIGNED_REVIEW_VIDEO_PKCE=PASS"
+          echo "MCP218_DISPOSABLE_CHROMIUM_FIRST_PARTY_REVIEW_VIDEO=PASS"
+          echo "EXTERNAL_CHATGPT_ASSERTION=NOT_TESTED"
+          echo "NEW_MCP218_REALM_AND_SPA=NOT_INSTALLED"
+          echo "G0_B2_OR_DEPLOY_APPROVAL=NO"
