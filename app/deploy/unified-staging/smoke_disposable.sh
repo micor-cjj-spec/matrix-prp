@@ -51,7 +51,13 @@ python3 app/deploy/unified-staging/check_env.py --env-file "$envfile" >/dev/null
 node app/scripts/verify-db-migrations.mjs
 
 # Images, volumes and services exist only in this isolated GitHub-hosted runner.
-"${compose[@]}" build backend gateway
+if [[ "${PRP_EXPORT_TESTED_IMAGES:-}" == true ]]; then
+  cutover_auth_url='https://auth-test.micor.top/realms/prp-mcp/protocol/openid-connect/auth'
+  "${compose[@]}" build backend
+  "${compose[@]}" build --build-arg "VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT=$cutover_auth_url" gateway
+else
+  "${compose[@]}" build backend gateway
+fi
 "${compose[@]}" up -d
 
 ready=0
@@ -135,6 +141,9 @@ echo "PASS: unified Staging CI disposable boot and basic isolation only"
 
 # Only the same-repository integration PR exports its tested runtime images.
 if [[ "${PRP_EXPORT_TESTED_IMAGES:-}" == true ]]; then
+  # Verify the frontend bundle rather than assuming a build argument was used.
+  "${compose[@]}" exec -T gateway grep -Fqr -- "$cutover_auth_url" /usr/share/nginx/html/assets
+  echo "PASS: Web bundle uses the intended test Keycloak authorization URL"
   bundle="$RUNNER_TEMP/prp-unified-staging-images"
   mkdir -m 700 -- "$bundle"
   images=()
@@ -145,7 +154,7 @@ if [[ "${PRP_EXPORT_TESTED_IMAGES:-}" == true ]]; then
     image_ref="prp-unified-staging-$service:$(git rev-parse --short=12 HEAD)"
     docker tag "$image_id" "$image_ref"
     images+=("$image_ref")
-    printf '%s %s %s\\n' "$service" "$image_ref" "$image_id" >> "$bundle/IMAGE-IDS"
+    printf '%s %s %s\n' "$service" "$image_ref" "$image_id" >> "$bundle/IMAGE-IDS"
   done
   git rev-parse HEAD HEAD^{tree} > "$bundle/SOURCE"
   docker save "${images[@]}" | gzip -1 > "$bundle/images.tar.gz"
