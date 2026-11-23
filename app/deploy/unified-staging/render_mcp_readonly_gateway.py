@@ -14,13 +14,23 @@ ROUTES = {
 }
 
 
-def render(template: str) -> str:
+def render(template: str, legacy_approval: bool = False) -> str:
     anchor = "    location ^~ /.well-known/ { return 404; }"
     if template.count(anchor) != 1 or template.count("    location ^~ /api/mcp { return 404; }") != 1:
         raise ValueError("Expected the reviewed unified Staging deny-by-default template")
     blocks = []
-    for path, (methods, maximum) in ROUTES.items():
-        blocks.append(f"""    location = {path} {{
+    locations = [(f"= {path}", methods, maximum) for path, (methods, maximum) in ROUTES.items()]
+    if legacy_approval:
+        draft_id = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
+        draft = f"^/api/mcp/approval/drafts/{draft_id}"
+        locations.extend([
+            (f'~ "{draft}$"', "GET", "8k"),
+            (f'~ "{draft}/(?:approve|reject)$"', "POST", "8k"),
+        ])
+        # Allow only the anchored regexes above to override the MCP prefix deny.
+        template = template.replace("location ^~ /api/mcp {", "location /api/mcp {", 1)
+    for location, methods, maximum in locations:
+        blocks.append(f"""    location {location} {{
         limit_except {methods} {{ deny all; }}
         client_max_body_size {maximum};
         proxy_pass http://backend:8080;
@@ -37,7 +47,7 @@ def render(template: str) -> str:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 1:
-        raise SystemExit("Usage: render_mcp_readonly_gateway.py > reviewed-gateway.conf.template")
+    if sys.argv[1:] not in ([], ["--legacy-approval"]):
+        raise SystemExit("Usage: render_mcp_readonly_gateway.py [--legacy-approval]")
     source = Path(__file__).with_name("nginx.conf.template").read_text(encoding="utf-8")
-    sys.stdout.write(render(source))
+    sys.stdout.write(render(source, legacy_approval=bool(sys.argv[1:])))

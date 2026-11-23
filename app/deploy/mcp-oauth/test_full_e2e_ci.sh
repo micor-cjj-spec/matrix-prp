@@ -140,11 +140,16 @@ mkdir -p "$tmp/import"
 if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
   # Only this disposable import gains write scopes; shared staging/production is untouched.
   python3 - "$tmp/keycloak-realm.json" <<'PY'
-import copy,json,sys
+import copy,json,os,sys
 p=sys.argv[1]
 with open(p) as f:realm=json.load(f)
 prototype=next(s for s in realm['clientScopes'] if s['name']=='prp.write.create')
-for name in ['prp.write.update','prp.write.delete']:
+scopes = ['prp.write.update','prp.write.delete']
+if os.environ.get('MCP_E2E_UNIFIED_PARITY') == 'true':
+    scopes += ['prp.finance.read', 'prp.wellness.read']
+for name in scopes:
+    if any(s['name'] == name for s in realm['clientScopes']):
+        continue
     scope=copy.deepcopy(prototype);scope['name']=name;scope['description']='Synthetic CI '+name
     scope['attributes']['consent.screen.text']=name;realm['clientScopes'].append(scope)
 client=next(c for c in realm['clients'] if c['clientId']=='prp-pkce-probe')
@@ -223,6 +228,8 @@ if __import__('os').environ.get('MCP_E2E_CRUD') == 'true':
     candidate['optionalClientScopes'] = [
         'prp.tasks.read', 'prp.write.create', 'prp.write.status',
         'prp.write.confirm', 'prp.write.update', 'prp.write.delete']
+    if __import__('os').environ.get('MCP_E2E_UNIFIED_PARITY') == 'true':
+        candidate['optionalClientScopes'] += ['prp.finance.read', 'prp.wellness.read']
 realm["clients"].append(candidate)
 path.write_text(json.dumps(realm), encoding="utf-8")
 print("CI_EXACT_CHATGPT_CLIENT_ID_SAME_REALM_REGISTERED_WITH_SYNTHETIC_TEST_KEY=YES")
@@ -309,11 +316,17 @@ PY_BROWSER_NGINX
 fi
 
 # Use the candidate gateway only in the disposable Unified Staging browser job.
-if [[ "${MCP_E2E_UNIFIED_READONLY:-false}" == "true" ]]; then
-  [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" &&
-     "${MCP_E2E_CHROMIUM:-false}" == "true" &&
-     "${MCP_E2E_CRUD:-false}" != "true" ]] || exit 2
+if [[ "${MCP_E2E_UNIFIED_READONLY:-false}" == "true" || "${MCP_E2E_UNIFIED_PARITY:-false}" == "true" ]]; then
+  [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" ]] || exit 2
+  if [[ "${MCP_E2E_UNIFIED_PARITY:-false}" == "true" ]]; then
+    [[ "${MCP_E2E_CRUD:-false}" == "true" &&
+       "${MCP_E2E_EXACT_CHATGPT:-false}" == "true" &&
+       "${MCP_E2E_UNIFIED_READONLY:-false}" != "true" ]] || exit 2
+  else
+    [[ "${MCP_E2E_CHROMIUM:-false}" == "true" && "${MCP_E2E_CRUD:-false}" != "true" ]] || exit 2
+  fi
   python3 - "$tmp/nginx/default.conf" <<'PY_UNIFIED_GATEWAY'
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -324,7 +337,8 @@ start = "server {\n    listen 127.0.0.1:443 ssl;\n    server_name prp-e2e.localh
 if original.count(start) != 1:
     raise SystemExit("Expected exactly one disposable PRP vhost")
 gateway = subprocess.check_output(
-    [sys.executable, "app/deploy/unified-staging/render_mcp_readonly_gateway.py"],
+    [sys.executable, "app/deploy/unified-staging/render_mcp_readonly_gateway.py"]
+    + (["--legacy-approval"] if os.environ.get("MCP_E2E_UNIFIED_PARITY") == "true" else []),
     text=True,
 )
 gateway = gateway.replace("listen 8080;", """listen 127.0.0.1:443 ssl;
@@ -334,7 +348,9 @@ gateway = gateway.replace("${PRP_STAGE_HOST}", "prp-e2e.localhost")
 gateway = gateway.replace("http://backend:8080", "http://127.0.0.1:8080")
 path.write_text(original.split(start, 1)[0] + gateway, encoding="utf-8")
 PY_UNIFIED_GATEWAY
-  web_mount=(-v "${PWD}/app/web/dist:/usr/share/nginx/html:ro")
+  if [[ "${MCP_E2E_CHROMIUM:-false}" == "true" ]]; then
+    web_mount=(-v "${PWD}/app/web/dist:/usr/share/nginx/html:ro")
+  fi
 fi
 
 docker run --rm --network host \
@@ -415,6 +431,9 @@ if [[ "${MCP_E2E_CRUD:-false}" == "true" ]]; then
   # Only disposable CI can advertise write tools; production remains default OFF.
   export MATRIX_PRP_MCP_WRITE_ENABLED="true"
   export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="prp.tasks.read,prp.write.create,prp.write.status,prp.write.confirm,prp.write.update,prp.write.delete"
+  if [[ "${MCP_E2E_UNIFIED_PARITY:-false}" == "true" ]]; then
+    export MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES="$MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES,prp.finance.read,prp.wellness.read"
+  fi
   # The freshly created disposable schema bootstraps exactly owner ID 1.
   # Keep the real application's exact-client and account allowlist checks.
   [[ "${MCP_E2E_EXACT_CHATGPT:-false}" == "true" ]] || {
