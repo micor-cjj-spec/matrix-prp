@@ -143,6 +143,29 @@ def verify():
         raise RuntimeError("HEALTH_SYNTHETIC_V30_EMPTY_ENRICHMENT_FAILED")
     rejected("/api/wellness/meals/" + str(meal_id) + "/analysis", owner_b)
 
+    # Label verification is NOT a model auto-write: require explicit user
+    # confirmation, own meal/item, and authentic sourceContext provenance.
+    items = details["meal"].get("items")
+    if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0].get("id"), int):
+        raise RuntimeError("HEALTH_SYNTHETIC_LABEL_ITEM_MISSING")
+    label_endpoint = "/api/wellness/meals/" + str(meal_id) + "/label-verification"
+    label = {
+        "mealItemId": items[0]["id"], "consumedGrams": 100,
+        "caloriesPer100g": 123, "proteinPer100g": 8,
+        "carbsPer100g": 15, "fatPer100g": 3,
+        "userVerified": False,
+    }
+    if http(label_endpoint, owner_a, label)[0] != 422:
+        raise RuntimeError("HEALTH_SYNTHETIC_LABEL_UNVERIFIED_NOT_REJECTED")
+    label["userVerified"] = True
+    if http(label_endpoint, owner_b, label)[0] != 404:
+        raise RuntimeError("HEALTH_SYNTHETIC_CROSS_OWNER_LABEL_NOT_REJECTED")
+    if http(label_endpoint, owner_a, label)[0] != 422:
+        raise RuntimeError("HEALTH_SYNTHETIC_MISSING_LABEL_PROVENANCE_NOT_REJECTED")
+    unchanged = data("/api/wellness/meals/" + str(meal_id) + "/analysis", owner_a)
+    if unchanged.get("analyses") != [] or unchanged.get("nutrients") != []:
+        raise RuntimeError("HEALTH_SYNTHETIC_REJECTED_LABEL_MUTATED_MEAL")
+
     trends_a = data("/api/wellness/summary/nutrition-trends?days=7", owner_a)
     trends_b = data("/api/wellness/summary/nutrition-trends?days=7", owner_b)
     if not isinstance(trends_a, list) or not isinstance(trends_b, list):
@@ -157,6 +180,7 @@ def verify():
             or row_b.get("proteinG") is not None):
         raise RuntimeError("HEALTH_SYNTHETIC_UNKNOWN_MACRO_OR_OWNER_TREND_FAILED")
     print("PASS: synthetic Health V30 meal idempotency, empty analysis, unknown macro, cross-owner denial")
+    print("PASS: synthetic V30 label approval, source evidence and cross-owner write denials")
     print("CI_HEALTH_V30_REAL_HTTP_SYNTHETIC_ONLY=PASS")
 
 
