@@ -114,6 +114,8 @@ const validDevRelease=()=>{
      commit:{sha:'d'.repeat(40)}},
    integrationComparison:{status:'ahead',behind_by:0,
      base_commit:{sha:'d'.repeat(40)},merge_base_commit:{sha:'d'.repeat(40)},commits:[]},
+   mainAncestryComparison:{status:'ahead',behind_by:0,
+     base_commit:{sha},merge_base_commit:{sha},commits:[]},
    checks:pack().checks
  }
  return {s,command,proof}
@@ -171,4 +173,18 @@ test('no merge, unprotected main, wrong dev SHA or failing head checks prevent c
  refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'CHECK_NOT_GREEN_backend-tests')
  p=validDevRelease();p.s.tasks[0].status='IN_REVIEW'
  refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'INCOMPLETE_REQUIREMENT')
+})
+
+test('squash/rebase cannot fake the exact tested dev head as main ancestry',()=>{
+ for(const change of [
+  proof=>{proof.mainAncestryComparison=null},
+  proof=>{proof.mainAncestryComparison.behind_by=1},
+  proof=>{proof.mainAncestryComparison.base_commit.sha='f'.repeat(40)},
+  proof=>{proof.mainAncestryComparison.merge_base_commit.sha='f'.repeat(40)},
+  proof=>{proof.mainAncestryComparison.commits=undefined}
+ ]){
+  const {s,command,proof}=validDevRelease()
+  change(proof)
+  refuses(()=>verifyIntegrationRelease(s,command,proof),'DEV_HEAD_NOT_IN_MAIN_ANCESTRY')
+ }
 })
