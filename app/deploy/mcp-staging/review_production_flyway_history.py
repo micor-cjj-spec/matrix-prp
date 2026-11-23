@@ -5,6 +5,7 @@ Never connects to MySQL, accepts credentials or changes a database.
 Even a match is REVIEW_ONLY and cannot grant G0/B2 or deploy approval.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -22,21 +23,48 @@ REVIEWABLE_TERMINAL_VERSIONS = frozenset((24, 28, 29))
 
 
 def source_scripts(folder=MIGRATIONS):
-    expected = {}
+    """Review historical V1-V29 only, but fail closed on unapproved V30+ SQL.
+
+    Candidate additions must match their explicit create-empty policy and bytes.
+    Never treat this offline review as permission to migrate a real database.
+    """
+    expected, future = {}, {}
     for path in folder.iterdir():
-        if not path.is_file():
-            continue
         match = MIGRATION_PATTERN.fullmatch(path.name)
+        if path.name.endswith(".sql") and (
+                match is None or path.is_symlink() or not path.is_file()):
+            raise ValueError("UNTRUSTED_CANDIDATE_MIGRATION_FILE")
         if match:
             version = int(match.group(1))
-            if version in expected:
+            entries = expected if version <= 29 else future
+            if version in entries:
                 raise ValueError("DUPLICATE_CANDIDATE_MIGRATION_VERSION")
-            expected[version] = path.name
+            entries[version] = path.name if version <= 29 else path
     if set(expected) != set(range(1, 30)):
         raise ValueError("CANDIDATE_EXPECTED_MIGRATION_RANGE_NOT_1_TO_29")
+    if future:
+        if set(future) != set(range(30, max(future) + 1)):
+            raise ValueError("NONCONTIGUOUS_FUTURE_MIGRATION_CHAIN")
+        policy_path = Path(__file__).resolve().parents[1] / "migration-policy.json"
+        if policy_path.is_symlink() or not policy_path.is_file():
+            raise ValueError("FUTURE_MIGRATION_POLICY_MISSING")
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        if policy.get("schema_version") != 1 or not isinstance(policy.get("rules"), list):
+            raise ValueError("FUTURE_MIGRATION_POLICY_INVALID")
+        rules = [r for r in policy["rules"]
+                 if isinstance(r, dict) and type(r.get("version")) is int
+                 and r["version"] > 29]
+        if len(rules) != len(future) or {r["version"] for r in rules} != set(future):
+            raise ValueError("FUTURE_MIGRATION_POLICY_VERSION_DRIFT")
+        for rule in rules:
+            path = future[rule["version"]]
+            if (rule.get("file") != path.name
+                    or rule.get("mode") != "create-empty"
+                    or not isinstance(rule.get("tables"), list)
+                    or not rule["tables"] or path.stat().st_size > 1024 * 1024
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != rule.get("sha256")):
+                raise ValueError("FUTURE_MIGRATION_POLICY_DIGEST_OR_SCOPE_DRIFT")
     return expected
-
-
 
 def source_crc32(folder=MIGRATIONS):
     """Candidate SQL CRC32 by Flyway's line-oriented UTF-8 algorithm.
