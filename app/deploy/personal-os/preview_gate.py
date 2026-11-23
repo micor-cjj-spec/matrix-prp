@@ -110,6 +110,11 @@ def verify_candidate_migrations(candidate_root):
          "REVIEWED_V30_V31_MIGRATIONS_REQUIRED")
     for version, filename in MIGRATIONS.items():
         path = root / "app/backend/src/main/resources/db/migration" / filename
+        # A policy hash for the canonical file must not hide a second Flyway SQL
+        # with the SAME version. Fail before any future runtime migration is tried.
+        siblings = list(path.parent.glob(f"V{version}__*.sql"))
+        need(len(siblings) == 1 and siblings[0].name == filename,
+             "MIGRATION_VERSION_COLLISION")
         need(path.is_file() and not path.is_symlink() and 0 < path.stat().st_size <= 1048576,
              "SQL_FILE_MISSING_OR_OVERSIZE")
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
