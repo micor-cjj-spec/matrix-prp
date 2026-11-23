@@ -7,7 +7,6 @@ import com.matrix.prp.wellness.*;
 import com.matrix.prp.wellness.WellnessModels.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.*;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,13 +39,15 @@ class McpWellnessDatabaseIT {
         as(owner);
     }
     void as(UserAccount user) { SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user.profile(),null,List.of())); }
+    // Keep test dates aligned with WellnessService.metrics(), which filters by the owner's timezone.
+    LocalDate ownerToday() { return LocalDate.now(java.time.ZoneId.of(wellness.profile().timezone())); }
     @AfterEach void clear() { SecurityContextHolder.clearContext(); }
     McpWellnessSupport.Input input(String entity,String note) {
         return switch(entity) {
-            case "meal" -> new McpWellnessSupport.Input(new McpWellnessSupport.Meal(LocalDate.now(ZoneId.of(wellness.profile().timezone())),"LUNCH",note,
+            case "meal" -> new McpWellnessSupport.Input(new McpWellnessSupport.Meal(ownerToday(),"LUNCH",note,
                 List.of(new WellnessService.AiMealItem(null,"Synthetic meal",null,new BigDecimal("500.00")))),null,null);
-            case "exercise" -> new McpWellnessSupport.Input(null,new ExerciseInput(LocalDate.now(ZoneId.of(wellness.profile().timezone())),note,30,new BigDecimal("100"),"Synthetic"),null);
-            default -> new McpWellnessSupport.Input(null,null,new BodyMetricInput(LocalDate.now(ZoneId.of(wellness.profile().timezone())),new BigDecimal(note),null,null));
+            case "exercise" -> new McpWellnessSupport.Input(null,new ExerciseInput(ownerToday(),note,30,new BigDecimal("100"),"Synthetic"),null);
+            default -> new McpWellnessSupport.Input(null,null,new BodyMetricInput(ownerToday(),new BigDecimal(note),null,null));
         };
     }
     long approveCreate(String entity) {
@@ -61,7 +62,7 @@ class McpWellnessDatabaseIT {
         for(String entity:List.of("meal","exercise","metric")) {
             long id=approveCreate(entity);
             if(entity.equals("meal")) {
-                assertThat(wellness.daily(LocalDate.now(ZoneId.of(wellness.profile().timezone()))).calories()).isEqualByComparingTo("500");
+                assertThat(wellness.daily(ownerToday()).calories()).isEqualByComparingTo("500");
                 assertThat(wellness.ownedMeal(id).items().getFirst().estimate()).isTrue();
             }
             as(other);assertThatThrownBy(()->drafts.prepareWellness(entity,id,null,McpDraftService.Kind.WELLNESS_DELETE)).isInstanceOf(ResponseStatusException.class);
@@ -80,7 +81,7 @@ class McpWellnessDatabaseIT {
         long id=approveCreate("exercise");
         var draft=drafts.prepareWellness("exercise",id,null,McpDraftService.Kind.WELLNESS_DELETE);
         drafts.approve(draft.draftId(),password);
-        wellness.updateExercise(id,new ExerciseInput(LocalDate.now(ZoneId.of(wellness.profile().timezone())),"Human edit",40,null,null));
+        wellness.updateExercise(id,new ExerciseInput(ownerToday(),"Human edit",40,null,null));
         assertThatThrownBy(()->drafts.confirm(draft.draftId())).isInstanceOf(ResponseStatusException.class);
         assertThat(wellness.ownedExercise(id).name()).isEqualTo("Human edit");
         var fresh=drafts.prepareWellness("exercise",id,null,McpDraftService.Kind.WELLNESS_DELETE);drafts.approve(fresh.draftId(),password);
@@ -90,12 +91,12 @@ class McpWellnessDatabaseIT {
     }
     @Test void foodOwnershipAndNutritionSnapshotAreRecheckedBeforeCommit() {
         var food=wellness.addFood(new FoodInput("Synthetic food","raw",new BigDecimal("100"),BigDecimal.ZERO,BigDecimal.ZERO,BigDecimal.ZERO,"CI"));
-        var input=new McpWellnessSupport.Input(new McpWellnessSupport.Meal(LocalDate.now(ZoneId.of(wellness.profile().timezone())),"DINNER","CI",List.of(new WellnessService.AiMealItem(food.id(),null,new BigDecimal("100"),null))),null,null);
+        var input=new McpWellnessSupport.Input(new McpWellnessSupport.Meal(ownerToday(),"DINNER","CI",List.of(new WellnessService.AiMealItem(food.id(),null,new BigDecimal("100"),null))),null,null);
         as(other);assertThatThrownBy(()->drafts.prepareWellness("meal",0,input,McpDraftService.Kind.WELLNESS_CREATE)).isInstanceOf(ResponseStatusException.class);
         as(owner);var draft=drafts.prepareWellness("meal",0,input,McpDraftService.Kind.WELLNESS_CREATE);drafts.approve(draft.draftId(),password);
         db.update("UPDATE prp_wellness_foods SET calories_100g=200 WHERE id=? AND owner_user_id=?",food.id(),owner.id());
         assertThatThrownBy(()->drafts.confirm(draft.draftId())).isInstanceOf(ResponseStatusException.class);
-        assertThat(wellness.meals(LocalDate.now(ZoneId.of(wellness.profile().timezone())))).isEmpty();
+        assertThat(wellness.meals(ownerToday())).isEmpty();
         assertThat(drafts.review(draft.draftId()).status()).isEqualTo("APPROVED");
     }
     @Test void invalidUnionAndExpiredOrRejectedDraftsNeverWriteHealthData() {
