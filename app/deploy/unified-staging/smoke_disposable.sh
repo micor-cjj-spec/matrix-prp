@@ -123,6 +123,10 @@ if [[ "$actual" != "$expected" ]]; then
 fi
 echo "PASS: disposable fresh DB Flyway matches reviewed migration policy"
 
+# Synthetic-only first-party HTTP checks run against this disposable Web/API/MySQL.
+# The child guard refuses every non-GitHub-hosted PR runner or external target.
+python3 app/deploy/unified-staging/health_v30_synthetic_smoke.py "$envfile"
+
 mapfile -t running_ids < <("${compose[@]}" ps --status running --quiet)
 if [[ "${#running_ids[@]}" == 3 ]]; then
   echo "Disposable resource snapshot after successful probes (not a peak measurement)"
