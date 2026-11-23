@@ -20,6 +20,12 @@ test('documentation-only edits do not request an application release', () => {
   assert.equal(r.deployment_authorized,false)
 })
 
+test('README reported unclassified by the existing impact tool remains docs-only', () => {
+  const r=assessReleaseScope(impact(['README.md'],{unclassifiedFiles:['README.md']}))
+  assert.equal(r.risk,'NO_RUNTIME_CHANGE')
+  assert.equal(r.release_action,'NO_APPLICATION_RELEASE_NEEDED')
+})
+
 test('tests-only changes do not imply a production deploy', () => {
   const r = assessReleaseScope(impact([
     'app/backend/src/test/java/com/matrix/prp/WellnessTest.java',
