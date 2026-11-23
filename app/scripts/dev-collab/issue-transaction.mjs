@@ -9,7 +9,6 @@ import {applyCommand,validateSnapshot,CollabError,requireMigratedLiveState} from
 export {requireMigratedLiveState}
 import {verifyStateBranchRuleset} from './state-rule-policy.mjs'
 import {applyOwnerIssuedMigration} from './issue-migrate.mjs'
-import {trustedReviewContext} from './review-context.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp',EXPECTED_APP_ID=5561446,EXPECTED_RULESET_ID=26294671,SHA=/^[a-f0-9]{40}$/
 const check=(ok,code)=>{if(!ok)throw new CollabError(code)}
@@ -194,9 +193,16 @@ async function main(){
  // head, full latest Actions job set and PR-event workflow provenance.
  const alreadyApplied=before.processed_requests?.some(r=>
    r.request_id===validated.command.request_id)===true
- const loadReview=()=>trustedReviewContext(before,validated.command,env,route=>gh(route))
- const verifiedReview=validated.command.type==='accept'&&!alreadyApplied?
-   loadReview():null
+ // The isolated Git harness exercises legacy claim/handoff/release with a
+ // minimal runner. Load high-privilege review modules only for genuine new
+ // accept requests; never weaken the accept proof or permit a fallback.
+ let loadReview=null
+ let verifiedReview=null
+ if(validated.command.type==='accept'&&!alreadyApplied){
+   const {trustedReviewContext}=await import('./review-context.mjs')
+   loadReview=()=>trustedReviewContext(before,validated.command,env,route=>gh(route))
+   verifiedReview=loadReview()
+ }
  const {snapshot,receipt}=applyAuthenticatedIssue(before,validated,
    new Date().toISOString(),verifiedGitCheckpoint,verifiedReview)
  const replay=snapshot===before
