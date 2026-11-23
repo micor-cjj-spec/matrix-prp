@@ -133,7 +133,8 @@ def run():
     if os.environ.get("MCP_E2E_CRUD") == "true":
         raise RuntimeError("PUBLIC_PAIRING_REQUIRES_READONLY_STACK")
     opener = browser.build_opener(
-        browser.HTTPSHandler(context=ssl.create_default_context(cafile=os.environ["MCP_E2E_CA_CERT"])),
+        browser.ProxyHandler({}),
+        browser.LoopbackHTTPSHandler(context=ssl.create_default_context(cafile=os.environ["MCP_E2E_CA_CERT"])),
         browser.HTTPCookieProcessor(CookieJar()), browser.SafeRedirect(),
     )
     browser.wait_ready(opener, browser.ISSUER + "/.well-known/openid-configuration")
