@@ -43,9 +43,13 @@ export function trustedReviewContext(snapshot,command,env,api){
   // exact dev head subsequently merged into main. No cherry-pick approximation.
   const integrationBranch=api(`repos/${REPO}/branches/${encodeURIComponent(integrationRef)}`)
   const integrationComparison=api(`repos/${REPO}/compare/${integrationBranch.commit.sha}...${command.head_sha}`)
+  // Prove the tested dev PR head itself survived into the protected main
+  // history, not merely that a squash PR reported "merged".
+  const mainAncestryComparison=api(`repos/${REPO}/compare/${command.head_sha}...${branch.commit.sha}`)
   const checks=api(`repos/${REPO}/commits/${command.head_sha}/check-runs?per_page=100`)
   verifyIntegrationRelease(snapshot,command,
-    {pr,branch,comparison,checks,integrationBranch,integrationComparison})
+    {pr,branch,comparison,checks,integrationBranch,integrationComparison,
+      mainAncestryComparison})
   verifyWorkflowProvenance(checks,{sha:command.head_sha,prNumber:command.pr_number,
     baseRef:'main',headRef:pr.head.ref},id=>api(`repos/${REPO}/actions/runs/${id}`))
   verifyRequirementClose(snapshot,{
