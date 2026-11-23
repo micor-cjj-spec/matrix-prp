@@ -39,8 +39,13 @@ export function trustedReviewContext(snapshot,command,env,api){
   const branch=api(`repos/${REPO}/branches/main`)
   check(SHA.test(pr?.merge_commit_sha),'PR_NOT_MERGED')
   const comparison=api(`repos/${REPO}/compare/${pr.merge_commit_sha}...${branch.commit.sha}`)
+  // Require a distinct protected integration history to be included in the
+  // exact dev head subsequently merged into main. No cherry-pick approximation.
+  const integrationBranch=api(`repos/${REPO}/branches/${encodeURIComponent(integrationRef)}`)
+  const integrationComparison=api(`repos/${REPO}/compare/${integrationBranch.commit.sha}...${command.head_sha}`)
   const checks=api(`repos/${REPO}/commits/${command.head_sha}/check-runs?per_page=100`)
-  verifyIntegrationRelease(snapshot,command,{pr,branch,comparison,checks})
+  verifyIntegrationRelease(snapshot,command,
+    {pr,branch,comparison,checks,integrationBranch,integrationComparison})
   verifyWorkflowProvenance(checks,{sha:command.head_sha,prNumber:command.pr_number,
     baseRef:'main',headRef:pr.head.ref},id=>api(`repos/${REPO}/actions/runs/${id}`))
   verifyRequirementClose(snapshot,{
