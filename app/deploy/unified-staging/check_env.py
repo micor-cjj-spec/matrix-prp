@@ -35,7 +35,7 @@ def parse_env(source):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=([^\\s\\x00\\r\\n]*)", stripped)
+        match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=([^\s\x00\r\n]*)", stripped)
         if not match:
             raise ValueError("INVALID_ENV_ENTRY")
         key, value = match.groups()
@@ -50,7 +50,7 @@ def valid_dns_host(value):
         return False
     if value in PROTECTED_HOSTS or value.endswith(".localhost") or value.endswith(".local"):
         return False
-    if not re.fullmatch(r"[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?){2,}", value):
+    if not re.fullmatch(r"[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?){2,}", value):
         return False
     try:
         ipaddress.ip_address(value)
