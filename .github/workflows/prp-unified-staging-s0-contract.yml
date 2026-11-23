@@ -6,6 +6,8 @@ on:
     paths:
       - app/scripts/unified_staging_inventory_readonly.py
       - app/scripts/test_unified_staging_inventory_readonly.py
+      - app/scripts/unified_staging_s0_report_review.py
+      - app/scripts/test_unified_staging_s0_report_review.py
       - .github/workflows/prp-unified-staging-s0-contract.yml
   workflow_dispatch:
 
@@ -21,6 +23,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Syntax check (no host connection)
-        run: python3 -m py_compile app/scripts/unified_staging_inventory_readonly.py app/scripts/test_unified_staging_inventory_readonly.py
+        run: python3 -m py_compile app/scripts/unified_staging_inventory_readonly.py app/scripts/test_unified_staging_inventory_readonly.py app/scripts/unified_staging_s0_report_review.py app/scripts/test_unified_staging_s0_report_review.py
       - name: Offline synthetic safety tests (no Docker execution)
-        run: python3 -m unittest discover -s app/scripts -p test_unified_staging_inventory_readonly.py -v
+        run: python3 -m unittest discover -s app/scripts -p 'test_unified_staging*.py' -v
