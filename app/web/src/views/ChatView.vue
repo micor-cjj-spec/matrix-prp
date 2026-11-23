@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ChatDotRound, Close, CopyDocument, Edit, Menu, Plus, Promotion, RefreshRight, Setting } from '@element-plus/icons-vue'
+import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/layouts/AppLayout.vue'
 import AiActionLink from '@/components/ai/AiActionLink.vue'
 import AiActionDialog from '@/components/ai/AiActionDialog.vue'
@@ -10,7 +11,10 @@ import AiNavigationCard from '@/components/ai/AiNavigationCard.vue'
 import ChatConversationPanel from '@/components/ai/ChatConversationPanel.vue'
 import { getAiSettings, setAiSelection, type AiSettings } from '@/api/aiSettings'
 import { fetchUsage, pageConversations, renameConversation, deleteConversation, listMessages, listMessageBlocks, streamChat, previewAiContext, confirmAiContext, prepareInlineHealthDraft, confirmPendingHealthDraft, AiStreamHttpError,
+  previewChatKnowledge, approveChatKnowledgePreview, extractChatKnowledge,
+  type PersonalChatKnowledgePreview, type ChatKnowledgeExtraction,
   type AiUsage, type ChatMessage, type AiMessageBlock, type Conversation, type AiContextPreview } from '@/api/ai'
+import { submitPersonalAiKnowledgeCandidates, inspectPersonalAiKnowledgeCandidates, type AiKnowledgeDisposition } from '@/api/personalOs'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import { latestChatToRestore, shouldApplyLoadedConversation } from '@/utils/chatRestore'
 import { isMealCardRequest } from '@/utils/mealCardIntent'
@@ -31,6 +35,7 @@ const conversations = ref<Conversation[]>([])
 const messages = ref<ChatMessage[]>([])
 const blocksByMessage = ref<Record<number, AiMessageBlock[]>>({})
 const route = useRoute()
+const auth = useAuthStore()
 const actionDialogVisible = ref(false)
 const activeActionId = ref<string | null>(null)
 const actionRevision = ref(0)
@@ -73,10 +78,191 @@ const savingModel = ref(false)
 const selectedScopes = ref<string[]>([])
 const mentionOpen = ref(false)
 const mentionQuery = ref('')
+// Enabled explicitly only in a reviewed first-party PRP environment.
+const knowledgeCaptureEnabled = import.meta.env.VITE_PERSONAL_OS_CHAT_EXTRACTION === 'true'
+const knowledgeVisible = ref(false)
+const knowledgePreview = ref<PersonalChatKnowledgePreview | null>(null)
+const knowledgeResult = ref<ChatKnowledgeExtraction | null>(null)
+const knowledgeSelected = ref<string[]>([])
+const knowledgeInspections = ref<Record<string, AiKnowledgeDisposition>>({})
+const knowledgeInspectError = ref('')
+const knowledgeInspecting = ref(false)
+const knowledgeLoading = ref(false)
+const knowledgeSaving = ref(false)
+const knowledgeSaved = ref(false)
+let knowledgeGeneration = 0
+
+function resetKnowledgeReview() {
+  ++knowledgeGeneration
+  knowledgeVisible.value = false
+  knowledgePreview.value = null
+  knowledgeResult.value = null
+  knowledgeSelected.value = []
+  knowledgeInspections.value = {}
+  knowledgeInspectError.value = ''
+  knowledgeInspecting.value = false
+  knowledgeLoading.value = false
+  knowledgeSaving.value = false
+  knowledgeSaved.value = false
+}
+async function startKnowledgeReview(message: ChatMessage) {
+  if (!knowledgeCaptureEnabled || sending.value || knowledgeLoading.value
+      || message.role !== 'user' || message.id <= 0 || !selectedId.value) return
+  if (!message.content.trim() || message.content.length > 2000) {
+    ElMessage.warning('目前仅支持 2000 字以内的纯文字用户消息')
+    return
+  }
+  resetKnowledgeReview()
+  const ticket = knowledgeGeneration
+  const conversationId = selectedId.value
+  knowledgeLoading.value = true
+  try {
+    const review = await previewChatKnowledge(conversationId, message.id)
+    if (ticket !== knowledgeGeneration || selectedId.value !== conversationId) return
+    knowledgePreview.value = review
+    knowledgeVisible.value = true
+  } catch {
+    if (ticket === knowledgeGeneration)
+      ElMessage.error('无法预览这条消息，可能消息已删除或该功能尚未启用')
+  } finally {
+    if (ticket === knowledgeGeneration) knowledgeLoading.value = false
+  }
+}
+async function inspectKnowledgeSuggestions(result: ChatKnowledgeExtraction, ticket: number) {
+  if (knowledgeInspecting.value || !result.candidates.length) return
+  knowledgeInspecting.value = true
+  knowledgeInspectError.value = ''
+  try {
+    const insights = await inspectPersonalAiKnowledgeCandidates(result.candidates.map(item => ({
+      predicate: item.predicate,
+      value: item.value,
+      validFrom: null,
+      validTo: null,
+      sensitivity: 'RESTRICTED' as const,
+      requestKey: item.requestKey,
+      sourceMessageId: result.messageId,
+      evidenceQuote: item.evidenceQuote,
+    })))
+    if (ticket !== knowledgeGeneration) return
+    knowledgeInspections.value = Object.fromEntries(insights.map(x => [x.requestKey, x.disposition]))
+  } catch {
+    if (ticket === knowledgeGeneration)
+      knowledgeInspectError.value = '检查已有个人知识失败，本次暂不提交，请重试查重'
+  } finally {
+    if (ticket === knowledgeGeneration) knowledgeInspecting.value = false
+  }
+}
+
+async function approveKnowledgeExtraction() {
+  const review = knowledgePreview.value
+  if (!review || knowledgeLoading.value || knowledgeResult.value) return
+  const ticket = knowledgeGeneration
+  knowledgeLoading.value = true
+  try {
+    const approved = await approveChatKnowledgePreview(review.previewId)
+    if (ticket !== knowledgeGeneration) return
+    const result = await extractChatKnowledge(approved.extractionToken)
+    if (ticket !== knowledgeGeneration) return
+    knowledgeResult.value = result
+    knowledgePreview.value = null
+    knowledgeSelected.value = []
+    await inspectKnowledgeSuggestions(result, ticket)
+  } catch {
+    if (ticket === knowledgeGeneration) {
+      knowledgePreview.value = null
+      ElMessage.error('知识提取失败或授权已失效，请重新从聊天消息发起')
+    }
+  } finally {
+    if (ticket === knowledgeGeneration) knowledgeLoading.value = false
+  }
+}
+async function saveKnowledgeCandidates() {
+  const result = knowledgeResult.value
+  if (!result || knowledgeSaving.value || knowledgeSaved.value) return
+  if (knowledgeInspecting.value || knowledgeInspectError.value ||
+      Object.keys(knowledgeInspections.value).length !== result.candidates.length) {
+    ElMessage.warning('需要先完成本次已存在知识的检查')
+    return
+  }
+  const chosen = result.candidates.filter(item => knowledgeSelected.value.includes(item.requestKey) &&
+    knowledgeInspections.value[item.requestKey] !== 'DUPLICATE' &&
+    knowledgeInspections.value[item.requestKey] !== 'REVIEW_REQUIRED')
+  if (!chosen.length) {
+    ElMessage.warning('请先勾选要提交审核的知识候选')
+    return
+  }
+  const ticket = knowledgeGeneration
+  knowledgeSaving.value = true
+  try {
+    await submitPersonalAiKnowledgeCandidates(chosen.map(item => ({
+      predicate: item.predicate,
+      value: item.value,
+      validFrom: null,
+      validTo: null,
+      sensitivity: 'RESTRICTED' as const,
+      requestKey: item.requestKey,
+      sourceMessageId: result.messageId,
+      evidenceQuote: item.evidenceQuote,
+    })))
+    if (ticket !== knowledgeGeneration) return
+    knowledgeSaved.value = true
+    knowledgeSelected.value = []
+    ElMessage.success('候选已存入待确认队列，尚未成为长期事实')
+  } catch (error) {
+    if (ticket === knowledgeGeneration) {
+      const maybe = error as { response?: { status?: number } }
+      ElMessage.error(maybe.response?.status === 409
+        ? '检测到已有重复知识，未写入本批次。请检查旧事实或重新提取。'
+        : '提交候选失败；当前选择已保留，可稍后重试')
+    }
+  } finally {
+    if (ticket === knowledgeGeneration) knowledgeSaving.value = false
+  }
+}
 const preview = ref<AiContextPreview | null>(null)
 const previewVisible = ref(false)
 const previewing = ref(false)
 const confirming = ref(false)
+
+// All chat data is owner-specific, not only the consent modal. Reject pending
+// old-session responses before they can restore a previous owner's messages.
+let chatAuthGeneration = 0
+watch(() => auth.token, (next, previous) => {
+  if (next === previous) return
+  ++chatAuthGeneration
+  controller?.abort()
+  ++activeSelectionRequest
+  ++photoSelectionVersion
+  resetKnowledgeReview()
+  previewVisible.value = false
+  preview.value = null
+  selectedId.value = null
+  messages.value = []
+  blocksByMessage.value = {}
+  conversations.value = []
+  conversationsCursor.value = null
+  conversationsHasMore.value = false
+  hasOlder.value = false
+  input.value = ''
+  selectedScopes.value = []
+  chatPhoto.value = null
+  preparingPhoto.value = false
+  mentionOpen.value = false
+  historyOpen.value = false
+  usage.value = null
+  settings.value = null
+  provider.value = 'deepseek'
+  model.value = 'deepseek-chat'
+  savingModel.value = false
+  managingConversation.value = false
+  streamError.value = ''
+  historyLoading.value = false
+  conversationsLoadingMore.value = false
+  loadingOlder.value = false
+  sending.value = false
+  // A same-route login must load the *new* account's data, never reuse old refs.
+  if (next) { void refresh(true); void loadSettings() }
+})
 const streamError = ref('')
 const chatPhoto = ref<File | null>(null)
 const photoInput = ref<HTMLInputElement | null>(null)
@@ -106,6 +292,7 @@ async function photoSelected(event: Event) {
 }
 async function prepareInlineDiet(content: string) {
   if (sending.value) return
+  const generation = chatAuthGeneration
   const photo = chatPhoto.value
   const originalText = input.value
   const previousMessages = [...messages.value]
@@ -125,6 +312,7 @@ async function prepareInlineDiet(content: string) {
   bottom()
   try {
     const result = await prepareInlineHealthDraft(content, selectedId.value, photo)
+    if (generation !== chatAuthGeneration) return
     selectedId.value = result.conversationId
     // The POST already persisted both messages and the draft: never resubmit on a refresh failure.
     const assistant = messages.value[messages.value.length - 1]!
@@ -139,6 +327,7 @@ async function prepareInlineDiet(content: string) {
       listMessages(result.conversationId, undefined, HISTORY_PAGE_SIZE + 1),
       listMessageBlocks(result.conversationId),
     ])
+    if (generation !== chatAuthGeneration) return
     if (latest.status === 'fulfilled') {
       messages.value = latest.value.slice(-HISTORY_PAGE_SIZE)
       hasOlder.value = latest.value.length > HISTORY_PAGE_SIZE
@@ -155,14 +344,17 @@ async function prepareInlineDiet(content: string) {
     }
     try { await refresh() } catch { /* POST was successful; optional history refresh must not retry it */ }
   } catch (e) {
+    if (generation !== chatAuthGeneration) return
     const err = e as { response?: { data?: { message?: string } } }
     streamError.value = err.response?.data?.message || 'AI 饮食记录解析失败，请检查模型配置并重试'
     input.value = originalText
     chatPhoto.value = photo
     messages.value = previousMessages
   } finally {
-    sending.value = false
-    bottom()
+    if (generation === chatAuthGeneration) {
+      sending.value = false
+      bottom()
+    }
   }
 }
 const scroller = ref<HTMLElement | null>(null)
@@ -174,11 +366,16 @@ const isEmpty = computed(() => messages.value.length === 0)
 let controller: AbortController | null = null
 
 async function loadSettings() {
+  const generation = chatAuthGeneration
   try {
-    settings.value = await getAiSettings()
-    provider.value = settings.value.selectedProvider
-    model.value = settings.value.selectedModel
-  } catch { ElMessage.warning('模型配置暂时不可用') }
+    const selected = await getAiSettings()
+    if (generation !== chatAuthGeneration) return
+    settings.value = selected
+    provider.value = selected.selectedProvider
+    model.value = selected.selectedModel
+  } catch {
+    if (generation === chatAuthGeneration) ElMessage.warning('模型配置暂时不可用')
+  }
 }
 async function changeProvider(id: string) {
   if (sending.value || savingModel.value || !settings.value) return
@@ -194,20 +391,30 @@ async function changeModel(id: string) {
   await persistModel(previous)
 }
 async function persistModel(previous: { provider: string; model: string }) {
+  const generation = chatAuthGeneration
   savingModel.value = true
   preview.value = null // preview binds to the selected provider + model
-  try { settings.value = await setAiSelection(provider.value, model.value) }
-  catch {
+  resetKnowledgeReview()
+  try {
+    const selected = await setAiSelection(provider.value, model.value)
+    if (generation !== chatAuthGeneration) return
+    settings.value = selected
+  } catch {
+    if (generation !== chatAuthGeneration) return
     provider.value = previous.provider
     model.value = previous.model
     ElMessage.error('切换模型失败，请检查配置')
-  } finally { savingModel.value = false }
+  } finally {
+    if (generation === chatAuthGeneration) savingModel.value = false
+  }
 }
 
 async function refresh(restoreLatest = false) {
+  const generation = chatAuthGeneration
   historyLoading.value = true
   // A refresh reopens the first cursor page; lazy pages are loaded on demand.
   const [chats, current] = await Promise.allSettled([pageConversations(), fetchUsage()])
+  if (generation !== chatAuthGeneration) return
   if (chats.status === 'fulfilled') {
     conversations.value = chats.value.items
     conversationsCursor.value = chats.value.nextCursor
@@ -227,6 +434,7 @@ async function refresh(restoreLatest = false) {
     historyLoadError.value = true
     ElMessage.error('历史会话加载失败，请重试；已有记录不会因此删除')
   }
+  if (generation !== chatAuthGeneration) return
   if (current.status === 'fulfilled') usage.value = current.value
   historyLoading.value = false
 }
@@ -234,18 +442,24 @@ async function loadMoreConversations() {
   if (!conversationsHasMore.value || !conversationsCursor.value ||
       conversationsLoadingMore.value || historyLoading.value) return
   const cursor = conversationsCursor.value
+  const generation = chatAuthGeneration
   conversationsLoadingMore.value = true
   try {
     const page = await pageConversations(cursor)
+    if (generation !== chatAuthGeneration) return
     const existing = new Set(conversations.value.map(item => item.id))
     conversations.value = [...conversations.value, ...page.items.filter(item => !existing.has(item.id))]
     conversationsCursor.value = page.nextCursor
     conversationsHasMore.value = page.hasMore
-  } catch { ElMessage.error('加载更多会话失败，请重试') }
-  finally { conversationsLoadingMore.value = false }
+  } catch {
+    if (generation === chatAuthGeneration) ElMessage.error('加载更多会话失败，请重试')
+  } finally {
+    if (generation === chatAuthGeneration) conversationsLoadingMore.value = false
+  }
 }
 async function renameSelectedConversation(item: Conversation) {
   if (sending.value || managingConversation.value) return
+  const generation = chatAuthGeneration
   try {
     const { value } = await ElMessageBox.prompt('请输入新的会话标题', '重命名会话', {
       inputValue: item.title,
@@ -255,32 +469,43 @@ async function renameSelectedConversation(item: Conversation) {
       confirmButtonText: '保存',
       cancelButtonText: '取消',
     })
+    if (generation !== chatAuthGeneration) return
     managingConversation.value = true
     const title = String(value).trim()
     await renameConversation(item.id, title)
+    if (generation !== chatAuthGeneration) return
     conversations.value = conversations.value.map(c => c.id === item.id ? { ...c, title } : c)
     ElMessage.success('已重命名')
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error('重命名失败，请重试')
-  } finally { managingConversation.value = false }
+    if (generation === chatAuthGeneration && error !== 'cancel' && error !== 'close')
+      ElMessage.error('重命名失败，请重试')
+  } finally {
+    if (generation === chatAuthGeneration) managingConversation.value = false
+  }
 }
 async function deleteSelectedConversation(item: Conversation) {
   if (sending.value || managingConversation.value || loadingOlder.value) return
+  const generation = chatAuthGeneration
   try {
     await ElMessageBox.confirm(
       '确认删除“' + item.title + '”？删除后不再显示此聊天，也不能继续在此会话发送消息。已经保存到健康中心等应用的数据不会删除。',
       '删除会话', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
         confirmButtonClass: 'chat-delete-confirm' },
     )
+    if (generation !== chatAuthGeneration) return
     managingConversation.value = true
     await deleteConversation(item.id)
+    if (generation !== chatAuthGeneration) return
     conversations.value = conversations.value.filter(c => c.id !== item.id)
     if (selectedId.value === item.id) newChat()
     ElMessage.success('会话已删除')
     void refresh()
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error('删除失败，会话仍然保留')
-  } finally { managingConversation.value = false }
+    if (generation === chatAuthGeneration && error !== 'cancel' && error !== 'close')
+      ElMessage.error('删除失败，会话仍然保留')
+  } finally {
+    if (generation === chatAuthGeneration) managingConversation.value = false
+  }
 }
 function onMessagesScroll() {
   const el = scroller.value
@@ -300,11 +525,13 @@ watch(messages, () => { if (!prependingHistory && !showJumpToBottom.value) botto
 async function select(id: string, automaticRestore = false) {
   if (sending.value || loadingOlder.value) return
   const requestId = ++activeSelectionRequest
+  const generation = chatAuthGeneration
   try {
     const [data, blocks] = await Promise.all([
       listMessages(id, undefined, HISTORY_PAGE_SIZE + 1),
       listMessageBlocks(id).catch(() => [] as AiMessageBlock[]),
     ])
+    if (generation !== chatAuthGeneration) return
     const canApply = shouldApplyLoadedConversation(
       conversations.value, id, automaticRestore, requestId, activeSelectionRequest, {
         selectedId: selectedId.value,
@@ -321,6 +548,7 @@ async function select(id: string, automaticRestore = false) {
     input.value = ''
     selectedScopes.value = []
     preview.value = null
+    resetKnowledgeReview()
     ++photoSelectionVersion
     chatPhoto.value = null
     preparingPhoto.value = false
@@ -339,22 +567,25 @@ async function loadOlder() {
   const id = selectedId.value
   const oldestId = messages.value.find(message => message.id > 0)?.id
   if (!id || oldestId === undefined || !hasOlder.value || loadingOlder.value || sending.value) return
+  const generation = chatAuthGeneration
   loadingOlder.value = true
   try {
     const olderPage = await listMessages(id, oldestId, HISTORY_PAGE_SIZE + 1)
-    if (selectedId.value !== id) return
+    if (generation !== chatAuthGeneration || selectedId.value !== id) return
     hasOlder.value = olderPage.length > HISTORY_PAGE_SIZE
     const previousHeight = scroller.value?.scrollHeight ?? 0
     const previousTop = scroller.value?.scrollTop ?? 0
     prependingHistory = true
     messages.value = [...olderPage.slice(-HISTORY_PAGE_SIZE), ...messages.value]
     await nextTick()
+    if (generation !== chatAuthGeneration) return
     if (scroller.value) scroller.value.scrollTop =
       previousTop + scroller.value.scrollHeight - previousHeight
-  } catch { ElMessage.error('加载更早消息失败，请重试') }
-  finally {
+  } catch {
+    if (generation === chatAuthGeneration) ElMessage.error('加载更早消息失败，请重试')
+  } finally {
     prependingHistory = false
-    loadingOlder.value = false
+    if (generation === chatAuthGeneration) loadingOlder.value = false
   }
 }
 function newChat() {
@@ -368,6 +599,7 @@ function newChat() {
   input.value = ''
   selectedScopes.value = []
   preview.value = null
+  resetKnowledgeReview()
   ++photoSelectionVersion
   chatPhoto.value = null
   preparingPhoto.value = false
@@ -394,24 +626,33 @@ function pickMention(item: ContextOption) {
 }
 async function showPreview() {
   if (!selectedScopes.value.length || sending.value || previewing.value) return
+  const ownerToken = auth.token
   previewing.value = true
   try {
-    preview.value = await previewAiContext([...selectedScopes.value])
+    const review = await previewAiContext([...selectedScopes.value])
+    // Do not resurrect a private preview from the prior login.
+    if (ownerToken !== auth.token) return
+    preview.value = review
     previewVisible.value = true
     mentionOpen.value = false
-  } catch { ElMessage.error('数据预览失败，请检查相关应用是否可用') }
-  finally { previewing.value = false }
+  } catch {
+    if (ownerToken === auth.token) ElMessage.error('数据预览失败，请检查相关应用是否可用')
+  } finally { previewing.value = false }
 }
 async function confirmShare() {
   if (!preview.value || confirming.value) return
+  const ownerToken = auth.token
   confirming.value = true
   try {
     const approved = await confirmAiContext(preview.value.previewId)
+    // A one-time context grant must not be carried into a different session.
+    if (ownerToken !== auth.token) return
     previewVisible.value = false
     preview.value = null
     await send(approved.contextToken)
-  } catch { ElMessage.error('授权已过期或确认失败，请重新预览') }
-  finally { confirming.value = false }
+  } catch {
+    if (ownerToken === auth.token) ElMessage.error('授权已过期或确认失败，请重新预览')
+  } finally { confirming.value = false }
 }
 function copy(content: string) {
   void navigator.clipboard?.writeText(content).then(() => ElMessage.success('已复制')).catch(() => ElMessage.error('复制失败'))
@@ -441,6 +682,7 @@ async function confirmPreviousHealthDraft(content: string) {
     ElMessage.warning('当前没有可确认的饮食记录，请先描述日期、餐次与热量')
     return
   }
+  const generation = chatAuthGeneration
   const previousMessages = [...messages.value]
   const pendingId = -Date.now()
   const conversation = selectedId.value
@@ -454,6 +696,7 @@ async function confirmPreviousHealthDraft(content: string) {
   bottom()
   try {
     const result = await confirmPendingHealthDraft(conversation, content)
+    if (generation !== chatAuthGeneration) return
     // The backend returns a receipt only after the authorized draft was committed.
     const assistant = messages.value[messages.value.length - 1]!
     assistant.id = result.messageId
@@ -462,6 +705,7 @@ async function confirmPreviousHealthDraft(content: string) {
       listMessages(conversation, undefined, HISTORY_PAGE_SIZE + 1),
       listMessageBlocks(conversation),
     ])
+    if (generation !== chatAuthGeneration) return
     if (latest.status === 'fulfilled') {
       messages.value = latest.value.slice(-HISTORY_PAGE_SIZE)
       hasOlder.value = latest.value.length > HISTORY_PAGE_SIZE
@@ -471,13 +715,16 @@ async function confirmPreviousHealthDraft(content: string) {
       ElMessage.info(result.content)
     try { await refresh() } catch { /* the server has already committed; never retry */ }
   } catch {
+    if (generation !== chatAuthGeneration) return
     // In case of uncertain HTTP outcome, never claim a write, and do not re-POST.
     streamError.value = '保存结果未核实，请先到健康中心查看，避免重复提交；也可重新打开会话查看服务器回执。'
     messages.value = previousMessages
     input.value = content
   } finally {
-    sending.value = false
-    bottom()
+    if (generation === chatAuthGeneration) {
+      sending.value = false
+      bottom()
+    }
   }
 }
 async function send(contextToken?: string) {
@@ -532,6 +779,7 @@ async function send(contextToken?: string) {
   }
   if (selectedScopes.value.length > 0 && !contextToken) { await showPreview(); return }
   if (selectedScopes.value.length === 0 && contextToken) return
+  const generation = chatAuthGeneration
   const scopes = [...selectedScopes.value]
   input.value = ''
   selectedScopes.value = []
@@ -552,6 +800,7 @@ async function send(contextToken?: string) {
   let eventError = false
   try {
     await streamChat(selectedId.value, content, ({ event, data }) => {
+      if (generation !== chatAuthGeneration) return
       if (event === 'meta') selectedId.value = String(data.conversationId)
       if (event === 'delta') reply.content += String(data.text ?? '')
       if (event === 'done') completed = true
@@ -567,19 +816,24 @@ async function send(contextToken?: string) {
             : '生成失败，请稍后重试。'
       }
     }, controller.signal, scopes, contextToken)
+    if (generation !== chatAuthGeneration) return
     if (!completed) throw new Error('Stream interrupted')
   } catch (error) {
-    if (!eventError) streamError.value = describeStreamError(error)
+    if (generation === chatAuthGeneration && !eventError)
+      streamError.value = describeStreamError(error)
   } finally {
+    if (generation !== chatAuthGeneration) return
     sending.value = false
     controller = null
     await refresh()
+    if (generation !== chatAuthGeneration) return
     if (selectedId.value) {
       try {
         const [latest, blocks] = await Promise.all([
           listMessages(selectedId.value, undefined, HISTORY_PAGE_SIZE + 1),
           listMessageBlocks(selectedId.value).catch(() => [] as AiMessageBlock[]),
         ])
+        if (generation !== chatAuthGeneration) return
         hasOlder.value = latest.length > HISTORY_PAGE_SIZE
         messages.value = latest.slice(-HISTORY_PAGE_SIZE)
         blocksByMessage.value = groupBlocks(blocks)
@@ -589,7 +843,7 @@ async function send(contextToken?: string) {
   }
 }
 onMounted(() => { void refresh(true); void loadSettings() })
-onBeforeUnmount(() => controller?.abort())
+onBeforeUnmount(() => { controller?.abort(); resetKnowledgeReview() })
 </script>
 
 <template>
@@ -660,6 +914,12 @@ onBeforeUnmount(() => controller?.abort())
             <div v-if="message.role === 'assistant' && !message.content" class="chat-typing">正在思考 <span>···</span></div>
             <div v-else-if="message.role === 'assistant'" class="markdown-body" v-html="renderSafeMarkdown(message.content)" />
             <div v-else class="chat-user-text">{{ message.content }}</div>
+            <div v-if="knowledgeCaptureEnabled && message.role === 'user' && message.id > 0"
+              class="chat-knowledge-action">
+              <button type="button" aria-label="从此消息提取知识候选"
+                :disabled="sending || knowledgeLoading || knowledgeSaving"
+                @click="startKnowledgeReview(message)">提取知识候选</button>
+            </div>
             <template v-for="(block, i) in blocksByMessage[message.id] ?? []" :key="message.id + '-' + i">
               <AiNavigationCard v-if="block.type === 'navigation'" :block="block" />
               <AiActionLink v-else-if="block.type === 'wellness_draft'"
@@ -744,10 +1004,68 @@ onBeforeUnmount(() => controller?.abort())
         <el-button type="primary" :loading="confirming" @click="confirmShare">允许仅本次发送</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="knowledgeVisible" title="提取个人知识候选"
+      width="min(600px, 96vw)" append-to-body
+      :close-on-click-modal="false" :close-on-press-escape="!knowledgeSaving"
+      :show-close="!knowledgeSaving" @closed="resetKnowledgeReview">
+      <template v-if="knowledgePreview">
+        <p class="chat-consent-explain">请核对以下<strong>唯一一条</strong>用户消息。点击授权后，才会将这段原文发送给 {{ knowledgePreview.provider }} / {{ knowledgePreview.model }} 提取知识。不会读取其他聊天消息、健康或财务记录。</p>
+        <pre class="chat-preview-data">{{ knowledgePreview.messageText }}</pre>
+        <p class="chat-consent-explain">令牌 3 分钟有效且仅使用一次；本次提取不会保存任何事实，后续仍需要你挑选候选并在个人智能系统中确认。</p>
+      </template>
+      <p v-else-if="knowledgeLoading && !knowledgeResult" role="status">正在提取知识候选，暂不写入个人记忆…</p>
+      <template v-if="knowledgeResult">
+        <p class="chat-consent-explain">模型已整理 {{ knowledgeResult.candidates.length }} 条未核实候选，默认均为<strong>受限</strong>。勾选只是提交到待确认队列，不代表认可或永久保存为事实。</p>
+        <p v-if="knowledgeSaved" role="status">所选候选已进入待确认列表。
+          <RouterLink to="/personal-os" @click="knowledgeVisible = false">前往个人智能系统审核</RouterLink>
+        </p>
+        <p v-else-if="!knowledgeResult.candidates.length">这条消息没有可可靠提取的自述事实。不会创建空记录。</p>
+        <div v-else class="chat-knowledge-list">
+          <div v-for="item in knowledgeResult.candidates" :key="item.requestKey" class="chat-knowledge-item">
+            <el-checkbox v-model="knowledgeSelected" :value="item.requestKey"
+              :disabled="knowledgeSaving || knowledgeSaved || knowledgeInspecting ||
+                knowledgeInspections[item.requestKey] === 'DUPLICATE' ||
+                knowledgeInspections[item.requestKey] === 'REVIEW_REQUIRED'">选择</el-checkbox>
+            <span class="chat-knowledge-details">
+              <strong>{{ item.predicate === 'DECLARES_SKILL' ? '技能自述' : item.predicate === 'PREFERS' ? '偏好' : '背景经历' }}：{{ item.value }}</strong>
+              <small>原话证据：“{{ item.evidenceQuote }}” · 受限 · AI 提议未核实</small>
+              <small v-if="knowledgeInspections[item.requestKey] === 'DUPLICATE'">已有相同有效知识，已禁止重复提交</small>
+              <small v-else-if="knowledgeInspections[item.requestKey] === 'POSSIBLY_RELATED'">发现可能相近的记录，请人工核对；不代表一定矛盾</small>
+              <small v-else-if="knowledgeInspections[item.requestKey] === 'REVIEW_REQUIRED'">历史事实较多，请到个人智能系统人工检查</small>
+              <small v-else-if="knowledgeInspections[item.requestKey] === 'NEW'">当前未发现明显重复</small>
+            </span>
+          </div>
+        </div>
+        <p v-if="knowledgeInspecting" class="chat-consent-explain" role="status">正在检查已有个人知识…</p>
+        <p v-if="knowledgeInspectError" class="chat-consent-explain" role="alert">{{ knowledgeInspectError }}</p>
+        <p class="chat-consent-explain">提交时会重新核对原话，并记录来源消息 ID；不在知识库复制整段聊天。若删除原聊天，该来源的可信引用将失效。</p>
+      </template>
+      <template #footer>
+        <el-button :disabled="knowledgeSaving" @click="resetKnowledgeReview">关闭 / 取消</el-button>
+        <el-button v-if="knowledgePreview" type="primary" :loading="knowledgeLoading"
+          @click="approveKnowledgeExtraction">仅本次发送给模型提取</el-button>
+        <el-button v-if="knowledgeResult && knowledgeInspectError && !knowledgeSaved"
+          :loading="knowledgeInspecting" @click="inspectKnowledgeSuggestions(knowledgeResult, knowledgeGeneration)">重试检查重复知识</el-button>
+        <el-button v-if="knowledgeResult && !knowledgeSaved && knowledgeResult.candidates.length"
+          type="primary" :loading="knowledgeSaving"
+          :disabled="!knowledgeSelected.length || knowledgeInspecting || !!knowledgeInspectError ||
+            Object.keys(knowledgeInspections).length !== knowledgeResult.candidates.length"
+          @click="saveKnowledgeCandidates">选中提交待审核（{{ knowledgeSelected.length }}）</el-button>
+      </template>
+    </el-dialog>
   </AppLayout>
 </template>
 
 <style scoped>
+.chat-knowledge-action{margin-top:7px;text-align:right}
+.chat-knowledge-action button{border:0;background:transparent;color:#5170a0;font-size:11px;cursor:pointer;padding:3px 0}
+.chat-knowledge-action button:disabled{opacity:.35;cursor:not-allowed}
+.chat-knowledge-list{display:grid;gap:8px;max-height:42vh;overflow-y:auto}
+.chat-knowledge-item{display:flex;align-items:flex-start;gap:10px;padding:10px;border:1px solid #e1e7ee;border-radius:10px;cursor:pointer}
+.chat-knowledge-details{display:grid;gap:5px;min-width:0;font-size:13px;overflow-wrap:anywhere}
+.chat-knowledge-details small{font-size:11px;color:#748196;line-height:1.55}
+
 .prp-chat-workspace{display:flex;flex:1;min-height:0;min-width:0;height:100%}
 .chat-desktop-sidebar{display:block;flex:0 0 270px;min-height:0;border-right:1px solid #e8eef5;background:#fbfcff}
 .chat-mobile-menu{display:none!important}
