@@ -172,6 +172,10 @@ test('no merge, unprotected main, wrong dev SHA or failing head checks prevent c
  p=validDevRelease();p.proof.checks.check_runs[0].conclusion='failure'
  refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'CHECK_NOT_GREEN_backend-tests')
  p=validDevRelease();p.s.tasks[0].status='IN_REVIEW'
+ // A task IN_REVIEW must retain a valid claim; otherwise snapshot validation
+ // correctly fails first with ACTIVE_CLAIM instead of the intended close gate.
+ p.s.tasks[0].claim={claim_id:'11111111-1111-4111-8111-111111111111',
+   worker_id:'chat-A',actor:'micor-cjj-spec'}
  refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'INCOMPLETE_REQUIREMENT')
 })
 
