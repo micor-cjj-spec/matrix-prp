@@ -85,7 +85,9 @@ export function assessReleaseScope(impact) {
 
   const changes = files.map(path => ({path, kind: classifyPath(path)}))
   const kinds = new Set(changes.map(c => c.kind))
-  if (impact.unclassifiedFiles.length) kinds.add('unknown')
+  // Feature Impact may list a recognized README as unclassified; only truly
+  // unknown release-scope paths require an additional manual path-owner gate.
+  if (impact.unclassifiedFiles.some(path => classifyPath(path) === 'unknown')) kinds.add('unknown')
   if (![...kinds].every(k => KINDS.has(k))) throw new Error('Invalid change kind')
 
   const runtimeKinds = [...kinds].filter(k => k !== 'docs' && k !== 'tests')
