@@ -71,7 +71,7 @@ def published_state(lines, port):
         return "UNKNOWN_QUERY"
     # Detect Docker NAT port publishes even when /proc does not show a proxy.
     return ("PUBLISHED_TCP_OBSERVED" if any(
-        re.search(r"(?<!\\d)" + str(port) + r"->\\d+/tcp\\b", line)
+        re.search(r"(?<!\d)" + str(port) + r"->\d+/tcp\b", line)
         for line in lines
     ) else "NO_PUBLISH_OBSERVED")
 
@@ -150,7 +150,7 @@ def available_memory():
     raw = read_proc("/proc/meminfo")
     if raw is None:
         return None
-    match = re.search(r"^MemAvailable:\\s+(\\d+) kB$", raw, re.M)
+    match = re.search(r"^MemAvailable:\s+(\d+) kB$", raw, re.M)
     return int(match.group(1)) * 1024 if match else None
 
 
