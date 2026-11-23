@@ -1,0 +1,77 @@
+name: PRP release readiness (GitHub read-only)
+run-name: PRP release readiness · ${{ github.event_name }} · ${{ github.sha }}
+
+on:
+  # Non-production synthetic contract checks on review branches only.
+  pull_request:
+    branches: [dev]
+    paths:
+      - app/scripts/release-readiness.mjs
+      - app/scripts/release-readiness.test.mjs
+      - .github/workflows/prp-release-readiness.yml
+  # The request is an exact owner-authored comment on Issue #323.
+  # GitHub executes issue_comment workflows from the default branch only.
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  contract-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Validate fixed read-only release precheck contract
+        run: node --test app/scripts/release-readiness.test.mjs
+      - name: Verify no production change permissions in readiness workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/prp-release-readiness.yml').read_text(encoding='utf-8')
+          assert 'environment: production' not in text
+          assert 'PRP_DEPLOY_SSH' not in text
+          assert 'publication-hold.json' not in text
+          assert 'permissions: {}' in text
+          PY
+
+  owner-readonly-precheck:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.number == 323 &&
+      github.event.comment.user.login == github.repository_owner &&
+      startsWith(github.event.comment.body, 'PRP-RELEASE-CHECK sha=')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Read current main, latest exact-SHA CI and checked-in release hold
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node app/scripts/release-readiness.mjs
+      - name: Upload sanitized GitHub-only precheck
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: prp-readonly-release-precheck
+          path: ${{ runner.temp }}/prp-release-precheck.json
+          if-no-files-found: warn
+          retention-days: 7
