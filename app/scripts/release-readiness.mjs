@@ -4,7 +4,7 @@
  * Runs from protected main on an exact owner-authored Issue #323 comment.
  * NEVER authorizes, performs, or proves a production deployment.
  */
-import {readFileSync, existsSync, lstatSync, appendFileSync, writeFileSync} from 'node:fs'
+import {readFileSync, lstatSync, appendFileSync, writeFileSync} from 'node:fs'
 import {resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
@@ -51,14 +51,16 @@ export function assessGithubPrecheck({requestedSha, checkedOutSha, currentMainSh
   if (requestedSha !== checkedOutSha || requestedSha !== currentMainSha) {
     blockers.push('STALE_OR_UNMATCHED_MAIN_SHA')
   }
-  const trustedCi = ciRuns.filter(run =>
+  // Use the most recent exact-SHA main push attempt. An older green run
+  // MUST NOT override a later failure for the same candidate.
+  const latestMainRun = ciRuns.filter(run =>
     run && Number.isSafeInteger(run.id) && run.id > 0 &&
     run.name === 'CI' && run.event === 'push' &&
     run.head_branch === 'main' && run.head_sha === requestedSha &&
-    run.head_repository?.full_name === 'micor-cjj-spec/matrix-prp' &&
-    run.status === 'completed' && run.conclusion === 'success'
-  ).sort((a,b) => b.id - a.id)
-  const ci = trustedCi[0] || null
+    run.head_repository?.full_name === 'micor-cjj-spec/matrix-prp'
+  ).sort((a,b) => b.id - a.id)[0] || null
+  const ci = latestMainRun?.status === 'completed' &&
+    latestMainRun?.conclusion === 'success' ? latestMainRun : null
   if (!ci) blockers.push('NO_SUCCESSFUL_EXACT_MAIN_PUSH_CI')
   if (ci) {
     if (ciJobs.some(job => !job || typeof job.name !== 'string' || job.name.length > 200)) {
@@ -132,9 +134,12 @@ async function collect() {
   if (!SHA.test(checkedOutSha)) throw Error('Invalid workflow SHA')
   const root = resolve(fileURLToPath(new URL('../..', import.meta.url)))
   const holdPath = resolve(root, 'app/deploy/publication-hold.json')
-  const exists = existsSync(holdPath)
-  const hold = validateHoldSnapshot(exists ? readFileSync(holdPath,'utf8') : null,
-    exists, exists && lstatSync(holdPath).isSymbolicLink())
+  let holdStat = null
+  try { holdStat = lstatSync(holdPath) }
+  catch (error) { if (error.code !== 'ENOENT') throw error }
+  const hold = validateHoldSnapshot(holdStat && !holdStat.isSymbolicLink() ?
+    readFileSync(holdPath,'utf8') : null,
+    Boolean(holdStat),Boolean(holdStat?.isSymbolicLink()))
   const token = process.env.GITHUB_TOKEN
   if (!token) throw Error('Missing read-only GitHub API token')
   const main = await githubGet('/repos/' + repo + '/branches/main', token)
@@ -146,10 +151,11 @@ async function collect() {
     '&per_page=100',token)
   if (!Array.isArray(runsResponse?.workflow_runs)) throw Error('Invalid CI run response')
   const ciRuns = runsResponse.workflow_runs
-  const exact = ciRuns.filter(run =>
+  const latest = ciRuns.filter(run =>
     run?.name === 'CI' && run?.event === 'push' && run?.head_sha === requestedSha &&
-    run?.status === 'completed' && run?.conclusion === 'success' &&
+    run?.head_branch === 'main' &&
     run?.head_repository?.full_name === repo).sort((a,b) => b.id - a.id)[0]
+  const exact = latest?.status === 'completed' && latest?.conclusion === 'success' ? latest : null
   let ciJobs = []
   if (exact) {
     const response = await githubGet('/repos/' + repo +
