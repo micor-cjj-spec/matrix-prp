@@ -120,7 +120,8 @@ export function verifyIntegrationRelease(snapshot,command,proof){
   validateSnapshot(snapshot)
   check(snapshot.tasks.every(t=>t.status==='DONE'),'INCOMPLETE_REQUIREMENT')
   check(Number.isInteger(command.pr_number) && SHA.test(command.head_sha),'MISSING_INTEGRATION_PR')
-  const {pr,branch,comparison,checks,integrationBranch,integrationComparison}=proof ?? {}
+  const {pr,branch,comparison,checks,integrationBranch,integrationComparison,
+    mainAncestryComparison}=proof ?? {}
   const repo='micor-cjj-spec/matrix-prp'
   const integration='integrate/'+snapshot.requirement_id
   check(pr?.number===command.pr_number && pr?.head?.sha===command.head_sha,'WRONG_PR_OR_HEAD')
@@ -136,6 +137,15 @@ export function verifyIntegrationRelease(snapshot,command,proof){
         comparison.base_commit?.sha===pr.merge_commit_sha &&
         comparison.merge_base_commit?.sha===pr.merge_commit_sha &&
         Array.isArray(comparison.commits),'MERGE_NOT_ON_BASE')
+  // A squash or rebased PR can be marked merged without preserving the tested
+  // dev commit in main Git ancestry. Require the exact dev HEAD as ancestor.
+  check((mainAncestryComparison?.status==='ahead' ||
+         mainAncestryComparison?.status==='identical') &&
+        mainAncestryComparison.behind_by===0 &&
+        mainAncestryComparison.base_commit?.sha===command.head_sha &&
+        mainAncestryComparison.merge_base_commit?.sha===command.head_sha &&
+        Array.isArray(mainAncestryComparison.commits),
+        'DEV_HEAD_NOT_IN_MAIN_ANCESTRY')
   check(integrationBranch?.name===integration &&
         integrationBranch?.protected===true &&
         SHA.test(integrationBranch?.commit?.sha),'INTEGRATION_BRANCH_NOT_PROTECTED')
