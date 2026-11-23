@@ -38,79 +38,15 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
           text = Path('.github/workflows/prp-release-readiness.yml').read_text(encoding='utf-8')
-          # Anchor to YAML configuration lines; don't match the check's own literals.
-          assert not re.search(r'(?m)^[ \t]*environment[ \t]*:[ \t]*production[ \t]*
-          PY
-
-  owner-readonly-precheck:
-    if: >-
-      github.event_name == 'issue_comment' &&
-      github.event.issue.number == 323 &&
-      github.event.comment.user.login == github.repository_owner &&
-      startsWith(github.event.comment.body, 'PRP-RELEASE-CHECK sha=')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '22'
-      - name: Read current main, latest exact-SHA CI and checked-in release hold
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node app/scripts/release-readiness.mjs
-      - name: Upload sanitized GitHub-only precheck
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: prp-readonly-release-precheck
-          path: ${{ runner.temp }}/prp-release-precheck.json
-          if-no-files-found: warn
-          retention-days: 7
-, text)
-          assert not re.search(r'(?m)^[ \t]*[A-Z0-9_]*SSH[A-Z0-9_]*[ \t]*:[ \t]*\$\{\{', text)
-          assert re.search(r'(?m)^permissions: \{\}
-          PY
-
-  owner-readonly-precheck:
-    if: >-
-      github.event_name == 'issue_comment' &&
-      github.event.issue.number == 323 &&
-      github.event.comment.user.login == github.repository_owner &&
-      startsWith(github.event.comment.body, 'PRP-RELEASE-CHECK sha=')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '22'
-      - name: Read current main, latest exact-SHA CI and checked-in release hold
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node app/scripts/release-readiness.mjs
-      - name: Upload sanitized GitHub-only precheck
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: prp-readonly-release-precheck
-          path: ${{ runner.temp }}/prp-release-precheck.json
-          if-no-files-found: warn
-          retention-days: 7
-, text)
-          assert 'contents: read' in text and 'actions: read' in text
+          # Check actual YAML/configuration lines; do not match this test's source.
+          tokens = [line.strip() for line in text.splitlines()]
+          assert not any(line.startswith('environment:') for line in tokens)
+          assert not any(line.startswith('PRP_DEPLOY_SSH:') for line in tokens)
+          assert not any(line in ('contents: write', 'actions: write', 'deployments: write',
+                                  'id-token: write', 'issues: write') for line in tokens)
+          assert tokens.count('permissions: {}') == 1
+          assert 'contents: read' in tokens and 'actions: read' in tokens
           PY
 
   owner-readonly-precheck:
