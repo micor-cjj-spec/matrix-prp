@@ -6,7 +6,7 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 
-from preview_gate import Blocked, main, review, safe_json_file
+from preview_gate import Blocked, main, review, safe_json_file, verify_candidate_migrations
 
 SHA = "a" * 40
 
@@ -171,6 +171,24 @@ class PreviewGateTests(unittest.TestCase):
         policy.write_text(json.dumps(data))
         with self.assertRaisesRegex(Blocked, "REVIEWED_V30_V31_MIGRATIONS_REQUIRED"):
             review(self.doc, SHA, self.root)
+
+    def test_extra_v30_sql_filename_is_rejected(self):
+        sql = self.root / "app/backend/src/main/resources/db/migration/V30__shadow.sql"
+        sql.write_text("CREATE TABLE prp_shadow_30 (id bigint primary key);")
+        with self.assertRaisesRegex(Blocked, "MIGRATION_VERSION_COLLISION"):
+            review(self.doc, SHA, self.root)
+
+    def test_extra_v31_sql_filename_is_rejected(self):
+        sql = self.root / "app/backend/src/main/resources/db/migration/V31__shadow.sql"
+        sql.write_text("CREATE TABLE prp_shadow_31 (id bigint primary key);")
+        with self.assertRaisesRegex(Blocked, "MIGRATION_VERSION_COLLISION"):
+            review(self.doc, SHA, self.root)
+
+    def test_actual_checked_out_candidate_v30_v31_policy_matches_sql_bytes(self):
+        # The existing fixtures are synthetic; also validate the REAL Git
+        # checkout V30/V31 SQL bytes against their exact policy SHA256.
+        checkout_root = Path(__file__).resolve().parents[3]
+        self.assertIsNone(verify_candidate_migrations(checkout_root))
 
     def test_duplicate_evidence_keys(self):
         p = self.root / "dup.json"
