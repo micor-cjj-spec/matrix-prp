@@ -308,6 +308,35 @@ PY_BROWSER_NGINX
   echo "E2E Chromium: review-branch Vue build mounted read-only under /prp/."
 fi
 
+# Use the candidate gateway only in the disposable Unified Staging browser job.
+if [[ "${MCP_E2E_UNIFIED_READONLY:-false}" == "true" ]]; then
+  [[ "${MCP_E2E_FIRST_PARTY:-false}" == "true" &&
+     "${MCP_E2E_CHROMIUM:-false}" == "true" &&
+     "${MCP_E2E_CRUD:-false}" != "true" ]] || exit 2
+  python3 - "$tmp/nginx/default.conf" <<'PY_UNIFIED_GATEWAY'
+from pathlib import Path
+import subprocess
+import sys
+
+path = Path(sys.argv[1])
+original = path.read_text(encoding="utf-8")
+start = "server {\n    listen 127.0.0.1:443 ssl;\n    server_name prp-e2e.localhost;"
+if original.count(start) != 1:
+    raise SystemExit("Expected exactly one disposable PRP vhost")
+gateway = subprocess.check_output(
+    [sys.executable, "app/deploy/unified-staging/render_mcp_readonly_gateway.py"],
+    text=True,
+)
+gateway = gateway.replace("listen 8080;", """listen 127.0.0.1:443 ssl;
+    ssl_certificate /etc/nginx/certs/leaf.pem;
+    ssl_certificate_key /etc/nginx/certs/leaf.key;""", 1)
+gateway = gateway.replace("${PRP_STAGE_HOST}", "prp-e2e.localhost")
+gateway = gateway.replace("http://backend:8080", "http://127.0.0.1:8080")
+path.write_text(original.split(start, 1)[0] + gateway, encoding="utf-8")
+PY_UNIFIED_GATEWAY
+  web_mount=(-v "${PWD}/app/web/dist:/usr/share/nginx/html:ro")
+fi
+
 docker run --rm --network host \
   -v "$tmp/nginx:/etc/nginx/conf.d:ro" -v "$tmp/certs:/etc/nginx/certs:ro" \
   "${web_mount[@]}" \
@@ -437,7 +466,15 @@ echo "PASS: real Keycloak browser PKCE, owner grant, identity link and MCP proto
 # same disposable HTTPS Keycloak+PRP stack. It removes only the throwaway
 # prior owner link, rebinds with an owner-signed single-use ticket and checks
 # temporary client grant revocation with the new link still present.
-if [[ "${MCP_E2E_CRUD:-false}" != "true" ]]; then
+if [[ "${MCP_E2E_UNIFIED_READONLY:-false}" == "true" ]]; then
+  # The candidate permits OIDC binding and keeps older pairing and approval paths closed.
+  for path in /api/mcp/link /api/mcp/clients/pairing /api/mcp/approval/drafts/ci-only/approve; do
+    status="$(curl --noproxy '*' -sS --max-time 8 --cacert "$MCP_E2E_CA_CERT" \
+      -X POST -o /dev/null -w '%{http_code}' "https://prp-e2e.localhost$path")"
+    [[ "$status" == "404" ]] || { echo "UNIFIED_GATEWAY_DENY_CONTRACT_FAILED" >&2; exit 1; }
+  done
+  echo "PASS: Unified Staging gateway, task-only catalog, owner binding, revocation, and write-route denial."
+elif [[ "${MCP_E2E_CRUD:-false}" != "true" ]]; then
   python3 app/deploy/mcp-oauth/ci_browser_pairing_flow.py
   echo "PASS: public owner browser PKCE pairing and temporary client grant revocation."
 

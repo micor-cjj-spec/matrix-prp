@@ -74,6 +74,7 @@ jobs:
       MCP_E2E_CHROMIUM: "true"
       MCP_E2E_PERSONAL_OS: "true"
       MCP_E2E_CRUD: "false"
+      MCP_E2E_UNIFIED_READONLY: ${{ github.event_name == 'pull_request' && github.base_ref == 'dev' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'staging/unified-396-integration' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
