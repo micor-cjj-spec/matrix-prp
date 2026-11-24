@@ -65,7 +65,25 @@ class Backend:
   else:raise RuntimeError('REAL_HEALTH_MYSQL_START_TIMEOUT')
   # Only this new CI schema is migrated. Guarded production-shaped runtime is then restarted with Flyway OFF.
   self.start_java({'spring':{'flyway':{'enabled':True},'ai':{'mcp':{'server':{'enabled':False}}}},'matrix-prp':{'mcp':{'enabled':False}}})
-  self.check('real_health_mysql_v29_migrated',self.sql('SELECT version,success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;')=='29\t1')
+  migration_root=pathlib.Path(__file__).resolve().parents[2]/'backend/src/main/resources/db/migration'
+  v30_sql=migration_root/'V30__wellness_analysis_details.sql'
+  has_v30=v30_sql.is_file()
+  if has_v30:
+   policy=json.loads((pathlib.Path(__file__).resolve().parents[1]/'migration-policy.json').read_text())
+   v30_rules=[rule for rule in policy.get('rules',[]) if rule.get('version')==30]
+   self.check('real_health_v30_source_policy_attested',
+     policy.get('schema_version')==1 and len(v30_rules)==1
+     and v30_rules[0].get('file')==v30_sql.name
+     and v30_rules[0].get('mode')=='create-empty'
+     and hashlib.sha256(v30_sql.read_bytes()).hexdigest()==v30_rules[0].get('sha256'))
+  self.check('real_health_mysql_v29_migrated',
+    self.sql("SELECT version,success FROM flyway_schema_history WHERE version='29' AND type='SQL' LIMIT 1;")=='29\t1')
+  expected_terminal='30' if has_v30 else '29'
+  self.check('real_health_mysql_candidate_terminal_migrated',
+    self.sql('SELECT version,success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;')==expected_terminal+'\t1')
+  if has_v30:
+   self.check('real_health_v30_new_tables_created_empty',
+     self.sql('SELECT (SELECT COUNT(*) FROM prp_wellness_meal_analyses) + (SELECT COUNT(*) FROM prp_wellness_meal_item_nutrients);')=='0')
   migration_history=self.sql('SELECT installed_rank,version,checksum,success FROM flyway_schema_history ORDER BY installed_rank;')
   # /api/health may return 200 before AdminBootstrap's ApplicationRunner inserts the initial owner.
   for _ in range(30):

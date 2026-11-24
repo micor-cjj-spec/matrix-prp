@@ -1,0 +1,153 @@
+name: PRP Health V30 isolated synthetic backup restore (CI ONLY)
+
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/health-v30-synthetic-backup-restore.yml"
+      - "app/backend/src/test/java/com/matrix/prp/IsolatedV29BackupRestoreWellnessV30IT.java"
+      - "app/backend/src/test/java/com/matrix/prp/FlywayV28ToV29IT.java"
+      - "app/backend/src/main/resources/db/migration/**"
+      - "app/deploy/migration-policy.json"
+      - "app/backend/pom.xml"
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-v29-to-v30-backup-fallback:
+    name: Synthetic V7-baselined V29 backup, V30 clone and V29 restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Exercise runner-owned MySQL V29 snapshot, V30 upgrade, and V29 restore only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != true ||
+                "${RUNNER_OS:-}" != Linux ||
+                ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ||
+                ! "${GITHUB_RUN_ATTEMPT:-}" =~ ^[0-9]+$ ||
+                -z "${RUNNER_TEMP:-}" ]]; then
+            echo "RUNNER_OWNED_SYNTHETIC_ONLY_REQUIRED" >&2
+            exit 2
+          fi
+          umask 077
+          marker="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          src="prp-ci-health-v29-src-${marker}"
+          dst="prp-ci-health-v30-clone-${marker}"
+          vol_src="prp-ci-health-v29-data-${marker}"
+          vol_dst="prp-ci-health-v30-data-${marker}"
+          net="prp-ci-health-v30-net-${marker}"
+          temp="$(mktemp -d "${RUNNER_TEMP}/prp-health-v30.XXXXXXXX")"
+          cleanup() {
+            docker rm -f "$src" "$dst" >/dev/null 2>&1 || true
+            docker volume rm "$vol_src" "$vol_dst" >/dev/null 2>&1 || true
+            docker network rm "$net" >/dev/null 2>&1 || true
+            rm -f -- "$temp/synthetic-v29.sql" "$temp/tamper.sql" || true
+            rmdir -- "$temp" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          export MATRIX_PRP_FLYWAY_DB_USER=prp_ci
+          export MATRIX_PRP_FLYWAY_DB_PASSWORD="$(openssl rand -hex 24)"
+          root_pw="$(openssl rand -hex 24)"
+          echo "::add-mask::$MATRIX_PRP_FLYWAY_DB_PASSWORD"
+          echo "::add-mask::$root_pw"
+          export PRP_CI_HEALTH_V30_RESTORE_ONLY=YES
+          export PRP_CI_HEALTH_V30_SOURCE_URL="jdbc:mysql://127.0.0.1:13312/prp_health_v30_recovery_ci?useSSL=false&allowPublicKeyRetrieval=true"
+          export PRP_CI_HEALTH_V30_CLONE_URL="jdbc:mysql://127.0.0.1:13313/prp_health_v30_recovery_ci?useSSL=false&allowPublicKeyRetrieval=true"
+
+          docker network create "$net" >/dev/null
+          docker volume create "$vol_src" >/dev/null
+          docker volume create "$vol_dst" >/dev/null
+          docker run -d --rm --name "$src" --network "$net" \
+            -p 127.0.0.1:13312:3306 --memory 1536m --cpus 1.25 \
+            --mount "type=volume,source=$vol_src,target=/var/lib/mysql" \
+            -e MYSQL_ROOT_PASSWORD="$root_pw" \
+            -e MYSQL_DATABASE=prp_health_v30_recovery_ci \
+            -e MYSQL_USER="$MATRIX_PRP_FLYWAY_DB_USER" \
+            -e MYSQL_PASSWORD="$MATRIX_PRP_FLYWAY_DB_PASSWORD" \
+            mysql:8.4 >/dev/null
+          docker run -d --rm --name "$dst" --network "$net" \
+            -p 127.0.0.1:13313:3306 --memory 1536m --cpus 1.25 \
+            --mount "type=volume,source=$vol_dst,target=/var/lib/mysql" \
+            -e MYSQL_ROOT_PASSWORD="$root_pw" \
+            -e MYSQL_DATABASE=prp_health_v30_recovery_ci \
+            -e MYSQL_USER="$MATRIX_PRP_FLYWAY_DB_USER" \
+            -e MYSQL_PASSWORD="$MATRIX_PRP_FLYWAY_DB_PASSWORD" \
+            mysql:8.4 >/dev/null
+
+          for container in "$src" "$dst"; do
+            ready=0
+            for attempt in $(seq 1 75); do
+              if docker exec -e MYSQL_PWD="$root_pw" "$container" \
+                  mysql --protocol=TCP -h 127.0.0.1 -uroot \
+                  -D prp_health_v30_recovery_ci -Nse 'SELECT 1' >/dev/null 2>&1; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [[ "$ready" != 1 ]]; then
+              echo "DISPOSABLE_CI_MYSQL_UNAVAILABLE" >&2
+              exit 3
+            fi
+          done
+
+          cd app/backend
+          chmod +x mvnw
+          export PRP_CI_HEALTH_V30_PHASE=seed
+          ./mvnw -B -ntp -Dtest=IsolatedV29BackupRestoreWellnessV30IT test
+
+          docker exec -e MYSQL_PWD="$root_pw" "$src" \
+            mysqldump --protocol=TCP -h 127.0.0.1 -uroot \
+            --single-transaction --quick --hex-blob \
+            --routines --events --triggers --set-gtid-purged=OFF \
+            --no-tablespaces --default-character-set=utf8mb4 \
+            --databases prp_health_v30_recovery_ci > "$temp/synthetic-v29.sql"
+          test -s "$temp/synthetic-v29.sql"
+          snapshot_sha="$(sha256sum "$temp/synthetic-v29.sql" | cut -d' ' -f1)"
+          test "${#snapshot_sha}" -eq 64
+          cp -- "$temp/synthetic-v29.sql" "$temp/tamper.sql"
+          printf '\n-- CI-only archive drift simulation\n' >> "$temp/tamper.sql"
+          test "$(sha256sum "$temp/tamper.sql" | cut -d' ' -f1)" != "$snapshot_sha"
+          test "$(sha256sum "$temp/synthetic-v29.sql" | cut -d' ' -f1)" = "$snapshot_sha"
+          rm -f -- "$temp/tamper.sql"
+
+          docker exec -e MYSQL_PWD="$root_pw" "$dst" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            -D prp_health_v30_recovery_ci -Nse \
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()" \
+            | grep -qx 0
+          docker exec -i -e MYSQL_PWD="$root_pw" "$dst" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            < "$temp/synthetic-v29.sql"
+
+          export PRP_CI_HEALTH_V30_PHASE=verify_clone
+          ./mvnw -B -ntp -Dtest=IsolatedV29BackupRestoreWellnessV30IT test
+
+          # The rollback target is the freshly created, CI-owned clone ONLY.
+          # This does not downgrade a real database; it restores the V29 snapshot.
+          test "$(sha256sum "$temp/synthetic-v29.sql" | cut -d' ' -f1)" = "$snapshot_sha"
+          docker exec -e MYSQL_PWD="$root_pw" "$dst" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot -e \
+            'DROP DATABASE prp_health_v30_recovery_ci; CREATE DATABASE prp_health_v30_recovery_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
+          docker exec -i -e MYSQL_PWD="$root_pw" "$dst" \
+            mysql --protocol=TCP -h 127.0.0.1 -uroot \
+            < "$temp/synthetic-v29.sql"
+
+          export PRP_CI_HEALTH_V30_PHASE=verify_fallback
+          ./mvnw -B -ntp -Dtest=IsolatedV29BackupRestoreWellnessV30IT test
+          echo "CI_SYNTHETIC_V29_BACKUP_V30_CLONE_V29_FALLBACK=PASS"
+          echo "NO_PRODUCTION_DATA_HOST_OR_RELEASE_APPROVAL=YES"

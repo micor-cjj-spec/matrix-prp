@@ -36,8 +36,9 @@ const after=ref<Fields>({date:date.value})
 const error=ref('')
 const done=ref('')
 const deleteAcknowledged=ref(false)
+const confirmOutcomeUncertain=ref(false)
 
-async function refreshRecords(){
+async function refreshRecords(): Promise<boolean> {
   loading.value=true
   const currentId=targetId.value
   draft.value=null
@@ -54,15 +55,20 @@ async function refreshRecords(){
         .map(m=>({id:m.id,label:m.weightKg+'kg #'+m.id}))
     }
     targetId.value=records.value.some(x=>x.id===currentId)?currentId:0
-  }catch { error.value='无法读取记录，请检查网络';records.value=[] }
-  finally { loading.value=false }
+    error.value=''
+    return true
+  }catch {
+    error.value='无法读取记录，请检查网络'
+    records.value=[]
+    return false
+  } finally { loading.value=false }
 }
 watch([kind,date],()=>{void refreshRecords()})
 onMounted(()=>{void refreshRecords()})
 
 async function prepare(){
-  if(!targetId.value||busy.value)return
-  busy.value=true;error.value='';done.value='';deleteAcknowledged.value=false
+  if(!targetId.value||busy.value||saving.value||loading.value||confirmOutcomeUncertain.value)return
+  busy.value=true;error.value='';done.value='';draft.value=null;deleteAcknowledged.value=false;confirmOutcomeUncertain.value=false
   try {
     const result=await apiClient.post<ApiResponse<Draft>>('/wellness/ai/changes/prepare',
       {kind:kind.value,recordId:targetId.value,operation:action.value,
@@ -76,25 +82,71 @@ async function prepare(){
   }finally { busy.value=false }
 }
 async function confirm(){
-  if(!draft.value||saving.value)return
-  if(action.value==='delete'&&!deleteAcknowledged.value) {
+  if(!draft.value||saving.value||busy.value||confirmOutcomeUncertain.value)return
+  // Freeze the owner-reviewed draft while the network request is in flight.
+  // Never derive the operation or ID from mutable selectors after an await.
+  const selected=draft.value
+  const selectedAction=selected.action
+  const operation=selectedAction.endsWith('.delete')?'delete':'update'
+  if(selectedAction!==kind.value+'.'+action.value){
+    error.value='操作与预览不一致，请重新生成草稿'
+    return
+  }
+  if(operation==='delete'&&!deleteAcknowledged.value) {
     ElMessage.warning('请先明确勾选删除确认');return
   }
   saving.value=true;error.value=''
+  const id=encodeURIComponent(selected.draftId)
+  let confirmStarted=false
   try {
-    if(action.value==='update'){
-      await apiClient.patch('/wellness/ai/changes/'+draft.value.draftId,after.value)
+    if(operation==='update'){
+      await apiClient.patch('/wellness/ai/changes/'+id,cloneJson(after.value))
     }
-    const r=await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/changes/'+draft.value.draftId+'/confirm',{})
+    // POST can commit even when the client loses the response. Reconcile by
+    // one owner-scoped, read-only status GET; never retry the POST automatically.
+    confirmStarted=true
+    const r=await apiClient.post<ApiResponse<Outcome>>('/wellness/ai/changes/'+id+'/confirm',{})
     done.value=r.data.data.route
     draft.value=null
     emit('changed',r.data.data)
-    await refreshRecords()
-    ElMessage.success('已完成'+(action.value==='delete'?'删除':'修改'))
+    const refreshed=await refreshRecords()
+    if(refreshed) ElMessage.success('已完成'+(operation==='delete'?'删除':'修改'))
+    else ElMessage.warning('健康记录已修改或删除，但列表刷新失败；请刷新页面核对，勿重复提交')
   }catch(e){
     const err=e as {response?:{data?:{message?:string}}}
-    error.value=err.response?.data?.message||'未提交：记录可能已经修改、删除，或草稿已过期'
+    if(!confirmStarted) {
+      error.value=err.response?.data?.message||'草稿修改请求未确认，请核对后再试'
+    } else {
+      let consumed=false
+      try {
+        const status=await apiClient.get<ApiResponse<{status:string}>>(
+          '/wellness/ai/changes/'+id+'/status')
+        consumed=status.data.data.status==='CONSUMED'
+      } catch {
+        // Network/authorization error is not evidence that the mutation failed.
+      }
+      if(consumed) {
+        const route='/wellness?date='+encodeURIComponent(selected.before.date)
+        done.value=route
+        draft.value=null
+        emit('changed',{action:selectedAction,route,saved:null})
+        const refreshed=await refreshRecords()
+        if(refreshed) ElMessage.success('已核实记录'+(operation==='delete'?'删除':'修改')+'成功，无需重复提交')
+        else ElMessage.warning('已核实记录变更成功，但列表刷新失败；请自行核对')
+      } else {
+        confirmOutcomeUncertain.value=true
+        error.value='修改或删除确认请求结果未核实，请先重新读取记录核对是否生效，勿重复提交'
+      }
+    }
   }finally{saving.value=false}
+}
+async function reviewRecordsBeforeNewDraft(){
+  if(!confirmOutcomeUncertain.value||saving.value||busy.value||loading.value)return
+  const refreshed=await refreshRecords()
+  if(refreshed){
+    confirmOutcomeUncertain.value=false
+    error.value='列表已重新读取。请核对记录是否变化，再决定是否生成新草稿。'
+  }
 }
 </script>
 
@@ -103,30 +155,32 @@ async function confirm(){
     <strong>已有健康记录：安全修改或删除</strong>
     <small>必须先选择一条自己的记录。AI 只生成修改建议，不能直接改动或删除。</small>
     <div class="change-row">
-      <label>记录日期<input v-model="date" type="date"/></label>
-      <label>记录类别<select v-model="kind">
+      <label>记录日期<input v-model="date" type="date" :disabled="busy||saving||confirmOutcomeUncertain"/></label>
+      <label>记录类别<select v-model="kind" :disabled="busy||saving||confirmOutcomeUncertain">
         <option value="meal">饮食</option><option value="exercise">运动</option><option value="metric">身体指标</option>
       </select></label>
     </div>
     <label>明确选择记录
-      <select v-model.number="targetId" :disabled="loading">
+      <select v-model.number="targetId" :disabled="loading||busy||saving||confirmOutcomeUncertain">
         <option :value="0">请选择记录（不可自动猜测）</option>
         <option v-for="r in records" :key="r.id" :value="r.id">{{ r.label }}</option>
       </select>
     </label>
     <small v-if="!records.length">所选日期暂无记录</small>
-    <label>操作<select v-model="action" @change="draft=null">
+    <label>操作<select v-model="action" :disabled="busy||saving||confirmOutcomeUncertain" @change="draft=null;deleteAcknowledged=false">
       <option value="update">修改</option><option value="delete">删除</option>
     </select></label>
     <label v-if="action==='update'">让 AI 修改什么？（可不填，直接编辑草稿）
       <textarea v-model="instruction" maxlength="500" rows="2"
         placeholder="例如：把这次步行改成45分钟，或午餐米饭份量改成180g"/>
     </label>
-    <button :disabled="!targetId||busy||saving" @click="prepare">
+    <button :disabled="!targetId||busy||saving||loading||confirmOutcomeUncertain" @click="prepare">
       {{ busy?'处理中…':action==='delete'?'预览删除目标':'生成修改草稿' }}
     </button>
     <small>仅在填写 AI 修改说明时，会将选中记录交由当前模型解析。删除操作不会发送数据给 AI。</small>
     <p v-if="error" class="change-error" role="alert">{{ error }}</p>
+    <small v-if="confirmOutcomeUncertain" role="status">本次确认结果仍不确定，已锁定重复操作。请重新读取记录并核对是否生效。</small>
+    <button v-if="confirmOutcomeUncertain" class="secondary" :disabled="saving||loading||busy" @click="reviewRecordsBeforeNewDraft">重新读取记录后解锁新草稿</button>
     <div v-if="draft" class="change-preview">
       <strong>操作预览 · {{ draft.action }}</strong>
       <small>原始数据（只读）</small>
@@ -163,10 +217,10 @@ async function confirm(){
       </label>
       <small>确认时会重新验证记录归属及原始内容。若已被他人操作改变，则拒绝本次变更。草稿有效期15分钟。</small>
       <div class="change-row">
-        <button :disabled="saving||action==='delete'&&!deleteAcknowledged" @click="confirm">
+        <button :disabled="saving||confirmOutcomeUncertain||action==='delete'&&!deleteAcknowledged" @click="confirm">
           {{ saving?'提交中…':action==='delete'?'确认删除':'确认修改' }}
         </button>
-        <button class="secondary" @click="draft=null">取消</button>
+        <button class="secondary" :disabled="saving||confirmOutcomeUncertain" @click="draft=null">取消</button>
       </div>
     </div>
     <router-link v-if="done" :to="done">完成，查看健康中心 →</router-link>

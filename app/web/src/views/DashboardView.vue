@@ -10,6 +10,7 @@ import { fetchDashboardSummary, type DashboardSummary } from '@/api/dashboard'
 import { wellnessApi, type DailySummary } from '@/api/wellness'
 import { updateTaskStatus } from '@/api/tasks'
 import { moduleLabel, priorityLabel } from '@/utils/labels'
+import { dateInTimeZone } from '@/utils/wellnessDate'
 
 const summary = ref<DashboardSummary | null>(null)
 const wellness = ref<DailySummary | null>(null)
@@ -34,10 +35,17 @@ const caloriesRate = computed(() => kcalGoal.value && todayCalorie.value != null
 const taskCount = computed(() => summary.value
   ? summary.value.todayTaskCount + summary.value.overdueTaskCount + summary.value.unscheduledTaskCount : null)
 
+async function loadHomeWellnessDay(): Promise<DailySummary> {
+  const timeZone = (await wellnessApi.profile()).timezone?.trim()
+  if (!timeZone) throw new Error('Health profile timezone unavailable')
+  new Intl.DateTimeFormat('en-US', { timeZone })
+  return wellnessApi.daily(dateInTimeZone(timeZone))
+}
+
 async function refresh() {
   loading.value = true
   const [tasksResult, wellnessResult] = await Promise.allSettled([
-    fetchDashboardSummary(), wellnessApi.daily(today),
+    fetchDashboardSummary(), loadHomeWellnessDay(),
   ])
   if (tasksResult.status === 'fulfilled') {
     summary.value = tasksResult.value
@@ -49,6 +57,7 @@ async function refresh() {
     wellness.value = wellnessResult.value
     wellnessError.value = ''
   } else {
+    wellness.value = null
     wellnessError.value = '健康数据暂时无法读取'
   }
   loading.value = false

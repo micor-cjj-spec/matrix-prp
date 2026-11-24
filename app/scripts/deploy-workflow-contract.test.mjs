@@ -8,6 +8,38 @@ assert.ok(rest, 'The workflow must have a dedicated build job')
 const [build, publish] = rest.split('\n  publish:\n')
 assert.ok(publish, 'The workflow must have a dedicated production publish job')
 
+
+test('dev and PR CI cannot enqueue auto-deploy; main push CI remains eligible', () => {
+  const trigger = header.split('  workflow_run:')[1]?.split('  workflow_dispatch:')[0]
+  assert.ok(trigger, 'deploy workflow_run trigger must exist')
+  assert.match(trigger, /workflows: \[CI\]/)
+  assert.match(trigger, /types: \[completed\]/)
+  assert.match(trigger, /branches: \[main\]/)
+  assert.match(header, /workflow_dispatch:/, 'manual build, check, promote and rollback stay available')
+  const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')
+  const impact = readFileSync(new URL('../../.github/workflows/feature-impact.yml', import.meta.url), 'utf8')
+  assert.match(ci, /push:\s*\n\s*branches: \[main, dev,/)
+  assert.match(ci, /pull_request:\s*\n\s*branches: \[main, dev,/)
+  assert.match(impact, /pull_request:\s*\n\s*branches: \[main, dev,/)
+  assert.ok(ci.includes("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"),
+    'only stale PR checks, never a main push CI, may be auto-cancelled')
+  assert.match(impact, /group: prp-impact-\$\{\{ github\.event\.pull_request\.number \}\}/)
+  assert.match(impact, /cancel-in-progress: true/)
+  assert.match(header, /group: prp-production/)
+  assert.match(header, /cancel-in-progress: false/)
+})
+
+
+test('disposable E2E emits a fixed Maven failure class but never raw build logs', () => {
+  const script = readFileSync(
+    new URL('../../app/deploy/mcp-oauth/test_full_e2e_ci.sh', import.meta.url), 'utf8')
+  assert.match(script, /if ! \.\/mvnw -B -ntp -DskipTests package/)
+  assert.match(script, /E2E_DIAG_MAVEN_BUILD_CATEGORY=\$diagnostic/)
+  assert.match(script, /diagnostic="WRAPPER_DOWNLOAD"/)
+  assert.match(script, /diagnostic="DEPENDENCY_OR_NETWORK"/)
+  assert.doesNotMatch(script, /(?:cat|tail|head)\s+["']?\$tmp\/java-build\.log/)
+})
+
 test('release candidates originate only from successful main push CI', () => {
   assert.match(header, /workflow_run:\s*\n\s*workflows: \[CI\]/)
   assert.match(build, /github\.event\.workflow_run\.conclusion == 'success'/)

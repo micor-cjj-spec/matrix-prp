@@ -3,6 +3,7 @@ from io import StringIO
 import contextlib
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -51,6 +52,22 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
 
     def check(self, obj):
         return m.analyze(obj, self.scripts)
+
+    def test_v30_candidate_source_requires_matching_policy_even_for_v29_review(self):
+        v30 = m.MIGRATIONS / "V30__wellness_analysis_details.sql"
+        self.assertTrue(v30.is_file())
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = Path(directory)
+            for sql in m.MIGRATIONS.glob("V*.sql"):
+                shutil.copyfile(sql, candidate / sql.name)
+            self.assertEqual(m.source_scripts(candidate), self.scripts)
+            (candidate / v30.name).write_bytes(v30.read_bytes() + b"\n--tampered\n")
+            with self.assertRaisesRegex(ValueError, "POLICY_DIGEST_OR_SCOPE_DRIFT"):
+                m.source_scripts(candidate)
+            shutil.copyfile(v30, candidate / v30.name)
+            (candidate / "V31__unreviewed.sql").write_text("CREATE TABLE unsafe (id INT);")
+            with self.assertRaisesRegex(ValueError, "POLICY_VERSION_DRIFT"):
+                m.source_scripts(candidate)
 
     def test_expected_local_migrations_are_strict_1_to_29(self):
         self.assertEqual(set(self.scripts), set(range(1, 30)))

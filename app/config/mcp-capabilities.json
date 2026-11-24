@@ -162,6 +162,11 @@
       "reason": "Streaming raw private audio is not a general MCP read tool"
     },
     {
+      "route": "GET /api/wellness/ai/changes/{id}/status",
+      "status": "excluded",
+      "reason": "First-party owner-only readback of an existing AI change draft confirmation; not an MCP approval, mutation or generalized draft-discovery tool"
+    },
+    {
       "route": "GET /api/wellness/body-metrics",
       "status": "partial",
       "tool": "prp_wellness_list",
@@ -204,10 +209,20 @@
       "reason": "MCP meal list is limited to 50 records"
     },
     {
+      "route": "GET /api/wellness/meals/{id}/analysis",
+      "status": "excluded",
+      "reason": "Owner-scoped extraction text: first-party details only, pending separately reviewed MCP projection and scope tests"
+    },
+    {
       "route": "GET /api/wellness/summary/daily",
       "status": "mapped",
       "tool": "prp_wellness_daily",
       "reason": "Read daily structured summary"
+    },
+    {
+      "route": "GET /api/wellness/summary/nutrition-trends",
+      "status": "excluded",
+      "reason": "First-party owner-only macro nutrient trends; not part of existing MCP trend tool scope or DTO"
     },
     {
       "route": "GET /api/wellness/summary/trends",
@@ -396,6 +411,11 @@
       "status": "mapped",
       "tool": "prp_prepare_wellness_create",
       "reason": "Structured health create uses draft, scopes and approval"
+    },
+    {
+      "route": "POST /api/wellness/meals/{id}/label-verification",
+      "status": "excluded",
+      "reason": "First-party owner-confirmed nutrition correction requires explicit label and intake verification; no MCP direct write or model-driven promotion"
     },
     {
       "route": "PUT /api/ai/settings/providers/{provider}/key",

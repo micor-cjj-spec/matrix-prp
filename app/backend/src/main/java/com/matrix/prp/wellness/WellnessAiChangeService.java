@@ -156,7 +156,7 @@ public class WellnessAiChangeService {
                             "calories",null));
                     } else {
                         String name=word(item.path("name"),120,false);
-                        BigDecimal kcal=number(item.path("calories"),"custom calories","0.01","20000",false);
+                        BigDecimal kcal=number(item.path("calories"),"custom calories","0","20000",false);
                         if(kcal.scale()>2)throw invalid("Custom calories precision");
                         safe.add(map("foodId",0,"name",name,
                             "grams",number(item.path("grams"),"grams","0","3000",false),
@@ -280,6 +280,27 @@ public class WellnessAiChangeService {
         try{UUID.fromString(id);}
         catch(Exception ex){throw invalid("Invalid draft ID");}
     }
+    /** Read-only owner-scoped reconciliation of an ambiguous change confirmation.
+     * Never reveals the previous or proposed health record and never replays a write.
+     */
+    public record ChangeDraftStatus(String status) {}
+
+    public ChangeDraftStatus getChangeStatus(String id) {
+        validDraftId(id);
+        var rows=db.queryForList(
+            "SELECT status FROM prp_wellness_ai_drafts " +
+            "WHERE id=? AND user_id=? AND action_type IN (" +
+            "'meal.update','meal.delete','exercise.update','exercise.delete'," +
+            "'metric.update','metric.delete')",
+            id,CurrentUser.id());
+        if(rows.isEmpty())
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Change draft not found");
+        String status=String.valueOf(rows.getFirst().get("status"));
+        if(!Set.of("PENDING","CONSUMED").contains(status))
+            throw new ResponseStatusException(HttpStatus.CONFLICT,"Unknown change draft status");
+        return new ChangeDraftStatus(status);
+    }
+
     private Map<String,Object> lockedDraft(String id){
         validDraftId(id);
         var rows=db.queryForList("SELECT action_type,payload_json,status,expires_at "+
@@ -325,6 +346,7 @@ public class WellnessAiChangeService {
             if(!action(kind,op).equals(row.get("action_type")))
                 throw invalid("Draft action was tampered");
             long target=payload.path("recordId").asLong();
+            if ("meal".equals(kind)) wellness.lockMealOwner(CurrentUser.id());
             lockTarget(kind,target);
             if(!json.valueToTree(current(kind,target)).equals(payload.path("before")))
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
