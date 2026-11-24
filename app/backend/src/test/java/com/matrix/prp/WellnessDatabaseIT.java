@@ -750,6 +750,22 @@ class WellnessDatabaseIT {
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM prp_wellness_meal_analyses WHERE meal_id=?",
             Long.class,id)).isEqualTo(2L);
+
+        postJson("/api/wellness/meals/"+id+"/label-verification",owner,Map.of(
+            "mealItemId",itemId,"consumedGrams",150,"caloriesPer100g",0,
+            "proteinPer100g",0,"carbsPer100g",0,"fatPer100g",0,"userVerified",true));
+        mvc.perform(auth(put("/api/wellness/meals/{id}/snapshots",id)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsBytes(Map.of(
+                "mealDate",day,"mealType","BREAKFAST","note","Verified zero calorie",
+                "items",List.of(Map.of("name","低脂牛奶","grams",150,"calories",0))))),owner))
+            .andExpect(status().isOk());
+        JsonNode updated=getData("/api/wellness/meals/"+id+"/analysis",owner);
+        assertThat(updated.path("meal").path("note").asText()).isEqualTo("Verified zero calorie");
+        assertThat(updated.path("meal").path("items").get(0).path("id").asLong()).isEqualTo(itemId);
+        assertThat(updated.path("meal").path("items").get(0).path("calories").decimalValue())
+            .isEqualByComparingTo("0");
+        assertThat(updated.path("nutrients").get(0).path("sourceType").asText()).isEqualTo("USER_LABEL");
     }
 
     @Test void repeatedSnacksFromRestAndAiAreDistinctWhileRetriesAndMainMealsStayProtected() throws Exception {
