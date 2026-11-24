@@ -1,5 +1,7 @@
 package com.matrix.prp.wellness;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -88,6 +90,19 @@ public class WellnessAiChangeService {
         for(int i=0;i<pairs.length;i+=2)out.put((String)pairs[i],pairs[i+1]);
         return out;
     }
+    static boolean sameSnapshot(JsonNode left, JsonNode right) {
+        // Stored JSON and database values can use different numeric node types.
+        return left.equals((a, b) -> {
+            if (a.isNumber() && b.isNumber()) return a.decimalValue().compareTo(b.decimalValue());
+            return a.equals(b) ? 0 : 1;
+        }, right);
+    }
+
+    private JsonNode readDraftPayload(Map<String, Object> row) throws JsonProcessingException {
+        return json.reader().with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+            .readTree(String.valueOf(row.get("payload_json")));
+    }
+
     public Map<String,Object> current(String kind,long id){
         if(id<=0)throw invalid("Invalid record ID");
         return switch(kind){
@@ -237,7 +252,7 @@ public class WellnessAiChangeService {
                         throw invalid("AI cannot switch foods");
                     if(old.get(i).path("foodId").asLong(0)<=0 &&
                        (!next.get(i).path("name").asText().equals(old.get(i).path("name").asText()) ||
-                        !next.get(i).path("calories").equals(old.get(i).path("calories"))))
+                        !sameSnapshot(next.get(i).path("calories"),old.get(i).path("calories"))))
                         throw invalid("AI cannot rewrite custom calorie snapshots");
                 }
             }
@@ -318,7 +333,7 @@ public class WellnessAiChangeService {
         String action=String.valueOf(row.get("action_type"));
         if(!action.endsWith(".update"))throw invalid("Delete draft cannot be changed");
         try{
-            ObjectNode payload=(ObjectNode)json.readTree(String.valueOf(row.get("payload_json")));
+            ObjectNode payload=(ObjectNode)readDraftPayload(row);
             String kind=payload.path("kind").asText();
             Map<String,Object> after=validate(kind,updated);
             payload.set("after",json.valueToTree(after));
@@ -341,14 +356,14 @@ public class WellnessAiChangeService {
     public Result confirm(String id){
         var row=lockedDraft(id);
         try{
-            JsonNode payload=json.readTree(String.valueOf(row.get("payload_json")));
+            JsonNode payload=readDraftPayload(row);
             String kind=payload.path("kind").asText(),op=payload.path("operation").asText();
             if(!action(kind,op).equals(row.get("action_type")))
                 throw invalid("Draft action was tampered");
             long target=payload.path("recordId").asLong();
             if ("meal".equals(kind)) wellness.lockMealOwner(CurrentUser.id());
             lockTarget(kind,target);
-            if(!json.valueToTree(current(kind,target)).equals(payload.path("before")))
+            if(!sameSnapshot(json.valueToTree(current(kind,target)),payload.path("before")))
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "The record has changed; open a fresh preview");
             Object saved=null;
@@ -380,7 +395,7 @@ public class WellnessAiChangeService {
                                 JsonNode original=beforeItems.get(i);
                                 if(original==null ||
                                    !item.path("name").equals(original.path("name")) ||
-                                   !item.path("calories").equals(original.path("calories")))
+                                   !sameSnapshot(item.path("calories"),original.path("calories")))
                                     throw invalid("Cannot change historical calorie snapshot through AI edit");
                                 hasCustom=true;
                                 mixed.add(new WellnessService.AiMealItem(null,item.path("name").asText(),
