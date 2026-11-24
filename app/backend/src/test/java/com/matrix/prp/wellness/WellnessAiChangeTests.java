@@ -81,6 +81,17 @@ class WellnessAiChangeTests {
             {"date":"2026-10-13","mealType":"LUNCH","items":[{"foodId":3,"grams":-3}]}
             """))).isInstanceOf(ResponseStatusException.class);
     }
+    @Test void snapshotComparisonIgnoresJsonNumericTypesButRejectsChangedValues() throws Exception {
+        var current=json.valueToTree(Map.of("items",List.of(Map.of(
+            "grams",new BigDecimal("100.00"),"calories",new BigDecimal("0.00")))));
+        var stored=json.readTree(json.writeValueAsString(current));
+        assertThat(WellnessAiChangeService.sameSnapshot(current,stored)).isTrue();
+        assertThat(WellnessAiChangeService.sameSnapshot(current,json.readTree(
+            "{\"items\":[{\"grams\":100,\"calories\":0.01}]}"))).isFalse();
+        assertThat(WellnessAiChangeService.sameSnapshot(current,json.readTree(
+            "{\"items\":[{\"grams\":100,\"calories\":\"0\"}]}"))).isFalse();
+    }
+
     @Test void preservesZeroCaloriesInAnExistingManualMealSnapshot() throws Exception {
         var after=json.readTree("""
             {"date":"2026-10-13","mealType":"LUNCH","items":[{"foodId":0,"name":"Water","grams":200,"calories":0}]}

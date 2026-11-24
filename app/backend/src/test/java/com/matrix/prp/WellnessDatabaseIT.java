@@ -766,6 +766,20 @@ class WellnessDatabaseIT {
         assertThat(updated.path("meal").path("items").get(0).path("calories").decimalValue())
             .isEqualByComparingTo("0");
         assertThat(updated.path("nutrients").get(0).path("sourceType").asText()).isEqualTo("USER_LABEL");
+
+        JsonNode change=postJson("/api/wellness/ai/changes/prepare",owner,Map.of(
+            "kind","meal","recordId",id,"operation","update","instruction",""));
+        String changeId=change.path("draftId").asText();
+        var after=(com.fasterxml.jackson.databind.node.ObjectNode)change.path("after");
+        after.put("note","AI edit retains verified zero calorie");
+        mvc.perform(auth(patch("/api/wellness/ai/changes/{id}",changeId)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsBytes(after)),owner)).andExpect(status().isOk());
+        JsonNode saved=postJson("/api/wellness/ai/changes/"+changeId+"/confirm",owner,Map.of())
+            .path("saved");
+        assertThat(saved.path("note").asText()).isEqualTo("AI edit retains verified zero calorie");
+        assertThat(saved.path("items").get(0).path("id").asLong()).isEqualTo(itemId);
+        assertThat(saved.path("items").get(0).path("calories").decimalValue()).isZero();
     }
 
     @Test void repeatedSnacksFromRestAndAiAreDistinctWhileRetriesAndMainMealsStayProtected() throws Exception {
