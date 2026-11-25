@@ -81,9 +81,9 @@ def read_fixed_proc(name):
             if not part:
                 break
             chunks.extend(part)
-            if name == "stat" and b"\\n" in chunks:
+            if name == "stat" and b"\n" in chunks:
                 # Only the aggregate CPU line is required; avoid scaling with CPU count.
-                return bytes(chunks.split(b"\\n", 1)[0] + b"\\n")
+                return bytes(chunks.split(b"\n", 1)[0] + b"\n")
         if not chunks or len(chunks) > limit:
             raise OSError(errno.EFBIG, "proc source size invalid")
         return bytes(chunks)

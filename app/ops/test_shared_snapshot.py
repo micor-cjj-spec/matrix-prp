@@ -99,5 +99,11 @@ class SharedSnapshotTests(unittest.TestCase):
         with patches[0],patches[1],patches[2]:
             self.assertEqual(self.reader.read(NOW),unavailable())
         path.chmod(0o640)
-        with patch("shared_snapshot.os.geteuid",return_value=self.uid+1),patch("shared_snapshot.os.getegid",return_value=self.gid),patch("shared_snapshot.os.getgroups",return_value=[self.gid]),patch("shared_snapshot.os.fstat",side_effect=lambda fd: type("S",(),{"st_mode":stat.S_IFREG|0o640,"st_uid":self.uid,"st_gid":self.gid+1,"st_nlink":1,"st_size":100})()):
+        real_fstat=os.fstat
+        def wrong_group_for_file(fd):
+            info=real_fstat(fd)
+            if stat.S_ISDIR(info.st_mode):
+                return info
+            return type("S",(),{"st_mode":stat.S_IFREG|0o640,"st_uid":self.uid,"st_gid":self.gid+1,"st_nlink":1,"st_size":100})()
+        with patch("shared_snapshot.os.geteuid",return_value=self.uid+1),patch("shared_snapshot.os.getegid",return_value=self.gid),patch("shared_snapshot.os.getgroups",return_value=[self.gid]),patch("shared_snapshot.os.fstat",side_effect=wrong_group_for_file):
             self.assertEqual(self.reader.read(NOW),unavailable())
