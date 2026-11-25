@@ -20,6 +20,7 @@ from security_contract import (encode_result, parse_result, verify_consent_fixtu
                                result_binding_fixture, verify_signed_result_fixture,
                                ReplayLedger, ReceiptLedger, claim_bound_execution_fixture,
                                consume_signed_result_fixture)
+from test_security_contract import SyntheticAnchor
 
 
 def _run(args, input_data=None):
@@ -447,7 +448,8 @@ class OfflineConsentSignatureTests(unittest.TestCase):
         return dict(event=event, trusted_runtime=runtime, raw_request=raw_request,
                     raw_claim=raw_claim, signature=self.sign(raw_claim),
                     trusted_mapping=self.canonical(mapping), consent_context=context,
-                    active_check=lambda scope: True, ledger=ledger)
+                    active_check=lambda scope: True, ledger=ledger,
+                    anchor_advance=SyntheticAnchor(ledger.initial_anchor_checkpoint()).advance)
 
     def test_bound_execution_valid_and_replayed_event_refused(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -499,7 +501,8 @@ class OfflineConsentSignatureTests(unittest.TestCase):
         return dict(raw_result=raw, raw_binding=binding,
                     signature=self.sign(binding, self.server_signer),
                     receipt_ledger=ledger, active_check=lambda _: True,
-                    verify_signature=self.verify_server, response_context=context)
+                    verify_signature=self.verify_server, response_context=context,
+                    anchor_advance=SyntheticAnchor(ledger.initial_anchor_checkpoint()).advance)
 
     def test_response_receipt_is_one_time_and_separate_from_execution(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -539,6 +542,34 @@ class OfflineConsentSignatureTests(unittest.TestCase):
             decisions = iter((True, False))
             with self.assertRaises(RejectedRequest):
                 consume_signed_result_fixture(**dict(args, active_check=lambda _: next(decisions)))
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**args)
+
+
+
+    def test_bound_execution_requires_anchor_and_rejects_rolled_back_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "claims.sqlite"
+            ledger = ReplayLedger.initialize(path, self.generation)
+            args = self.bound_execution_args(ledger)
+            snapshot = path.read_bytes()
+            with self.assertRaises(RejectedRequest):
+                claim_bound_execution_fixture(**dict(args, anchor_advance=None))
+            claim_bound_execution_fixture(**args)
+            path.write_bytes(snapshot)
+            with self.assertRaises(RejectedRequest):
+                claim_bound_execution_fixture(**args)
+
+    def test_receipt_requires_anchor_and_rejects_rolled_back_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.sqlite"
+            ledger = ReceiptLedger.initialize(path, self.generation)
+            args = self.receipt_args(ledger)
+            snapshot = path.read_bytes()
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**dict(args, anchor_advance=None))
+            self.assertTrue(consume_signed_result_fixture(**args)["ok"])
+            path.write_bytes(snapshot)
             with self.assertRaises(RejectedRequest):
                 consume_signed_result_fixture(**args)
 

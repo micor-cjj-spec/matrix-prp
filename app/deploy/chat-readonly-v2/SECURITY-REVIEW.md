@@ -170,3 +170,9 @@ R1 只在可可靠发现故障并验证撤销时成立，**不能自动检测静
 - 同一事务内认领 job/nonce 与两类 comment ID；拒绝同一 ID 重用、跨角色交换、空缺或相等的 ID。旧低层 claim API 仍用于无 comment 的合成历史测试，不能单独接入真实执行。台账 schema 新增 purpose 与两个唯一 ID 字段；两表五条自动索引，旧 schema fail closed，不自动迁移或恢复。receipt 专用台账 purpose=receipt 与 execution 不可互换；各自独立私有路径，绑定同一授权代际但不能替代独立防回滚锚。
 - consume_signed_result_fixture 在客户端签验成功后、返回任何结果前，以专用持久台账原子消费 job/nonce/comment；重复回包、错误签名、错误代际、错误台账、撤销状态未知/拒绝均 fail closed。执行与消费均于认领前后重新调用独立 active_check(scope)，只允许 exact True。authority 必须由 consentDigest/签名 scope 独立解析签发者、用户、密钥/证书、目标、代际、grant 与事件，并检查撤销和时效；合成回调不是实时可信撤销系统。认领后拒绝保留已消费记录，不自动释放或重试。
 - 双检查不能消除最后一次检查与实际操作之间的 TOCTOU；真实撤销需独立原子准入/停止机制、可信时间、队列清空、并发及主机 watchdog 证据。receipt 只能证明本地消费，不能保证用户收到结果；同代际快照仍可回滚，独立防回滚状态锚仍未实现。G1–G5 OPEN；HOST-PILOT-NO-GO / PRODUCTION-NO-GO。
+
+### 6.8 独立防回滚状态锚 CAS 契约（R2 离线原型，2026-11-25）
+
+- 仅在执行/receipt 两个合成组合入口强制要求独立 anchor_advance CAS provider。低层历史 fixture claim 可不带锚，禁止用作真实接入。每次认领在 BEGIN IMMEDIATE 内读取整个按 job_id 排序的追加台账（包括 job、nonce、到期、两类评论 ID），规范编码并计算 SHA-256，绑定 generation、purpose、domain、version、单调序号=记录数。显式独立空状态初始化须在新代际准入前完成；不允许从现有本地数据初始化/修复外部锚。执行与 receipt 使用独立锚命名空间；真实锚另须固定实例、独立授权与访问边界。
+- 本地 INSERT 后、COMMIT 前，独立 CAS 原子比较完整旧 checkpoint、验证严格 sequence+1 与不变的域/代际/purpose、持久化新 checkpoint 后才可返回 exact True；缺失、错误、不可用或未知结果必须拒绝。严禁自动创建、回退、补偿、把旧 CAS 的已应用结果当成新的成功。CAS 返回后本地事务失败/超时/ACK 丢失时宁可永久停止该代际的认领；由独立审批、撤销和新代际恢复（R1），不自动对齐。台账回滚后即使是新请求，也不得继续接受。合成 provider 用进程内锁/内存模拟 CAS；并未实现实际独立、持久、不可回退的外部存储。相同故障域同时回滚两者不在测试保证内。
+- 新增 8 项回归：同代际旧快照、同记录数历史变化、CAS 推进后 ACK 丢失、CAS 推进后本地 COMMIT 失败、错误/缺失/非布尔 provider、序号重启连续性、执行/receipt 入口无锚与回滚拒绝。真实 provider 的持久性、跨进程原子性、故障域隔离、权限/身份/时钟、读写超时、拒绝后代际停用及资源约束尚需独立验证。SQLite commit 与 CAS 非分布式原子事务；安全性以牺牲可用性为代价。G3 仍 OPEN，其他 G1–G5 同样 OPEN；不以该离线原型作为真实主机准入。

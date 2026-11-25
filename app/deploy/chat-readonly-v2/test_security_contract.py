@@ -14,13 +14,36 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from readonly_ops import RejectedRequest
 from security_contract import (parse_event_fixture, ReplayLedger, encode_result,
-                               parse_result)
+                               parse_result, ReceiptLedger)
 
 NOW = 1795320000
 GENERATION = "12345678-1234-4234-8234-123456789abc"
 OTHER_GENERATION = "12345678-1234-4234-8234-123456789abd"
 ISSUE = 9001  # Synthetic placeholder, NOT a configured real issue.
 CIPHER = "QUJDREVGR0hJSktMTU5PUA"
+
+
+
+class SyntheticAnchor:
+    """In-memory TEST stand-in, not persistent or independent infrastructure.
+
+    Initialized explicitly from a trusted empty fixture, never current DB.
+    """
+    def __init__(self, checkpoint):
+        self.current = checkpoint
+        self.lock = threading.Lock()
+
+    def advance(self, prior, following):
+        with self.lock:
+            if self.current != prior:
+                return False
+            old, new = json.loads(prior), json.loads(following)
+            if (set(old) != set(new) or new["sequence"] != old["sequence"] + 1 or
+                    any(old[k] != new[k] for k in old if k not in ("sequence", "digest")) or
+                    old["digest"] == new["digest"]):
+                return False
+            self.current = following
+            return True
 
 
 class V2SecurityContractTests(unittest.TestCase):
@@ -435,6 +458,98 @@ class V2SecurityContractTests(unittest.TestCase):
                 with self.subTest(challenge=challenge, execution=execution), self.assertRaises(RejectedRequest):
                     ledger.claim(self.job, "a" * 32, NOW + 100, NOW,
                                  challenge_comment_id=challenge, execution_comment_id=execution)
+
+
+    def test_independent_anchor_rejects_same_epoch_snapshot_rollback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            anchor = SyntheticAnchor(ledger.initial_anchor_checkpoint())
+            empty = path.read_bytes()
+            ledger.claim(self.job, "a" * 32, NOW + 100, NOW, anchor_advance=anchor.advance)
+            checkpoint = anchor.current
+            path.write_bytes(empty)
+            for job, nonce in ((self.job, "a" * 32), (str(uuid.uuid4()), "b" * 32)):
+                with self.subTest(job=job), self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                    ReplayLedger(path, GENERATION).claim(job, nonce, NOW + 100, NOW,
+                                                        anchor_advance=anchor.advance)
+            self.assertEqual(anchor.current, checkpoint)
+            self.assertEqual(path.read_bytes(), empty)
+
+    def test_anchor_rejects_same_count_changed_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            anchor = SyntheticAnchor(ledger.initial_anchor_checkpoint())
+            ledger.claim(self.job, "a" * 32, NOW + 100, NOW, anchor_advance=anchor.advance)
+            with sqlite3.connect(path) as db:
+                db.execute("UPDATE claims SET nonce=?", ("c" * 32,))
+            with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                ledger.claim(str(uuid.uuid4()), "b" * 32, NOW + 100, NOW,
+                             anchor_advance=anchor.advance)
+            self.assertEqual(json.loads(anchor.current)["sequence"], 1)
+
+    def test_anchor_advanced_then_ack_lost_blocks_later_claims(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            anchor = SyntheticAnchor(ledger.initial_anchor_checkpoint())
+            def lost_ack(prior, following):
+                self.assertTrue(anchor.advance(prior, following))
+                raise RuntimeError("synthetic lost acknowledgment")
+            with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                ledger.claim(self.job, "a" * 32, NOW + 100, NOW, anchor_advance=lost_ack)
+            self.assertEqual(json.loads(anchor.current)["sequence"], 1)
+            with sqlite3.connect(path) as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM claims").fetchone(), (0,))
+            with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                ledger.claim(str(uuid.uuid4()), "b" * 32, NOW + 100, NOW,
+                             anchor_advance=anchor.advance)
+
+    def test_anchor_advanced_then_local_commit_failure_blocks_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            anchor = SyntheticAnchor(ledger.initial_anchor_checkpoint())
+            original_connect = ledger._connect
+            class FailCommit:
+                def __init__(self, db):
+                    self.db = db
+                def __getattr__(self, name):
+                    return getattr(self.db, name)
+                def execute(self, sql, *args):
+                    if sql == "COMMIT":
+                        raise sqlite3.OperationalError("synthetic commit failure")
+                    return self.db.execute(sql, *args)
+            with patch.object(ledger, "_connect", side_effect=lambda: FailCommit(original_connect())):
+                with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                    ledger.claim(self.job, "a" * 32, NOW + 100, NOW, anchor_advance=anchor.advance)
+            self.assertEqual(json.loads(anchor.current)["sequence"], 1)
+            with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                ledger.claim(self.job, "a" * 32, NOW + 100, NOW, anchor_advance=anchor.advance)
+
+    def test_anchor_missing_wrong_purpose_or_non_boolean_denies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            ledger = ReplayLedger.initialize(folder / "ledger.sqlite", GENERATION)
+            receipt = ReceiptLedger(folder / "receipt.sqlite", GENERATION)
+            wrong = SyntheticAnchor(receipt.initial_anchor_checkpoint())
+            for provider in (lambda *_: None, lambda *_: 1, lambda *_: False, wrong.advance):
+                with self.subTest(provider=provider), self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                    ledger.claim(self.job, "a" * 32, NOW + 100, NOW, anchor_advance=provider)
+            with sqlite3.connect(ledger.path) as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM claims").fetchone(), (0,))
+
+    def test_anchor_sequence_increases_across_restarts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            anchor = SyntheticAnchor(ledger.initial_anchor_checkpoint())
+            for i in range(3):
+                self.assertTrue(ReplayLedger(path, GENERATION).claim(
+                    str(uuid.uuid4()), f"{i:032x}", NOW + 100, NOW,
+                    anchor_advance=anchor.advance))
+                self.assertEqual(json.loads(anchor.current)["sequence"], i + 1)
 
     def test_response_disk_fields_and_job_binding(self):
         data = {"totalBytes": 102400, "usedBytes": 71680,

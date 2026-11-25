@@ -325,8 +325,37 @@ class ReplayLedger:
                               ).fetchall() != [(self.generation, self.PURPOSE)]:
             raise RejectedRequest("state unavailable")
 
+    def _checkpoint(self, rows):
+        # Canonical ordered snapshot of the entire append-only ledger. The
+        # external authority must independently pin generation and purpose.
+        # Row count is the monotonic sequence, not a separate local counter.
+        return _canonical_fixture({
+            "version": 1, "domain": "prp-readonly-v2-ledger-anchor",
+            "generation": self.generation, "purpose": self.PURPOSE,
+            "sequence": len(rows),
+            "digest": hashlib.sha256(_canonical_fixture(rows)).hexdigest(),
+        })
+
+    def initial_anchor_checkpoint(self):
+        """Pure empty checkpoint for explicit independent provisioning ONLY.
+
+        This does not read/create/reset external state. Never use an existing
+        local database to bootstrap or repair an independent anchor.
+        """
+        return self._checkpoint([])
+
+    def _state_checkpoint(self, connection):
+        rows = connection.execute(
+            "SELECT job_id,nonce,expires_at,challenge_id,execution_id "
+            "FROM claims ORDER BY job_id LIMIT ?", (self.MAX_CLAIMS + 1,)
+        ).fetchall()
+        if len(rows) > self.MAX_CLAIMS:
+            raise RejectedRequest("state unavailable")
+        return self._checkpoint(rows)
+
     def claim(self, job_id, nonce, expires_at, now=None, *,
-              challenge_comment_id=None, execution_comment_id=None):
+              challenge_comment_id=None, execution_comment_id=None,
+              anchor_advance=None):
         _uuid(job_id)
         if challenge_comment_id is not None or execution_comment_id is not None:
             challenge_comment_id = _positive_id(challenge_comment_id)
@@ -335,6 +364,11 @@ class ReplayLedger:
                 raise RejectedRequest("invalid request")
         elif self.PURPOSE == "receipt":
             raise RejectedRequest("invalid request")
+        # The low-level unanchored variant remains for historical fixtures
+        # only. Both composed execution/receipt entry contracts require an
+        # independent compare-and-advance provider.
+        if anchor_advance is not None and not callable(anchor_advance):
+            raise RejectedRequest("state unavailable")
         timestamp = int(time.time()) if now is None else now
         if (type(nonce) is not str or re.fullmatch(r"[0-9a-f]{32}", nonce) is None or
                 type(expires_at) is not int or type(timestamp) is not int or
@@ -366,6 +400,8 @@ class ReplayLedger:
             self._verify_state(connection)
             if connection.execute("SELECT COUNT(*) FROM claims").fetchone()[0] >= self.MAX_CLAIMS:
                 raise RejectedRequest("state unavailable")
+            prior_checkpoint = (self._state_checkpoint(connection)
+                                if anchor_advance is not None else None)
             if challenge_comment_id is not None:
                 # The same comment must never switch roles on another claim.
                 if connection.execute(
@@ -383,6 +419,22 @@ class ReplayLedger:
             # Do not commit growth beyond the allowed database page budget.
             self._check_page_budget(connection)
             check_deadline()
+            if anchor_advance is not None:
+                next_checkpoint = self._state_checkpoint(connection)
+                check_deadline()
+                # The external CAS must atomically compare the *entire*
+                # prior checkpoint, require sequence+1, persist the new one
+                # durably and never roll back. It must NOT initialize on a
+                # missing record or acknowledge an already-applied retry.
+                # Anchor first, local COMMIT second. If the CAS outcome or
+                # COMMIT is uncertain, stop; never compensate the anchor.
+                try:
+                    accepted = anchor_advance(prior_checkpoint, next_checkpoint)
+                except Exception:
+                    raise RejectedRequest("state unavailable") from None
+                if accepted is not True:
+                    raise RejectedRequest("state unavailable")
+                check_deadline()
             connection.execute("COMMIT")
             return True
         except sqlite3.IntegrityError as exc:
@@ -579,7 +631,8 @@ def _check_active_fixture(provider, scope):
 
 def claim_bound_execution_fixture(event, trusted_runtime, *, raw_request,
                                   raw_claim, signature, trusted_mapping,
-                                  consent_context, active_check, ledger):
+                                  consent_context, active_check, ledger,
+                                  anchor_advance):
     """Offline composition only; not a real GitHub or authorization adapter.
 
     trusted_mapping is canonical bytes from an independently authenticated
@@ -592,7 +645,7 @@ def claim_bound_execution_fixture(event, trusted_runtime, *, raw_request,
         if (type(consent_context) is not dict or
                 type(trusted_mapping) is not bytes or
                 not 0 < len(trusted_mapping) <= 2048 or
-                type(ledger) is not ReplayLedger):
+                type(ledger) is not ReplayLedger or not callable(anchor_advance)):
             raise RejectedRequest("authorization unavailable")
         context = dict(consent_context)
         # No duplicate source of truth for request or public job ID.
@@ -625,7 +678,7 @@ def claim_bound_execution_fixture(event, trusted_runtime, *, raw_request,
         _check_active_fixture(active_check, expected)
         ledger.claim(request["jobId"], request["nonce"], request["expiresAt"],
                      context["now"], challenge_comment_id=challenge,
-                     execution_comment_id=execution)
+                     execution_comment_id=execution, anchor_advance=anchor_advance)
         # If authorization was revoked while claiming, burn the claim and
         # refuse the handoff. Never release/retry an uncertain claim.
         _check_active_fixture(active_check, expected)
@@ -636,16 +689,18 @@ def claim_bound_execution_fixture(event, trusted_runtime, *, raw_request,
 
 def consume_signed_result_fixture(raw_result, raw_binding, signature, *,
                                   receipt_ledger, active_check, verify_signature,
-                                  response_context):
+                                  response_context, anchor_advance):
     """Verify and atomically consume one result in a separate client ledger.
 
     Context is pinned independently of the response; its generation must
     match the receipt ledger and the original verified authorization.
     A post-claim denial burns the receipt. This does not provide a live
-    revocation barrier, response delivery guarantee or rollback protection.
+    revocation barrier or response delivery guarantee. Rollback detection
+    depends entirely on an independently provisioned, durable CAS anchor.
     """
     try:
-        if type(receipt_ledger) is not ReceiptLedger or type(response_context) is not dict:
+        if (type(receipt_ledger) is not ReceiptLedger or type(response_context) is not dict
+                or not callable(anchor_advance)):
             raise RejectedRequest("response unavailable")
         context = dict(response_context)
         if receipt_ledger.generation != context["generation"]:
@@ -659,7 +714,8 @@ def consume_signed_result_fixture(raw_result, raw_binding, signature, *,
         receipt_ledger.claim(context["job_id"], context["nonce"], context["expires_at"],
                              context["now"],
                              challenge_comment_id=context["challenge_comment_id"],
-                             execution_comment_id=context["execution_comment_id"])
+                             execution_comment_id=context["execution_comment_id"],
+                             anchor_advance=anchor_advance)
         _check_active_fixture(active_check, raw_binding)
         return result
     except Exception:
