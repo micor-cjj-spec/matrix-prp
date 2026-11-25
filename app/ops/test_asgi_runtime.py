@@ -59,6 +59,20 @@ class ASGITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(sent[0]["status"],400)
             handle.assert_not_called()
 
+    async def test_oversize_send_timeout_never_starts_second_response(self):
+        sent=[]
+        async def receive():
+            return {"type":"http.request","body":b"x"*4097}
+        async def send(event):
+            sent.append(event)
+            if event["type"]=="http.response.body":
+                await asyncio.sleep(1)
+        with patch("asgi_runtime.SEND_SECONDS",0.02):
+            with self.assertRaises(asyncio.TimeoutError):
+                await self.app(scope(),receive,send)
+        self.assertEqual([x["status"] for x in sent if x["type"]=="http.response.start"],[413])
+        self.assertEqual(self.app._active,0)
+
     async def test_body_deadline_releases_slot(self):
         short=OpsASGI(self.boundary,deadline=0.03)
         self.addCleanup(short.close)

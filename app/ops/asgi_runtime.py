@@ -10,6 +10,9 @@ from http_boundary import (HttpBoundary, response, MAX_HEADERS, MAX_HEADER_BYTES
                            RESOURCE_PATH, METADATA_PATH, CONCURRENCY)
 from rpc_adapter import MAX_RPC
 
+class BodyTooLarge(ValueError):
+    pass
+
 MAX_BODY_EVENTS=32
 REQUEST_SECONDS=5
 SEND_SECONDS=1
@@ -121,8 +124,7 @@ class OpsASGI:
                     if event.get("type")!="http.request" or type(chunk) is not bytes or type(more) is not bool:
                         raise ValueError("invalid framing")
                     if len(body)+len(chunk)>MAX_RPC:
-                        await send_response(send,response(413))
-                        return
+                        raise BodyTooLarge
                     body.extend(chunk)
                     if not more:
                         break
@@ -139,6 +141,8 @@ class OpsASGI:
                 result=await asyncio.wait_for(asyncio.shield(future),remaining)
                 if loop.time()>=end:
                     raise asyncio.TimeoutError
+            except BodyTooLarge:
+                result=response(413)
             except asyncio.TimeoutError:
                 result=response(503)
             except (ValueError,TypeError,UnicodeError):

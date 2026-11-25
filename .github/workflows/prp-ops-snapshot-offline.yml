@@ -17,3 +17,18 @@ jobs:
           persist-credentials: false
       - name: Synthetic projections, identity separation and disabled service contracts only
         run: python3 -m unittest discover -s app/ops -p 'test_*.py' -v
+  loopback-process:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install wheel-only runtime dependencies in disposable venv
+        run: |
+          python3 -m venv "$RUNNER_TEMP/prp-ops-runtime"
+          "$RUNNER_TEMP/prp-ops-runtime/bin/python" -m pip --isolated install --no-cache-dir --only-binary=:all: --require-hashes -r app/ops/requirements-runtime.lock
+          "$RUNNER_TEMP/prp-ops-runtime/bin/python" -m pip check
+      - name: Real TLS loopback process with synthetic data only
+        run: |
+          "$RUNNER_TEMP/prp-ops-runtime/bin/python" app/ops/ci_process_smoke.py

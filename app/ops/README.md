@@ -40,3 +40,9 @@
 - asgi_runtime.py 新增真实 ASGI callable 适配已有 HttpBoundary，保留 raw header pairs、raw_path、拒绝 query/代理路径/非 HTTPS scheme、固定 HTTP/1.1、请求头和 body 限长、最多32次 body event；单进程4个入口名额（含读取 body），固定4 worker，无额外等待队列。5s body+dispatch 响应决策期限，发送独立1s/事件；超时/取消不释放仍在执行的线程名额，实际 worker 完成且响应发送/中止后才释放，晚到结果丢弃。不是硬杀死线程；实际 ASGI server、TLS termination、连接及 framing 限制、watchdog、代理可信 scheme 和真实宿主互操作待验收。仅 synthetic ASGI events，不绑定端口。
 - 默认 create_app() 拒绝 lifespan startup，任何 HTTP 返回503；直接执行退出78，不读取主机/配置/凭据、不启动 listener。OpsASGI 仅接受明确注入的 HttpBoundary 供合成测试。尚无真实运行 profile、ASGI runner 依赖锁或 service 安装；下一步需独立批准配置/issuer 与运行模板后才能准备真实接入。
 - RPC 可向 server-owned capture 提供每次请求绑定的最终校验回调。HTTP 在持久审计后重新 introspect 同一 bearer、比对原 identity 与 grant、重查有效时间，拒绝审计期间撤销、轮换、过期；若 fresh 快照到期则不给出旧值；最后仍检查 host disclosure marker。每成功候选 HTTP 调用额外一次 introspection，实际负载与延迟待验收。最后一次检查到 ASGI send/network 之间仍有竞态，不是瞬时撤销或原子网络交付证明。
+
+## D-M05.5 运行依赖与本机 TLS 进程验收候选
+- 修复 P2：过大 body 先选择 413，再统一发送；发送超时不能启动第二个 ASGI 响应，回归覆盖 body send timeout 与名额释放。
+- requirements-runtime.lock 锁定 Linux Python 3.12 Uvicorn 0.54.0、Click 8.5.1、h11 0.16.0 的 PyPI wheel SHA-256；独立 CI job 创建临时 venv，wheel-only + require-hashes + pip check。版本与摘要出处： https://pypi.org/project/uvicorn/0.54.0/ https://pypi.org/project/click/8.5.1/ https://pypi.org/project/h11/0.16.0/ 。版本锁不等同漏洞审查；真实目标 OS/Python 兼容性仍待确认。
+- ci_process_smoke.py 仅测试：父进程预绑定 127.0.0.1 随机端口并传递 fd，临时自签 TLS 证书且客户端实际验签，Uvicorn/h11 单进程；数据和 token 均合成、独立 introspection stub，GrantFile.current 明确 fixture patch，真实业务/host 不访问。测试 metadata、401、有效只读查询、重复 Authorization、413、撤销和审计；子进程结束清理。不是可安装的真实 profile 或真实 OAuth 证明。默认 asgi_runtime.create_app 仍拒绝 startup，禁止把测试脚本当作服务运行。
+- 真实配置仍需确定独立 resource/issuer、实际授权端点/owner、启用门禁、独立账号、证书与密钥管理、systemd/反向代理、进程监管、审计轮换与 M06 审批；不创建真实运行 unit 或主机配置。
