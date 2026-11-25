@@ -134,15 +134,18 @@ def _job_list(value, run):
 def _facts(kind, facts, candidate, now):
     findings = []
     if kind == "github_run":
-        _exact(facts, {"workflow_path", "workflow_sha", "run_id", "attempt", "latest_attempt",
+        _exact(facts, {"workflow_path", "workflow_sha", "run_id", "attempt", "latest_attempt", "total_count",
                        "head_sha", "tree_sha", "event", "status", "conclusion", "jobs"}, kind)
         _require(_one_of(facts["workflow_path"], WORKFLOWS) and _sha(facts["workflow_sha"]) and
                  _positive(facts["run_id"]) and _positive(facts["attempt"]) and
-                 _positive(facts["latest_attempt"]) and _sha(facts["head_sha"]) and
+                 _positive(facts["latest_attempt"]) and _positive(facts["total_count"]) and
+                 facts["total_count"] <= MAX_JOBS and _sha(facts["head_sha"]) and
                  _sha(facts["tree_sha"]) and _one_of(facts["event"], {"pull_request", "push", "workflow_dispatch", "issue_comment"}) and
                  _one_of(facts["status"], {"completed", "in_progress", "queued"}) and
                  (facts["conclusion"] is None or _one_of(facts["conclusion"], {"success", "failure", "cancelled", "skipped"})), "INVALID_GITHUB_RUN")
         findings.extend(_job_list(facts["jobs"], facts))
+        if len(facts["jobs"]) != facts["total_count"]:
+            findings.append("JOB_INVENTORY_INCOMPLETE")
         if (facts["head_sha"], facts["tree_sha"]) != (
                 candidate["source_sha"], candidate["source_tree"]):
             findings.append("RUN_CANDIDATE_OR_TREE_MISMATCH")
@@ -184,12 +187,12 @@ def _facts(kind, facts, candidate, now):
         else:
             findings.append("ARTIFACT_BYTES_NOT_REVIEWED")
     elif kind == "runtime_cutover":
-        _exact(facts, {"backend_image", "gateway_image", "mysql_image", "mysql_unchanged",
+        _exact(facts, {"backend_image", "gateway_image", "mysql_before_image", "mysql_after_image",
                        "schema", "fresh_backup_digest", "preflight_status", "health_status",
                        "rollback_status", "production_targeted"}, kind)
-        _require(all(_digest(facts[k]) for k in ("backend_image", "gateway_image", "mysql_image",
+        _require(all(_digest(facts[k]) for k in ("backend_image", "gateway_image", "mysql_before_image", "mysql_after_image",
                                                   "fresh_backup_digest")) and
-                 _positive(facts["schema"]) and type(facts["mysql_unchanged"]) is bool and
+                 _positive(facts["schema"]) and
                  all(_one_of(facts[k], STATUSES) for k in ("preflight_status", "health_status", "rollback_status")) and
                  type(facts["production_targeted"]) is bool, "INVALID_RUNTIME_CUTOVER")
         if facts["backend_image"] != candidate["backend_image"]:
@@ -198,8 +201,8 @@ def _facts(kind, facts, candidate, now):
             findings.append("GATEWAY_IMAGE_MISMATCH")
         if facts["schema"] != candidate["schema"]:
             findings.append("RUNTIME_SCHEMA_MISMATCH")
-        if not facts["mysql_unchanged"]:
-            findings.append("MYSQL_MUTATION_REPORTED")
+        if facts["mysql_before_image"] != facts["mysql_after_image"]:
+            findings.append("MYSQL_IMAGE_CHANGED")
         for key in ("preflight_status", "health_status", "rollback_status"):
             if facts[key] != "pass":
                 findings.append(key.upper() + "_NOT_PASS")
