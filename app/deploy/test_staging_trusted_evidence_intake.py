@@ -286,7 +286,7 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_bundle(data, NOW)
 
-    def test_duplicate_evidence_kind_is_rejected(self):
+    def test_duplicate_evidence_id_or_run_reference_is_rejected(self):
         data = bundle()
         data["evidence"].append(copy.deepcopy(data["evidence"][0]))
         with self.assertRaises(ValueError):
