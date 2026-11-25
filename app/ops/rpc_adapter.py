@@ -28,15 +28,15 @@ def dispatch_fixture(raw, authorization, *, _capture=None, **server):
             original = context.identity_provider()
             original_grant = context.grant_provider(original.grant_id)
             initial = instant(context.trusted_clock)
-            check_identity(original, initial)
-            check_grant(original_grant, original, initial)
+            check_identity(original, initial, context.profile)
+            check_grant(original_grant, original, initial, context.profile)
             def final_check():
                 renewed = authorize_request(authorization, **server)
                 identity = renewed.identity_provider()
                 grant = renewed.grant_provider(identity.grant_id)
                 now = instant(renewed.trusted_clock, initial)
-                check_identity(identity, now)
-                check_grant(grant, identity, now)
+                check_identity(identity, now, context.profile)
+                check_grant(grant, identity, now, context.profile)
                 if identity != original or grant != original_grant:
                     raise QueryDenied("query denied")
                 return now
@@ -68,8 +68,8 @@ def dispatch_fixture(raw, authorization, *, _capture=None, **server):
         identity = context.identity_provider()
         grant = context.grant_provider(identity.grant_id)
         now = instant(context.trusted_clock)
-        check_identity(identity, now)
-        check_grant(grant, identity, now)
+        check_identity(identity, now, context.profile)
+        check_grant(grant, identity, now, context.profile)
     except Exception:
         return 401, None
     if method == "initialize":

@@ -15,7 +15,7 @@ from urllib.parse import quote_plus, urlencode, urlsplit
 from mcp_adapter import ServerVerifiedContext
 from query_contract import (ISSUER, RESOURCE, CLIENT, SUBJECT, SCOPE, SCOPES,
     Policy, CurrentGrant, VerifiedIdentity, QueryDenied, check_grant,
-    check_identity, grant_id_valid, instant, require)
+    check_identity, grant_id_valid, instant, require, FIXTURE_PROFILE, IdentityProfile)
 from snapshot_contract import ENV, strict_json, utc
 
 GRANT_DIR = Path("/etc/matrix-prp-ops")
@@ -41,7 +41,9 @@ class IntrospectionClient:
     client, not the ChatGPT OAuth client. The TLS trust store is system-owned.
     Socket timeout is per operation, not a hard end-to-end deadline.
     """
-    def __init__(self, client_id, client_secret):
+    def __init__(self, client_id, client_secret, *, profile=FIXTURE_PROFILE):
+        require(type(profile) is IdentityProfile)
+        self._profile = profile
         require(type(client_id) is str and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", client_id) is not None)
         require(type(client_secret) is str and 1 <= len(client_secret) <= 512
                 and all(33 <= ord(c) <= 126 for c in client_secret))
@@ -52,8 +54,8 @@ class IntrospectionClient:
         connection = None
         try:
             require(bearer_token("Bearer " + token) == token)
-            endpoint = urlsplit(INTROSPECTION_URL)
-            require(endpoint.scheme == "https" and endpoint.hostname == "issuer.invalid"
+            endpoint = urlsplit(self._profile.issuer + "/protocol/openid-connect/token/introspect")
+            require(endpoint.scheme == "https" and endpoint.hostname == urlsplit(self._profile.issuer).hostname and endpoint.hostname is not None
                     and endpoint.port is None and endpoint.username is None
                     and endpoint.password is None and not endpoint.query and not endpoint.fragment)
             auth = quote_plus(self._client_id) + ":" + quote_plus(self._client_secret)
@@ -84,19 +86,20 @@ class IntrospectionClient:
                 except Exception:
                     pass
 
-def parse_grant(raw):
+def parse_grant(raw, profile=FIXTURE_PROFILE):
+    require(type(profile) is IdentityProfile)
     """Admin-owned independent grant record; no token/credential storage."""
     value = strict_json(raw, GRANT_LIMIT)
     require(type(value) is dict and set(value) == GRANT_KEYS)
     require(type(value["version"]) is int and value["version"] == 1)
-    require(grant_id_valid(value["grantId"]) and value["issuer"] == ISSUER
-            and value["resource"] == RESOURCE and value["client"] == CLIENT
-            and value["subject"] == SUBJECT and value["environment"] == ENV
+    require(grant_id_valid(value["grantId"]) and value["issuer"] == profile.issuer
+            and value["resource"] == profile.resource and value["client"] == CLIENT
+            and value["subject"] == profile.subject and value["environment"] == ENV
             and value["scope"] == SCOPE and type(value["active"]) is bool)
     utc(value["issuedAt"])
     utc(value["expiresAt"])
     require(value["issuedAt"] < value["expiresAt"])
-    return CurrentGrant(value["grantId"], ISSUER, RESOURCE, CLIENT, SUBJECT,
+    return CurrentGrant(value["grantId"], profile.issuer, profile.resource, CLIENT, profile.subject,
                         ENV, SCOPES, value["issuedAt"], value["expiresAt"], value["active"])
 
 class GrantFile:
@@ -105,7 +108,9 @@ class GrantFile:
     Default owner is root. Tests may inject a trusted fixture directory and
     owner UID. No write/create/repair API and no model-supplied path.
     """
-    def __init__(self, directory=GRANT_DIR, *, reader_gid, owner_uid=0):
+    def __init__(self, directory=GRANT_DIR, *, reader_gid, owner_uid=0, profile=FIXTURE_PROFILE):
+        require(type(profile) is IdentityProfile)
+        self.profile = profile
         self.directory = Path(directory)
         self.reader_gid = reader_gid
         self.owner_uid = owner_uid
@@ -135,7 +140,7 @@ class GrantFile:
                     and info.st_nlink == 1 and 0 < info.st_size <= GRANT_LIMIT)
             with os.fdopen(source, "rb") as stream:
                 source = None
-                return parse_grant(stream.read(GRANT_LIMIT + 1))
+                return parse_grant(stream.read(GRANT_LIMIT + 1), self.profile)
         except Exception:
             raise QueryDenied("query denied") from None
         finally:
@@ -149,7 +154,7 @@ class GrantFile:
         require(value.grant_id == grant_id)
         return value
 
-def verify_introspection(raw, grant, now):
+def verify_introspection(raw, grant, now, profile=FIXTURE_PROFILE):
     """Trust only bytes from the independently authenticated TLS adapter.
 
     No grant ID is inferred from JWT claims or model input: the current local
@@ -158,11 +163,11 @@ def verify_introspection(raw, grant, now):
     try:
         p = strict_json(raw, RESPONSE_LIMIT)
         require(type(p) is dict and p.get("active") is True)
-        require(p.get("iss") == ISSUER and p.get("sub") == SUBJECT
+        require(p.get("iss") == profile.issuer and p.get("sub") == profile.subject
                 and p.get("token_type") == "Bearer" and p.get("scope") == SCOPE
                 and "scp" not in p)
         aud = p.get("aud")
-        require(aud == RESOURCE or (type(aud) is list and aud == [RESOURCE]))
+        require(aud == profile.resource or (type(aud) is list and aud == [profile.resource]))
         require("client_id" in p or "azp" in p)
         for field in ("client_id", "azp"):
             if field in p:
@@ -171,10 +176,10 @@ def verify_introspection(raw, grant, now):
             utc(p["nbf"])
             require(p["nbf"] <= now)
         require(type(grant) is CurrentGrant)
-        identity = VerifiedIdentity(ISSUER, RESOURCE, CLIENT, SUBJECT, SCOPES,
+        identity = VerifiedIdentity(profile.issuer, profile.resource, CLIENT, profile.subject, SCOPES,
                                     grant.grant_id, p["iat"], p["exp"])
-        check_identity(identity, now)
-        check_grant(grant, identity, now)
+        check_identity(identity, now, profile)
+        check_grant(grant, identity, now, profile)
         # Token timestamps have one-second precision; equality cannot prove
         # issuance happened after the new local grant. Require a later second.
         require(identity.issued_at > grant.issued_at)
@@ -182,17 +187,18 @@ def verify_introspection(raw, grant, now):
     except Exception:
         raise QueryDenied("query denied") from None
 
-def authorize_request(header, *, policy, introspect, grants, trusted_clock, store):
+def authorize_request(header, *, policy, introspect, grants, trusted_clock, store, profile=FIXTURE_PROFILE):
     """One context per request; M03 independently rereads grant before/after snapshot."""
     try:
         require(type(policy) is Policy and policy.enabled is True)
-        require(type(grants) is GrantFile and callable(introspect) and callable(trusted_clock))
+        require(type(profile) is IdentityProfile and type(grants) is GrantFile
+                and grants.profile == profile and callable(introspect) and callable(trusted_clock))
         token = bearer_token(header)
         start = instant(trusted_clock)
         raw = introspect(token)
         grant = grants.current()
         now = instant(trusted_clock, start)
-        identity = verify_introspection(raw, grant, now)
-        return ServerVerifiedContext(policy, lambda: identity, grants.lookup, trusted_clock, store)
+        identity = verify_introspection(raw, grant, now, profile)
+        return ServerVerifiedContext(policy, lambda: identity, grants.lookup, trusted_clock, store, profile)
     except Exception:
         raise QueryDenied("query denied") from None

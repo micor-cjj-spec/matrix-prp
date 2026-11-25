@@ -11,7 +11,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from collections import deque
-from query_contract import ISSUER, RESOURCE, SCOPE, Policy
+from query_contract import ISSUER, RESOURCE, SCOPE, Policy, FIXTURE_PROFILE, IdentityProfile
+from urllib.parse import urlsplit
 from rpc_adapter import dispatch_fixture, MAX_RPC, PROTOCOL
 from snapshot_contract import strict_json, timestamp, TTL_SECONDS, FUTURE_TOLERANCE, utc
 from collector_runtime import live_collection_enabled
@@ -47,9 +48,9 @@ def response(status, value=None, extra=()):
         headers += (("Content-Type","application/json"),)
     return Response(status, headers + extra, body)
 
-def unauthorized():
+def unauthorized(profile=FIXTURE_PROFILE):
     return response(401, extra=(("WWW-Authenticate",
-        'Bearer resource_metadata="' + METADATA_URL + '"'),))
+        'Bearer resource_metadata="' + profile.resource[:-len(RESOURCE_PATH)] + METADATA_PATH + '"'),))
 
 def parse_headers(pairs):
     if type(pairs) not in (list,tuple) or len(pairs)>MAX_HEADERS:
@@ -119,6 +120,9 @@ class HttpBoundary:
         if type(server) is not dict or type(budget) is not Budget:
             raise ValueError("invalid service")
         self._server=dict(server)
+        self._profile=self._server.get("profile",FIXTURE_PROFILE)
+        if type(self._profile) is not IdentityProfile:
+            raise ValueError("invalid service profile")
         self._audit=audit_sink
         self._budget=budget
         self._disclosure=disclosure_check
@@ -171,7 +175,7 @@ class HttpBoundary:
                     if route=="mcp" and 200<=result.status<300:
                         try:
                             if len(receipts)!=1:
-                                result=unauthorized()
+                                result=unauthorized(self._profile)
                             else:
                                 now=receipts[0]()
                                 utc(now)
@@ -202,7 +206,7 @@ class HttpBoundary:
             headers=parse_headers(pairs)
         except ValueError:
             return response(400)
-        if headers.get("host")!="ops.invalid":
+        if headers.get("host")!=urlsplit(self._profile.resource).netloc:
             return response(400)
         if "origin" in headers and headers["origin"]!=ALLOWED_ORIGIN:
             return response(403)
@@ -213,7 +217,7 @@ class HttpBoundary:
                 return response(405,extra=(("Allow","GET"),))
             if body or headers.get("content-length","0")!="0":
                 return response(400)
-            return response(200,{"resource":RESOURCE,"authorization_servers":[ISSUER],
+            return response(200,{"resource":self._profile.resource,"authorization_servers":[self._profile.issuer],
                 "scopes_supported":[SCOPE],"bearer_methods_supported":["header"]})
         if method!="POST":
             return response(405,extra=(("Allow","POST"),))
@@ -230,12 +234,12 @@ class HttpBoundary:
         if headers.get("mcp-protocol-version",PROTOCOL)!=PROTOCOL:
             return response(400)
         if type(self._server.get("policy")) is not Policy or self._server["policy"].enabled is not True:
-            return unauthorized()
+            return unauthorized(self._profile)
         if self._disclosure() is not True:
             return response(503)
         status,value=dispatch_fixture(body,headers.get("authorization"),_capture=receipts.append,**self._server)
         if status==401:
-            return unauthorized()
+            return unauthorized(self._profile)
         if status not in (200,202,400):
             return response(503)
         if self._disclosure() is not True:

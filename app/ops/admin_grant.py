@@ -13,7 +13,7 @@ import stat
 import uuid
 from pathlib import Path
 from auth_adapter import GRANT_NAME, GRANT_LIMIT, parse_grant
-from query_contract import ISSUER, RESOURCE, CLIENT, SUBJECT, SCOPE, require
+from query_contract import ISSUER, RESOURCE, CLIENT, SUBJECT, SCOPE, require, FIXTURE_PROFILE
 from snapshot_contract import ENV, strict_json, utc
 
 LOCK_NAME = "grant-admin.lock"
@@ -40,28 +40,28 @@ def open_fixed_directory(path, owner, mode):
 def digest(raw):
     return hashlib.sha256(raw).hexdigest()
 
-def record(grant_id, now, expires, active):
-    result={"version":1,"grantId":grant_id,"issuer":ISSUER,"resource":RESOURCE,
-            "client":CLIENT,"subject":SUBJECT,"environment":ENV,"scope":SCOPE,
+def record(grant_id, now, expires, active, profile=FIXTURE_PROFILE):
+    result={"version":1,"grantId":grant_id,"issuer":profile.issuer,"resource":profile.resource,
+            "client":CLIENT,"subject":profile.subject,"environment":ENV,"scope":SCOPE,
             "issuedAt":now,"expiresAt":expires,"active":active}
-    return encode_grant(result)
+    return encode_grant(result, profile)
 
-def encode_grant(value):
+def encode_grant(value, profile=FIXTURE_PROFILE):
     raw=json.dumps(value,sort_keys=True,separators=(",",":"),allow_nan=False).encode("ascii")
-    parse_grant(raw)
+    parse_grant(raw, profile)
     return raw
 
-def plan(current, action, *, now, expires=None, approved=False):
+def plan(current, action, *, now, expires=None, approved=False, profile=FIXTURE_PROFILE):
     """Pure lifecycle: rotate on issue/renew, preserve tombstone on revoke."""
     require(approved is True)
     utc(now)
-    old=parse_grant(current)
+    old=parse_grant(current, profile)
     if action=="revoke":
         # Revocation must not wait until the next clock tick. Keep the ID,
         # advance the inactive tombstone's time barrier and require any
         # subsequent issue to be strictly later than that barrier.
         require(old.active is True and expires is None and now>=old.issued_at)
-        return record(old.grant_id,now,max(old.expires_at,now+1),False)
+        return record(old.grant_id,now,max(old.expires_at,now+1),False,profile)
     require(now>old.issued_at)
     require(action=="issue" or action=="renew")
     if action=="renew":
@@ -70,7 +70,7 @@ def plan(current, action, *, now, expires=None, approved=False):
         require(old.active is False or now>=old.expires_at)
     utc(expires)
     require(now<expires<=now+MAX_GRANT_SECONDS)
-    return record(str(uuid.uuid4()),now,expires,True)
+    return record(str(uuid.uuid4()),now,expires,True,profile)
 
 class GrantAdminFixture:
     """CAS under a pre-existing private lock. No initialization on missing state.
@@ -79,7 +79,8 @@ class GrantAdminFixture:
     Never restore or retry an uncertain commit automatically. Real rollback
     resistance and independent administrator approval are not implemented.
     """
-    def __init__(self,directory,*,owner_uid,reader_gid):
+    def __init__(self,directory,*,owner_uid,reader_gid,profile=FIXTURE_PROFILE):
+        self.profile=profile
         self.directory=Path(directory)
         self.owner_uid=owner_uid
         self.reader_gid=reader_gid
@@ -105,7 +106,7 @@ class GrantAdminFixture:
                 source=None
                 raw=stream.read(GRANT_LIMIT+1)
             require(type(expected_digest) is str and expected_digest==digest(raw))
-            new=plan(raw,action,now=now,expires=expires,approved=approved)
+            new=plan(raw,action,now=now,expires=expires,approved=approved,profile=self.profile)
             candidate=".grant-"+os.urandom(16).hex()
             out=os.open(candidate,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW|os.O_CLOEXEC,0o600,dir_fd=fd)
             tmp=candidate

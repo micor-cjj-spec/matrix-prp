@@ -8,7 +8,7 @@ import copy
 import json
 from dataclasses import dataclass
 
-from query_contract import TOOL, QueryDenied, query_status_fixture
+from query_contract import TOOL, QueryDenied, query_status_fixture, FIXTURE_PROFILE
 from snapshot_contract import SnapshotStore
 from shared_snapshot import SharedSnapshotReader
 
@@ -36,6 +36,7 @@ class ServerVerifiedContext:
     grant_provider: object
     trusted_clock: object
     store: object
+    profile: object = FIXTURE_PROFILE
 
 def tools_list():
     """Static offline capability projection; no dynamic tool discovery."""
@@ -71,6 +72,7 @@ def tools_call(params, context):
             grant_provider=context.grant_provider,
             trusted_clock=context.trusted_clock,
             store=context.store,
+            profile=context.profile,
         )
         payload = json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False)
         return {

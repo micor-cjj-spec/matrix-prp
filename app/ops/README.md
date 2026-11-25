@@ -46,3 +46,6 @@
 - requirements-runtime.lock 锁定 Linux Python 3.12 Uvicorn 0.54.0、Click 8.5.1、h11 0.16.0 的 PyPI wheel SHA-256；独立 CI job 创建临时 venv，wheel-only + require-hashes + pip check。版本与摘要出处： https://pypi.org/project/uvicorn/0.54.0/ https://pypi.org/project/click/8.5.1/ https://pypi.org/project/h11/0.16.0/ 。版本锁不等同漏洞审查；真实目标 OS/Python 兼容性仍待确认。
 - ci_process_smoke.py 仅测试：父进程预绑定 127.0.0.1 随机端口并传递 fd，临时自签 TLS 证书且客户端实际验签，Uvicorn/h11 单进程；数据和 token 均合成、独立 introspection stub，GrantFile.current 明确 fixture patch，真实业务/host 不访问。测试 metadata、401、有效只读查询、重复 Authorization、413、撤销和审计；子进程结束清理。不是可安装的真实 profile 或真实 OAuth 证明。默认 asgi_runtime.create_app 仍拒绝 startup，禁止把测试脚本当作服务运行。
 - 真实配置仍需确定独立 resource/issuer、实际授权端点/owner、启用门禁、独立账号、证书与密钥管理、systemd/反向代理、进程监管、审计轮换与 M06 审批；不创建真实运行 unit 或主机配置。
+
+## D-M05.6 配置隔离第一步
+IdentityProfile immutable values propagate explicitly through auth/grant, RPC, MCP tool, HTTP metadata/challenge and admin lifecycle. Existing defaults remain .invalid fixture; no global patch or model-controlled profile. New profile input comes exclusively from the separately reviewed administrator configuration, not tool arguments. Actual enablement and installation not authorized.

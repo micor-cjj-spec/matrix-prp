@@ -22,6 +22,14 @@ class QueryDenied(ValueError):
     """Uniform denial; no tokens, subject, resource or grant details."""
 
 @dataclass(frozen=True)
+class IdentityProfile:
+    issuer: str
+    resource: str
+    subject: str
+
+FIXTURE_PROFILE = IdentityProfile(ISSUER, RESOURCE, SUBJECT)
+
+@dataclass(frozen=True)
 class Policy:
     enabled: bool = False
     # Actual policy is pinned by server configuration, never request arguments.
@@ -71,31 +79,33 @@ def validity(issued, expires, now):
     utc(expires)
     require(issued <= now < expires)
 
-def check_identity(identity, now):
+def check_identity(identity, now, profile=FIXTURE_PROFILE):
+    require(type(profile) is IdentityProfile)
     require(type(identity) is VerifiedIdentity)
-    require(type(identity.issuer) is str and identity.issuer == ISSUER
-            and type(identity.audience) is str and identity.audience == RESOURCE
+    require(type(identity.issuer) is str and identity.issuer == profile.issuer
+            and type(identity.audience) is str and identity.audience == profile.resource
             and type(identity.client) is str and identity.client == CLIENT
-            and type(identity.subject) is str and identity.subject == SUBJECT
+            and type(identity.subject) is str and identity.subject == profile.subject
             and type(identity.scopes) is frozenset and identity.scopes == SCOPES
             and grant_id_valid(identity.grant_id))
     validity(identity.issued_at, identity.expires_at, now)
 
-def check_grant(grant, identity, now):
+def check_grant(grant, identity, now, profile=FIXTURE_PROFILE):
+    require(type(profile) is IdentityProfile)
     require(type(grant) is CurrentGrant)
     require(grant.active is True
             and type(grant.grant_id) is str and grant.grant_id == identity.grant_id
-            and type(grant.issuer) is str and grant.issuer == ISSUER
-            and type(grant.resource) is str and grant.resource == RESOURCE
+            and type(grant.issuer) is str and grant.issuer == profile.issuer
+            and type(grant.resource) is str and grant.resource == profile.resource
             and type(grant.client) is str and grant.client == CLIENT
-            and type(grant.subject) is str and grant.subject == SUBJECT
+            and type(grant.subject) is str and grant.subject == profile.subject
             and type(grant.environment) is str and grant.environment == ENV
             and type(grant.scopes) is frozenset and grant.scopes == SCOPES)
     validity(grant.issued_at, grant.expires_at, now)
     require(grant.issued_at <= identity.issued_at)
 
 def query_status_fixture(tool_name, raw_arguments, *, policy, identity_provider,
-                         grant_provider, trusted_clock, store):
+                         grant_provider, trusted_clock, store, profile=FIXTURE_PROFILE):
     """Read only one pre-existing snapshot; never collect, write or refresh.
 
     All keyword-only arguments are independently controlled synthetic adapter
@@ -114,16 +124,16 @@ def query_status_fixture(tool_name, raw_arguments, *, policy, identity_provider,
                 and callable(trusted_clock))
         initial = instant(trusted_clock)
         identity = identity_provider()
-        check_identity(identity, initial)
+        check_identity(identity, initial, profile)
         grant = grant_provider(identity.grant_id)
         before = instant(trusted_clock, initial)
-        check_identity(identity, before)
-        check_grant(grant, identity, before)
+        check_identity(identity, before, profile)
+        check_grant(grant, identity, before, profile)
         raw = store.read_raw()
         latest = grant_provider(identity.grant_id)
         after = instant(trusted_clock, before)
-        check_identity(identity, after)
-        check_grant(latest, identity, after)
+        check_identity(identity, after, profile)
+        check_grant(latest, identity, after, profile)
         require(latest == grant)
         # Freshness is measured after the final grant check, not at entry.
         return query_snapshot(raw, after)
