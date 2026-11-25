@@ -108,3 +108,15 @@ class RuntimeEvidenceTests(unittest.TestCase):
         self.assertIn("hold:ACTIVE",r["blockers"])
         self.assertIn("runtime:COMPOSE_SOURCE_MISMATCH",r["blockers"])
         self.assertIs(r["production_authorized"],False)
+
+    def test_smoke_candidate_must_match_runtime_and_combined_report(self):
+        for key, value in (("commit", B), ("artifactDigest", "sha256:"+"e"*64), ("schema", 31)):
+            with self.subTest(key=key):
+                p = projection()
+                p["candidate"][key] = value
+                result = self.check(runtime(), p)
+                self.assertFalse(result["runtime_correlation_claimed"])
+                self.assertIn("UAT_SMOKE_CANDIDATE_MISMATCH", result["findings"])
+                report = build_review(fixture(True), p, runtime_snapshot=runtime(), runtime_now=NOW)
+                self.assertIn("runtime:UAT_SMOKE_CANDIDATE_MISMATCH", report["blockers"])
+                self.assertIn("staging:PROJECTION_CANDIDATE_MISMATCH", report["blockers"])

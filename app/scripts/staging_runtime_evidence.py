@@ -22,6 +22,10 @@ def assess_runtime(candidate, projection, snapshot, now):
     if not all(digest(v) for v in expected.values()):
         raise ValueError("Invalid expected images")
     findings = []
+    pc = projection["candidate"]
+    if (pc["commit"], pc["artifactDigest"], pc["schema"]) != (
+            candidate["commit"], candidate["artifact_digest"], candidate["schema"]):
+        findings.append("UAT_SMOKE_CANDIDATE_MISMATCH")
     before, after, uat = snapshot["before"], snapshot["after"], snapshot["uat"]
     for observation in (before, after):
         if observation is None:
