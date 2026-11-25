@@ -139,6 +139,22 @@ class ReleaseEvidenceTests(unittest.TestCase):
         d["evidence"]["production_smoke"]["status"] = "fail"
         self.assertEqual(inventory(d)["state"], "BLOCKED")
 
+    def test_output_preserves_ci_attempt_and_artifact_binding(self):
+        r = inventory(fixture(True))
+        rows = {row["gate"]: row for row in r["gates"]}
+        self.assertEqual(rows["ci"]["asserted_binding"]["run_id"], 123)
+        self.assertEqual(rows["ci"]["asserted_binding"]["run_attempt"], 1)
+        self.assertEqual(rows["staging"]["asserted_binding"]["artifact_digest"], D)
+        self.assertEqual(rows["staging"]["asserted_binding"]["schema"], 30)
+        self.assertEqual(r["hold_binding"]["ref"], "git:hold")
+        self.assertNotIn("offline_status", r)
+
+    def test_external_url_reference_rejected(self):
+        d = fixture(True)
+        d["evidence"]["ci"]["ref"] = "https://example.invalid/receipt"
+        with self.assertRaises(ValueError):
+            inventory(d)
+
     def test_report_is_explicitly_unverified(self):
         self.assertIn("No release approval or LIVE verification", markdown(inventory(fixture())))
 

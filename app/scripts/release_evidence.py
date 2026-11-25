@@ -5,8 +5,6 @@ import json
 import re
 from pathlib import Path
 
-from release_status import evaluate
-
 REPO = "micor-cjj-spec/matrix-prp"
 GATES = {
     "ci": ("github_actions", "review", "CI maintainer"),
@@ -42,7 +40,8 @@ def digest(value):
 
 def ref(value):
     # Opaque sanitized IDs only. No external URLs, credentials, user data or free text.
-    return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}", value) is not None
+    return (isinstance(value, str) and "://" not in value and
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}", value) is not None)
 
 
 def schema(value):
@@ -115,7 +114,11 @@ def inventory(data):
                 reason = "CLAIMED_PASS" if state == "pass" else "REPORTED_" + state.upper()
         rows.append({"gate": gate, "status": state, "reason": reason,
                      "source": source, "environment": env, "owner": owner,
-                     "evidence_ref": receipt})
+                     "evidence_ref": receipt,
+                     "asserted_binding": {key: e[key] for key in (
+                         "commit", "status", "run_id", "run_attempt", "tested_commit",
+                         "all_jobs_success", "risk", "artifact_digest", "schema")
+                         if key in e} if e is not None else None})
     by_gate = {row["gate"]: row for row in rows}
     blockers = [row["gate"] + ":" + row["reason"] for row in rows
                 if row["gate"] in PRE_PUBLISH and row["status"] != "pass"]
@@ -131,20 +134,13 @@ def inventory(data):
     claimed_smoke = by_gate["production_smoke"]["status"] == "pass"
     if claimed_smoke and not claimed_publish:
         blockers.append("production_smoke:PUBLISH_EVIDENCE_MISSING")
-    projected = evaluate({
-        "commit": c["commit"],
-        "publication_hold": hold_state == "active",
-        "checks": {g: by_gate[g]["status"] for g in
-                   ("ci", "staging", "migration", "backup_restore", "approval", "production_smoke")},
-        "deployed_commit": c["commit"] if claimed_publish else None,
-    })
     state = ("HELD" if hold_state == "active" else "BLOCKED" if blockers else
              "LIVE_CLAIMED_UNVERIFIED" if claimed_publish and claimed_smoke else
              "PUBLISH_CLAIMED_SMOKE_PENDING" if claimed_publish else
              "PRECONDITIONS_CLAIMED_PASS")
     return {
         "schema_version": 1, "candidate": c, "hold_state": hold_state,
-        "state": state, "offline_status": projected["state"], "gates": rows,
+        "hold_binding": hold, "state": state, "gates": rows,
         "blockers": blockers,
         "evidence_trust": "unverified_caller_assertions",
         "release_eligible": False, "deployment_authorized": False, "live_verified": False,
