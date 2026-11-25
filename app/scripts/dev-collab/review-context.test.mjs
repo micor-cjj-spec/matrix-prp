@@ -293,7 +293,7 @@ test('trusted squash refuses missing associations, wrong checkout, missing bypas
  for(const [matcher,change,code] of [
   [r=>r.includes('/actions/runs/')&&!r.includes('/jobs?'),x=>({...x,pull_requests:[]}),'WORKFLOW_PR_MISMATCH_backend-tests'],
   [r=>r.endsWith('/logs'),x=>x.replace('refs/remotes/pull/139/merge','refs/remotes/pull/999/merge'),'REVIEW_CHECKOUT_REF_OR_SHA'],
-  [r=>r.endsWith('/rulesets/28050327'),x=>{delete x.bypass_actors;return x},'INTEGRATION_POLICY_BYPASS_UNVERIFIED'],
+  [r=>r.endsWith('/rulesets/28050327'),x=>{delete x.bypass_actors;return x},'OWNER_RULESET_WORKFLOW_RUN'],
   [r=>r.endsWith('/git/commits/'+merge),x=>({...x,tree:{sha:'2'.repeat(40)}}),'SQUASH_TEST_TREE_MISMATCH'],
  ])assert.throws(()=>trustedReviewContext(s,cmd,ctx,r=>{const x=squashApi(r);return matcher(r)?change(x):x}),e=>e.code===code)
 })
@@ -339,8 +339,8 @@ test('owner attestation rejects wrong workflow actor, rerun, branch or main SHA'
  }
  assert.throws(()=>trustedReviewContext(state(),cmd,{...runEnv,GITHUB_RUN_ATTEMPT:'2'},route=>{
   if(route.endsWith('/rulesets/28050327')){const x=policy();delete x.bypass_actors;return x}
-  if(route.endsWith('/branches/main'))return fake(route)
-  throw new Error('workflow run must not be queried on rerun')
+  if(route.endsWith('/actions/runs/9002'))throw new Error('workflow run must not be queried on rerun')
+  return fake(route)
  }),e=>e.code==='OWNER_RULESET_WORKFLOW_RUN')
 })
 
