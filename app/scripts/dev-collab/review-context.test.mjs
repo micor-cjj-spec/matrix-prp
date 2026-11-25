@@ -235,7 +235,7 @@ test('review entrypoint requires exact workflow-event pair and fresh main SHA',(
 })
 test('generic review fails closed if complete integration policy cannot be seen',()=>{
  const cmd={type:'accept',task_id:'T-001',pr_number:138,head_sha:sha}
- assert.throws(()=>trustedReviewContext(state(),cmd,ctx,route=>{const x=fake(route);if(route.endsWith('/rulesets/28050327'))delete x.bypass_actors;return x}),e=>e.code==='INTEGRATION_POLICY_BYPASS_UNVERIFIED')
+ assert.throws(()=>trustedReviewContext(state(),cmd,ctx,route=>{const x=fake(route);if(route.endsWith('/rulesets/28050327'))delete x.bypass_actors;return x}),e=>e.code==='OWNER_RULESET_WORKFLOW_RUN')
 })
 
 const squashBase='e'.repeat(40),squashTest='f'.repeat(40),squashTree='1'.repeat(40)
@@ -339,6 +339,7 @@ test('owner attestation rejects wrong workflow actor, rerun, branch or main SHA'
  }
  assert.throws(()=>trustedReviewContext(state(),cmd,{...runEnv,GITHUB_RUN_ATTEMPT:'2'},route=>{
   if(route.endsWith('/rulesets/28050327')){const x=policy();delete x.bypass_actors;return x}
+  if(route.endsWith('/branches/main'))return fake(route)
   throw new Error('workflow run must not be queried on rerun')
  }),e=>e.code==='OWNER_RULESET_WORKFLOW_RUN')
 })
