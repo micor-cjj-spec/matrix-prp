@@ -188,6 +188,8 @@ def _facts(kind, facts, candidate, now):
             if (not facts["archive_bytes_sha256"] or not facts["manifest_sha256"] or
                     facts["files_expected"] <= 0 or facts["files_checked"] != facts["files_expected"]):
                 findings.append("ARTIFACT_BYTE_REVIEW_INCOMPLETE")
+            elif facts["archive_digest"] != "sha256:" + facts["archive_bytes_sha256"]:
+                findings.append("ARTIFACT_ARCHIVE_DIGEST_MISMATCH")
         elif facts["byte_review_status"] == "failed":
             findings.append("ARTIFACT_BYTE_REVIEW_FAILED")
         else:
