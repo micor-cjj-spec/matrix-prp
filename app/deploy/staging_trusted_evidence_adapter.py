@@ -50,6 +50,7 @@ def adapt_p36_read_smoke(projection, receipt, expected_run, identity, binding,
             projection["readSmoke"] not in {"API_SMOKE_PASS", "API_SMOKE_INCOMPLETE"} or
             type(projection["apiPassed"]) is not int or projection["apiPassed"] < 0 or
             type(projection["checksExecuted"]) is not int or projection["checksExecuted"] < 0 or
+            type(projection["identityCorrelation"]) is not str or
             projection["identityCorrelation"] not in {"CLAIMED_MATCH_ONLY", "INCOMPLETE"} or
             type(projection["findings"]) is not list or len(projection["findings"]) > 128 or
             any(type(x) is not str or FINDING.fullmatch(x) is None for x in projection["findings"])):
@@ -130,7 +131,7 @@ def adapt_p36_read_smoke(projection, receipt, expected_run, identity, binding,
 
     if (projection["candidate"]["commit"] != binding["source_sha"] or
             projection["candidate"]["schema"] != binding["schema"] or
-            not _sha(binding["source_tree"]) or
+            not _sha(binding["source_tree"]) or type(binding["schema"]) is not int or binding["schema"] <= 0 or
             not _sha(projection["candidate"]["commit"]) or
             not _digest(projection["candidate"]["artifactDigest"]) or
             type(projection["candidate"]["schema"]) is not int or projection["candidate"]["schema"] <= 0):
