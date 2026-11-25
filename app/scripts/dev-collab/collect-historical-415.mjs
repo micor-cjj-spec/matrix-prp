@@ -13,7 +13,33 @@ const MERGE='5a30345529a1d07819069822a1b90e07b5376fcc'
 const RUNS=[45556141916,45556141762,45556141768]
 const JOBS=[139011091923,139011138221,139011091345,139011141150,139011126055,139008538357,139008537901]
 const PATHS=['.github/workflows/ci.yml','.github/workflows/feature-impact.yml','.github/workflows/prp-dev-collab-contract.yml']
-const read=route=>execFileSync('gh',['api','--method','GET','--hostname','github.com',route],{encoding:'utf8',maxBuffer:4*1024*1024,timeout:30000,stdio:['ignore','pipe','pipe']})
+// Historical job logs: fixed API origin, bounded response, no token on redirect.
+const LOG_LIMIT=4*1024*1024
+const LOG_IDS=new Set(JOBS.map(String))
+export function historicalLogRoute(route){
+ const m=typeof route==='string'&&route.match(/^repos\/micor-cjj-spec\/matrix-prp\/actions\/jobs\/(\d+)\/logs$/)
+ return !!m&&LOG_IDS.has(m[1])
+}
+export async function readHistoricalJobLog(route,{token,fetcher=fetch}={}){
+ if(!historicalLogRoute(route)||typeof token!=='string'||!token)throw Error('HISTORICAL_LOG_REQUEST')
+ const signal=AbortSignal.timeout(30000)
+ let r=await fetcher('https://api.github.com/'+route,{headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},redirect:'manual',signal})
+ if([302,303,307].includes(r.status)){
+   const location=r.headers.get('location')
+   if(!location)throw Error('HISTORICAL_LOG_REDIRECT')
+   const u=new URL(location)
+   if(u.protocol!=='https:'||u.username||u.password||u.port||!(/(^|\.)blob\.core\.windows\.net$/.test(u.hostname)||/(^|\.)actions\.githubusercontent\.com$/.test(u.hostname)||/(^|\.)githubusercontent\.com$/.test(u.hostname)))throw Error('HISTORICAL_LOG_REDIRECT')
+   r=await fetcher(u,{redirect:'manual',signal})
+ }
+ if(!r.ok||!r.body)throw Error('HISTORICAL_LOG_HTTP')
+ let size=0;const parts=[]
+ for await(const chunk of r.body){size+=chunk.length;if(size>LOG_LIMIT)throw Error('HISTORICAL_LOG_SIZE');parts.push(Buffer.from(chunk))}
+ return Buffer.concat(parts).toString('utf8')
+}
+const read=route=>historicalLogRoute(route)
+ ?execFileSync(process.execPath,[fileURLToPath(import.meta.url),'--job-log',route],{encoding:'utf8',maxBuffer:LOG_LIMIT,timeout:35000,stdio:['ignore','pipe','pipe']})
+ :execFileSync('gh',['api','--method','GET','--hostname','github.com',route],{encoding:'utf8',maxBuffer:LOG_LIMIT,timeout:30000,stdio:['ignore','pipe','pipe']})
+
 const object=(o,k)=>Object.fromEntries(o.map(x=>[x,k(x)]))
 function parse(readText,route){
  const data=readText(route)
@@ -47,8 +73,11 @@ export function collectHistorical415(readText=read){
 }
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
  try{
-   if(process.argv.length!==2)throw new Error('HISTORICAL_NO_ARGUMENTS')
-   console.log(JSON.stringify(collectHistorical415()))
+   if(process.argv.length===4&&process.argv[2]==='--job-log')process.stdout.write(await readHistoricalJobLog(process.argv[3],{token:process.env.GH_TOKEN}))
+   else{
+     if(process.argv.length!==2)throw new Error('HISTORICAL_NO_ARGUMENTS')
+     console.log(JSON.stringify(collectHistorical415()))
+   }
  }catch(e){
    console.error('Historical review failed: '+(/^HISTORICAL_[A-Z_]+$/.test(e?.message)?e.message:'API_OR_EVIDENCE_ERROR'))
    process.exitCode=1
