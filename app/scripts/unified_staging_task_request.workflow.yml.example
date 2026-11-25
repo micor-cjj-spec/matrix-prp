@@ -6,9 +6,6 @@ on:
     types: [created]
 permissions:
   contents: read
-concurrency:
-  group: prp-unified-staging-read-smoke
-  cancel-in-progress: false
 jobs:
   preflight:
     if: >-
@@ -32,6 +29,10 @@ jobs:
     if: needs.preflight.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 4
+    # Only admitted requests reach concurrency; unrelated issue comments cannot replace a pending smoke.
+    concurrency:
+      group: prp-unified-staging-read-smoke
+      cancel-in-progress: false
     environment: prp-staging-uat
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -45,4 +46,4 @@ jobs:
           PRP_STAGE_UAT_USER: ${{ secrets.PRP_STAGE_UAT_USER }}
           PRP_STAGE_UAT_PASSWORD: ${{ secrets.PRP_STAGE_UAT_PASSWORD }}
           PRP_STAGE_UAT_OWNER_ID: ${{ secrets.PRP_STAGE_UAT_OWNER_ID }}
-        run: node app/scripts/unified_staging_live_runner.cjs --run-approved-staging-smoke
+        run: node app/scripts/unified_staging_task_receipt.cjs
