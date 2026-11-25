@@ -172,7 +172,7 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(service_entry.main(),0)
         settings=fake.Config.call_args.kwargs
         self.assertEqual(settings["host"],"127.0.0.1")
-        self.assertEqual(settings["port"],18443)
+        self.assertEqual(settings["port"],18444)
         self.assertFalse(settings["proxy_headers"])
         self.assertFalse(settings["access_log"])
         self.assertEqual(settings["ws"],"none")

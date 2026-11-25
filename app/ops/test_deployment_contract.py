@@ -71,3 +71,27 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertEqual(cfg["Service"]["ProtectSystem"],"strict")
         self.assertEqual(cfg["Service"]["NoNewPrivileges"],"yes")
         self.assertNotIn("Install",cfg)
+
+    def test_ingress_candidates_use_same_fixed_loopback_port(self):
+        from service_entry import BIND_HOST,BIND_PORT
+        self.assertEqual((BIND_HOST,BIND_PORT),("127.0.0.1",18444))
+        stream=(ROOT/"app/ops/prp-ops-stream.conf.example").read_text()
+        vhost=(ROOT/"app/ops/prp-ops-https-vhost.conf.example").read_text()
+        self.assertIn("NO-GO on the checked target",stream)
+        self.assertIn("proxy_pass 127.0.0.1:18444;",stream)
+        self.assertIn("proxy_pass https://127.0.0.1:18444;",vhost)
+        self.assertNotIn("127.0.0.1:18443;",stream+vhost)
+
+    def test_named_https_template_is_review_only_and_verifies_upstream(self):
+        vhost=(ROOT/"app/ops/prp-ops-https-vhost.conf.example").read_text()
+        for directive in ("server_name ops.invalid;","proxy_ssl_verify on;",
+                "proxy_ssl_name ops.invalid;","proxy_ssl_trusted_certificate /REPLACE_WITH_APPROVED_UPSTREAM_CA;",
+                "proxy_pass_request_headers on;","proxy_cache off;","proxy_next_upstream off;",
+                "client_max_body_size 4k;","access_log off;",
+                'if ($ssl_server_name != ops.invalid) { return 421; }',
+                'if ($http_host != ops.invalid) { return 421; }',
+                'if ($http_transfer_encoding != "") { return 400; }'):
+            self.assertIn(directive,vhost)
+        active=[line.strip() for line in vhost.splitlines() if not line.lstrip().startswith("#")]
+        self.assertFalse(any("default_server" in line or "proxy_set_header Authorization" in line or
+                             "proxy_ssl_verify off" in line or "rewrite " in line for line in active))

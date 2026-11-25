@@ -1,0 +1,70 @@
+# REVIEW TEMPLATE ONLY. Not included, installed or approved for the target.
+# Separate owner approval is required before ANY shared Nginx change/reload.
+# Replace the deliberately invalid host and certificate/CA placeholders only
+# in administrator-owned target configuration, not in the repository.
+# Requires a separately verified resource DNS name and TLS trust chain.
+# Add only a distinct named virtual host in the existing HTTP context;
+# never alter default_server, production locations, existing listeners or upstreams.
+limit_req_zone $binary_remote_addr zone=prp_ops_vhost_rate:1m rate=1r/s;
+limit_conn_zone $binary_remote_addr zone=prp_ops_vhost_conn:1m;
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ops.invalid;
+
+    ssl_certificate /REPLACE_WITH_APPROVED_PUBLIC_CERT_CHAIN;
+    ssl_certificate_key /REPLACE_WITH_APPROVED_PUBLIC_CERT_KEY;
+
+    access_log off;
+    error_log /var/log/nginx/prp-ops-vhost-error.log crit;
+    client_max_body_size 4k;
+    client_body_buffer_size 8k;
+    client_body_timeout 5s;
+    send_timeout 5s;
+    keepalive_timeout 5s;
+    limit_req zone=prp_ops_vhost_rate burst=4 nodelay;
+    limit_req_status 429;
+    limit_conn prp_ops_vhost_conn 4;
+    limit_conn_status 429;
+
+    # Reject mismatched SNI/Host and any normalized aliases or query strings
+    # before proxying. Raw request URI must be one of the exact two endpoints.
+    if ($ssl_server_name != ops.invalid) { return 421; }
+    if ($http_host != ops.invalid) { return 421; }
+    if ($request_uri !~ "^(/mcp|/\.well-known/oauth-protected-resource/mcp)$") { return 404; }
+    if ($http_transfer_encoding != "") { return 400; }
+    if ($http_content_encoding != "") { return 400; }
+    if ($http_mcp_session_id != "") { return 400; }
+
+    location / {
+        # No URI component: do not rewrite the admitted request target.
+        proxy_pass https://127.0.0.1:18444;
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_ssl_name ops.invalid;
+        proxy_ssl_verify on;
+        proxy_ssl_verify_depth 3;
+        proxy_ssl_trusted_certificate /REPLACE_WITH_APPROVED_UPSTREAM_CA;
+
+        # Do not reconstruct Authorization, Origin or MCP headers from
+        # $http_* variables. Nginx parsing/normalization must be verified
+        # with the actual target version before this design is approved.
+        proxy_pass_request_headers on;
+        proxy_set_header Host $http_host;
+        proxy_set_header Connection close;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Forwarded-Proto "";
+        proxy_set_header X-Forwarded-Host "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header Forwarded "";
+        proxy_request_buffering on;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_intercept_errors off;
+        proxy_next_upstream off;
+        proxy_connect_timeout 2s;
+        proxy_send_timeout 8s;
+        proxy_read_timeout 8s;
+    }
+}

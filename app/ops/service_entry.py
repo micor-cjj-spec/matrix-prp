@@ -20,7 +20,7 @@ from query_contract import Policy, require
 from shared_snapshot import SharedSnapshotReader, SNAPSHOT_DIRECTORY, WRITER_ACCOUNT, READER_ACCOUNT, SHARED_GROUP
 
 BIND_HOST="127.0.0.1"
-BIND_PORT=18443
+BIND_PORT=18444
 AUDIT_DIRECTORY=Path("/var/lib/prp-ops-audit")
 CREDENTIAL_DIRECTORY=Path("/run/credentials/prp-ops-mcp.service")
 SECRET_NAME="introspection-secret"

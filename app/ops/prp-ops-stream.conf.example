@@ -1,10 +1,11 @@
-# TEMPLATE ONLY; do not include or enable. Dedicated nonproduction IP required.
+# ALTERNATIVE ONLY; NO-GO on the checked target (existing wildcard HTTPS listeners).
+# Do not include or enable. Dedicated nonproduction IP and separate approval required.
 # Place in the approved Nginx stream context, never the shared HTTP vhost.
 # 192.0.2.10 is a documentation-only address, not the target host.
 limit_conn_zone $binary_remote_addr zone=prp_ops_connection_limit:1m;
 server {
     listen 192.0.2.10:443;
-    proxy_pass 127.0.0.1:18443;
+    proxy_pass 127.0.0.1:18444;
     proxy_connect_timeout 2s;
     proxy_timeout 12s;
     limit_conn prp_ops_connection_limit 4;
