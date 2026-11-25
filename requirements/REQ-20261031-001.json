@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 17,
-  "updated_at": "2026-11-25T10:36:11.192Z",
+  "version": 18,
+  "updated_at": "2026-11-25T12:48:55.467Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -228,6 +228,20 @@
         "status": "DONE",
         "replayed": false
       }
+    },
+    {
+      "request_id": "a29d43a7-8a75-4c4d-8c50-8e8fba613ad0",
+      "fingerprint": "6263ce13edf2297b9949ee68f975f9c2916c1091ba968f2887e45677590f933c",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "claim",
+        "task_id": "T-007",
+        "request_id": "a29d43a7-8a75-4c4d-8c50-8e8fba613ad0",
+        "claim_id": "17b0fda3-e220-4fbb-bc15-c6ef23c9f786",
+        "version": 18,
+        "status": "CLAIMED",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -382,7 +396,7 @@
       "task_id": "T-007",
       "issue_number": 142,
       "title": "可信验收与 GitHub App 安全验证",
-      "status": "READY",
+      "status": "CLAIMED",
       "depends_on": [
         "T-001"
       ],
@@ -400,7 +414,13 @@
         "app/scripts/dev-collab/state-rule-policy.mjs",
         "app/scripts/dev-collab/state-rule-policy.test.mjs"
       ],
-      "claim": null
+      "claim": {
+        "claim_id": "17b0fda3-e220-4fbb-bc15-c6ef23c9f786",
+        "worker_id": "chat_t007_security_20261125",
+        "actor": "micor-cjj-spec",
+        "claimed_at": "2026-11-25T12:48:55.467Z",
+        "generation": 1
+      }
     },
     {
       "task_id": "T-008",
