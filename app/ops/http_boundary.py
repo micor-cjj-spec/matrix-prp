@@ -151,23 +151,26 @@ class HttpBoundary:
         finally:
             try:
                 event={"version":1,"traceId":trace,"route":route,
-                    "status":result.status,"outcome":outcome}
+                    "candidateStatus":result.status,"outcome":outcome}
                 # No user input, token, request ID, headers, payload, or metrics.
                 if self._audit(event) is not True:
                     result=response(503)
             except Exception:
                 result=response(503)
             finally:
-                if acquired:
-                    self._budget.release()
-        # Recheck after audit too: audit callbacks may take time. This gate
-        # is not an atomic barrier with network delivery.
-        if route=="mcp" and 200<=result.status<300:
-            try:
-                if self._disclosure() is not True:
-                    return response(503)
-            except Exception:
-                return response(503)
+                try:
+                    # Hold the admission slot through the final disclosure
+                    # decision, including potentially slow audit callbacks.
+                    # No atomic barrier with actual network delivery exists.
+                    if route=="mcp" and 200<=result.status<300:
+                        try:
+                            if self._disclosure() is not True:
+                                result=response(503)
+                        except Exception:
+                            result=response(503)
+                finally:
+                    if acquired:
+                        self._budget.release()
         return result
 
     def _dispatch(self,method,target,pairs,body):

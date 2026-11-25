@@ -25,6 +25,6 @@
 
 ## D-M05.2 HTTP 入口、预算及脱敏审计（离线）
 - http_boundary.py 仅接受可信 ingress 传入的原始 header pairs、精确 target 和有界 body；未监听端口。固定 .invalid Host、/mcp POST、RFC 9728 resource metadata GET 路径及 401 challenge；拒绝重复安全头、错误 Origin、路径别名、转发分块、压缩及 session ID。仅支持固定 2025-06-18 JSON 响应子集（Accept 同时包含 JSON/SSE），不是完整 Streamable HTTP 实现。真实 TLS、原始 header 保留、连接/请求体读取超时、代理和 ChatGPT 互操作仍需单独验收。
-- 单进程全局滚动窗口 60 请求/60 秒（含未授权）、4 个并发；内存有界、单调时间回退拒绝；不依赖可伪造请求头或动态用户桶。恶意请求可耗尽全局配额，非分布式限流；真实入口需独立限额、连接管理与拒绝服务验收。
-- 每次请求构造固定审计事件（随机 traceId、固定 route、HTTP status、outcome）；不记录 token、用户输入、JSON-RPC id、原始指标。审计 sink 由服务器注入，失败返回 503，不泄露数据。无持久日志实现；最终披露检查可能改变 HTTP 结果，审计仅记录检查前候选结果，不是响应交付证明。真实审计持久性与主体归属、写入时间、采集与读取超时仍待实现。
+- 单进程全局滚动窗口 60 请求/60 秒（含未授权）、4 个并发（名额保持至审计与最终披露判断完成）；内存有界、单调时间回退拒绝；不依赖可伪造请求头或动态用户桶。恶意请求可耗尽全局配额，非分布式限流；真实入口需独立限额、连接管理与拒绝服务验收。
+- 每次请求构造固定审计事件（随机 traceId、固定 route、candidateStatus、outcome）；不记录 token、用户输入、JSON-RPC id、原始指标。审计 sink 由服务器注入，失败返回 503，不泄露数据。无持久日志实现；最终披露检查可能改变 HTTP 结果，审计仅记录检查前候选结果，不是响应交付证明。真实审计持久性与主体归属、写入时间、采集与读取超时仍待实现。
 - 读取入口也要求 root-owned ALLOW_HOST_METRICS 门禁（调用现有校验函数），防止仅停采集后仍返回未过期快照；请求前、dispatch 后、审计后均校验。最后检查到实际网络发送仍有竞态。合成测试注入 marker，不创建真实文件。新增完整 HTTP->Bearer introspection->grant->RPC->snapshot 测试。无真实 MCP 服务注册、真实端口监听或主机访问。

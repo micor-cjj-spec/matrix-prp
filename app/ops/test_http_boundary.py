@@ -82,7 +82,7 @@ class HttpTests(unittest.TestCase):
             got=self.request()
             self.assertEqual(got.status,200)
             event=self.audit.call_args.args[0]
-            self.assertEqual(set(event),{"version","traceId","route","status","outcome"})
+            self.assertEqual(set(event),{"version","traceId","route","candidateStatus","outcome"})
             self.assertNotIn("secret",json.dumps(event))
             self.audit.return_value=False
             got=self.request()
@@ -113,6 +113,27 @@ class HttpTests(unittest.TestCase):
         self.clock.return_value=99
         with self.assertRaises(ValueError):
             budget.acquire()
+
+    def test_final_marker_check_holds_slot_and_releases_on_denial(self):
+        budget=Budget(self.clock)
+        for _ in range(CONCURRENCY-1):
+            self.assertTrue(budget.acquire())
+        observations=[]
+        def check():
+            observations.append(budget.acquire())
+            if observations[-1]:
+                budget.release()
+            return len(observations)<3
+        boundary=HttpBoundary(server={"policy":Policy(True)},audit_sink=self.audit,
+            budget=budget,disclosure_check=check)
+        with patch("http_boundary.dispatch_fixture",return_value=(200,{"result":{}})):
+            got=boundary.handle("POST",RESOURCE_PATH,self.headers,self.body)
+        self.assertEqual(got.status,503)
+        self.assertEqual(observations,[False,False,False])
+        self.assertEqual(self.audit.call_args.args[0]["candidateStatus"],200)
+        self.assertTrue(budget.acquire())
+        for _ in range(CONCURRENCY):
+            budget.release()
 
     def test_authentication_challenge_no_details(self):
         with patch("http_boundary.dispatch_fixture",return_value=(401,None)):
