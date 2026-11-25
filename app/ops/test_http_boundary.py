@@ -42,6 +42,16 @@ class HttpTests(unittest.TestCase):
                        ("Content-Type","application/json"),("X-Other","bad\r\n")):
             self.assertEqual(self.request(headers=self.headers+[header]).status,400)
 
+    def test_oversize_headers_rejected_before_character_scan(self):
+        from http_boundary import parse_headers
+        # Mock the scanner, not wall time; no character inspection may occur.
+        with patch("http_boundary.ord",create=True,side_effect=AssertionError("oversize scan")), \
+             patch("http_boundary.re.fullmatch",side_effect=AssertionError("oversize regex")):
+            with self.assertRaises(ValueError):
+                parse_headers([("X","x"*5000000)])
+            with self.assertRaises(ValueError):
+                parse_headers([("X"*5000000,"x")])
+
     def test_origin_host_framing_and_session_rejection(self):
         for extra,status in ((("Origin","https://evil.invalid"),403),
             (("Transfer-Encoding","chunked"),400),(("Content-Encoding","gzip"),400),

@@ -60,12 +60,13 @@ def parse_headers(pairs):
         if type(pair) not in (list,tuple) or len(pair)!=2:
             raise ValueError("invalid headers")
         key,value=pair
-        if (type(key) is not str or type(value) is not str or
-            not re.fullmatch(r"[!#$%&'*+.^_\x60|~0-9A-Za-z-]{1,64}",key)
-            or any(ord(c)<32 or ord(c)>126 for c in value)):
+        if type(key) is not str or type(value) is not str:
             raise ValueError("invalid headers")
         total+=len(key)+len(value)
-        if total>MAX_HEADER_BYTES:
+        if total>MAX_HEADER_BYTES or not 1<=len(key)<=64:
+            raise ValueError("invalid headers")
+        if (not re.fullmatch(r"[!#$%&'*+.^_\x60|~0-9A-Za-z-]{1,64}",key)
+                or any(ord(c)<32 or ord(c)>126 for c in value)):
             raise ValueError("invalid headers")
         key=key.lower()
         if key in SECURITY_HEADERS and key in result:
