@@ -175,6 +175,9 @@ def verify_introspection(raw, grant, now):
                                     grant.grant_id, p["iat"], p["exp"])
         check_identity(identity, now)
         check_grant(grant, identity, now)
+        # Token timestamps have one-second precision; equality cannot prove
+        # issuance happened after the new local grant. Require a later second.
+        require(identity.issued_at > grant.issued_at)
         return identity
     except Exception:
         raise QueryDenied("query denied") from None

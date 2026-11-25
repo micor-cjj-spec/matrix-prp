@@ -92,7 +92,9 @@ class RequestTests(unittest.TestCase):
         self.write_grant(dict(self.grant,grantId=str(uuid.uuid4()),issuedAt=NOW))
         self.assertEqual(self.dispatch(),(401,None))
         self.claims["iat"]=NOW
-        self.assertEqual(self.dispatch()[0],200)
+        self.assertEqual(self.dispatch(),(401,None))
+        self.claims["iat"]=NOW+1
+        self.assertEqual(self.dispatch(trusted_clock=lambda:NOW+1)[0],200)
 
     def test_revocation_during_snapshot_read(self):
         real_read=self.store.read_raw
