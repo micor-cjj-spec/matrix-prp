@@ -58,7 +58,7 @@ authorization. Nonces are checked only within one bundle; a persistent replay
 ledger belongs to a later server-owned phase.
 
 This is a schema/cryptographic-mechanics test, not an activated evidence collector.
-No real #396 data is fetched, no shared runner is enabled, and no workflow, approval
+No live #396 endpoint is queried or operator receipt is used as a signed test fixture; only synthetic data is exercised. No shared runner is enabled, and no workflow, approval
 tool, executor, production hold, branch protection, environment secret, credential,
 database, server, or deployment is changed.
 
