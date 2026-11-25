@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { trustedReviewContext } from './review-context.mjs'
-import { REQUIRED_CHECKS } from './review-gate.mjs'
+import { REQUIRED_CHECKS, buildOwnerRulesetAttestation } from './review-gate.mjs'
 const req='REQ-20261031-001',sha='a'.repeat(40),merge='b'.repeat(40),branchSha='c'.repeat(40)
 const ctx={GITHUB_ACTIONS:'true',GITHUB_REF:'refs/heads/main',
  GITHUB_REPOSITORY:'micor-cjj-spec/matrix-prp',GITHUB_ACTOR:'micor-cjj-spec',
@@ -341,4 +341,22 @@ test('owner attestation rejects wrong workflow actor, rerun, branch or main SHA'
   if(route.endsWith('/rulesets/28050327')){const x=policy();delete x.bypass_actors;return x}
   throw new Error('workflow run must not be queried on rerun')
  }),e=>e.code==='OWNER_RULESET_WORKFLOW_RUN')
+})
+
+test('trusted close also requires owner attestation when Ruleset bypass list is redacted',()=>{
+ const observedAt=new Date(Date.now()-60000).toISOString()
+ const runEnv={...ctx,GITHUB_RUN_ID:'9003',GITHUB_RUN_ATTEMPT:'1'}
+ const note=buildOwnerRulesetAttestation(policy(),{requestId:'44444444-4444-4444-8444-444444444444',
+  action:'close',requirementId:req,taskId:null,prNumber:139,headSha:sha,
+  stateVersion:1,mainSha:branchSha,observedAt})
+ const s=state();s.tasks[0].status='DONE';s.tasks[0].claim=null
+ const cmd={type:'close',pr_number:139,head_sha:sha,
+  request_id:'44444444-4444-4444-8444-444444444444',requirement_id:req,note}
+ const api=route=>{
+  if(route.endsWith('/rulesets/28050327')){const x=policy();delete x.bypass_actors;return x}
+  if(route.endsWith('/actions/runs/9003'))return ownerRun(runEnv,new Date(Date.parse(observedAt)+30000).toISOString())
+  return validDevCloseApi(route)
+ }
+ const result=trustedReviewContext(s,cmd,runEnv,api)
+ assert.equal(result.integrationReviewVerified,true)
 })
