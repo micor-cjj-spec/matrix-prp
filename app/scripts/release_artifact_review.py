@@ -2,6 +2,7 @@
 """Offline review of an existing Deploy PRP artifact. Never publishes or authorizes."""
 import argparse
 import datetime as dt
+import gzip
 import hashlib
 import json
 import re
@@ -16,6 +17,9 @@ REPO_ID = 1261866723
 MAX_BYTES = 800 * 1024 * 1024
 MAX_FILES = 10000
 MAX_JSON = 2 * 1024 * 1024
+MAX_TAR_OVERHEAD = 32 * 1024 * 1024
+MAX_PAX_HEADER = 16 * 1024
+BLOCK = 512
 
 
 def require(ok, reason):
@@ -123,40 +127,123 @@ def provenance(snapshot, commit, now):
     return run, item
 
 
+class BoundedTarReader:
+    """Bound every decompressed byte, including headers, padding and trailing data."""
+    def __init__(self, stream):
+        self.stream = stream
+        self.remaining = MAX_BYTES + MAX_TAR_OVERHEAD
+
+    def read(self, count):
+        require(0 <= count <= MAX_JSON, "INVALID_TAR_READ")
+        # Never ask the decompressor for an unbounded read, even at the limit.
+        data = self.stream.read(min(count, self.remaining + 1))
+        self.remaining -= len(data)
+        require(self.remaining >= 0, "DECOMPRESSED_TAR_SIZE_LIMIT")
+        return data
+
+    def exact(self, count):
+        data = self.read(count)
+        require(len(data) == count, "TRUNCATED_TAR")
+        return data
+
+    def padding(self, size):
+        count = (-size) % BLOCK
+        require(not any(self.exact(count)), "NONZERO_TAR_PADDING")
+
+
+def local_pax(raw):
+    """Only the local path and fractional mtime emitted by package-release.py.
+    Do not allow size/type overrides, sparse metadata, globals or chained headers.
+    """
+    require(0 < len(raw) <= MAX_PAX_HEADER, "PAX_HEADER_SIZE_LIMIT")
+    values = {}
+    pos = 0
+    while pos < len(raw):
+        space = raw.find(b" ", pos, min(pos + 7, len(raw)))
+        require(space > pos, "INVALID_PAX_LENGTH")
+        length = raw[pos:space]
+        require(re.fullmatch(rb"[1-9][0-9]{0,5}", length) is not None, "INVALID_PAX_LENGTH")
+        end = pos + int(length)
+        require(space + 3 < end <= len(raw) and raw[end-1:end] == b"\n", "INVALID_PAX_RECORD")
+        key, sep, val = raw[space+1:end-1].partition(b"=")
+        require(sep == b"=" and key in (b"path", b"mtime") and key not in values,
+                "UNSUPPORTED_PAX_FIELD")
+        if key == b"path":
+            require(0 < len(val) <= 513, "INVALID_PAX_PATH")
+            values[key] = val.decode("ascii")
+        else:
+            require(re.fullmatch(rb"-?[0-9]{1,20}(?:\.[0-9]{1,20})?", val) is not None,
+                    "INVALID_PAX_MTIME")
+            values[key] = val
+        pos = end
+    return values
+
+
 def verify_tar(stream, expected, release_id):
     files, seen, meta, policy = {}, set(), None, None
-    size = 0
-    # No extraction, execution, or use of filesystem paths from the archive.
-    with tarfile.open(fileobj=stream, mode="r|gz") as tar:
-        for member in tar:
-            name = member.name
-            require(valid_name(name) and name not in seen and len(seen) < MAX_FILES
-                    and (member.isfile() or member.isdir()), "UNSAFE_TAR_MEMBER")
+    size, physical_headers = 0, 0
+    pending = None
+    # Parse one fixed-size header at a time; tarfile.open() would process
+    # extension bodies internally before callers could enforce a memory limit.
+    # No recursive extension parsing, extraction or archive-controlled file paths.
+    with gzip.GzipFile(fileobj=stream, mode="rb") as gz:
+        reader = BoundedTarReader(gz)
+        while True:
+            header = reader.exact(BLOCK)
+            if not any(header):
+                require(pending is None and not any(reader.exact(BLOCK)), "INVALID_TAR_END")
+                # Consume to EOF so trailing data and gzip integrity are checked.
+                while True:
+                    trailing = reader.read(1024 * 1024)
+                    if not trailing:
+                        break
+                    require(not any(trailing), "UNEXPECTED_TRAILING_TAR_DATA")
+                break
+            physical_headers += 1
+            require(physical_headers <= 2 * MAX_FILES, "TAR_HEADER_COUNT_LIMIT")
+            member = tarfile.TarInfo.frombuf(header, "ascii", "strict")
+            if member.type == tarfile.XHDTYPE:
+                require(pending is None and 0 < member.size <= MAX_PAX_HEADER,
+                        "PAX_HEADER_SIZE_OR_CHAIN_LIMIT")
+                pending = local_pax(reader.exact(member.size))
+                reader.padding(member.size)
+                continue
+            require(member.type in (tarfile.REGTYPE, tarfile.AREGTYPE, tarfile.DIRTYPE),
+                    "UNSAFE_TAR_MEMBER_TYPE")
+            name = (pending or {}).get(b"path", member.name)
+            pending = None
+            if member.type == tarfile.DIRTYPE:
+                name = name.rstrip("/")
+            require(valid_name(name) and name not in seen and len(seen) < MAX_FILES,
+                    "UNSAFE_TAR_MEMBER")
             seen.add(name)
             require(name in ("release.json", "migration-policy.json", "backend.jar", "web")
                     or name.startswith("web/"), "UNEXPECTED_TAR_MEMBER")
-            if member.isdir():
-                require(name == "web" or name.startswith("web/"), "UNEXPECTED_DIRECTORY")
+            if member.type == tarfile.DIRTYPE:
+                require(member.size == 0 and (name == "web" or name.startswith("web/")),
+                        "UNEXPECTED_DIRECTORY")
                 continue
             require(name != "web" and 0 <= member.size <= MAX_BYTES, "INVALID_MEMBER")
             size += member.size
             require(size <= MAX_BYTES, "ARTIFACT_SIZE_LIMIT")
-            src = tar.extractfile(member)
-            require(src is not None, "MISSING_MEMBER")
-            with src:
-                if name in ("release.json", "migration-policy.json"):
-                    require(member.size <= MAX_JSON, "JSON_TOO_LARGE")
-                    raw = src.read(MAX_JSON + 1)
-                    value = parse_json(raw)
-                    if name == "release.json":
-                        meta = value
-                    else:
-                        policy = value
-                        files[name] = hashlib.sha256(raw).hexdigest()
+            if name in ("release.json", "migration-policy.json"):
+                require(member.size <= MAX_JSON, "JSON_TOO_LARGE")
+                raw = reader.exact(member.size)
+                value = parse_json(raw)
+                if name == "release.json":
+                    meta = value
                 else:
-                    checksum, count = digest_stream(src, limit=member.size)
-                    require(count == member.size, "MEMBER_SIZE_MISMATCH")
-                    files[name] = checksum
+                    policy = value
+                    files[name] = hashlib.sha256(raw).hexdigest()
+            else:
+                checksum = hashlib.sha256()
+                left = member.size
+                while left:
+                    block = reader.exact(min(left, 1024 * 1024))
+                    checksum.update(block)
+                    left -= len(block)
+                files[name] = checksum.hexdigest()
+            reader.padding(member.size)
     require(type(meta) is dict and set(meta) == {"id", "commit", "schema_version",
             "backend_source", "web_source", "files"}, "INVALID_RELEASE_MANIFEST")
     require(meta["id"] == release_id and meta["commit"] == expected["commit"]

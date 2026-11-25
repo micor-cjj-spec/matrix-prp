@@ -1,4 +1,5 @@
 import datetime as dt
+import gzip
 import hashlib
 import io
 import json
@@ -7,6 +8,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from release_artifact_review import review, REPO, REPO_ID
 
@@ -44,9 +46,12 @@ class ArtifactReviewTests(unittest.TestCase):
                      "artifacts": {"total_count": 1, "artifacts": [self.item]}}
         self.archive()
 
-    def archive(self, manifest=None, extra=None, tamper=False, outer_extra=False, symlink=False):
+    def archive(self, manifest=None, extra=None, tamper=False, outer_extra=False, symlink=False,
+                pax=None, trailing=b'', directory=False):
         files = {"backend.jar": b"synthetic jar", "web/index.html": b"fixture",
                  "migration-policy.json": json.dumps({"commit": A}).encode()}
+        if directory:
+            files["web/" + "a" * 120 + ".js"] = b"long path"
         meta = {"id": "r123-1", "commit": A, "schema_version": 30,
                 "backend_source": B, "web_source": W, "files": {k: sha(v) for k,v in files.items()}}
         meta.update(manifest or {})
@@ -57,18 +62,28 @@ class ArtifactReviewTests(unittest.TestCase):
             files.update(extra)
         inner = io.BytesIO()
         with tarfile.open(fileobj=inner, mode="w:gz") as tar:
+            if directory:
+                info = tarfile.TarInfo("web/")
+                info.type = tarfile.DIRTYPE
+                info.mtime = 1760000000.125
+                tar.addfile(info)
             for name, raw in files.items():
                 info = tarfile.TarInfo(name)
                 info.size = len(raw)
+                if directory:
+                    info.mtime = 1760000000.125
+                if pax is not None and name == "backend.jar":
+                    info.pax_headers = pax
                 tar.addfile(info, io.BytesIO(raw))
             if symlink:
                 info = tarfile.TarInfo("web/link")
                 info.type = tarfile.SYMTYPE
                 info.linkname = "/etc/passwd"
                 tar.addfile(info)
-        self.tar_digest = "sha256:" + sha(inner.getvalue())
+        payload = inner.getvalue() + (gzip.compress(trailing) if trailing else b"")
+        self.tar_digest = "sha256:" + sha(payload)
         with zipfile.ZipFile(self.path, "w") as z:
-            z.writestr("release.tar.gz", inner.getvalue())
+            z.writestr("release.tar.gz", payload)
             if outer_extra:
                 z.writestr("unexpected", "no")
         self.item["digest"] = "sha256:" + sha(self.path.read_bytes())
@@ -143,6 +158,43 @@ class ArtifactReviewTests(unittest.TestCase):
     def test_outer_extra_member_rejected(self):
         self.archive(outer_extra=True)
         self.rejected()
+
+    def test_oversized_pax_rejected_before_read(self):
+        self.archive(pax={"comment": "x" * (1024 * 1024)})
+        with self.assertRaisesRegex(ValueError, "PAX_HEADER_SIZE_OR_CHAIN_LIMIT"):
+            self.check()
+
+    def test_unsupported_pax_field_rejected(self):
+        self.archive(pax={"comment": "unexpected"})
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_PAX_FIELD"):
+            self.check()
+
+    def test_normal_packager_pax_mtime_directory_and_long_path(self):
+        self.archive(directory=True)
+        result = self.check()
+        self.assertEqual(result["file_count"], 4)
+        self.assertFalse(result["release_eligible"])
+
+    def test_total_decompressed_stream_limit_includes_trailing_padding(self):
+        self.archive(trailing=b"\0" * (128 * 1024))
+        with patch("release_artifact_review.MAX_BYTES", 32768), \
+             patch("release_artifact_review.MAX_TAR_OVERHEAD", 16384):
+            with self.assertRaisesRegex(ValueError, "DECOMPRESSED_TAR_SIZE_LIMIT"):
+                self.check()
+
+    def test_nonzero_trailing_data_rejected(self):
+        self.archive(trailing=b"unexpected")
+        with self.assertRaisesRegex(ValueError, "UNEXPECTED_TRAILING_TAR_DATA"):
+            self.check()
+
+    def test_pax_path_traversal_rejected(self):
+        self.archive(pax={"path": "web/../evil"})
+        self.rejected()
+
+    def test_pax_size_override_rejected(self):
+        self.archive(pax={"size": "13"})
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_PAX_FIELD"):
+            self.check()
 
 
 if __name__ == "__main__":

@@ -15,3 +15,7 @@ The report's artifact_evidence can be manually supplied to release_evidence.py w
 ## Next step
 
 After CI validates synthetic fixtures, independently review a real unexpired candidate in an authorized non-production workspace and compare current production build requirements to CI job coverage. Reuse the existing promote path only after explicit owner approval and all existing gates. No deletion of redundant tests or measurement of build savings until equivalence is demonstrated. No production release is authorized by this contract.
+
+## Archive parser resource boundary (independent P2 review)
+
+The parser uses a bounded gzip reader and fixed 512-byte TAR headers rather than delegating recursive extension handling to tarfile.open. Total decompressed bytes (including metadata, padding and trailing bytes) are capped at 800 MiB payload limit + 32 MiB overhead. One local PAX record block, at most 16 KiB, may supply only path and mtime; unsupported fields, chains, global/GNU/sparse headers, links, unsafe paths, nonzero padding and unexpected trailing data fail closed. This is a deliberately narrow subset matching the current Python packager, not a generic TAR reader. The gzip stream is consumed to EOF for integrity checks. No member extraction or archive execution. Seven new synthetic regressions include oversized PAX, decompressed trailing zeros exceeding the cap, valid fractional mtime and long paths, unsupported metadata, path traversal and nonzero trailing data. The existing offline and nonauthorizing status remains unchanged.
