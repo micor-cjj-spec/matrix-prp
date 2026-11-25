@@ -112,7 +112,7 @@ function payload(body){
  if(['progress','block','rework'].includes(data.action))check(line(data.note,500),'INGRESS_NOTE_REQUIRED')
  if(['submit','accept','accept_historical_415'].includes(data.action))check(data.pr_number>0&&SHA.test(data.head_sha),
    'INGRESS_SUBMIT_EVIDENCE')
- if(data.action==='accept_historical_415')check(data.requirement_id==='REQ-20261031-001'&&data.task_id==='T-001'&&data.pr_number===415&&data.head_sha==='ba05b6ebe5e435d7cd474bade5accb6fc0c71b65'&&data.worker_id==='chat_t001_delivery_20261125'&&data.expected_version===13&&data.expected_state_sha==='701cd06ba1358b8f09e337296db9f7b9b66a71d9','INGRESS_HISTORICAL_415_PIN')
+ if(data.action==='accept_historical_415')check(data.requirement_id==='REQ-20261031-001'&&data.task_id==='T-001'&&data.pr_number===415&&data.head_sha==='ba05b6ebe5e435d7cd474bade5accb6fc0c71b65'&&data.worker_id==='chat_t001_delivery_20261125'&&data.expected_version>=13&&SHA.test(data.expected_state_sha),'INGRESS_HISTORICAL_415_PIN')
  if(data.action==='register_task'){
    check(Number.isSafeInteger(data.issue_number)&&data.issue_number>0,'INGRESS_TASK_ISSUE')
    check(line(data.title,200)&&data.title.trim().length>=4,'INGRESS_TASK_TITLE')

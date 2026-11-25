@@ -3,16 +3,16 @@ import assert from 'node:assert/strict'
 import {verifyHistorical415Binding,verifyHistoricalIntegrationPolicy,trustedHistorical415Context} from './review-historical-owner-415.mjs'
 import {REQUIRED_CHECKS} from './review-gate.mjs'
 import {OWNER_RULESET_DIGEST,OWNER_RULESET_REVISION,historicalNote} from './ruleset-415-attestation.mjs'
-const R='micor-cjj-spec/matrix-prp',H='ba05b6ebe5e435d7cd474bade5accb6fc0c71b65',S='701cd06ba1358b8f09e337296db9f7b9b66a71d9',M='5a30345529a1d07819069822a1b90e07b5376fcc',target='integrate/REQ-20261031-001',id='11111111-1111-4111-8111-111111111111',req='REQ-20261031-001',worker='chat_t001_delivery_20261125',submit='ebd25c98-0723-4637-9e76-d2baf7b90b28'
+const R='micor-cjj-spec/matrix-prp',H='ba05b6ebe5e435d7cd474bade5accb6fc0c71b65',S='8ce0676fa6c193520264fd5ddc3ed528ecc352e5',M='5a30345529a1d07819069822a1b90e07b5376fcc',target='integrate/REQ-20261031-001',id='11111111-1111-4111-8111-111111111111',req='REQ-20261031-001',worker='chat_t001_delivery_20261125',submit='ebd25c98-0723-4637-9e76-d2baf7b90b28'
 const env=()=>({GITHUB_ACTIONS:'true',GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:R,GITHUB_EVENT_NAME:'issues',GITHUB_EVENT_ACTION:'opened',GITHUB_ACTOR:'micor-cjj-spec',GITHUB_REPOSITORY_OWNER:'micor-cjj-spec',GITHUB_WORKFLOW_REF:R+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main',GITHUB_SHA:'a'.repeat(40),GH_TOKEN:'synthetic'})
-const snap=()=>({schema_version:1,requirement_id:req,issue_number:132,title:'MVP',status:'ACTIVE',version:13,tasks:[{task_id:'T-001',issue_number:133,title:'Core',status:'IN_REVIEW',claim:{claim_id:id,worker_id:worker,actor:'micor-cjj-spec'},depends_on:[],allowed_paths:['app/scripts/dev-collab/core.mjs'],pr_number:415,head_sha:H}],processed_requests:[{request_id:submit,actor:'micor-cjj-spec',fingerprint:'a'.repeat(64),receipt:{type:'submit',task_id:'T-001',request_id:submit,version:13,status:'IN_REVIEW'}}]})
+const snap=()=>({schema_version:1,requirement_id:req,issue_number:132,title:'MVP',status:'ACTIVE',version:16,tasks:[{task_id:'T-001',issue_number:133,title:'Core',status:'IN_REVIEW',claim:{claim_id:id,worker_id:worker,actor:'micor-cjj-spec'},depends_on:[],allowed_paths:['app/scripts/dev-collab/core.mjs'],pr_number:415,head_sha:H}],processed_requests:[{request_id:submit,actor:'micor-cjj-spec',fingerprint:'a'.repeat(64),receipt:{type:'submit',task_id:'T-001',request_id:submit,version:13,status:'IN_REVIEW'}},{request_id:'b0022026-1125-4a02-8400-69f6dad9ec33',actor:'micor-cjj-spec',fingerprint:'b'.repeat(64),receipt:{type:'claim',task_id:'T-002',request_id:'b0022026-1125-4a02-8400-69f6dad9ec33',version:14,status:'CLAIMED'}},{request_id:'b0022026-1125-4a02-8401-69f6dad9ec34',actor:'micor-cjj-spec',fingerprint:'c'.repeat(64),receipt:{type:'start',task_id:'T-002',request_id:'b0022026-1125-4a02-8401-69f6dad9ec34',version:15,status:'IN_PROGRESS'}},{request_id:'b0022026-1125-4a02-8402-69f6dad9ec35',actor:'micor-cjj-spec',fingerprint:'d'.repeat(64),receipt:{type:'release',task_id:'T-002',request_id:'b0022026-1125-4a02-8402-69f6dad9ec35',version:16,status:'READY'}}]})
 const observed='2026-11-25T07:40:00Z',created='2026-11-25T07:40:20Z',clock=()=>Date.parse(created),rid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const attestation=()=>({schema_version:1,request_id:rid,snapshot_sha256:OWNER_RULESET_DIGEST,rule_updated_at:OWNER_RULESET_REVISION,observed_at:observed,expected_main_sha:'a'.repeat(40),merge_sha:M})
-const v=()=>({historical415:true,actor:'micor-cjj-spec',actorId:123868412,expected_version:13,expectedStateSha:S,policyAttestation:attestation(),issueCreatedAt:created,command:{type:'accept',requirement_id:req,task_id:'T-001',request_id:rid,note:historicalNote(attestation()),pr_number:415,head_sha:H,worker_id:worker,claim_id:id}})
+const v=()=>({historical415:true,actor:'micor-cjj-spec',actorId:123868412,expected_version:16,expectedStateSha:S,policyAttestation:attestation(),issueCreatedAt:created,command:{type:'accept',requirement_id:req,task_id:'T-001',request_id:rid,note:historicalNote(attestation()),pr_number:415,head_sha:H,worker_id:worker,claim_id:id}})
 const policy=()=>({id:28050327,target:'branch',enforcement:'active',conditions:{ref_name:{include:['refs/heads/'+target],exclude:[]}},bypass_actors:[],rules:[{type:'deletion'},{type:'non_fast_forward'},{type:'pull_request',parameters:{allowed_merge_methods:['merge'],required_review_thread_resolution:true}},{type:'required_status_checks',parameters:{strict_required_status_checks_policy:true,required_status_checks:REQUIRED_CHECKS.map(context=>({context,integration_id:15368}))}}]})
 test('historical binding allows only exact version, submit and current claim',()=>{
  assert.equal(verifyHistorical415Binding(snap(),v(),S,env(),clock()),true)
- for(const [s,q,sha,e] of [[{...snap(),version:14},v(),S,env()],[snap(),{...v(),historical415:false},S,env()],[snap(),v(),'b'.repeat(40),env()],[snap(),v(),S,{...env(),GITHUB_REF:'refs/heads/dev'}],[snap(),{...v(),command:{...v().command,claim_id:'wrong'}},S,env()]])assert.throws(()=>verifyHistorical415Binding(s,q,sha,e,clock()))
+ for(const [s,q,sha,e] of [[{...snap(),version:17},v(),S,env()],[snap(),{...v(),historical415:false},S,env()],[snap(),v(),'b'.repeat(40),env()],[snap(),v(),S,{...env(),GITHUB_REF:'refs/heads/dev'}],[snap(),{...v(),command:{...v().command,claim_id:'wrong'}},S,env()]])assert.throws(()=>verifyHistorical415Binding(s,q,sha,e,clock()))
 })
 test('changed integration policy fails closed',()=>{
  assert.equal(verifyHistoricalIntegrationPolicy(policy()),true)
@@ -30,6 +30,12 @@ test('joint context retains original scope and ancestry gates and checks policy 
  assert.equal(trustedHistorical415Context(snap(),v(),S,env(),api,proof,clock).historical415Verified,true);assert.equal(policyCalls,2)
  assert.throws(()=>trustedHistorical415Context(snap(),v(),S,env(),api,()=>({...proof(),checks:6}),clock),/HISTORICAL_OWNER_EVIDENCE/)
  branch.protected=false;assert.throws(()=>trustedHistorical415Context(snap(),v(),S,env(),api,proof,clock),/UNPROTECTED_INTEGRATION_BRANCH/)
+})
+
+test('unrelated T-002 claim/start/release revisions preserve exact T-001 historical binding',()=>{
+ assert.equal(snap().version,16)
+ assert.equal(verifyHistorical415Binding(snap(),v(),S,env(),clock()),true)
+ for(const [state,request,sha] of [[{...snap(),version:17},v(),S],[snap(),{...v(),expected_version:15},S],[snap(),{...v(),expectedStateSha:'f'.repeat(40)},S],[snap(),v(),'f'.repeat(40)]])assert.throws(()=>verifyHistorical415Binding(state,request,sha,env(),clock()))
 })
 
 test('history binding rejects expired or changed attestation even with exact task state',()=>{
