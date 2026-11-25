@@ -157,3 +157,9 @@ R1 只在可可靠发现故障并验证撤销时成立，**不能自动检测静
 - 真实 Ed25519 签验仅由 test_cms_fixture.py 的临时 OpenSSL 密钥实现，无新依赖、无真实 ChatGPT 授权签发方、无在线 verifier 或执行入口。请求 PEM 解码与已独立验证 DER 相等及指纹绑定，不等于完成 X.509 链/有效期/撤销校验。测试证书为合成身份。
 - 签名绑定预先存在的惰性 challengeCommentId，而不是尚未分配的执行评论 ID。未来可信适配器必须独立绑定 challenge 与实际 created execution comment、repo/issue/owner/job/nonce、一次性消费及响应签名；禁止编辑 challenge 作为执行入口。当前没有该适配器或真实 challenge，不能将合成 context 当作 GitHub 或 ChatGPT 证明。真实签发者身份、keyId 到可信公钥映射、撤销、生产 provider、跨代际授权和完整链路均未实现；不选择 B/C、不开放真实权限。
 - G1/G2/G3/G4/G5 仍 OPEN；HOST-PILOT-NO-GO / PRODUCTION-NO-GO。服务端结果签名与真实信任链为后续独立工作。
+
+### 6.6 服务端结果签名与合成离线链（2026-11-25）
+
+- result_binding_fixture/verify_signed_result_fixture 采用独立域 prp-readonly-v2-result 和独立受信服务端 Ed25519 keyId；签名绑定已验证授权 SHA-256、原始结果字节 SHA-256、job/operation/nonce、目标实例/代际、repo/issue、challenge 与独立 execution comment、observedAt/issuedAt/expiresAt。严格要求唯一规范元数据、64-byte 签名、结果白名单 schema、授权时窗内观察与接收；错误响应也签名。签名者/公钥由外部可信配置选择，不能由回传内容选择。
+- 临时签发者、服务端签名者、CMS 收件人分别使用独立合成密钥，新增 8 项回归，含错误密钥、数据及绑定篡改、非规范元数据、过期/未来观察、provider 故障以及签验→真实 SQLite 临时认领→模拟磁盘投影→独立签名→实际 CMS 加密解密→签验。没有读取真实磁盘、创建外部事件或连接主机；测试 envelope 仅为合成帧，不是上线协议。
+- 尚无真实可信 issuer/服务端签名 provider、证书链/撤销、challenge 到执行评论的独立可信映射、响应一次性消费/撤销检查或生产传输适配器。相同签名回包在有效期内仍可重复验证，不能声称实现一次性消费；不允许触发二次执行。G1–G5 OPEN；HOST-PILOT-NO-GO / PRODUCTION-NO-GO。

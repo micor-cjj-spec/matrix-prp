@@ -454,3 +454,85 @@ def parse_result(raw, expected_job_id, expected_operation):
                 value["data"] != {}):
             raise RejectedRequest("invalid result")
     return value
+
+
+# Response-side binding is separate from consent and CMS confidentiality.
+RESULT_PURPOSE = "prp-readonly-v2-result"
+MAX_RESULT_BINDING_BYTES = 2048
+
+
+def result_binding_fixture(raw_result, *, consent_digest, job_id, operation,
+                           nonce, target_instance, generation, issue_number,
+                           challenge_comment_id, execution_comment_id,
+                           server_key_id, issued_at, expires_at, now):
+    """Canonical signed metadata for an offline response, not an issuer.
+
+    Context must come from the independently verified consent and trusted
+    event/recipient configuration. Never derive expectations from response.
+    The execution comment must be distinct from the inert challenge; their
+    relationship is NOT independently authenticated by this function.
+    """
+    try:
+        if (type(consent_digest) is not str or
+                re.fullmatch(r"[0-9a-f]{64}", consent_digest) is None or
+                type(nonce) is not str or re.fullmatch(r"[0-9a-f]{32}", nonce) is None or
+                any(type(v) is not int for v in (issued_at, expires_at, now)) or
+                not 0 <= issued_at <= now < expires_at <= (1 << 63) - 1 or
+                not 0 < expires_at - issued_at <= 180):
+            raise RejectedRequest("response rejected")
+        challenge = _positive_id(challenge_comment_id)
+        execution = _positive_id(execution_comment_id)
+        if challenge == execution:
+            raise RejectedRequest("response rejected")
+        value = parse_result(raw_result, job_id, operation)
+        if not issued_at <= value["observedAt"] <= now < expires_at:
+            raise RejectedRequest("response rejected")
+        binding = {
+            "version": 1, "purpose": RESULT_PURPOSE,
+            "serverKeyId": _consent_token(server_key_id),
+            "consentDigest": consent_digest,
+            "resultDigest": hashlib.sha256(raw_result).hexdigest(),
+            "jobId": _uuid(job_id), "operation": operation, "nonce": nonce,
+            "audience": _uuid(target_instance), "generation": _uuid(generation),
+            "repoId": REPO_ID, "issueNumber": _positive_id(issue_number),
+            "challengeCommentId": challenge, "executionCommentId": execution,
+            "observedAt": value["observedAt"], "issuedAt": issued_at,
+            "expiresAt": expires_at,
+        }
+        return json.dumps(binding, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=True, allow_nan=False).encode("ascii")
+    except Exception:
+        raise RejectedRequest("response rejected") from None
+
+
+def verify_signed_result_fixture(raw_result, raw_binding, signature, *,
+                                 verify_signature, consent_digest, job_id,
+                                 operation, nonce, target_instance, generation,
+                                 issue_number, challenge_comment_id,
+                                 execution_comment_id, server_key_id,
+                                 issued_at, expires_at, now):
+    """Check exact response metadata and pinned separate server signature.
+
+    No actual server signer/provider or trusted event adapter is implemented.
+    Success proves the offline cryptographic contract only, not execution
+    on a specific host. The caller is responsible for trusted expectations,
+    certificate validation, revocation, and one-time response consumption.
+    """
+    try:
+        if (type(raw_binding) is not bytes or
+                not 0 < len(raw_binding) <= MAX_RESULT_BINDING_BYTES or
+                type(signature) is not bytes or len(signature) != 64 or
+                not callable(verify_signature)):
+            raise RejectedRequest("response rejected")
+        expected = result_binding_fixture(
+            raw_result, consent_digest=consent_digest, job_id=job_id,
+            operation=operation, nonce=nonce, target_instance=target_instance,
+            generation=generation, issue_number=issue_number,
+            challenge_comment_id=challenge_comment_id,
+            execution_comment_id=execution_comment_id, server_key_id=server_key_id,
+            issued_at=issued_at, expires_at=expires_at, now=now)
+        if raw_binding != expected or verify_signature(expected, signature) is not True:
+            raise RejectedRequest("response rejected")
+        return parse_result(raw_result, job_id, operation)
+    except Exception:
+        raise RejectedRequest("response rejected") from None
