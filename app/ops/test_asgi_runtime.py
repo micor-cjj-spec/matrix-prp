@@ -91,6 +91,30 @@ class ASGITests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0.01)
             self.assertEqual(short._active,0)
 
+    async def test_slow_response_sends_also_hold_admission_slots(self):
+        unblock=asyncio.Event()
+        started=0
+        async def receive():
+            return {"type":"http.request","body":b"","more_body":False}
+        async def send(event):
+            nonlocal started
+            if event["type"]=="http.response.start":
+                started+=1
+                await unblock.wait()
+        tasks=[asyncio.create_task(self.app(scope(),receive,send)) for _ in range(CONCURRENCY)]
+        try:
+            for _ in range(100):
+                if started==CONCURRENCY:
+                    break
+                await asyncio.sleep(0.005)
+            self.assertEqual(started,CONCURRENCY)
+            self.assertEqual(self.app._active,CONCURRENCY)
+            self.assertEqual((await call(self.app))[0]["status"],429)
+        finally:
+            unblock.set()
+            await asyncio.gather(*tasks)
+        self.assertEqual(self.app._active,0)
+
     async def test_default_factory_denies_even_without_lifespan(self):
         self.assertEqual((await call(create_app()))[0]["status"],503)
         sent=await call(create_app(),{"type":"lifespan"},[{"type":"lifespan.startup"}])

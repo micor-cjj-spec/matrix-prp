@@ -54,8 +54,8 @@ async def send_response(send, result):
 class OpsASGI:
     """Bounded single-process adapter; one admission slot includes body read.
 
-    Worker completion, not response timeout, releases the slot for a running
-    synchronous operation. Python cannot safely cancel a stuck sync worker.
+    Both worker completion and request send/abort are required to release a
+    slot after submission. Python cannot safely cancel a stuck sync worker.
     A real process watchdog and ingress limits remain mandatory.
     """
     def __init__(self,boundary,*,deadline=REQUEST_SECONDS):
@@ -93,6 +93,16 @@ class OpsASGI:
             return
         self._active+=1
         submitted=False
+        worker_done=False
+        request_done=False
+        def finished(future):
+            nonlocal worker_done
+            # Observe a late exception even if the requester timed out.
+            if not future.cancelled():
+                future.exception()
+            worker_done=True
+            if request_done:
+                self._release()
         loop=asyncio.get_running_loop()
         end=loop.time()+self._deadline
         try:
@@ -124,7 +134,7 @@ class OpsASGI:
                 future=loop.run_in_executor(self._pool,self._boundary.handle,
                                             method,target,headers,bytes(body))
                 submitted=True
-                future.add_done_callback(self._release)
+                future.add_done_callback(finished)
                 # Timeout/cancellation must not free a still-running worker.
                 result=await asyncio.wait_for(asyncio.shield(future),remaining)
                 if loop.time()>=end:
@@ -137,7 +147,8 @@ class OpsASGI:
                 result=response(503)
             await send_response(send,result)
         finally:
-            if not submitted:
+            request_done=True
+            if not submitted or worker_done:
                 self._release()
 
 def create_app():
