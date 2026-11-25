@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 18,
-  "updated_at": "2026-11-25T12:48:55.467Z",
+  "version": 19,
+  "updated_at": "2026-11-25T12:50:10.952Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -242,6 +242,19 @@
         "status": "CLAIMED",
         "replayed": false
       }
+    },
+    {
+      "request_id": "3f1ab2c9-136b-4cda-a4d0-73a3c72803dc",
+      "fingerprint": "a293ef75c0d67add032c532c264fa1b49c2da2c4a2ec8742776392186a489b98",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "start",
+        "task_id": "T-007",
+        "request_id": "3f1ab2c9-136b-4cda-a4d0-73a3c72803dc",
+        "version": 19,
+        "status": "IN_PROGRESS",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -396,7 +409,7 @@
       "task_id": "T-007",
       "issue_number": 142,
       "title": "可信验收与 GitHub App 安全验证",
-      "status": "CLAIMED",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "T-001"
       ],
