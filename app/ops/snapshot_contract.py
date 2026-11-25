@@ -4,7 +4,6 @@ import math
 import os
 import re
 import stat
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -243,15 +242,13 @@ class SnapshotStore:
         tmp = None
         try:
             # Exclusive same-directory temp; no predictable file replacement.
-            tmp = ".status-" + os.urandom(16).hex()
-            out = os.open(tmp, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW, 0o600, dir_fd=fd)
-            try:
-                with os.fdopen(out, "wb") as f:
-                    f.write(raw)
-                    f.flush()
-                    os.fsync(f.fileno())
-            except BaseException:
-                raise
+            candidate = ".status-" + os.urandom(16).hex()
+            out = os.open(candidate, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW, 0o600, dir_fd=fd)
+            tmp = candidate  # Only unlink a file created by this invocation.
+            with os.fdopen(out, "wb") as f:
+                f.write(raw)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp, self.NAME, src_dir_fd=fd, dst_dir_fd=fd)
             tmp = None
             os.fsync(fd)

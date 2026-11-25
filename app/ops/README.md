@@ -5,3 +5,5 @@
 - 单环境 staging 合成契约；120 秒到期（含边界），未来容差 5 秒，损坏/缺失/不可信则 unavailable，stale 丢弃指标。fresh 仅代表快照时效，并非服务正常。
 - 存储原型只允许受信任的绝对目录、逐级 no-follow、同 UID 0700/0600，固定 status.json、原子替换及 fsync。临时目录的同 UID 测试不证明真实 writer/reader 账户隔离或不可篡改；M04 应设计独立所有权和 reader 只读挂载。未实现真实采集调度、资源限制、时钟保障或实际部署。不能用当前 class 直接开放 API。
 - D-M03 仍需独立 OAuth resource/audience、固定 scope、owner/grant 与撤销校验，默认关闭，禁止 legacy OAuth-off 路径。禁止注册或暴露真实工具。D-M04/05/06 未验收；不接入主机、不部署、不合并、不改现有业务与发布锁。
+
+Atomic replacement readers validate nlink==1; an opened old inode unlinked before fstat is conservatively unavailable, not partially returned. O_EXCL collision never cleans up a file the invocation did not create. Actual reader/writer isolation and scheduler single-writer enforcement remain M04.

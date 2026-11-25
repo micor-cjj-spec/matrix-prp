@@ -5,6 +5,7 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from snapshot_contract import *
 
 NOW = 1795588800
@@ -128,10 +129,26 @@ class StoreTests(unittest.TestCase):
         def reader():
             for _ in range(80):
                 got=self.store.read(NOW+1)
-                if got["status"]!="fresh" or got["disk"]["totalBytes"]!=102400:
+                # An atomic replace can unlink an opened old inode before
+                # fstat; strict nlink==1 may then conservatively deny the read.
+                # Never expose partial, mixed, or stale data as fresh.
+                if got["status"]=="fresh":
+                    if got["disk"]["totalBytes"]!=102400 or got["memory"]["availableBytes"]!=4194304:
+                        failures.append(got)
+                elif got != unavailable():
                     failures.append(got)
         threads=[threading.Thread(target=reader) for _ in range(3)]
         for t in threads:t.start()
         for i in range(20):self.store.write(sample(NOW+i%2))
         for t in threads:t.join()
         self.assertEqual(failures,[])
+
+    def test_exclusive_temp_collision_does_not_remove_existing_file(self):
+        self.store.write(sample())
+        candidate=self.dir/(".status-"+"00"*16)
+        candidate.write_bytes(b"other writer")
+        with patch("snapshot_contract.os.urandom",return_value=bytes(16)):
+            with self.assertRaises(FileExistsError):
+                self.store.write(sample(NOW+1))
+        self.assertEqual(candidate.read_bytes(),b"other writer")
+        self.assertEqual(self.store.read(NOW)["observedAt"],utc(NOW))
