@@ -11,6 +11,7 @@ function contextFrom(env){
 async function executeTask({event,env,transport,signalFor,now}){
   const gate=admit(event,contextFrom(env));
   if(!gate.admitted)throw Error("TASK_REQUEST_NOT_ADMITTED");
+  if(env.PRP_STAGING_UAT_ENABLED!=="true")throw Error("TASK_EXECUTION_DISABLED");
   if(!/^[1-9][0-9]{0,19}$/.test(env.GITHUB_RUN_ID||"")||
      !/^[0-9a-f]{40}$/.test(env.GITHUB_SHA||""))
     throw Error("TASK_CONTEXT_INVALID");

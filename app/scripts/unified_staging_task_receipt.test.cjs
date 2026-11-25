@@ -4,7 +4,7 @@ function fixture(){
   const event={action:"created",repository:{id:1261866723,full_name:"micor-cjj-spec/matrix-prp",default_branch:"main",owner:{id:123868412}},
     issue:{number:396,state:"open"},comment:{id:123456,body:"/prp-uat-smoke",author_association:"OWNER",user:{id:123868412,type:"User"}},sender:{id:123868412}};
   const env={GITHUB_EVENT_NAME:"issue_comment",GITHUB_REF:"refs/heads/main",GITHUB_REPOSITORY:"micor-cjj-spec/matrix-prp",GITHUB_REPOSITORY_ID:"1261866723",GITHUB_ACTOR_ID:"123868412",GITHUB_RUN_ATTEMPT:"1",GITHUB_RUN_ID:"45500000000",GITHUB_SHA:"a".repeat(40),
-    PRP_STAGE_UAT_USER:"prp_uat_fixture",PRP_STAGE_UAT_PASSWORD:"SYNTHETIC_PASSWORD",PRP_STAGE_UAT_OWNER_ID:"7"};
+    PRP_STAGING_UAT_ENABLED:"true",PRP_STAGE_UAT_USER:"prp_uat_fixture",PRP_STAGE_UAT_PASSWORD:"SYNTHETIC_PASSWORD",PRP_STAGE_UAT_OWNER_ID:"7"};
   const user={id:7,username:env.PRP_STAGE_UAT_USER,administrator:false},token="synthetic.fixture.signature";
   const calls=[];
   const transport=async(url,opts)=>{
@@ -35,4 +35,11 @@ test("failed login has correlated blocked receipt, no raw error",async()=>{
 test("partial API error retained only as reviewed ordinal status",async()=>{
   const {args}=fixture(),original=args.transport;args.transport=async(url,opts)=>url.endsWith("/api/tasks/summary")?{status:503}:original(url,opts);
   const r=await executeTask(args);assert.equal(r.state,"API_SMOKE_INCOMPLETE");assert.equal(r.apiPassed,8);assert.equal(r.checksExecuted,11);assert.equal(r.report.cases.find(c=>c.id==="U03").checks[0].result,"HTTP_503");
+});
+
+test("explicit activation defaults off and fails before network",async()=>{
+  for(const value of [undefined,"","false","TRUE","1"]){
+    const {args,calls}=fixture();args.env.PRP_STAGING_UAT_ENABLED=value;
+    await assert.rejects(executeTask(args),/TASK_EXECUTION_DISABLED/);assert.equal(calls.length,0);
+  }
 });

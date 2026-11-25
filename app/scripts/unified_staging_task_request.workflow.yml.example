@@ -26,7 +26,7 @@ jobs:
         run: node app/scripts/unified_staging_task_request.cjs
   smoke:
     needs: preflight
-    if: needs.preflight.result == 'success'
+    if: needs.preflight.result == 'success' && vars.PRP_STAGING_UAT_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 4
     # Only admitted requests reach concurrency; unrelated issue comments cannot replace a pending smoke.
@@ -43,6 +43,7 @@ jobs:
         run: node -e 'if(Number(process.versions.node.split(".")[0])<22)process.exit(2)'
       - name: Execute fixed staging-only read contract
         env:
+          PRP_STAGING_UAT_ENABLED: ${{ vars.PRP_STAGING_UAT_ENABLED }}
           PRP_STAGE_UAT_USER: ${{ secrets.PRP_STAGE_UAT_USER }}
           PRP_STAGE_UAT_PASSWORD: ${{ secrets.PRP_STAGE_UAT_PASSWORD }}
           PRP_STAGE_UAT_OWNER_ID: ${{ secrets.PRP_STAGE_UAT_OWNER_ID }}
