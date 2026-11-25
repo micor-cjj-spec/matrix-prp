@@ -31,7 +31,7 @@ The adapter always emits source_authenticity=NOT_ESTABLISHED, readiness=NOT_ESTA
 - Runtime facts bind exact Backend/Gateway image IDs and schema while separately asserting MySQL unchanged. Production-targeted, MySQL-mutated, unhealthy or rollback-incomplete claims remain explicit findings.
 - P3.6 adapter accepts only the fixed U01–U09 / 11-check read-only receipt contract, matches request comment/run/attempt/workflow SHA, and requires all live/deployment/production flags false. It does not accept a browser or business UAT as equivalent.
 - Business, device and backup/restore records use redacted aliases and fixed case schemas. Synthetic writes require a cleanup PASS claim; cross-module suites require two owner aliases; restore source and target must be distinct.
-- One current record per evidence kind is allowed in a bundle. Duplicate kinds/references, unknown fields, unknown workflows, future observations, stale observations and missing required evidence kinds are rejected or explicitly reported.
+- One current record per non-run evidence kind is allowed. GitHub run evidence permits exactly one candidate_ci run and one artifact_witness run, each with a unique run reference; duplicate evidence IDs/references or multiple runs for the same role are rejected or reported. Unknown fields, unknown workflows, future/stale observations and missing required evidence are rejected or explicitly reported.
 - Freshness windows (15 minutes for runtime/read smoke; 24 hours for CI/artifact/business/device/restore) are provisional intake limits, not operational SLAs, retention promises or RPO policy.
 
 ## Execution and safety
