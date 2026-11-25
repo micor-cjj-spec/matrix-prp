@@ -136,7 +136,7 @@ def _facts(kind, facts, candidate, now):
     if kind == "github_run":
         _exact(facts, {"workflow_path", "workflow_sha", "run_id", "attempt", "latest_attempt",
                        "head_sha", "tree_sha", "event", "status", "conclusion", "jobs"}, kind)
-        _require(facts["workflow_path"] in WORKFLOWS and _sha(facts["workflow_sha"]) and
+        _require(_one_of(facts["workflow_path"], WORKFLOWS) and _sha(facts["workflow_sha"]) and
                  _positive(facts["run_id"]) and _positive(facts["attempt"]) and
                  _positive(facts["latest_attempt"]) and _sha(facts["head_sha"]) and
                  _sha(facts["tree_sha"]) and _one_of(facts["event"], {"pull_request", "push", "workflow_dispatch", "issue_comment"}) and
@@ -330,8 +330,8 @@ def validate_bundle(bundle, now):
         facts_findings = _facts(kind, record["facts"], candidate, now)
         findings = list(facts_findings)
         if kind == "artifact_witness":
-            byte_claim = record["facts"]["byte_review_status"] == "claimed_pass"
-            if byte_claim != (record["source_class"] == "artifact_bytes_review_claim"):
+            byte_review_reported = record["facts"]["byte_review_status"] != "not_reviewed"
+            if byte_review_reported != (record["source_class"] == "artifact_bytes_review_claim"):
                 findings.append("ARTIFACT_PROVENANCE_CLASS_MISMATCH")
         if not match:
             findings.append("CANDIDATE_BINDING_MISMATCH")
