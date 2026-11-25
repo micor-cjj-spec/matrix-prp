@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 16,
-  "updated_at": "2026-11-25T08:52:12.106Z",
+  "version": 17,
+  "updated_at": "2026-11-25T10:36:11.192Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -215,6 +215,19 @@
         "status": "READY",
         "replayed": false
       }
+    },
+    {
+      "request_id": "9169f7c3-0d01-4433-8f8b-03ccb2f361a4",
+      "fingerprint": "143282c091ae50046f217d289d83d84d743089973bf4383ba44efc8b7f7616dc",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "accept",
+        "task_id": "T-001",
+        "request_id": "9169f7c3-0d01-4433-8f8b-03ccb2f361a4",
+        "version": 17,
+        "status": "DONE",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -222,19 +235,13 @@
       "task_id": "T-001",
       "issue_number": 133,
       "title": "任务状态模型、依赖校验与并发安全核心",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "depends_on": [],
       "allowed_paths": [
         "app/scripts/dev-collab/core.mjs",
         "app/scripts/dev-collab/core.test.mjs"
       ],
-      "claim": {
-        "claim_id": "18230975-713d-4970-b7fa-2f384df6dfb0",
-        "worker_id": "chat_t001_delivery_20261125",
-        "actor": "micor-cjj-spec",
-        "claimed_at": "2026-11-25T05:52:04.838Z",
-        "generation": 1
-      },
+      "claim": null,
       "checkpoint": {
         "summary": "双会话 T-001 真实断点交接试点；没有修改任务源码",
         "next_step": "验证持有者断点交接、旧领取失效，随后释放两个试点任务",
