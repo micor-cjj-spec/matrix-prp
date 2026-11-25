@@ -1,4 +1,4 @@
-name: PRP #415 read-only review witness
+name: PRP #415 packaged read-only review witness
 on:
   pull_request:
     branches: [review/collab-415-main-isolated-20261125]
@@ -14,67 +14,21 @@ jobs:
       github.repository == 'micor-cjj-spec/matrix-prp' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'review/collab-415-live-read-probe-20261125' &&
-      github.event.pull_request.base.sha == '4084e167cd73c52c42997d2d04f63ca81a2daca1'
+      github.event.pull_request.base.sha == '01443cda160d03aef066ee427eec0b228602d983'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 4084e167cd73c52c42997d2d04f63ca81a2daca1
+          ref: 01443cda160d03aef066ee427eec0b228602d983
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Real historical evidence collector (GET only)
+      - name: Packaged historical evidence collector (GET only)
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          import {execFileSync} from 'node:child_process'
-          import {collectHistorical415} from './app/scripts/dev-collab/collect-historical-415.mjs'
-          // Job logs use a short-lived redirect; never send the API token to storage.
-          const logReader=String.raw`
-          const route=process.argv[1]
-          if(!/^repos\/micor-cjj-spec\/matrix-prp\/actions\/jobs\/\d+\/logs$/.test(route))throw Error('INVALID_ROUTE')
-          const limit=4*1024*1024
-          const signal=AbortSignal.timeout(30000)
-          let r=await fetch('https://api.github.com/'+route,{headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},redirect:'manual',signal})
-          if(r.status===302||r.status===303||r.status===307){
-            const location=r.headers.get('location')
-            if(!location)throw Error('MISSING_REDIRECT')
-            const u=new URL(location)
-            if(u.protocol!=='https:'||u.username||u.password||u.port||!(/(^|\.)blob\.core\.windows\.net$/.test(u.hostname)||/(^|\.)actions\.githubusercontent\.com$/.test(u.hostname)||/(^|\.)githubusercontent\.com$/.test(u.hostname)))throw Error('UNRECOGNIZED_REDIRECT_HOST')
-            r=await fetch(u,{redirect:'manual',signal})
-          }
-          if(!r.ok)throw Error('LOG_HTTP_'+r.status)
-          let size=0;const parts=[]
-          for await(const chunk of r.body){size+=chunk.length;if(size>limit)throw Error('LOG_SIZE_LIMIT');parts.push(Buffer.from(chunk))}
-          process.stdout.write(Buffer.concat(parts))
-          `
-          const read=route=>{
-            try {
-              if(/\/actions\/jobs\/\d+\/logs$/.test(route)){
-                const out=execFileSync(process.execPath,['--input-type=module','-e',logReader,route],{encoding:'utf8',maxBuffer:4*1024*1024,timeout:35000,stdio:['ignore','pipe','pipe']})
-                console.log('LOG_GET_OK '+route+' bytes='+Buffer.byteLength(out))
-                return out
-              }
-              const out=execFileSync('gh',['api','--method','GET','--hostname','github.com',route],{encoding:'utf8',maxBuffer:4*1024*1024,timeout:30000,stdio:['ignore','pipe','pipe']})
-              console.log('GET_OK '+route+' bytes='+Buffer.byteLength(out))
-              return out
-            }catch(e){
-              const status=String(e.stderr||'').match(/(?:HTTP |LOG_HTTP_)(\d{3})/)?.[1]||'unknown'
-              const category=String(e.stderr||'').match(/\b(?:UNRECOGNIZED_REDIRECT_HOST|MISSING_REDIRECT|LOG_SIZE_LIMIT|INVALID_ROUTE|LOG_HTTP_\d{3}|TimeoutError|AbortError)\b/)?.[0]||'unknown'
-              console.log('GET_FAILED '+route+' http='+status+' category='+category+' exit='+String(e.status??'none'))
-              throw Error('PROBE_GET_FAILED')
-            }
-          }
-          try{console.log(JSON.stringify(collectHistorical415(read)))}catch(e){
-            console.log('COLLECTOR_RESULT='+(/^HISTORICAL_[A-Z_]+$/.test(e.message)?e.message:'API_OR_EVIDENCE_ERROR'))
-            process.exitCode=1
-          }
-          NODE
+        run: node app/scripts/dev-collab/collect-historical-415.mjs
       - name: Read-only Ruleset visibility and strict policy validation
         if: always()
         env:
