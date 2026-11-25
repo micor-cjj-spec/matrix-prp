@@ -301,7 +301,8 @@ async function saveMeal() {
   if (!draftItems.value.length || draftItems.value.length > 30 ||
       draftItems.value.some(item => item.manual
         ? !item.customName.trim() || item.customName.length > 120 ||
-          !Number.isFinite(Number(item.customCalories)) || item.customCalories <= 0 ||
+          !Number.isFinite(item.customCalories) || item.customCalories < 0 ||
+          (editingMeal.value === null && item.customCalories === 0) ||
           item.customCalories > 20000 || Math.abs(item.customCalories * 100 - Math.round(item.customCalories * 100)) > 1e-6 ||
           !Number.isFinite(item.grams) || item.grams < 0 || item.grams > 3000
         : !item.foodId || !Number.isFinite(item.grams) || item.grams <= 0 || item.grams > 3000)) {
@@ -929,7 +930,7 @@ async function saveProfile() {
             <el-checkbox v-model="item.manual">本次自定义热量</el-checkbox>
             <template v-if="item.manual">
               <el-input v-model="item.customName" maxlength="120" placeholder="食物名称，例如红油馄饨" />
-              <el-input-number v-model="item.customCalories" :min="0.01" :max="20000" :precision="2" />
+              <el-input-number v-model="item.customCalories" :min="editingMeal === null ? 0.01 : 0" :max="20000" :precision="2" />
               <span class="muted">本次 kcal</span>
               <el-input-number v-model="item.grams" :min="0" :max="3000" :precision="1" />
               <span class="muted">g，可填 0</span>

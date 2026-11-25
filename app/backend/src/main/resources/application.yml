@@ -66,6 +66,7 @@ matrix-prp:
     # Opt in with the exact production wellness-only mode; otherwise stay OFF.
     # Emergency kill switch: MATRIX_PRP_MCP_CHATGPT_HEALTH_APPROVAL_UI_ENABLED=false.
     chatgpt-health-approval-ui-enabled: ${MATRIX_PRP_MCP_CHATGPT_HEALTH_APPROVAL_UI_ENABLED:${matrix-prp.mcp.production-wellness-only:false}}
+    chatgpt-task-approval-ui-enabled: ${MATRIX_PRP_MCP_CHATGPT_TASK_APPROVAL_UI_ENABLED:false}
     # Optional first production task-only canary safety lock; does NOT approve deployment.
     # Requires exact PRP owner database, OAuth, task-only scopes, writes OFF and Flyway OFF.
     # Separate opt-in production health-only contract; never enabled by default.

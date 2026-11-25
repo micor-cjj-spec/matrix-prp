@@ -293,7 +293,7 @@ public class WellnessService {
     /** All meal writers use the same account-row lock before checking a meal slot.
      * This makes draft batches, history copies and manual writes serializable for
      * (owner,date,mealType) without an unsafe new production unique constraint. */
-    private void lockMealOwner(long user) {
+    void lockMealOwner(long user) {
         db.queryForObject("SELECT id FROM prp_users WHERE id=? FOR UPDATE",Long.class,user);
     }
     private void assertMealSlotFree(long user,LocalDate date,String type,long excludedId) {
@@ -332,7 +332,8 @@ public class WellnessService {
      * Custom entries are intentionally never inserted into prp_wellness_foods. */
     public record AiMealItem(Long foodId, String name, BigDecimal grams, BigDecimal calories) {}
 
-    private void validateAiMealInput(LocalDate date,String type,String note,List<AiMealItem> items) {
+    private void validateAiMealInput(LocalDate date,String type,String note,List<AiMealItem> items,
+                                     boolean editing) {
         if(date==null || !Set.of("BREAKFAST","LUNCH","DINNER","SNACK").contains(type) ||
             items==null || items.isEmpty() || items.size()>30 ||
             note!=null && note.length()>500)
@@ -346,7 +347,8 @@ public class WellnessService {
                 accessibleFood(item.foodId()); // owner/public catalog check
             } else {
                 if(item.name()==null || item.name().isBlank() || item.name().length()>120 ||
-                   item.calories()==null || item.calories().compareTo(BigDecimal.ZERO)<=0 ||
+                   item.calories()==null || item.calories().signum()<0 ||
+                   !editing && item.calories().signum()==0 ||
                    item.calories().compareTo(new BigDecimal("20000"))>0 ||
                    item.calories().scale()>2 ||
                    item.grams()!=null && (item.grams().signum()<0 ||
@@ -372,7 +374,7 @@ public class WellnessService {
 
     @Transactional
     public Meal addAiMeal(LocalDate date,String type,String note,List<AiMealItem> items,String idempotencyKey) {
-        validateAiMealInput(date,type,note,items);
+        validateAiMealInput(date,type,note,items,false);
         if(idempotencyKey==null || idempotencyKey.isBlank() || idempotencyKey.length()>80)
             throw new IllegalArgumentException("Missing idempotency key");
         long user=CurrentUser.id();
@@ -425,7 +427,7 @@ public class WellnessService {
 
     @Transactional
     public Meal updateAiMeal(long id,LocalDate date,String type,String note,List<AiMealItem> items) {
-        validateAiMealInput(date,type,note,items);
+        validateAiMealInput(date,type,note,items,true);
         long user=CurrentUser.id();
         lockMealOwner(user); // same lock order as human label verification
         Meal before=meal(id); // owner check inside serialized transaction

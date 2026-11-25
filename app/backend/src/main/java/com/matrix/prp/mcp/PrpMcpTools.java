@@ -289,6 +289,17 @@ public class PrpMcpTools {
         return drafts.approveFromChatgptUi(draftId, decision);
     }
 
+    @McpTool(name = "prp_chatgpt_task_approval",
+        description = "APP-ONLY: approve or reject the displayed pending task creation draft using the embedded ChatGPT card.",
+        annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = true, idempotentHint = false, openWorldHint = false))
+    public McpDraftService.Approval chatgptTaskApproval(
+            @McpToolParam(description = "UUID of the displayed task creation draft", required = true) String draftId,
+            @McpToolParam(description = "approve or reject", required = true) String decision) {
+        scopes.require("prp.write.create");
+        scopes.require("prp.write.confirm");
+        return drafts.approveTaskFromChatgptUi(draftId, decision);
+    }
+
     // Phase 2 read-only capabilities are opt-in at the registry boundary.
     // Never directly expose these based on OAuth scope alone in existing deployments.
     @McpTool(name="prp_tasks_summary", description="Read only your own task summary counts. No tasks or other-user data are exposed.", annotations=@McpTool.McpAnnotations(readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false))

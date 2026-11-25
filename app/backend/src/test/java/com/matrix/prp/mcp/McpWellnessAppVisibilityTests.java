@@ -113,4 +113,38 @@ class McpWellnessAppVisibilityTests {
         assertThat(text).doesNotContain("send('initialize'", "method:'notifications/initialized'",
             "window.fetch(", "localStorage", "Authorization:");
     }
+
+    @Test void taskApprovalIsAppOnlyAndLimitedToOptedInTestResource() throws Exception {
+        var drafts = mock(McpDraftService.class);
+        var tools = new PrpMcpTools(mock(TaskService.class), mock(FinanceService.class),
+            mock(WellnessService.class), mock(RecordService.class), drafts, mock(McpScopeGuard.class));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<McpClientGrantService> grants = mock(ObjectProvider.class);
+        when(grants.getObject()).thenReturn(mock(McpClientGrantService.class));
+        var config = new McpToolConfiguration();
+        var guard = mock(McpScopeGuard.class);
+        String resource = McpTaskApprovalUiConfiguration.TEST_RESOURCE;
+        String scopes = "prp.tasks.read,prp.write.create,prp.write.confirm";
+        var enabled = config.prpMcpSpecifications(tools, guard, grants, drafts, resource,
+            true, scopes, true, false, false, false, false, true);
+        var approval = enabled.stream().map(McpStatelessServerFeatures.SyncToolSpecification::tool)
+            .filter(t -> t.name().equals("prp_chatgpt_task_approval")).findFirst().orElseThrow();
+        assertThat(approval.meta().get("ui")).isEqualTo(Map.of("visibility", List.of("app")));
+        var target = enabled.stream().map(McpStatelessServerFeatures.SyncToolSpecification::tool)
+            .filter(t -> t.name().equals("prp_prepare_task")).findFirst().orElseThrow();
+        assertThat(target.meta().get("ui"))
+            .isEqualTo(Map.of("resourceUri", McpTaskApprovalUiConfiguration.RESOURCE_URI));
+        for (var list : List.of(
+                config.prpMcpSpecifications(tools, guard, grants, drafts, resource, true, scopes,
+                    true, false, false, false, false, false),
+                config.prpMcpSpecifications(tools, guard, grants, drafts, "https://micor.top/api/mcp",
+                    true, scopes, true, false, false, false, false, true),
+                config.prpMcpSpecifications(tools, guard, grants, drafts, resource, true,
+                    "prp.tasks.read,prp.write.create", true, false, false, false, false, true))) {
+            assertThat(list.stream().map(x -> x.tool().name())).doesNotContain("prp_chatgpt_task_approval");
+        }
+        var resourceConfig = new McpTaskApprovalUiConfiguration();
+        assertThat(resourceConfig.prpTaskApprovalResources(resource, true, true)).hasSize(1);
+        assertThat(resourceConfig.prpTaskApprovalResources("https://micor.top/api/mcp", true, true)).isEmpty();
+    }
 }
