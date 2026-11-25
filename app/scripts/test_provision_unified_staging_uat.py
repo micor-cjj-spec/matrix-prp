@@ -124,5 +124,19 @@ class ProvisionUatTests(unittest.TestCase):
         with self.assertRaises(MOD.ProvisionError):
             MOD.validate_target(m)
 
+    def test_u09_non_auth_failure_stops_all_business_reads(self):
+        calls = []
+        def fake(path, *, method="GET", payload=None, token=None):
+            calls.append(path)
+            return 503, "application/json", None
+        original = MOD.http_json
+        MOD.http_json = fake
+        try:
+            report = MOD.run_readonly_smoke("synthetic.jwt.value", {"id": 71, "username": "prp_uat_test"})
+        finally:
+            MOD.http_json = original
+        self.assertEqual(calls, ["/api/users/me"])
+        self.assertTrue(all(c["state"] == "PENDING" for c in report["cases"][1:]))
+
 if __name__ == "__main__":
     unittest.main()

@@ -241,7 +241,8 @@ def run_readonly_smoke(token, expected_user):
             except ProvisionError:
                 result = "REQUEST_FAILED"
             results.append({"check": index, "result": result})
-            if stopped:
+            if stopped or (case_id == "U09" and result != "OK"):
+                stopped = True
                 break
         passed = len(results) == len(checks) and all(x["result"] == "OK" for x in results)
         cases.append({
