@@ -206,11 +206,19 @@ class OfflineReleaseE2E(unittest.TestCase):
         self.assertEqual(self.card(now=1003)["state"],"APPROVED")
 
     def test_all_lifecycle_outputs_remain_non_authorizing(self):
-        for state, card in (("REQUESTED",self.card()),
-                            ("APPROVED",self.decide()),
-                            ("REJECTED",self.decide("reject"))):
+        pending = self.card()
+        approved = self.decide()
+        for state, card in (("REQUESTED",pending),("APPROVED",approved)):
             self.assertEqual(card["state"],state)
             self.assertTrue(all(card[k] is False for k in FLAGS))
+        with tempfile.TemporaryDirectory(prefix="prp-p3-rehearsal-") as directory:
+            snapshot = fixture()
+            store = PersistentOfflineApprovals(directory)
+            req = store.request(snapshot,CHAT,1000)
+            rejected = submit_decision(store,{"approval_id":req["approval_id"],
+                "binding_digest":req["binding_digest"],"decision":"reject"},snapshot,OWNER,1001)
+            self.assertEqual(rejected["state"],"REJECTED")
+            self.assertTrue(all(rejected[k] is False for k in FLAGS))
 
 
 def final_audit(store, approval_id, binding):

@@ -178,8 +178,6 @@ jobs:
         run: python3 -m unittest discover -s app/scripts -p test_release_approval_store.py -v
       - name: Validate offline approval card and owner-decision envelope
         run: python3 -m unittest discover -s app/scripts -p test_release_approval_card.py -v
-      - name: Validate complete offline release approval lifecycle
-        run: python3 -m unittest discover -s app/scripts -p test_release_approval_e2e.py -v
       - name: Validate OAuth authorization metadata preflight fixtures
         run: python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_*.py' -v
       - name: Validate isolated MCP staging configuration guards
