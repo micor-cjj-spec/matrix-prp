@@ -72,6 +72,22 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(body["result"]["structuredContent"]["status"],"fresh")
         self.introspect.assert_called_once_with("synthetic-token")
 
+    def test_full_http_bearer_rpc_snapshot_chain(self):
+        from http_boundary import HttpBoundary, Budget
+        audit=Mock(return_value=True)
+        boundary=HttpBoundary(server=self.server,audit_sink=audit,
+            budget=Budget(lambda:100),disclosure_check=lambda:True)
+        body=b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"prp_ops_status_get","arguments":{}}}'
+        headers=[("Host","ops.invalid"),("Content-Type","application/json"),
+            ("Accept","application/json, text/event-stream"),
+            ("Content-Length",str(len(body))),("Authorization","Bearer synthetic-token")]
+        a,b,c=self.as_reader()
+        with a,b,c:
+            got=boundary.handle("POST","/mcp",headers,body)
+        self.assertEqual(got.status,200)
+        self.assertEqual(json.loads(got.body)["result"]["structuredContent"]["status"],"fresh")
+        self.assertEqual(audit.call_args.args[0]["outcome"],"handled")
+
     def test_initialization_and_list_authorized(self):
         status,body=self.dispatch("initialize",{"protocolVersion":PROTOCOL,"capabilities":{},"clientInfo":{"name":"fixture","version":"1"}})
         self.assertEqual(status,200)
