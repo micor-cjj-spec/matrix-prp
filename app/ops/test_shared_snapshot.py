@@ -65,7 +65,7 @@ class SharedSnapshotTests(unittest.TestCase):
             with self.subTest(uid=uid,gid=gid,mode=oct(mode)):
                 # The real filesystem metadata cannot be forged without privilege;
                 # exercise the exact verifier with a patched fstat result.
-                with patch("shared_snapshot.os.fstat",side_effect=lambda fd, u=uid,g=g, m=mode: type("S",(),{"st_mode":stat.S_IFDIR|m,"st_uid":u,"st_gid":g})()):
+                with patch("shared_snapshot.os.fstat",side_effect=lambda fd, u=uid,g=gid, m=mode: type("S",(),{"st_mode":stat.S_IFDIR|m,"st_uid":u,"st_gid":g})()):
                     with self.assertRaises(PermissionError):
                         from shared_snapshot import _open_directory
                         _open_directory(self.directory,self.uid,self.gid)

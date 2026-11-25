@@ -22,7 +22,7 @@ ENABLE_MARKER = "ENABLE_LIVE_COLLECTION"
 RUNTIME_DIRECTORY = "/run/prp-ops-collector"
 LOCK_NAME = "collector.lock"
 MARKER_CONTENT = b"enabled=1\n"
-PROC_LIMIT = 65536
+PROC_LIMITS = {"stat": 512, "meminfo": 65536}
 
 def _open_directory(path):
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
@@ -70,17 +70,21 @@ def read_fixed_proc(name):
     path = PROC_SOURCES.get(name)
     if path is None:
         raise OSError(errno.EPERM, "source not allowlisted")
+    limit = PROC_LIMITS[name]
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError(errno.EINVAL, "unexpected proc source")
         chunks = bytearray()
-        while len(chunks) <= PROC_LIMIT:
-            part = os.read(fd, min(4096, PROC_LIMIT + 1 - len(chunks)))
+        while len(chunks) <= limit:
+            part = os.read(fd, min(4096, limit + 1 - len(chunks)))
             if not part:
                 break
             chunks.extend(part)
-        if not chunks or len(chunks) > PROC_LIMIT:
+            if name == "stat" and b"\\n" in chunks:
+                # Only the aggregate CPU line is required; avoid scaling with CPU count.
+                return bytes(chunks.split(b"\\n", 1)[0] + b"\\n")
+        if not chunks or len(chunks) > limit:
             raise OSError(errno.EFBIG, "proc source size invalid")
         return bytes(chunks)
     finally:

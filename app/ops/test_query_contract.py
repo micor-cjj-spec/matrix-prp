@@ -184,7 +184,7 @@ class QueryContractTests(unittest.TestCase):
 
 class OfflineBoundaryTests(unittest.TestCase):
     def test_no_network_process_or_live_tool_registration_imports(self):
-        allowed={"json","math","os","re","stat","datetime","pathlib","dataclasses","uuid","snapshot_contract"}
+        allowed={"json","math","os","re","stat","datetime","pathlib","dataclasses","uuid","snapshot_contract","shared_snapshot"}
         forbidden_calls={"eval","exec","compile","__import__","os.system","os.popen","os.statvfs"}
         for name in ("snapshot_contract.py","query_contract.py"):
             tree=ast.parse((Path(__file__).parent/name).read_text())

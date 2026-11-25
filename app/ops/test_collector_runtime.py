@@ -9,6 +9,7 @@ from test_snapshot_contract import BEFORE, AFTER, MEM, NOW
 class CollectorTests(unittest.TestCase):
     def test_fixed_source_allowlist_has_only_proc_metrics(self):
         self.assertEqual(collector.PROC_SOURCES,{"stat":"/proc/stat","meminfo":"/proc/meminfo"})
+        self.assertEqual(collector.PROC_LIMITS,{"stat":512,"meminfo":65536})
         with patch("collector_runtime.os.open") as opener:
             with self.assertRaises(OSError):
                 collector.read_fixed_proc("/etc/passwd")
