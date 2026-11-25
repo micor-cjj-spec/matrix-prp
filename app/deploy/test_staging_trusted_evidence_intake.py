@@ -39,7 +39,7 @@ def github_run():
             "head_sha": CANDIDATE["source_sha"], "status": "completed", "conclusion": "success",
         })
     return record("github-run", "github_run", "github_metadata_claim", "actions-run:800", {
-        "workflow_path": ".github/workflows/ci.yml", "workflow_sha": "d" * 40,
+        "run_role": "candidate_ci", "workflow_path": ".github/workflows/ci.yml", "workflow_sha": "d" * 40,
         "run_id": run_id, "attempt": 1, "latest_attempt": 1, "total_count": len(jobs),
         "head_sha": CANDIDATE["source_sha"], "tree_sha": CANDIDATE["source_tree"],
         "event": "pull_request", "status": "completed", "conclusion": "success", "jobs": jobs,
@@ -51,9 +51,25 @@ def artifact_witness():
         "artifact_id": 900, "witness_run_id": 901, "witness_attempt": 1,
         "witness_sha": CANDIDATE["witness_sha"], "source_sha": CANDIDATE["source_sha"],
         "source_tree": CANDIDATE["source_tree"], "archive_digest": CANDIDATE["archive_digest"],
+        "backend_image": CANDIDATE["backend_image"], "gateway_image": CANDIDATE["gateway_image"],
         "expires_at": NOW + 3600, "byte_review_status": "claimed_pass",
         "archive_bytes_sha256": "e" * 64, "manifest_sha256": "f" * 64,
         "files_checked": 4, "files_expected": 4,
+    })
+
+
+
+def witness_run():
+    run_id = CANDIDATE["witness_run_id"]
+    return record("witness-run", "github_run", "github_metadata_claim", "actions-run:901", {
+        "run_role": "artifact_witness", "workflow_path": ".github/workflows/ci.yml",
+        "workflow_sha": "e" * 40, "run_id": run_id, "attempt": 1, "latest_attempt": 1,
+        "total_count": 1, "head_sha": CANDIDATE["witness_sha"], "tree_sha": "f" * 40,
+        "event": "workflow_dispatch", "status": "completed", "conclusion": "success",
+        "jobs": [{
+            "job_id": 3, "name": "artifact-witness", "run_id": run_id, "attempt": 1,
+            "head_sha": CANDIDATE["witness_sha"], "status": "completed", "conclusion": "success",
+        }],
     })
 
 
@@ -113,7 +129,7 @@ def bundle():
         "repository_id": 1261866723, "issue": 396, "environment": "prp-unified-396",
         "candidate": dict(CANDIDATE),
         "evidence": [github_run(), artifact_witness(), runtime_cutover(), read_smoke(),
-                     business_uat(), device_uat(), backup_restore()],
+                     business_uat(), device_uat(), backup_restore(), witness_run()],
     }
 
 
@@ -160,7 +176,7 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
     def test_complete_bundle_is_only_validated_for_review(self):
         result = validate_bundle(bundle(), NOW)
         self.assertEqual(result["intake_state"], "VALIDATED_FOR_REVIEW")
-        self.assertEqual(result["summary"]["records_received"], 7)
+        self.assertEqual(result["summary"]["records_received"], 8)
         self.assertEqual(result["evidence_trust"], "UNAUTHENTICATED_CALLER_ASSERTIONS")
         self.assertFalse(result["artifact_bytes_independently_verified"])
         self.assertFalse(result["runtime_identity_independently_verified"])
@@ -250,6 +266,19 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
         data["evidence"][0]["facts"]["total_count"] = 3
         result = validate_bundle(data, NOW)
         self.assertIn("github_run:JOB_INVENTORY_INCOMPLETE", result["findings"])
+
+    def test_artifact_requires_separate_witness_run_inventory(self):
+        data = bundle()
+        data["evidence"].pop()
+        result = validate_bundle(data, NOW)
+        self.assertIn("ARTIFACT_WITNESS_RUN_MISSING_OR_CONFLICTING", result["findings"])
+
+    def test_witness_run_must_bind_exact_id_attempt_and_sha(self):
+        data = bundle()
+        data["evidence"][-1]["facts"]["head_sha"] = "9" * 40
+        result = validate_bundle(data, NOW)
+        self.assertIn("github_run:WITNESS_RUN_BINDING_MISMATCH", result["findings"])
+        self.assertIn("ARTIFACT_WITNESS_RUN_METADATA_MISMATCH", result["findings"])
 
     def test_unallowlisted_workflow_is_rejected(self):
         data = bundle()
