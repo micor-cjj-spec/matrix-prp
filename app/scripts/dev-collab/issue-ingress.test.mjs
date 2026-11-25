@@ -277,7 +277,7 @@ test('owner Issue accept carries exact PR/SHA and claim identity but never clien
 })
 
 test('historical owner action binds fresh attestation to original owner Issue and cannot forge flags',()=>{
- const e=event(),now=Date.parse('2026-11-25T07:40:20Z'),p={schema_version:1,action:'accept_historical_415',request_id:'baaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',requirement_id:'REQ-20261031-001',task_id:'T-001',worker_id:'chat_t001_delivery_20261125',expected_version:13,claim_id:'11111111-1111-4111-8111-111111111111',pr_number:415,head_sha:'ba05b6ebe5e435d7cd474bade5accb6fc0c71b65',expected_state_sha:'701cd06ba1358b8f09e337296db9f7b9b66a71d9'}
+ const e=event(),now=Date.parse('2026-11-25T07:40:20Z'),p={schema_version:1,action:'accept_historical_415',request_id:'baaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',requirement_id:'REQ-20261031-001',task_id:'T-001',worker_id:'chat_t001_delivery_20261125',expected_version:16,claim_id:'11111111-1111-4111-8111-111111111111',pr_number:415,head_sha:'ba05b6ebe5e435d7cd474bade5accb6fc0c71b65',expected_state_sha:'8ce0676fa6c193520264fd5ddc3ed528ecc352e5'}
  p.policy_attestation={schema_version:1,request_id:p.request_id,snapshot_sha256:OWNER_RULESET_DIGEST,rule_updated_at:OWNER_RULESET_REVISION,observed_at:'2026-11-25T07:40:00Z',expected_main_sha:sha,merge_sha:'5a30345529a1d07819069822a1b90e07b5376fcc'}
  e.issue.created_at='2026-11-25T07:40:20Z';e.issue.body=JSON.stringify(p)
  const v=validateIssueEvent(env(),e,e.issue,now)
@@ -285,7 +285,7 @@ test('historical owner action binds fresh attestation to original owner Issue an
  assert.throws(()=>validateIssueEvent(env(),e,null,now))
  assert.throws(()=>validateIssueEvent(env(),e,{...e.issue,created_at:'2026-11-25T07:40:21Z'},now))
  assert.throws(()=>validateIssueEvent(env(),e,e.issue,now+600001))
- for(const bad of [{...p,expected_version:14},{...p,pr_number:416},{...p,task_id:'T-002'},{...p,expected_state_sha:'f'.repeat(40)},{...p,reviewerAuthorized:true},{...p,policy_attestation:undefined},{...p,policy_attestation:{...p.policy_attestation,request_id:'wrong'}},{...p,action:'accept',expected_state_sha:undefined,policy_attestation:undefined,note:historicalNote(p.policy_attestation)}]){
+ for(const bad of [{...p,expected_version:12},{...p,pr_number:416},{...p,task_id:'T-002'},{...p,expected_state_sha:'invalid-state-sha'},{...p,reviewerAuthorized:true},{...p,policy_attestation:undefined},{...p,policy_attestation:{...p.policy_attestation,request_id:'wrong'}},{...p,action:'accept',expected_state_sha:undefined,policy_attestation:undefined,note:historicalNote(p.policy_attestation)}]){
  e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue,now))
  }
 })
