@@ -279,6 +279,7 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
         data = bundle()
         data["evidence"][4]["facts"]["suite"] = "cross_module"
         data["evidence"][4]["facts"]["owner_aliases"] = ["owner_a"]
+        data["evidence"][4]["facts"]["case_results"][1]["owner_alias"] = "owner_a"
         result = validate_bundle(data, NOW)
         self.assertIn("business_uat:TWO_OWNER_EVIDENCE_MISSING", result["findings"])
 
