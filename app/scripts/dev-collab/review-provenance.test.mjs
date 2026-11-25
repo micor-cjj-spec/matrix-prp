@@ -55,9 +55,10 @@ test('redacted or multiple PR associations never authorize ordinary provenance',
  for(const pr of [[],[{number,head:{sha},base:{ref:baseRef}},{number:999,head:{sha},base:{ref:baseRef}}]])fails(()=>verify(jobs(),id=>({...run(id),pull_requests:pr})),'WORKFLOW_PR_MISMATCH_backend-tests')
 })
 test('latest workflow jobs must bind exact check ID, workflow, repo, SHA and attempt',()=>{
- for(const mutate of [j=>j.run_id=999,j=>j.id=999,j=>j.head_sha='b'.repeat(40),j=>j.workflow_name='Fake',j=>j.run_attempt=3,j=>j.run_attempt=0,j=>j.conclusion='failure',j=>j.head_branch='other']){
+ for(const mutate of [j=>j.run_id=999,j=>j.head_sha='b'.repeat(40),j=>j.workflow_name='Fake',j=>j.run_attempt=3,j=>j.run_attempt=0,j=>j.conclusion='failure',j=>j.head_branch='other']){
   fails(()=>verify(jobs(),run,id=>{const l=list(id);if(id===101)mutate(l.jobs[0]);return l}), 'WORKFLOW_JOB_MISMATCH_backend-tests')
  }
+ fails(()=>verify(jobs(),run,id=>{const l=list(id);l.jobs[0].id=999;return l}),'AMBIGUOUS_WORKFLOW_JOB_backend-tests')
  const bad=jobs();bad.check_runs[0].app.id=1;fails(()=>verify(bad),'WRONG_CHECK_APP_backend-tests')
 })
 test('job-list omissions, duplicate names and post-merge reruns fail closed',()=>{
