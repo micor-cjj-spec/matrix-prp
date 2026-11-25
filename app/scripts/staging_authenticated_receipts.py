@@ -194,6 +194,10 @@ def _verify_envelope(envelope, expected_type, expected_role, now, trust_store):
         return False, "SIGNATURE_ENCODING_INVALID"
     if len(signature) != 64:
         return False, "SIGNATURE_LENGTH_INVALID"
+    try:
+        message = _signing_message(envelope)
+    except ValueError:
+        return False, "SIGNING_PAYLOAD_INVALID"
     if not trust_store:
         return False, "TRUST_STORE_EMPTY"
     signer = trust_store.get(envelope["key_id"])
@@ -206,10 +210,6 @@ def _verify_envelope(envelope, expected_type, expected_role, now, trust_store):
             not positive(signer["not_before"]) or signer["not_after"] <= signer["not_before"] or
             not signer["not_before"] <= envelope["issued_at"] <= envelope["expires_at"] <= signer["not_after"]):
         return False, "SIGNER_ROLE_ENVIRONMENT_OR_VALIDITY_MISMATCH"
-    try:
-        message = _signing_message(envelope)
-    except ValueError:
-        return False, "SIGNING_PAYLOAD_INVALID"
     return _verify_ed25519(signer["public_key_pem"], message, signature)
 
 
