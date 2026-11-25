@@ -190,7 +190,7 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
 
     def test_missing_evidence_kind_stays_review_required(self):
         data = bundle()
-        data["evidence"].pop()
+        data["evidence"].pop(6)
         result = validate_bundle(data, NOW)
         self.assertEqual(result["intake_state"], "REVIEW_REQUIRED")
         self.assertIn("MISSING_REQUIRED_EVIDENCE:backup_restore", result["findings"])
