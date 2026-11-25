@@ -72,9 +72,29 @@ class CollectorTests(unittest.TestCase):
             proc.assert_not_called()
 
     def test_busy_lock_skips_duplicate_collection(self):
-        with patch("collector_runtime.live_collection_enabled",return_value=True),patch("collector_runtime.acquire_single_writer_lock",return_value=None),patch("collector_runtime.read_fixed_proc") as proc:
+        with patch("collector_runtime.os.geteuid",return_value=1001),patch("collector_runtime.live_collection_enabled",return_value=True),patch("collector_runtime.create_writer"),patch("collector_runtime.acquire_single_writer_lock",return_value=None),patch("collector_runtime.read_fixed_proc") as proc:
             self.assertEqual(collector.main(),0)
             proc.assert_not_called()
+
+    def test_root_collector_rejected_before_gate_or_sampling(self):
+        with patch("collector_runtime.os.geteuid",return_value=0),patch("collector_runtime.live_collection_enabled") as gate,patch("collector_runtime.read_fixed_proc") as proc:
+            self.assertEqual(collector.main(),78)
+            gate.assert_not_called()
+            proc.assert_not_called()
+
+    def test_wrong_collector_uid_or_group_rejected_before_lock(self):
+        for uid,gid in ((1002,3001),(1001,3002),(1001,0)):
+            with patch("collector_runtime.os.geteuid",return_value=uid), \
+                 patch("collector_runtime.os.getegid",return_value=gid), \
+                 patch("collector_runtime.pwd.getpwnam",return_value=SimpleNamespace(pw_uid=1001)), \
+                 patch("collector_runtime.grp.getgrnam",return_value=SimpleNamespace(gr_gid=3001)), \
+                 patch("collector_runtime.live_collection_enabled",return_value=True), \
+                 patch("collector_runtime.acquire_single_writer_lock") as lock, \
+                 patch("collector_runtime.read_fixed_proc") as proc, \
+                 patch("collector_runtime.sys.stderr"):
+                self.assertEqual(collector.main(),1)
+                lock.assert_not_called()
+                proc.assert_not_called()
 
     def test_collector_never_imports_network_or_process_execution(self):
         import ast

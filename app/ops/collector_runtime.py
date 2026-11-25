@@ -153,29 +153,35 @@ def acquire_single_writer_lock():
             os.close(directory_fd)
 
 def create_writer():
-    writer_uid = pwd.getpwnam(WRITER_ACCOUNT).pw_uid
+    writer = pwd.getpwnam(WRITER_ACCOUNT)
     shared_gid = grp.getgrnam(SHARED_GROUP).gr_gid
-    return SharedSnapshotWriter(SNAPSHOT_DIRECTORY, writer_uid, shared_gid)
+    if (writer.pw_uid <= 0 or shared_gid <= 0
+            or os.geteuid() != writer.pw_uid or os.getegid() != shared_gid):
+        raise OSError(errno.EPERM, "collector identity mismatch")
+    return SharedSnapshotWriter(SNAPSHOT_DIRECTORY, writer.pw_uid, shared_gid)
 
 def main():
     # The service unit has the same condition, but direct execution must fail closed too.
-    if not live_collection_enabled():
+    if os.geteuid() == 0 or not live_collection_enabled():
         return 78
-    lock_fd = acquire_single_writer_lock()
-    if lock_fd is None:
-        return 0
+    lock_fd = None
     try:
+        writer = create_writer()
+        lock_fd = acquire_single_writer_lock()
+        if lock_fd is None:
+            return 0
         collect_once(proc_reader=read_fixed_proc, disk_reader=read_root_statvfs,
-                     sleeper=time.sleep, wall_clock=time.time, writer=create_writer())
+                     sleeper=time.sleep, wall_clock=time.time, writer=writer)
         return 0
     except Exception:
         sys.stderr.write("PRP ops collection failed; details suppressed.\n")
         return 1
     finally:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            os.close(lock_fd)
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            finally:
+                os.close(lock_fd)
 
 if __name__ == "__main__":
     raise SystemExit(main())

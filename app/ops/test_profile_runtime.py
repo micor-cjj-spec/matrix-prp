@@ -139,3 +139,43 @@ class ProfileTests(unittest.TestCase):
             with patch("service_entry.sys.argv",["service_entry.py","--host","0.0.0.0"]):
                 self.assertEqual(service_entry.main(),78)
             loader.assert_not_called()
+
+    def test_compose_requires_separate_nonroot_identities_before_secrets(self):
+        from types import SimpleNamespace
+        for writer_uid,shared_gid in ((0,3001),(1001,3001),(1002,0),(1002,3002)):
+            accounts={service_entry.READER_ACCOUNT:SimpleNamespace(pw_uid=1001,pw_gid=3002),
+                      service_entry.WRITER_ACCOUNT:SimpleNamespace(pw_uid=writer_uid)}
+            groups={service_entry.READER_ACCOUNT:SimpleNamespace(gr_gid=3002),
+                    service_entry.SHARED_GROUP:SimpleNamespace(gr_gid=shared_gid)}
+            with patch("service_entry.os.geteuid",return_value=1001), \
+                 patch("service_entry.os.getegid",return_value=3002), \
+                 patch("service_entry.os.getgroups",return_value=[shared_gid]), \
+                 patch("service_entry.pwd.getpwnam",side_effect=accounts.__getitem__), \
+                 patch("service_entry.grp.getgrnam",side_effect=groups.__getitem__), \
+                 patch("service_entry.read_secret") as secret:
+                with self.assertRaises(QueryDenied):
+                    service_entry.compose(self.profile)
+                secret.assert_not_called()
+
+    def test_approved_entry_composes_only_fixed_tls_loopback_runner(self):
+        import sys
+        from types import SimpleNamespace
+        app=Mock()
+        runner=Mock(started=True)
+        fake=SimpleNamespace(Config=Mock(),Server=Mock(return_value=runner))
+        with patch.dict(sys.modules,{"uvicorn":fake}), \
+             patch("service_entry.sys.argv",["service_entry.py"]), \
+             patch("service_entry.os.geteuid",return_value=1001), \
+             patch("service_entry.approved_profile",return_value=self.profile), \
+             patch("service_entry.live_collection_enabled",return_value=True), \
+             patch("service_entry.compose",return_value=app):
+            self.assertEqual(service_entry.main(),0)
+        settings=fake.Config.call_args.kwargs
+        self.assertEqual(settings["host"],"127.0.0.1")
+        self.assertEqual(settings["port"],18443)
+        self.assertFalse(settings["proxy_headers"])
+        self.assertFalse(settings["access_log"])
+        self.assertEqual(settings["ws"],"none")
+        self.assertTrue(settings["ssl_keyfile"].endswith("/tls-key.pem"))
+        runner.run.assert_called_once_with()
+        app.close.assert_called_once_with()

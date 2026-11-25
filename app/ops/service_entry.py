@@ -62,7 +62,8 @@ def compose(profile):
     shared=grp.getgrnam(SHARED_GROUP).gr_gid
     private=grp.getgrnam(READER_ACCOUNT).gr_gid
     require(os.geteuid()==account.pw_uid and os.getegid()==private==account.pw_gid
-            and account.pw_uid!=writer.pw_uid and shared!=private
+            and account.pw_uid>0 and writer.pw_uid>0
+            and account.pw_uid!=writer.pw_uid and shared>0 and private>0 and shared!=private
             and shared in os.getgroups())
     secret=read_secret()
     grants=GrantFile(reader_gid=private,profile=profile.identity)
