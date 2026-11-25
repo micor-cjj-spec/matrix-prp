@@ -57,6 +57,11 @@ def fresh(t, now):
     return t <= now and now - t <= FRESH_SECONDS
 
 
+def branch_name(v):
+    return (type(v) is str and len(v) <= 200 and
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,99})*", v) is not None)
+
+
 def canonical_digest(policy, evidence):
     # Sort unordered inventories, retain every validated field, domain separate.
     p = dict(policy, expected_ci_jobs=sorted(policy["expected_ci_jobs"]))
@@ -76,10 +81,8 @@ def validate_run(run, workflow, expected_names, now, findings, prefix):
                 "total_count", "jobs", "checkout", "tested_tree"}, prefix)
     require(run["source"] == "github_metadata_claim" and run["repository"] == REPO
             and run["head_repository"] == REPO, prefix + " repository")
-    require(enum(run["event"], ("push", "pull_request")) and
-            type(run["branch"]) is str and len(run["branch"]) <= 200 and
-            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,99})*",
-                         run["branch"]) is not None, prefix + " event/branch")
+    require(enum(run["event"], ("push", "pull_request")) and branch_name(run["branch"]),
+            prefix + " event/branch")
     require((run["workflow_id"], run["workflow_path"]) == workflow and
             type(run["workflow_id"]) is int, prefix + " workflow")
     require(ids(run, ("run_id", "attempt", "latest_run_id", "latest_attempt",
@@ -131,7 +134,8 @@ def assess_intake(policy, evidence, now):
     exact(cc, {"run_id", "attempt", "event", "branch", "checkout"}, "CI context")
     exact(wc, {"run_id", "attempt", "head"}, "witness context")
     require(ids(cc, ("run_id", "attempt")) and ids(wc, ("run_id", "attempt")) and
-            sha(cc["checkout"]) and sha(wc["head"]) and pos(policy["artifact_id"]), "reviewed context")
+            sha(cc["checkout"]) and sha(wc["head"]) and pos(policy["artifact_id"]) and
+            enum(cc["event"], ("push", "pull_request")) and branch_name(cc["branch"]), "reviewed context")
     # Only the current dev push and the existing #428 review branch are modeled.
     require((cc["event"], cc["branch"]) in (("push", "dev"),
              ("pull_request", "review/unified-396-ui-health-20261125")), "CI context")

@@ -134,6 +134,10 @@ class IntakeTests(unittest.TestCase):
                 e[section][field] = value
                 with self.assertRaises(ValueError):
                     self.check(p, e)
+            p, e = fixture()
+            p["ci_context"][field] = value
+            with self.assertRaises(ValueError):
+                self.check(p, e)
 
     def test_repository_workflow_environment_rejected(self):
         for k,f,v in (("ci","repository","other/repo"),("ci","head_repository","fork/repo"),
