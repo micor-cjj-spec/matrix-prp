@@ -6,9 +6,10 @@ import AppLayout from '@/layouts/AppLayout.vue'
 import WellnessAiRecorder from '@/components/wellness/WellnessAiRecorder.vue'
 import WellnessAiChange from '@/components/wellness/WellnessAiChange.vue'
 import PersonalDishManager from '@/components/wellness/PersonalDishManager.vue'
+import { dateInTimeZone } from '@/utils/wellnessDate'
 import {
   wellnessApi, type UsdaCandidate, type Food, type Meal, type MealInput, type MealSnapshotItem, type Exercise, type ExerciseInput,
-  type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint,
+  type BodyMetric, type BodyMetricInput, type DailySummary, type TrendPoint, type NutritionTrendPoint, type MealAnalysisDetails,
   type Goal, type Profile,
 } from '@/api/wellness'
 
@@ -35,15 +36,54 @@ const exercises = ref<Exercise[]>([])
 const metrics = ref<BodyMetric[]>([])
 const goals = ref<Goal[]>([])
 const trend = ref<TrendPoint[]>([])
+const nutritionTrend = ref<NutritionTrendPoint[]>([])
 const trendDays = ref(14)
+const trendMetric = ref<'calories'|'proteinG'|'carbsG'|'fatG'>('calories')
+const selectedTrendDay = ref<string | null>(null)
+const nutrientByDate = computed(() => new Map<string, NutritionTrendPoint>(
+  nutritionTrend.value.map(day => [day.date, day] as const)))
+const trendUnit = computed(() => trendMetric.value === 'calories' ? 'kcal' : 'g')
+const trendName = computed(() => ({
+  calories: '热量', proteinG: '蛋白质', carbsG: '碳水', fatG: '脂肪',
+})[trendMetric.value])
+function trendValue(point: TrendPoint): number | null {
+  const metric = trendMetric.value
+  const raw = metric === 'calories'
+    ? point.calories : nutrientByDate.value.get(point.date)?.[metric]
+  return raw == null ? null : Number(raw)
+}
+const selectedTrendMax = computed(() =>
+  Math.max(1, ...trend.value.map(point => trendValue(point) ?? 0)))
+const selectedTrendText = computed(() => {
+  const point = trend.value.find(day => day.date === selectedTrendDay.value)
+  return point ? trendDescription(point) : ''
+})
+function trendDescription(point: TrendPoint): string {
+  const value = trendValue(point)
+  if (trendMetric.value === 'calories')
+    return point.date + '：' + (value === null ? '没有记录热量' : value.toFixed(0) + ' kcal')
+  const day = nutrientByDate.value.get(point.date)
+  if (!day?.foodItemCount) return point.date + '：没有餐食记录'
+  const known = ({
+    proteinG: day.knownProteinCount,
+    carbsG: day.knownCarbsCount,
+    fatG: day.knownFatCount,
+  })[trendMetric.value as 'proteinG' | 'carbsG' | 'fatG']
+  return point.date + '：' + (value === null ? '营养信息不完整' : value.toFixed(1) + ' g') +
+    '；已知 ' + known + '/' + day.foodItemCount + ' 项食物'
+}
 const foods = ref<Food[]>([])
 const frequentFoods = ref<Food[]>([])
 const profile = reactive<Profile>({ heightCm: null, timezone: 'Asia/Shanghai' })
+// A long-lived PWA session may cross midnight, and the user's health-day
+// timezone may differ from their device timezone. Resolve at click time.
+function wellnessToday(): string {
+  return dateInTimeZone(profile.timezone)
+}
 const selectedGoal = computed(() => summary.value?.goal)
 const calories = computed(() => summary.value?.calories === null || summary.value?.calories === undefined ? null : Number(summary.value.calories))
 const dailyGoal = computed(() => Number(selectedGoal.value?.dailyCalories || 0))
 const pct = computed(() => dailyGoal.value && calories.value !== null ? Math.min(100, Math.round(calories.value / dailyGoal.value * 100)) : 0)
-const maxTrend = computed(() => Math.max(1, ...trend.value.map(x => Number(x.calories || 0))))
 const weightHistory = computed(() => trend.value.filter(x => x.weightKg !== null))
 const weightChart = computed(() => {
   const points = weightHistory.value
@@ -61,34 +101,166 @@ const label = (kind: string) => ({ BREAKFAST: '早餐', LUNCH: '午餐', DINNER:
 const n = (x: string | number | null | undefined, digits = 0) => x == null ? '—' : Number(x).toFixed(digits)
 const total = (meal: Meal) => meal.items.reduce((sum, x) => sum + Number(x.calories), 0)
 const mealKinds = ['BREAKFAST', 'LUNCH', 'DINNER', 'SNACK']
+// A 0g snapshot on a manually estimated food means unknown weight, not zero intake.
+const portionText = (item: Meal['items'][number]) =>
+  item.grams == null || (item.foodId <= 0 && Number(item.grams) === 0)
+    ? '重量待确认'
+    : n(item.grams) + 'g'
+const analysisDialog = ref(false)
+const analysisLoading = ref(false)
+const analysisDetails = ref<MealAnalysisDetails | null>(null)
+const analysisError = ref('')
+const labelSaving = ref(false)
+type LabelCandidate = { caloriesKcal?: number | string; proteinG?: number | string
+  carbsG?: number | string; fatG?: number | string; fiberG?: number | string
+  sugarG?: number | string; sodiumMg?: number | string }
+const labelReview = reactive({
+  mealItemId: 0, consumedGrams: null as number | null,
+  caloriesPer100g: null as number | null, proteinPer100g: null as number | null,
+  carbsPer100g: null as number | null, fatPer100g: null as number | null,
+  fiberPer100g: null as number | null, sugarPer100g: null as number | null,
+  sodiumMgPer100g: null as number | null, userVerified: false,
+})
+const labelPreview = computed(() =>
+  labelReview.consumedGrams != null && labelReview.caloriesPer100g != null
+    ? (Number(labelReview.consumedGrams) * Number(labelReview.caloriesPer100g) / 100).toFixed(2)
+    : '—')
+const numericLabel = (x: string | number | undefined): number | null =>
+  x === undefined ? null : Number(x)
+function beginLabelReview(name: string, candidate: LabelCandidate) {
+  const matched = analysisDetails.value?.meal.items.filter(item =>
+    item.foodName === name && item.foodId <= 0) ?? []
+  if (matched.length !== 1) {
+    ElMessage.warning('包装食物名称与已确认餐食不一致或有重名，请先核对餐食明细')
+    return
+  }
+  Object.assign(labelReview, {
+    mealItemId: matched[0].id,
+    consumedGrams: Number(matched[0].grams) > 0 ? Number(matched[0].grams) : null,
+    caloriesPer100g: numericLabel(candidate.caloriesKcal),
+    proteinPer100g: numericLabel(candidate.proteinG),
+    carbsPer100g: numericLabel(candidate.carbsG),
+    fatPer100g: numericLabel(candidate.fatG),
+    fiberPer100g: numericLabel(candidate.fiberG),
+    sugarPer100g: numericLabel(candidate.sugarG),
+    sodiumMgPer100g: numericLabel(candidate.sodiumMg),
+    userVerified: false,
+  })
+}
+async function submitLabelReview() {
+  if (!analysisDetails.value || labelSaving.value || !labelReview.mealItemId) return
+  if (!labelReview.userVerified || labelReview.consumedGrams == null ||
+      ![labelReview.caloriesPer100g, labelReview.proteinPer100g,
+        labelReview.carbsPer100g, labelReview.fatPer100g].every(x => x != null && Number.isFinite(x))) {
+    ElMessage.warning('请核对每100g热量、三大营养素和实际食用克数，并勾选人工核实')
+    return
+  }
+  const id = analysisDetails.value.meal.id
+  labelSaving.value = true
+  try {
+    analysisDetails.value = await wellnessApi.verifyMealLabel(id, {
+      mealItemId: labelReview.mealItemId, consumedGrams: Number(labelReview.consumedGrams),
+      caloriesPer100g: Number(labelReview.caloriesPer100g),
+      proteinPer100g: Number(labelReview.proteinPer100g),
+      carbsPer100g: Number(labelReview.carbsPer100g),
+      fatPer100g: Number(labelReview.fatPer100g),
+      fiberPer100g: labelReview.fiberPer100g,
+      sugarPer100g: labelReview.sugarPer100g,
+      sodiumMgPer100g: labelReview.sodiumMgPer100g,
+      userVerified: true,
+    })
+    labelReview.mealItemId = 0
+    // A confirmed label verification is not undone by a failed readback.
+    ElMessage.success('已按实际食用克数计算营养，并保存人工核实版本')
+    try {
+      await Promise.all([loadDay(true), loadTrend()])
+    } catch {
+      ElMessage.warning('营养标签已核实，但页面刷新失败；请刷新页面查看，勿重复提交')
+    }
+  } catch (error) {
+    const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
+    ElMessage.error(message || '营养标签核实请求未确认，请刷新页面核对后再重试')
+  } finally {
+    labelSaving.value = false
+  }
+}
+async function openAnalysis(meal: Meal) {
+  analysisDetails.value = null
+  analysisError.value = ''
+  labelReview.mealItemId = 0
+  analysisDialog.value = true
+  analysisLoading.value = true
+  try {
+    analysisDetails.value = await wellnessApi.mealAnalysis(meal.id)
+  } catch {
+    analysisError.value = '无法读取该餐次的分析详情；请确认健康 V2 接口已经部署。'
+  } finally {
+    analysisLoading.value = false
+  }
+}
+const nutrientSourceLabel = (source: string) => source === 'FOOD_CATALOG'
+  ? '食品库参考' : source === 'USER_LABEL' ? '用户核实的包装营养标签'
+  : source === 'COPIED_SNAPSHOT' ? '历史餐食营养快照（本次份量需确认）'
+  : source === 'USER_ESTIMATE' ? '本次食物估算' : '来源待核对'
+const nutritionCoverage = computed(() => {
+  const items = meals.value.flatMap(meal => meal.items)
+  const known = items.filter(item =>
+    item.proteinG != null && item.carbsG != null && item.fatG != null).length
+  return {
+    known,
+    total: items.length,
+    percent: items.length ? Math.round(known * 100 / items.length) : null,
+    complete: items.length > 0 && known === items.length,
+  }
+})
 
-async function loadDay() {
+async function loadDay(strict = false) {
   loading.value = true
   try {
     const [a, b, c] = await Promise.all([
       wellnessApi.daily(date.value), wellnessApi.meals(date.value), wellnessApi.exercises(date.value),
     ])
     summary.value = a; meals.value = b; exercises.value = c
-  } catch {
+  } catch (error) {
+    if (strict) throw error
     ElMessage.error('获取健康记录失败，请确认服务器已执行健康模块数据库迁移')
   } finally { loading.value = false }
 }
 function onTabChange(tab: string | number) { if (tab === 'goals') loadGoal() }
+let initialHealthDateResolved = false
 async function loadAll() {
+  // Load the owner's business timezone before requesting a daily summary.
+  // A UTC-/US-local date can disagree with Asia/Shanghai across midnight.
+  let profileReady = false
+  try {
+    Object.assign(profile, await wellnessApi.profile())
+    profileReady = true
+  } catch {
+    ElMessage.warning('个人健康时区暂不可用，先按设备日期显示')
+  }
+  if (profileReady && !initialHealthDateResolved) {
+    initialHealthDateResolved = true
+    const routeDate = route.query.date
+    const routeDateSelected = typeof routeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(routeDate)
+    // Never overwrite a deep-linked day or one the user selected while loading.
+    if (!routeDateSelected && date.value === today) date.value = wellnessToday()
+  }
   await Promise.all([
     loadDay(),
     wellnessApi.metrics(90).then(x => { metrics.value = x }),
     wellnessApi.goals().then(x => { goals.value = x }),
-    wellnessApi.trends(14).then(x => { trend.value = x }),
+    loadTrend(),
     wellnessApi.foods().then(x => { foods.value = x }),
     wellnessApi.frequent().then(x => { frequentFoods.value = x }),
-    wellnessApi.profile().then(x => { Object.assign(profile, x) }),
   ]).catch(() => { ElMessage.warning('部分健康资料未加载，请检查数据库迁移') })
 }
 onMounted(loadAll)
 
 const mealDialog = ref(false)
 const editingMeal = ref<number | null>(null)
+// Same UI session retries reuse the exact key even if the first HTTP response
+// was lost. Opening a distinct meal form intentionally starts a new event.
+const mealSubmissionKey = ref<string | null>(null)
 const mealForm = reactive<MealInput>({ mealDate: today, mealType: 'BREAKFAST', note: '', items: [] })
 type DraftItem = {
   foodId: number | null; grams: number; manual: boolean
@@ -97,6 +269,7 @@ type DraftItem = {
 const draftItems = ref<DraftItem[]>([])
 function openMeal(kind = 'BREAKFAST', meal?: Meal) {
   editingMeal.value = meal?.id ?? null
+  mealSubmissionKey.value = meal ? null : crypto.randomUUID()
   mealForm.mealDate = meal?.mealDate ?? date.value
   mealForm.mealType = meal?.mealType ?? kind
   mealForm.note = meal?.note || ''
@@ -124,10 +297,12 @@ async function searchFoods(q: string) {
   } catch { ElMessage.error('食物搜索失败') }
 }
 async function saveMeal() {
+  if (saving.value) return
   if (!draftItems.value.length || draftItems.value.length > 30 ||
       draftItems.value.some(item => item.manual
         ? !item.customName.trim() || item.customName.length > 120 ||
-          !Number.isFinite(Number(item.customCalories)) || item.customCalories <= 0 ||
+          !Number.isFinite(item.customCalories) || item.customCalories < 0 ||
+          (editingMeal.value === null && item.customCalories === 0) ||
           item.customCalories > 20000 || Math.abs(item.customCalories * 100 - Math.round(item.customCalories * 100)) > 1e-6 ||
           !Number.isFinite(item.grams) || item.grams < 0 || item.grams > 3000
         : !item.foodId || !Number.isFinite(item.grams) || item.grams <= 0 || item.grams > 3000)) {
@@ -136,7 +311,8 @@ async function saveMeal() {
   }
   saving.value = true
   try {
-    const key = editingMeal.value === null ? crypto.randomUUID() : undefined
+    const key = editingMeal.value === null
+      ? (mealSubmissionKey.value ??= crypto.randomUUID()) : undefined
     const hasManual = draftItems.value.some(item => item.manual)
     if (hasManual) {
       const items: MealSnapshotItem[] = draftItems.value.map(item => item.manual
@@ -153,21 +329,83 @@ async function saveMeal() {
       if (editingMeal.value !== null) await wellnessApi.updateMeal(editingMeal.value, payload)
       else await wellnessApi.addMeal(payload)
     }
-    ElMessage.success('餐食已保存')
+    mealSubmissionKey.value = null
     mealDialog.value = false; date.value = mealForm.mealDate
-    await Promise.all([loadDay(), wellnessApi.frequent().then(x => { frequentFoods.value = x }), loadTrend()])
-  } catch { ElMessage.error('餐食保存失败') } finally { saving.value = false }
+    // A failed readback is not a failed write. Never invite a duplicate
+    // resubmission after the server has acknowledged the meal.
+    try {
+      await Promise.all([loadDay(true), wellnessApi.frequent().then(x => { frequentFoods.value = x }), loadTrend()])
+      ElMessage.success('餐食已保存')
+    } catch {
+      ElMessage.warning('餐食已保存，但页面刷新失败；请刷新页面查看，勿重新提交')
+    }
+  } catch {
+    // For uncertain writes, preserve mealSubmissionKey for an idempotent retry.
+    ElMessage.error('餐食保存请求未确认，请重试；若已保存不会重复创建')
+  } finally { saving.value = false }
 }
 async function deleteMeal(meal: Meal) {
   try { await ElMessageBox.confirm('确定删除这条' + label(meal.mealType) + '记录吗？', '确认删除') } catch { return }
-  try { await wellnessApi.deleteMeal(meal.id); await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已删除') }
-  catch { ElMessage.error('删除失败') }
+  try {
+    await wellnessApi.deleteMeal(meal.id)
+  } catch {
+    ElMessage.error('删除请求未确认，请刷新页面核对后再重试')
+    return
+  }
+  // HTTP deletion already succeeded; an optional readback failure is separate.
+  ElMessage.success('已删除')
+  try {
+    await Promise.all([loadDay(true), loadTrend()])
+  } catch {
+    ElMessage.warning('餐食已删除，但页面刷新失败；请刷新页面核对，勿重复删除')
+  }
 }
+const copyingMealId = ref<number | null>(null)
+// A lost HTTP acknowledgement must not create a second snack on retry.
+// A confirmed copy releases the token for a deliberate subsequent meal.
+const copyRetryKeys = new Map<string, string>()
 async function copyMeal(meal: Meal) {
-  try { await wellnessApi.copyMeal(meal.id, today); date.value = today; await Promise.all([loadDay(), loadTrend()]); ElMessage.success('已复制到今天') }
-  catch { ElMessage.error('复制失败') }
+  if (copyingMealId.value !== null) return
+  const targetDate = wellnessToday()
+  const request = `${meal.id}:${targetDate}`
+  const key = copyRetryKeys.get(request) ?? crypto.randomUUID()
+  copyRetryKeys.set(request, key)
+  copyingMealId.value = meal.id
+  try {
+    await wellnessApi.copyMeal(meal.id, targetDate, key)
+    copyRetryKeys.delete(request)
+    date.value = targetDate
+    // A confirmed write and a subsequent read failure are different outcomes.
+    // Never invite a second mutation because the UI refresh failed.
+    try {
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('已复制到今天')
+    } catch {
+      ElMessage.warning('加餐已保存，但页面刷新失败；请刷新页面查看，勿重复复制')
+    }
+  } catch {
+    ElMessage.error('复制请求未确认，请重试；已保存的加餐不会重复创建')
+  } finally {
+    copyingMealId.value = null
+  }
 }
-async function loadTrend() { trend.value = await wellnessApi.trends(trendDays.value) }
+let trendRequestVersion = 0
+const nutritionTrendUnavailable = ref(false)
+async function loadTrend() {
+  const version = ++trendRequestVersion
+  const days = trendDays.value
+  const [energy, nutrients] = await Promise.allSettled([
+    wellnessApi.trends(days), wellnessApi.nutritionTrends(days),
+  ])
+  if (version !== trendRequestVersion) return
+  // A failed V2-only nutrition endpoint cannot erase the existing calorie
+  // history while the frontend/backend versions are temporarily different.
+  trend.value = energy.status === 'fulfilled' ? energy.value : []
+  nutritionTrend.value = nutrients.status === 'fulfilled' ? nutrients.value : []
+  nutritionTrendUnavailable.value = nutrients.status === 'rejected'
+  if (energy.status === 'rejected')
+    ElMessage.warning('热量趋势暂时无法加载，请稍后重试')
+}
 
 const usdaDialog = ref(false)
 const usdaQuery = ref('')
@@ -234,19 +472,36 @@ function openExercise(x?: Exercise) {
   exerciseDialog.value = true
 }
 async function saveExercise() {
+  if (saving.value) return
   if (!exerciseForm.name.trim() || exerciseForm.durationMinutes < 1) { ElMessage.warning('请输入有效的运动名称和时长'); return }
   saving.value = true
   try {
     if (editExerciseId.value !== null) await wellnessApi.updateExercise(editExerciseId.value, { ...exerciseForm })
     else await wellnessApi.addExercise({ ...exerciseForm })
     exerciseDialog.value = false; date.value = exerciseForm.performedOn
-    await Promise.all([loadDay(), loadTrend()]); ElMessage.success('运动记录已保存')
-  } catch { ElMessage.error('保存运动失败') } finally { saving.value = false }
+    try {
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('运动记录已保存')
+    } catch {
+      ElMessage.warning('运动记录已保存，但页面刷新失败；请刷新页面查看，勿重复提交')
+    }
+  } catch {
+    ElMessage.error('运动记录保存请求未确认，请刷新页面核对后再重试')
+  } finally { saving.value = false }
 }
 async function deleteExercise(id: number) {
   try { await ElMessageBox.confirm('确定删除这条运动记录吗？', '确认删除') } catch { return }
-  try { await wellnessApi.deleteExercise(id); await Promise.all([loadDay(),loadTrend()]); ElMessage.success('已删除') }
-  catch { ElMessage.error('删除失败') }
+  try {
+    await wellnessApi.deleteExercise(id)
+    try {
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('已删除')
+    } catch {
+      ElMessage.warning('运动记录已删除，但页面刷新失败；请刷新页面确认，勿重复删除')
+    }
+  } catch {
+    ElMessage.error('删除请求未确认，请刷新页面核对后再试')
+  }
 }
 
 const metricDialog = ref(false)
@@ -261,42 +516,67 @@ function openMetric(x?: BodyMetric) {
   metricDialog.value = true
 }
 async function saveMetric() {
+  if (saving.value) return
   if (metricForm.weightKg <= 0) { ElMessage.warning('请填写体重'); return }
   saving.value = true
   try {
     if (editMetricId.value !== null) await wellnessApi.updateMetric(editMetricId.value, { ...metricForm })
     else await wellnessApi.addMetric({ ...metricForm })
     metricDialog.value = false
-    metrics.value = await wellnessApi.metrics(90)
-    await Promise.all([loadDay(),loadTrend()]); ElMessage.success('身体数据已保存')
-  } catch { ElMessage.error('保存身体数据失败') } finally { saving.value = false }
+    // A committed metric must never be described as a failed write if a
+    // subsequent readback request fails; a retry can create a duplicate row.
+    try {
+      metrics.value = await wellnessApi.metrics(90)
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('身体数据已保存')
+    } catch {
+      ElMessage.warning('身体数据已保存，但页面刷新失败；请刷新页面查看，勿重复提交')
+    }
+  } catch {
+    ElMessage.error('身体数据保存请求未确认，请刷新页面核对后再重试')
+  } finally { saving.value = false }
 }
 async function deleteMetric(id: number) {
   try { await ElMessageBox.confirm('确定删除这条身体指标记录吗？', '确认删除') } catch { return }
   try {
     await wellnessApi.deleteMetric(id)
-    metrics.value = await wellnessApi.metrics(90)
-    await Promise.all([loadDay(),loadTrend()]); ElMessage.success('已删除')
-  } catch { ElMessage.error('删除失败') }
+    try {
+      metrics.value = await wellnessApi.metrics(90)
+      await Promise.all([loadDay(true), loadTrend()])
+      ElMessage.success('已删除')
+    } catch {
+      ElMessage.warning('身体数据已删除，但页面刷新失败；请刷新页面确认，勿重复删除')
+    }
+  } catch {
+    ElMessage.error('删除请求未确认，请刷新页面核对后再试')
+  }
 }
 
 const goalForm = reactive({ effectiveFrom: today, dailyCalories: 0, dailyProteinG: null as number | null,
   weeklyActivityMinutes: null as number | null })
 function loadGoal() {
   const current = goals.value.find(x => x.effectiveFrom <= date.value)
-  goalForm.effectiveFrom = today
+  goalForm.effectiveFrom = wellnessToday()
   goalForm.dailyCalories = current ? Number(current.dailyCalories) : 0
   goalForm.dailyProteinG = current?.dailyProteinG == null ? null : Number(current.dailyProteinG)
   goalForm.weeklyActivityMinutes = current?.weeklyActivityMinutes ?? null
 }
 async function saveGoal() {
+  if (saving.value) return
   if (!goalForm.dailyCalories || goalForm.dailyCalories < 100) { ElMessage.warning('请先填写每日摄入目标'); return }
   saving.value = true
   try {
     await wellnessApi.saveGoal({ ...goalForm })
-    goals.value = await wellnessApi.goals(); await loadDay()
-    ElMessage.success('健康目标已保存')
-  } catch { ElMessage.error('保存目标失败') } finally { saving.value = false }
+    try {
+      goals.value = await wellnessApi.goals()
+      await loadDay(true)
+      ElMessage.success('健康目标已保存')
+    } catch {
+      ElMessage.warning('健康目标已保存，但页面刷新失败；请刷新页面查看，勿重复提交')
+    }
+  } catch {
+    ElMessage.error('目标保存请求未确认，请刷新页面核对后再重试')
+  } finally { saving.value = false }
 }
 async function saveProfile() {
   saving.value = true
@@ -312,6 +592,19 @@ async function saveProfile() {
         <div><h1>健康中心</h1><p>饮食、运动与身体指标，记录每一天</p></div>
         <el-date-picker v-model="date" type="date" value-format="YYYY-MM-DD" :clearable="false" @change="loadDay" />
       </div>
+      <section class="wellness-v2-intro" aria-label="健康摘要与快捷操作">
+        <div class="wellness-v2-intro-info">
+          <span class="wellness-v2-kicker">WELLNESS · {{ date }}</span>
+          <h2>关照身体，也关照每一天。</h2>
+          <p>{{ calories === null ? '当天尚无摄入记录，未记录不等于零。' : '所选日期已记录 ' + n(calories) + ' kcal' }}{{ dailyGoal ? ' · 当前每日目标 ' + n(dailyGoal) + ' kcal' : '' }}</p>
+        </div>
+        <div class="wellness-v2-intro-actions">
+          <el-button type="primary" @click="activeTab='ai'">AI 快速记录</el-button>
+          <el-button @click="openMeal()">记录饮食</el-button>
+          <el-button @click="openExercise()">记录运动</el-button>
+          <el-button @click="openMetric()">记录体重</el-button>
+        </div>
+      </section>
       <el-tabs v-model="activeTab" class="wellness-tabs" @tab-change="onTabChange">
         <el-tab-pane label="AI 快速记录" name="ai">
           <WellnessAiRecorder @recorded="loadAll" />
@@ -329,6 +622,27 @@ async function saveProfile() {
             <article class="tile"><span>运动时长</span><strong>{{ n(summary?.exerciseMinutes) }} <small>分钟</small></strong><p>消耗估算 {{ n(summary?.exerciseEstimatedKcal) }} kcal</p></article>
             <article class="tile"><span>最近体重</span><strong>{{ n(summary?.latestWeightKg, 1) }} <small>kg</small></strong><p>仅显示所选日期及之前的记录</p></article>
           </section>
+          <section class="panel nutrition-panel" aria-label="营养信息完整度">
+            <div class="panel-head">
+              <h2>营养分析</h2>
+              <el-tag size="small" :type="nutritionCoverage.complete ? 'success' : 'info'">
+                {{ nutritionCoverage.percent === null ? '暂无餐食数据' : '完整度 ' + nutritionCoverage.percent + '%' }}
+              </el-tag>
+            </div>
+            <p class="muted">仅统计已记录餐次。图片识别与外卖估算不能保证营养数据完整，未知数据不按 0 处理。</p>
+            <el-progress v-if="nutritionCoverage.percent !== null"
+              :percentage="nutritionCoverage.percent" :show-text="false" :stroke-width="8"
+              :aria-label="'营养素完整的食物条目 ' + nutritionCoverage.known + ' / ' + nutritionCoverage.total" />
+            <div class="nutrient-grid">
+              <div><span>蛋白质</span><strong>{{ n(summary?.proteinG, 1) }} <small>g</small></strong></div>
+              <div><span>碳水化合物</span><strong>{{ n(summary?.carbsG, 1) }} <small>g</small></strong></div>
+              <div><span>脂肪</span><strong>{{ n(summary?.fatG, 1) }} <small>g</small></strong></div>
+            </div>
+            <p v-if="nutritionCoverage.total && !nutritionCoverage.complete" class="coverage-tip">
+              {{ nutritionCoverage.total - nutritionCoverage.known }} 项食物缺少至少一种营养素，全天宏量营养素暂不能完整汇总。
+            </p>
+            <p v-else-if="!nutritionCoverage.total" class="muted">添加餐食后显示营养素统计与数据完整度。</p>
+          </section>
           <div class="actions">
             <el-button type="primary" @click="activeTab='ai'">📷 拍照 / AI 记录</el-button>
             <el-button @click="openMeal()">记录饮食</el-button>
@@ -339,7 +653,7 @@ async function saveProfile() {
             <div class="panel-head"><h2>{{ date }} 饮食记录</h2><el-button link type="primary" @click="activeTab='meals'">管理餐次</el-button></div>
             <div v-if="!meals.length" class="empty">当天还没有饮食记录，不代表摄入为零。</div>
             <div v-for="meal in meals" :key="meal.id" class="entry">
-              <div><b>{{ label(meal.mealType) }}</b><p>{{ meal.items.map(x => x.foodName + ' ' + n(x.grams) + 'g').join('、') }}</p></div>
+              <div><b>{{ label(meal.mealType) }}</b><p>{{ meal.items.map(x => x.foodName + ' · ' + portionText(x)).join('、') }}</p></div>
               <strong>{{ n(total(meal)) }} kcal</strong>
             </div>
           </section>
@@ -348,13 +662,34 @@ async function saveProfile() {
               <el-option :value="7" label="近7天"/><el-option :value="14" label="近14天"/>
               <el-option :value="30" label="近30天"/><el-option :value="90" label="近90天"/>
             </el-select></div>
-            <p class="muted">未记录不计为 0；不同天数可切换趋势窗口。</p>
-            <div class="bars">
-              <div v-for="point in trend" :key="point.date" class="bar-column" :title="point.date + ': ' + (point.calories === null ? '未记录' : n(point.calories) + ' kcal')">
-                <div class="bar-track"><div v-if="point.calories !== null" class="bar-value" :style="{ height: Math.max(3, Number(point.calories) / maxTrend * 100) + '%' }"></div></div>
-                <small>{{ point.date.slice(8) }}</small>
+            <div class="trend-controls">
+              <el-radio-group v-model="trendMetric" size="small" aria-label="趋势指标">
+                <el-radio-button label="热量" value="calories" />
+                <el-radio-button label="蛋白质" value="proteinG" />
+                <el-radio-button label="碳水" value="carbsG" />
+                <el-radio-button label="脂肪" value="fatG" />
+              </el-radio-group>
+            </div>
+            <p class="muted">每日{{ trendName }}（{{ trendUnit }}）。没有记录为留白；当某项营养素缺失时，不将已知部分当作全天总量，也不将未知显示为 0。</p>
+            <p v-if="nutritionTrendUnavailable && trendMetric !== 'calories'" class="coverage-tip" role="status">营养趋势接口暂不可用；可切换回热量趋势查看已记录摄入。</p>
+            <p class="muted">图中底部的细线表示已知 0，空白表示缺失或未记录；点击或轻触柱条可查看逐日数值。</p>
+            <div v-if="!trend.length" class="empty">趋势暂时无法显示，请重试。</div>
+            <div v-else class="bars" role="group" :aria-label="'近' + trendDays + '天' + trendName + '趋势'">
+              <div v-for="(point, idx) in trend" :key="point.date" class="bar-column"
+                role="button" tabindex="0" :aria-pressed="selectedTrendDay === point.date"
+                :title="trendDescription(point)" :aria-label="trendDescription(point)"
+                @click="selectedTrendDay = point.date"
+                @keydown.enter.prevent="selectedTrendDay = point.date"
+                @keydown.space.prevent="selectedTrendDay = point.date">
+                <div class="bar-track">
+                  <div v-if="trendValue(point) !== null" class="bar-value"
+                    :class="{ 'bar-zero': trendValue(point) === 0 }"
+                    :style="{ height: trendValue(point) === 0 ? '3px' : Math.max(3, Number(trendValue(point)) / selectedTrendMax * 100) + '%' }"></div>
+                </div>
+                <small v-if="trendDays <= 14 || idx === trend.length - 1 || idx % Math.ceil(trendDays / 8) === 0">{{ point.date.slice(5) }}</small>
               </div>
             </div>
+            <p v-if="selectedTrendText" class="muted trend-selection" role="status">{{ selectedTrendText }}</p>
           </section>
         </el-tab-pane>
 
@@ -365,12 +700,16 @@ async function saveProfile() {
             <div v-if="!meals.length" class="empty">暂无记录</div>
             <div v-for="meal in meals" :key="meal.id" class="entry">
               <div class="grow"><strong>{{ label(meal.mealType) }} · {{ n(total(meal)) }} kcal</strong>
-                <p v-for="item in meal.items" :key="item.id">{{ item.foodName }} · {{ n(item.grams) }}g · {{ n(item.calories) }} kcal</p>
+                <p v-for="item in meal.items" :key="item.id">{{ item.foodName }} · {{ portionText(item) }} · {{ n(item.calories) }} kcal
+                    <span v-if="item.proteinG == null || item.carbsG == null || item.fatG == null" class="nutrient-unknown"> · 营养素未完整识别</span>
+                    <span v-else> · 蛋白质 {{ n(item.proteinG, 1) }}g / 碳水 {{ n(item.carbsG, 1) }}g / 脂肪 {{ n(item.fatG, 1) }}g</span>
+                  </p>
                 <p v-if="meal.note">{{ meal.note }}</p>
               </div>
-              <div class="entry-actions"><el-button link type="primary" @click="openAiChange('meal',meal.id)">AI 变更</el-button>
+              <div class="entry-actions"><el-button link type="primary" @click="openAnalysis(meal)">分析详情</el-button>
+                <el-button link type="primary" @click="openAiChange('meal',meal.id)">AI 变更</el-button>
                  <el-button link type="primary" @click="openMeal(meal.mealType,meal)">编辑</el-button>
-                <el-button link @click="copyMeal(meal)">复制到今天</el-button>
+                <el-button link :disabled="copyingMealId !== null" :loading="copyingMealId === meal.id" @click="copyMeal(meal)">复制到今天</el-button>
                 <el-button link type="danger" @click="deleteMeal(meal)">删除</el-button></div>
             </div>
           </section>
@@ -450,6 +789,133 @@ async function saveProfile() {
         </el-tab-pane>
       </el-tabs>
 
+
+      <el-dialog v-model="analysisDialog" title="餐食识别与营养分析" width="min(96vw,760px)"
+        append-to-body destroy-on-close>
+        <div class="nutrition-detail" v-loading="analysisLoading">
+          <p v-if="analysisError" role="alert" class="coverage-tip">{{ analysisError }}</p>
+          <template v-else-if="analysisDetails">
+            <p class="muted">仅展示已保存的结构化数据，不保存照片或外卖订单原图。旧餐食可能没有 AI 分析历史。</p>
+            <div class="nutrition-coverage-summary">
+              <strong>{{ label(analysisDetails.meal.mealType) }} · {{ analysisDetails.meal.mealDate }}</strong>
+              <span>蛋白质已知 {{ analysisDetails.nutritionCompleteness.knownProteinCount }} / {{ analysisDetails.nutritionCompleteness.foodCount }} 项</span>
+              <span>碳水已知 {{ analysisDetails.nutritionCompleteness.knownCarbsCount }} / {{ analysisDetails.nutritionCompleteness.foodCount }} 项</span>
+              <span>脂肪已知 {{ analysisDetails.nutritionCompleteness.knownFatCount }} / {{ analysisDetails.nutritionCompleteness.foodCount }} 项</span>
+            </div>
+            <h3>最终保存的食物</h3>
+            <div v-for="item in analysisDetails.meal.items" :key="item.id" class="nutrition-detail-food">
+              <strong>{{ item.foodName }}</strong>
+              <p>{{ portionText(item) }} · {{ n(item.calories) }} kcal</p>
+              <p>蛋白质 {{ n(item.proteinG,1) }}g · 碳水 {{ n(item.carbsG,1) }}g · 脂肪 {{ n(item.fatG,1) }}g</p>
+              <small>{{ nutrientSourceLabel(analysisDetails.nutrients.find(x => x.mealItemId === item.id)?.sourceType ?? '') }}</small>
+            </div>
+            <h3>AI 原始识别及分析依据</h3>
+            <el-collapse v-if="analysisDetails.analyses.length">
+              <el-collapse-item v-for="version in analysisDetails.analyses" :key="version.id"
+                :name="String(version.id)" :title="'第 ' + version.versionNumber + ' 版 · ' + (version.sourceType === 'IMAGE' ? '图片识别' : '文本识别')">
+                <p class="muted">首次识别结果（仅保留脱敏食物业务字段）：</p>
+                <p v-for="(item, index) in (version.rawExtraction.items ?? [])" :key="index">
+                  {{ item.name }} · {{ item.estimatedGrams == null ? '重量未知' : n(item.estimatedGrams) + 'g（初始识别）' }}
+                </p>
+                <div v-if="version.rawExtraction.sourceContext" class="nutrition-source-context">
+                  <p class="muted">
+                    识别类型：
+                    {{ version.rawExtraction.sourceContext.kind === 'ORDER_SCREENSHOT' ? '外卖订单' :
+                      version.rawExtraction.sourceContext.kind === 'NUTRITION_LABEL' ? '营养标签' : '食物照片' }}
+                    <span v-if="version.rawExtraction.sourceContext.merchantName">
+                      · {{ version.rawExtraction.sourceContext.merchantName }}
+                    </span>
+                  </p>
+                  <div v-for="(sourceItem, sourceIndex) in (version.rawExtraction.sourceContext.lineItems ?? [])"
+                    :key="sourceIndex" class="nutrition-source-row">
+                    <strong>{{ sourceItem.name }}</strong>
+                    <p v-if="version.rawExtraction.sourceContext.kind === 'ORDER_SCREENSHOT'">
+                      订单购买数量：{{ sourceItem.purchasedQuantity ?? '未知' }}
+                      <span v-if="sourceItem.portionLabel"> · {{ sourceItem.portionLabel }}</span>
+                    </p>
+                    <template v-if="version.rawExtraction.sourceContext.kind === 'NUTRITION_LABEL'">
+                      <p>包装净含量：{{ sourceItem.packageGrams == null ? '未知' : n(sourceItem.packageGrams) + 'g' }}</p>
+                      <p v-if="sourceItem.labelPer100gCandidate">
+                        标签候选值（每100g）：
+                        热量 {{ n(sourceItem.labelPer100gCandidate.caloriesKcal,1) }} kcal
+                        · 蛋白质 {{ n(sourceItem.labelPer100gCandidate.proteinG,1) }}g
+                        · 碳水 {{ n(sourceItem.labelPer100gCandidate.carbsG,1) }}g
+                        · 脂肪 {{ n(sourceItem.labelPer100gCandidate.fatG,1) }}g
+                      </p>
+                      <p v-if="sourceItem.labelVerified === false" class="coverage-tip">
+                        以下属于首次图片识别候选，未自动计入正式营养数据；如已核对包装可人工确认。
+                      </p>
+                      <el-button v-if="sourceItem.labelPer100gCandidate"
+                        size="small" type="primary" plain
+                        @click="beginLabelReview(sourceItem.name, sourceItem.labelPer100gCandidate)">
+                        核对标签并计算实际摄入
+                      </el-button>
+                    </template>
+                  </div>
+                  <p v-if="version.rawExtraction.sourceContext.kind === 'ORDER_SCREENSHOT'" class="coverage-tip">
+                    订单购买数量仅用于溯源；最终摄入量请以用户确认后的重量和餐食记录为准。
+                  </p>
+                </div>
+                <p v-if="version.analysis.method === 'USER_VERIFIED_LABEL' && version.analysis.userInput"
+                  class="nutrition-verified">
+                  已人工核对：食用 {{ n(version.analysis.userInput.consumedGrams) }}g
+                  · 计算热量 {{ n(version.analysis.calculated?.caloriesKcal,2) }} kcal
+                  · 蛋白质 {{ n(version.analysis.calculated?.proteinG,2) }}g
+                  · 碳水 {{ n(version.analysis.calculated?.carbsG,2) }}g
+                  · 脂肪 {{ n(version.analysis.calculated?.fatG,2) }}g
+                </p>
+                <p v-else class="muted">确认后营养分析（记录当时的估算及食品库数据，后续编辑可能改变当前餐食）：</p>
+                <p v-for="(item, index) in (version.analysis.items ?? [])" :key="index">
+                  {{ item.foodName }} · {{ item.weightGrams == null ? '重量未知' : n(item.weightGrams) + 'g' }}
+                  · {{ n(item.caloriesKcal) }} kcal · {{ nutrientSourceLabel(item.source) }}
+                </p>
+              </el-collapse-item>
+            </el-collapse>
+            <div v-else class="empty">这条餐食还没有保存 AI 识别历史，可以继续查看已有的正式营养数据。</div>
+            <section v-if="labelReview.mealItemId" class="nutrition-label-review">
+              <h3>核实包装营养标签</h3>
+              <p class="muted">请对照包装逐项校对每100g的数值，并填写真正食用的克数。
+                可修改 AI 识别错误的数字。仅保存核实后的结构化信息，不保存图片。</p>
+              <div class="nutrition-review-fields">
+                <label>实际吃下（g）
+                  <el-input-number v-model="labelReview.consumedGrams" :min="0.1" :max="3000" :precision="2" />
+                </label>
+                <label>热量（kcal/100g）
+                  <el-input-number v-model="labelReview.caloriesPer100g" :min="0" :max="900" :precision="2" />
+                </label>
+                <label>蛋白质（g/100g）
+                  <el-input-number v-model="labelReview.proteinPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>碳水（g/100g）
+                  <el-input-number v-model="labelReview.carbsPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>脂肪（g/100g）
+                  <el-input-number v-model="labelReview.fatPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>膳食纤维（g/100g，可选）
+                  <el-input-number v-model="labelReview.fiberPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>糖（g/100g，可选）
+                  <el-input-number v-model="labelReview.sugarPer100g" :min="0" :max="100" :precision="2" />
+                </label>
+                <label>钠（mg/100g，可选）
+                  <el-input-number v-model="labelReview.sodiumMgPer100g" :min="0" :max="50000" :precision="2" />
+                </label>
+              </div>
+              <p>按当前输入计算，本次热量约 <strong>{{ labelPreview }} kcal</strong></p>
+              <el-checkbox v-model="labelReview.userVerified">
+                我已对照包装核实每100g数据，并确认实际食用克数；不是直接信任 AI 候选值
+              </el-checkbox>
+              <div class="entry-actions">
+                <el-button type="primary" :loading="labelSaving" :disabled="!labelReview.userVerified"
+                  @click="submitLabelReview">保存人工核实营养</el-button>
+                <el-button :disabled="labelSaving" @click="labelReview.mealItemId=0">取消</el-button>
+              </div>
+            </section>
+          </template>
+        </div>
+        <template #footer><el-button @click="analysisDialog=false">关闭</el-button></template>
+      </el-dialog>
       <el-dialog v-model="aiChangeVisible" title="AI 修改 / 删除健康记录" width="min(96vw,680px)" destroy-on-close append-to-body>
         <WellnessAiChange :key="aiChangeKey" :initial-kind="aiChangeKind" :initial-id="aiChangeRecord"
           :initial-date="date" @changed="savedAiChange" />
@@ -464,7 +930,7 @@ async function saveProfile() {
             <el-checkbox v-model="item.manual">本次自定义热量</el-checkbox>
             <template v-if="item.manual">
               <el-input v-model="item.customName" maxlength="120" placeholder="食物名称，例如红油馄饨" />
-              <el-input-number v-model="item.customCalories" :min="0.01" :max="20000" :precision="2" />
+              <el-input-number v-model="item.customCalories" :min="editingMeal === null ? 0.01 : 0" :max="20000" :precision="2" />
               <span class="muted">本次 kcal</span>
               <el-input-number v-model="item.grams" :min="0" :max="3000" :precision="1" />
               <span class="muted">g，可填 0</span>
@@ -482,7 +948,7 @@ async function saveProfile() {
           <el-button link type="primary" @click="foodDialog=true">没有找到？创建食物</el-button>
           <el-form-item label="备注"><el-input v-model="mealForm.note" maxlength="500" /></el-form-item>
           <p class="meal-total">本餐估算：{{ n(mealPreview) }} kcal</p>
-          <p class="muted">自定义热量只保存在本餐次明细，不进入食品参考库；不确定重量可填 0，未知蛋白质、碳水和脂肪不会显示为 0。</p>
+          <p class="muted">自定义热量只保存在本餐次明细，不进入食品参考库；不确定重量可填 0，未知蛋白质、碳水和脂肪不会显示为 0。一天可以分别记录多次加餐；早餐、午餐、晚餐仍按各一次防重复。保存失败重试会沿用本次提交标识。</p>
         </el-form>
         <template #footer><el-button @click="mealDialog=false">取消</el-button>
           <el-button type="primary" :loading="saving" @click="saveMeal()">保存餐次</el-button></template>
@@ -562,12 +1028,40 @@ async function saveProfile() {
 .actions{justify-content:flex-start;margin:18px 0;flex-wrap:wrap}.panel{margin:14px 0}.panel h2{font-size:17px;margin:0 0 12px}.panel h3{font-size:15px;margin:20px 0}
 .entry{border-top:1px solid var(--el-border-color-lighter);padding:13px 0}.entry p{margin:4px 0;line-height:1.5}.grow{flex:1;min-width:0}.entry-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .empty{padding:24px;text-align:center;color:var(--el-text-color-secondary);background:var(--el-fill-color-light);border-radius:10px}
-.bars{height:175px;display:flex;align-items:end;gap:7px;padding-top:12px}.bar-column{height:100%;min-width:0;flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
+.trend-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.trend-controls :deep(.el-radio-group){display:flex;flex-wrap:wrap}
+.bars{height:175px;display:flex;align-items:end;gap:7px;padding-top:12px;overflow-x:auto;overflow-y:hidden}.bar-column{height:100%;min-width:9px;flex:1 0 9px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.bar-column{cursor:pointer}.bar-column:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:2px}.trend-selection{margin-top:10px}
 .bar-track{width:100%;height:148px;display:flex;align-items:end;background:var(--el-fill-color-lighter);border-radius:5px;overflow:hidden}
-.bar-value{background:var(--el-color-primary);width:100%;border-radius:4px 4px 0 0}.bar-column small{color:var(--el-text-color-secondary)}
+.bar-value{background:var(--el-color-primary);width:100%;border-radius:4px 4px 0 0}.bar-zero{background:var(--el-color-success)}.bar-column small{color:var(--el-text-color-secondary)}
 .form-panel{max-width:640px}.form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .food-row{display:flex;align-items:center;gap:9px;margin-bottom:10px}.food-row .el-select{flex:1;min-width:0}.food-row .el-input-number{width:140px}
 .meal-total{font-size:18px;font-weight:700;margin-top:18px}
+.nutrition-panel{background:var(--el-bg-color-page);border-radius:16px}
+.nutrition-detail{display:flex;flex-direction:column;gap:10px;min-height:120px;overflow-wrap:anywhere}
+.nutrition-detail h3{margin:12px 0 2px;font-size:15px}
+.nutrition-detail .muted{margin:0}
+.nutrition-source-context{border:1px dashed var(--el-border-color);border-radius:12px;padding:12px;background:var(--el-fill-color-light)}
+.nutrition-source-row{padding:7px 0;border-top:1px solid var(--el-border-color-lighter)}
+.nutrition-source-row p{font-size:13px;color:var(--el-text-color-secondary);margin:5px 0}
+.nutrition-label-review{padding:14px;border:1px solid var(--el-border-color);border-radius:12px;background:var(--el-fill-color-light);display:grid;gap:12px}
+.nutrition-review-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}
+.nutrition-review-fields label{display:grid;gap:6px;font-size:13px}
+.nutrition-review-fields .el-input-number{width:100%}
+.nutrition-verified{font-size:13px;color:var(--el-color-success)}
+.nutrition-detail-food{padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:12px}
+.nutrition-detail-food p{margin:5px 0;color:var(--el-text-color-secondary);font-size:13px}
+.nutrition-detail-food small{color:var(--el-color-info)}
+.nutrition-coverage-summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-radius:12px;background:var(--el-fill-color-light);padding:12px}
+.nutrition-coverage-summary span{font-size:12px;color:var(--el-text-color-secondary)}
+.nutrition-panel .panel-head h2{margin:0}
+.nutrient-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
+.nutrient-grid>div{min-width:0;padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:12px;background:var(--el-bg-color);display:flex;flex-direction:column;gap:8px}
+.nutrient-grid span{font-size:12px;color:var(--el-text-color-secondary)}
+.nutrient-grid strong{font-size:20px;line-height:1.25;overflow-wrap:anywhere}
+.nutrient-grid strong small{font-size:12px;font-weight:400}
+.coverage-tip{margin:12px 0 0;font-size:12px;color:var(--el-color-warning-dark-2)}
+.nutrient-unknown{color:var(--el-text-color-secondary);font-size:12px}
 .weight-chart{width:100%;height:170px;background:var(--el-fill-color-lighter);border-radius:8px}
 .weight-labels{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--el-text-color-secondary);flex-wrap:wrap;margin-top:7px}.chips{display:flex;flex-wrap:wrap;gap:8px}.food-chip{cursor:pointer}
 @media(max-width:900px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -575,5 +1069,6 @@ async function saveProfile() {
 .head h1{font-size:21px}.metric-grid{gap:8px}.tile{padding:12px;min-height:118px}.tile strong{font-size:20px}
 .panel{padding:14px}.entry{align-items:start;flex-wrap:wrap}.entry-actions{width:100%;justify-content:flex-start}
 .food-row{flex-wrap:wrap}.food-row .el-select{flex-basis:100%}.form-row{grid-template-columns:1fr}
+.nutrient-grid{grid-template-columns:1fr}.nutrient-grid>div{gap:4px;padding:10px}
 .bars{gap:3px}.bar-track{height:125px}}
 </style>

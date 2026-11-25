@@ -81,6 +81,44 @@ class WellnessAiChangeTests {
             {"date":"2026-10-13","mealType":"LUNCH","items":[{"foodId":3,"grams":-3}]}
             """))).isInstanceOf(ResponseStatusException.class);
     }
+    @Test void snapshotComparisonIgnoresJsonNumericTypesButRejectsChangedValues() throws Exception {
+        var current=json.valueToTree(Map.of("items",List.of(Map.of(
+            "grams",new BigDecimal("100.00"),"calories",new BigDecimal("0.00")))));
+        var stored=json.readTree(json.writeValueAsString(current));
+        assertThat(WellnessAiChangeService.sameSnapshot(current,stored)).isTrue();
+        assertThat(WellnessAiChangeService.sameSnapshot(current,json.readTree(
+            "{\"items\":[{\"grams\":100,\"calories\":0.01}]}"))).isFalse();
+        assertThat(WellnessAiChangeService.sameSnapshot(current,json.readTree(
+            "{\"items\":[{\"grams\":100,\"calories\":\"0\"}]}"))).isFalse();
+    }
+
+    @Test void preservesZeroCaloriesInAnExistingManualMealSnapshot() throws Exception {
+        var after=json.readTree("""
+            {"date":"2026-10-13","mealType":"LUNCH","items":[{"foodId":0,"name":"Water","grams":200,"calories":0}]}
+            """);
+        var result=json.valueToTree(service().validate("meal",after));
+        assertThat(result.path("items").get(0).path("calories").decimalValue())
+            .isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test void mealConfirmationLocksOwnerBeforeLockingTheTarget() throws Exception {
+        owner();
+        String id="123e4567-e89b-12d3-a456-426614174000";
+        var row=Map.<String,Object>of("action_type","meal.update","status","PENDING",
+            "payload_json","{\"kind\":\"meal\",\"operation\":\"update\",\"recordId\":51}",
+            "expires_at",java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().plusMinutes(3)));
+        when(db.queryForList(contains("prp_wellness_ai_drafts"),(Object)eq(id),(Object)eq(17L)))
+            .thenReturn(List.of(row));
+        when(db.queryForList(contains("prp_wellness_meals"),(Object)eq(51L),(Object)eq(17L)))
+            .thenReturn(List.of());
+
+        assertThatThrownBy(()->service().confirm(id))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("no longer exists");
+        var calls=inOrder(wellness,db);
+        calls.verify(wellness).lockMealOwner(17L);
+        calls.verify(db).queryForList(contains("prp_wellness_meals"),(Object)eq(51L),(Object)eq(17L));
+    }
+
     @Test void staleConfirmationIsRejectedBeforeBusinessMutation() throws Exception {
         owner();
         var svc=service();
@@ -120,4 +158,31 @@ class WellnessAiChangeTests {
         verifyNoInteractions(wellness);
     }
 
+
+    @Test void changeDraftStatusReadbackIsOwnerScopedAndDoesNotMutateHealth() {
+        owner();
+        String id="123e4567-e89b-12d3-a456-426614174000";
+        when(db.queryForList(contains("action_type IN"),eq(id),eq(17L)))
+            .thenReturn(List.of(Map.of("status","CONSUMED")),List.of(Map.of("status","PENDING")));
+        assertThat(service().getChangeStatus(id).status()).isEqualTo("CONSUMED");
+        assertThat(service().getChangeStatus(id).status()).isEqualTo("PENDING");
+        verify(db,times(2)).queryForList(
+            argThat(sql->sql.contains("user_id=?") &&
+                sql.contains("'meal.delete'") && sql.contains("'metric.update'")),
+            eq(id),eq(17L));
+        verifyNoInteractions(wellness,settings,provider,usage);
+        verify(db,never()).update(anyString(),any(Object[].class));
+    }
+
+    @Test void changeDraftStatusRejectsForeignAndMalformedIds() {
+        owner();
+        String id="123e4567-e89b-12d3-a456-426614174000";
+        when(db.queryForList(contains("action_type IN"),eq(id),eq(17L)))
+            .thenReturn(List.of());
+        assertThatThrownBy(()->service().getChangeStatus(id))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("not found");
+        assertThatThrownBy(()->service().getChangeStatus("../../other-owner"))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Invalid draft ID");
+        verifyNoInteractions(wellness,settings,provider,usage);
+    }
 }

@@ -20,6 +20,10 @@ public class WellnessAiChangeController {
         @RequestBody JsonNode after) {
         return ApiResponse.success(service.edit(id,after));
     }
+    @GetMapping("/{id}/status")
+    public ApiResponse<WellnessAiChangeService.ChangeDraftStatus> status(@PathVariable String id) {
+        return ApiResponse.success(service.getChangeStatus(id));
+    }
     @PostMapping("/{id}/confirm")
     public ApiResponse<WellnessAiChangeService.Result> confirm(@PathVariable String id) {
         return ApiResponse.success(service.confirm(id));
