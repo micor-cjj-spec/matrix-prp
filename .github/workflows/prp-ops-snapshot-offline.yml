@@ -4,6 +4,7 @@ on:
     paths:
       - 'app/ops/**'
       - 'app/deploy/systemd/prp-ops-collector.*'
+      - 'app/deploy/systemd/prp-ops-mcp.service'
       - '.github/workflows/prp-ops-snapshot-offline.yml'
 permissions:
   contents: read
