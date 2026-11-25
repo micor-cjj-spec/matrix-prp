@@ -35,7 +35,7 @@ PROVENANCE = {
     "github_run": {"github_metadata_claim"},
     "artifact_witness": {"github_metadata_claim", "artifact_bytes_review_claim"},
     "runtime_cutover": {"operator_receipt_claim"},
-    "read_smoke": {"operator_receipt_claim"},
+    "read_smoke": {"operator_receipt_claim", "p36_projection_claim"},
     "business_uat": {"owner_uat_claim"},
     "device_uat": {"owner_uat_claim"},
     "backup_restore": {"operator_receipt_claim"},
@@ -83,6 +83,10 @@ def _timestamp(value):
     return _positive(value)
 
 
+def _one_of(value, allowed):
+    return type(value) is str and value in allowed
+
+
 def _candidate(value):
     _exact(value, {
         "source_sha", "source_tree", "schema", "backend_image", "gateway_image",
@@ -114,8 +118,8 @@ def _job_list(value, run):
         _require(_positive(job["job_id"]) and _positive(job["run_id"]) and
                  _positive(job["attempt"]) and type(job["name"]) is str and
                  re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._()/,+:-]{0,199}", job["name"]) is not None and
-                 _sha(job["head_sha"]) and job["status"] in {"completed", "in_progress", "queued"} and
-                 job["conclusion"] in CONCLUSIONS, "INVALID_JOB")
+                 _sha(job["head_sha"]) and _one_of(job["status"], {"completed", "in_progress", "queued"}) and
+                 (job["conclusion"] is None or _one_of(job["conclusion"], {"success", "failure", "cancelled", "skipped"})), "INVALID_JOB")
         _require(job["job_id"] not in ids and job["name"] not in names, "DUPLICATE_JOB")
         ids.add(job["job_id"])
         names.add(job["name"])
@@ -135,10 +139,9 @@ def _facts(kind, facts, candidate, now):
         _require(facts["workflow_path"] in WORKFLOWS and _sha(facts["workflow_sha"]) and
                  _positive(facts["run_id"]) and _positive(facts["attempt"]) and
                  _positive(facts["latest_attempt"]) and _sha(facts["head_sha"]) and
-                 _sha(facts["tree_sha"]) and facts["event"] in {
-                     "pull_request", "push", "workflow_dispatch", "issue_comment"} and
-                 facts["status"] in {"completed", "in_progress", "queued"} and
-                 facts["conclusion"] in CONCLUSIONS, "INVALID_GITHUB_RUN")
+                 _sha(facts["tree_sha"]) and _one_of(facts["event"], {"pull_request", "push", "workflow_dispatch", "issue_comment"}) and
+                 _one_of(facts["status"], {"completed", "in_progress", "queued"}) and
+                 (facts["conclusion"] is None or _one_of(facts["conclusion"], {"success", "failure", "cancelled", "skipped"})), "INVALID_GITHUB_RUN")
         findings.extend(_job_list(facts["jobs"], facts))
         if (facts["head_sha"], facts["tree_sha"]) != (
                 candidate["source_sha"], candidate["source_tree"]):
@@ -156,7 +159,7 @@ def _facts(kind, facts, candidate, now):
                  _positive(facts["witness_attempt"]) and _sha(facts["witness_sha"]) and
                  _sha(facts["source_sha"]) and _sha(facts["source_tree"]) and
                  _digest(facts["archive_digest"]) and _timestamp(facts["expires_at"]) and
-                 facts["byte_review_status"] in {"not_reviewed", "claimed_pass", "failed"} and
+                 _one_of(facts["byte_review_status"], {"not_reviewed", "claimed_pass", "failed"}) and
                  (facts["archive_bytes_sha256"] is None or
                   type(facts["archive_bytes_sha256"]) is str and HEX.fullmatch(facts["archive_bytes_sha256"])) and
                  (facts["manifest_sha256"] is None or
@@ -187,7 +190,7 @@ def _facts(kind, facts, candidate, now):
         _require(all(_digest(facts[k]) for k in ("backend_image", "gateway_image", "mysql_image",
                                                   "fresh_backup_digest")) and
                  _positive(facts["schema"]) and type(facts["mysql_unchanged"]) is bool and
-                 all(facts[k] in STATUSES for k in ("preflight_status", "health_status", "rollback_status")) and
+                 all(_one_of(facts[k], STATUSES) for k in ("preflight_status", "health_status", "rollback_status")) and
                  type(facts["production_targeted"]) is bool, "INVALID_RUNTIME_CUTOVER")
         if facts["backend_image"] != candidate["backend_image"]:
             findings.append("BACKEND_IMAGE_MISMATCH")
@@ -216,7 +219,7 @@ def _facts(kind, facts, candidate, now):
                     "existing_account_reused", "account_created", "ordinary_non_admin",
                     "credential_permissions_checked", "live_verified", "deployment_authorized",
                     "production_authorized")) and
-                 facts["login_method"] in {"password_login", "oauth_pkce"}, "INVALID_READ_SMOKE")
+                 _one_of(facts["login_method"], {"password_login", "oauth_pkce"}), "INVALID_READ_SMOKE")
         if facts["cases_passed"] != facts["cases_total"] or facts["checks_passed"] != facts["checks_total"]:
             findings.append("READ_SMOKE_INCOMPLETE")
         if not facts["existing_account_reused"] or facts["account_created"]:
@@ -229,9 +232,9 @@ def _facts(kind, facts, candidate, now):
             findings.append("UNTRUSTED_POSITIVE_AUTHORIZATION")
     elif kind == "business_uat":
         _exact(facts, {"suite", "write_scope", "cleanup_status", "case_results", "owner_aliases"}, kind)
-        _require(facts["suite"] in {"health", "personal_os", "finance", "learning", "chat", "cross_module"} and
-                 facts["write_scope"] in {"read_only", "synthetic_write"} and
-                 facts["cleanup_status"] in STATUSES and type(facts["case_results"]) is list and
+        _require(_one_of(facts["suite"], {"health", "personal_os", "finance", "learning", "chat", "cross_module"}) and
+                 _one_of(facts["write_scope"], {"read_only", "synthetic_write"}) and
+                 _one_of(facts["cleanup_status"], STATUSES) and type(facts["case_results"]) is list and
                  1 <= len(facts["case_results"]) <= 100 and type(facts["owner_aliases"]) is list and
                  1 <= len(facts["owner_aliases"]) <= 2 and
                  all(type(a) is str and ALIAS.fullmatch(a) for a in facts["owner_aliases"]) and
@@ -240,7 +243,7 @@ def _facts(kind, facts, candidate, now):
         for row in facts["case_results"]:
             _exact(row, {"case_id", "status", "owner_alias"}, "business_uat_case")
             _require(type(row["case_id"]) is str and re.fullmatch(r"[A-Z][A-Z0-9_-]{1,31}", row["case_id"]) and
-                     row["status"] in STATUSES and row["owner_alias"] in facts["owner_aliases"],
+                     _one_of(row["status"], STATUSES) and row["owner_alias"] in facts["owner_aliases"],
                      "INVALID_BUSINESS_UAT_CASE")
             _require(row["case_id"] not in case_ids, "DUPLICATE_UAT_CASE")
             case_ids.add(row["case_id"])
@@ -263,8 +266,8 @@ def _facts(kind, facts, candidate, now):
         for row in facts["case_results"]:
             _exact(row, {"case_id", "device_class", "status"}, "device_uat_case")
             _require(type(row["case_id"]) is str and re.fullmatch(r"[A-Z][A-Z0-9_-]{1,31}", row["case_id"]) and
-                     row["device_class"] in {"desktop", "iphone_safari", "iphone_pwa", "android_chrome"} and
-                     row["status"] in STATUSES, "INVALID_DEVICE_UAT_CASE")
+                     _one_of(row["device_class"], {"desktop", "iphone_safari", "iphone_pwa", "android_chrome"}) and
+                     _one_of(row["status"], STATUSES), "INVALID_DEVICE_UAT_CASE")
             _require(row["case_id"] not in case_ids, "DUPLICATE_DEVICE_CASE")
             case_ids.add(row["case_id"])
             if row["status"] != "pass":
@@ -278,7 +281,7 @@ def _facts(kind, facts, candidate, now):
         _require(all(_digest(facts[k]) for k in (
                     "backup_digest", "source_instance_digest", "restore_target_digest",
                     "history_digest", "data_digest")) and
-                 _positive(facts["restored_schema"]) and facts["validation_status"] in STATUSES and
+                 _positive(facts["restored_schema"]) and _one_of(facts["validation_status"], STATUSES) and
                  type(facts["isolated"]) is bool and _timestamp(facts["created_at"]) and
                  _timestamp(facts["restored_at"]) and facts["created_at"] <= facts["restored_at"],
                  "INVALID_BACKUP_RESTORE")
@@ -326,9 +329,15 @@ def validate_bundle(bundle, now):
         _require(match_ref is not None, "INVALID_EVIDENCE_REFERENCE")
         facts_findings = _facts(kind, record["facts"], candidate, now)
         findings = list(facts_findings)
+        if kind == "artifact_witness":
+            byte_claim = record["facts"]["byte_review_status"] == "claimed_pass"
+            if byte_claim != (record["source_class"] == "artifact_bytes_review_claim"):
+                findings.append("ARTIFACT_PROVENANCE_CLASS_MISMATCH")
         if not match:
             findings.append("CANDIDATE_BINDING_MISMATCH")
-        if now - record["observed_at"] > MAX_AGE_SECONDS[kind]:
+        if record["observed_at"] > now:
+            findings.append("EVIDENCE_FROM_FUTURE")
+        elif now - record["observed_at"] > MAX_AGE_SECONDS[kind]:
             findings.append("EVIDENCE_STALE")
         if kind == "github_run" and int(match_ref.group(1)) != record["facts"]["run_id"]:
             findings.append("GITHUB_RUN_REFERENCE_MISMATCH")
