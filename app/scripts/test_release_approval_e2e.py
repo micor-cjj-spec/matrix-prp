@@ -131,20 +131,26 @@ class OfflineReleaseE2E(unittest.TestCase):
 
     def test_high_risk_specialist_receipt_full_flow(self):
         high = fixture("HIGH_REVIEW")
-        store = self.reopen()
-        req = store.request(high,CHAT,1000)
-        card = render_card(self.reopen(),req["approval_id"],req["binding_digest"],high,1001)
-        self.assertEqual(card["risk"],"HIGH_REVIEW")
-        self.assertEqual(card["specialist_review"],high["specialist_review"])
-        approved = submit_decision(self.reopen(),{"approval_id":req["approval_id"],
-             "binding_digest":req["binding_digest"],"decision":"approve"},high,OWNER,1001)
-        env = {"approval_id":req["approval_id"],"binding_digest":req["binding_digest"],
-               "actor":ENVIRONMENT_REVIEWER,"status":"pass",
-               "ref":"synthetic:high-risk-env","at":1002}
-        done = self.reopen().consume(req["approval_id"],req["binding_digest"],high,env,CONTROLLER,1003)
-        self.assertEqual(approved["state"],"APPROVED")
-        self.assertEqual(done["state"],"SIMULATED_CONSUMED")
-        self.assertFalse(done["production_authorized"])
+        # Use a fresh isolated ledger so the setUp normal-risk candidate does not
+        # intentionally trigger the duplicate-candidate guard.
+        with tempfile.TemporaryDirectory(prefix="prp-p3-rehearsal-") as directory:
+            store = PersistentOfflineApprovals(directory)
+            req = store.request(high,CHAT,1000)
+            card = render_card(PersistentOfflineApprovals(directory),req["approval_id"],
+                               req["binding_digest"],high,1001)
+            self.assertEqual(card["risk"],"HIGH_REVIEW")
+            self.assertEqual(card["specialist_review"],high["specialist_review"])
+            approved = submit_decision(PersistentOfflineApprovals(directory),
+                {"approval_id":req["approval_id"],"binding_digest":req["binding_digest"],
+                 "decision":"approve"},high,OWNER,1001)
+            env = {"approval_id":req["approval_id"],"binding_digest":req["binding_digest"],
+                   "actor":ENVIRONMENT_REVIEWER,"status":"pass",
+                   "ref":"synthetic:high-risk-env","at":1002}
+            done = PersistentOfflineApprovals(directory).consume(
+                req["approval_id"],req["binding_digest"],high,env,CONTROLLER,1003)
+            self.assertEqual(approved["state"],"APPROVED")
+            self.assertEqual(done["state"],"SIMULATED_CONSUMED")
+            self.assertFalse(done["production_authorized"])
 
     def test_environment_reviewer_mismatch_stops_consumption(self):
         self.decide()
