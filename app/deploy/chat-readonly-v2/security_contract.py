@@ -123,6 +123,16 @@ class ReplayLedger:
     external monotonic witness; no host activation is authorized here.
     """
 
+    # Conservative offline candidate ceilings, not approved live settings.
+    # No automatic pruning: saturation closes admission rather than
+    # forgetting replay history.
+    MAX_DB_BYTES = 2 * 1024 * 1024
+    MAX_CLAIMS = 1024
+    BUSY_TIMEOUT_SECONDS = 0.5
+    CLAIM_BUDGET_SECONDS = 1.0
+    PROGRESS_OPS = 1000
+    MAX_VM_STEPS = 500_000
+
     META_SQL = ("CREATE TABLE ledger_meta (generation TEXT PRIMARY KEY NOT NULL)")
     CLAIMS_SQL = ("CREATE TABLE claims (job_id TEXT PRIMARY KEY, "
                   "nonce TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL)")
@@ -150,7 +160,8 @@ class ReplayLedger:
             self._check_parent()
             st = self.path.lstat()
             if (not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid()
-                    or stat.S_IMODE(st.st_mode) != 0o600 or st.st_nlink != 1):
+                    or stat.S_IMODE(st.st_mode) != 0o600 or st.st_nlink != 1
+                    or st.st_size > self.MAX_DB_BYTES):
                 raise RejectedRequest("state unavailable")
         except (OSError, ValueError) as exc:
             raise RejectedRequest("state unavailable") from exc
@@ -158,7 +169,7 @@ class ReplayLedger:
     def _connect(self):
         existing_only = "file:" + quote(str(self.path), safe="/") + "?mode=rw"
         return sqlite3.connect(existing_only, isolation_level=None,
-                               timeout=2, uri=True)
+                               timeout=self.BUSY_TIMEOUT_SECONDS, uri=True)
 
     @classmethod
     def initialize(cls, path, generation):
@@ -191,6 +202,14 @@ class ReplayLedger:
         finally:
             if connection is not None:
                 connection.close()
+
+    def _check_page_budget(self, connection):
+        pages = connection.execute("PRAGMA main.page_count").fetchone()[0]
+        page_size = connection.execute("PRAGMA main.page_size").fetchone()[0]
+        if (type(pages) is not int or type(page_size) is not int or
+                pages < 0 or page_size <= 0 or
+                pages * page_size > self.MAX_DB_BYTES):
+            raise RejectedRequest("state unavailable")
 
     def _verify_state(self, connection):
         # Exact schema and exactly one independently expected generation.
@@ -228,15 +247,37 @@ class ReplayLedger:
                 not 0 <= timestamp < expires_at <= (1 << 63) - 1):
             raise RejectedRequest("invalid request")
         connection = None
+        deadline = time.monotonic() + self.CLAIM_BUDGET_SECONDS
+        steps = 0
+
+        def budget_exhausted():
+            nonlocal steps
+            steps += self.PROGRESS_OPS
+            return int(steps >= self.MAX_VM_STEPS or
+                       time.monotonic() >= deadline)
+
+        def check_deadline():
+            if time.monotonic() >= deadline:
+                raise RejectedRequest("state unavailable")
+
         try:
             self._prepare_private_file()
+            check_deadline()
             connection = self._connect()
+            connection.set_progress_handler(budget_exhausted, self.PROGRESS_OPS)
             connection.execute("BEGIN IMMEDIATE")
+            check_deadline()
+            self._check_page_budget(connection)
             self._verify_state(connection)
+            if connection.execute("SELECT COUNT(*) FROM claims").fetchone()[0] >= self.MAX_CLAIMS:
+                raise RejectedRequest("state unavailable")
             connection.execute(
                 "INSERT INTO claims (job_id,nonce,expires_at) VALUES (?,?,?)",
                 (job_id, nonce, expires_at),
             )
+            # Do not commit growth beyond the allowed database page budget.
+            self._check_page_budget(connection)
+            check_deadline()
             connection.execute("COMMIT")
             return True
         except sqlite3.IntegrityError as exc:

@@ -349,6 +349,74 @@ class V2SecurityContractTests(unittest.TestCase):
                 ledger.claim(str(uuid.uuid4()), "a" * 32, NOW + 100, NOW)
             self.assertEqual(path.read_bytes(), bytes(raw))
 
+
+    def test_row_capacity_refuses_new_claim_without_pruning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+            with patch.object(ReplayLedger, "MAX_CLAIMS", 1):
+                with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                    ledger.claim(str(uuid.uuid4()), "b" * 32, NOW + 100, NOW)
+            with sqlite3.connect(path) as db:
+                self.assertEqual(db.execute("SELECT job_id, nonce FROM claims").fetchall(),
+                                 [(self.job, "a" * 32)])
+            with self.assertRaisesRegex(RejectedRequest, "already claimed"):
+                ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+
+    def test_oversized_file_rejected_before_sqlite_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            with patch.object(ReplayLedger, "MAX_DB_BYTES", path.stat().st_size - 1):
+                with patch.object(ledger, "_connect") as connect:
+                    with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                        ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+                    connect.assert_not_called()
+
+    def test_page_budget_refuses_even_if_file_size_precheck_passes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            with patch.object(ReplayLedger, "MAX_DB_BYTES", path.stat().st_size - 1):
+                with patch.object(ledger, "_prepare_private_file", return_value=None):
+                    with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                        ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+            with sqlite3.connect(path) as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM claims").fetchone(), (0,))
+
+    def test_post_insert_budget_failure_rolls_back_claim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            with patch.object(ledger, "_check_page_budget",
+                              side_effect=[None, RejectedRequest("state unavailable")]):
+                with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                    ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+            with sqlite3.connect(path) as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM claims").fetchone(), (0,))
+
+    def test_vm_instruction_budget_interrupts_without_claim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            with patch.object(ReplayLedger, "PROGRESS_OPS", 1), patch.object(
+                    ReplayLedger, "MAX_VM_STEPS", 1):
+                with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                    ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+            with sqlite3.connect(path) as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM claims").fetchone(), (0,))
+
+    def test_monotonic_budget_expiry_refuses_before_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            with patch("security_contract.time.monotonic", side_effect=[0, 2]):
+                with patch.object(ledger, "_connect") as connect:
+                    with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                        ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+                    connect.assert_not_called()
+
     def test_response_disk_fields_and_job_binding(self):
         data = {"totalBytes": 102400, "usedBytes": 71680,
                 "freeBytes": 20480, "usagePercent": 70.0}
