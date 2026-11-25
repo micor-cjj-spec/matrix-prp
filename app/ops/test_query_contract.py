@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from snapshot_contract import SnapshotStore, unavailable
 from test_snapshot_contract import NOW, sample
+from shared_snapshot import SharedSnapshotWriter, SharedSnapshotReader
 from query_contract import (TOOL, SCOPE, ISSUER, RESOURCE, CLIENT, SUBJECT, SCOPES,
                             Policy, VerifiedIdentity, CurrentGrant, QueryDenied,
                             query_status_fixture)
@@ -164,6 +165,22 @@ class QueryContractTests(unittest.TestCase):
 
     def test_no_unreviewed_store_adapter(self):
         self.denied(store=Mock())
+
+
+    def test_separate_uid_shared_group_reader_is_accepted(self):
+        import os
+        uid=os.geteuid()
+        gid=os.getegid()
+        directory=Path(self.tmp.name)/"shared"
+        directory.mkdir(mode=0o700)
+        directory.chmod(0o2750)
+        writer=SharedSnapshotWriter(directory,uid,gid)
+        writer.write(sample())
+        reader=SharedSnapshotReader(directory,uid,gid)
+        with patch("shared_snapshot.os.geteuid",return_value=uid+10000), patch("shared_snapshot.os.getegid",return_value=gid), patch("shared_snapshot.os.getgroups",return_value=[gid]):
+            value=self.query(store=reader)
+        self.assertEqual(value["status"],"fresh")
+        self.assertEqual(value["cpu"]["usagePercent"],30.0)
 
 class OfflineBoundaryTests(unittest.TestCase):
     def test_no_network_process_or_live_tool_registration_imports(self):

@@ -7,6 +7,7 @@ to an issuer, install a tool, or grant anyone live access.
 from dataclasses import dataclass
 import uuid
 from snapshot_contract import ENV, SnapshotStore, strict_json, utc, query_snapshot
+from shared_snapshot import SharedSnapshotReader
 
 TOOL = "prp_ops_status_get"
 SCOPE = "prp.ops.read"
@@ -108,7 +109,7 @@ def query_status_fixture(tool_name, raw_arguments, *, policy, identity_provider,
         require(type(tool_name) is str and tool_name == TOOL)
         args = strict_json(raw_arguments, MAX_ARGS)
         require(type(args) is dict and not args)
-        require(type(store) is SnapshotStore)
+        require(type(store) in (SnapshotStore, SharedSnapshotReader))
         require(callable(identity_provider) and callable(grant_provider)
                 and callable(trusted_clock))
         initial = instant(trusted_clock)
