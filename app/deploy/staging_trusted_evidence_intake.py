@@ -215,11 +215,16 @@ def _facts(kind, facts, candidate, now):
         if facts["production_targeted"]:
             findings.append("PRODUCTION_TARGET_REPORTED")
     elif kind == "read_smoke":
-        _exact(facts, {"cases_passed", "cases_total", "checks_passed", "checks_total",
+        _exact(facts, {"request_comment_id", "run_id", "run_attempt", "workflow_sha", "p36_binding_digest",
+                       "cases_passed", "cases_total", "checks_passed", "checks_total",
                        "existing_account_reused", "account_created", "ordinary_non_admin",
                        "credential_permissions_checked", "mcp_grant_rows", "login_method",
                        "live_verified", "deployment_authorized", "production_authorized"}, kind)
-        _require(all(_nonnegative(facts[k]) for k in (
+        _require(_positive(facts["request_comment_id"]) and type(facts["run_id"]) is str and
+                 re.fullmatch(r"[1-9][0-9]{0,19}", facts["run_id"]) is not None and
+                 _positive(facts["run_attempt"]) and _sha(facts["workflow_sha"]) and
+                 _digest(facts["p36_binding_digest"]) and
+                 all(_nonnegative(facts[k]) for k in (
                     "cases_passed", "cases_total", "checks_passed", "checks_total", "mcp_grant_rows")) and
                  facts["cases_total"] > 0 and facts["checks_total"] > 0 and
                  facts["cases_passed"] <= facts["cases_total"] and
@@ -355,6 +360,8 @@ def validate_bundle(bundle, now):
             findings.append("GITHUB_RUN_REFERENCE_MISMATCH")
         if kind == "artifact_witness" and int(match_ref.group(1)) != record["facts"]["artifact_id"]:
             findings.append("ARTIFACT_REFERENCE_MISMATCH")
+        if kind == "read_smoke" and int(match_ref.group(1)) != record["facts"]["request_comment_id"]:
+            findings.append("SMOKE_REQUEST_REFERENCE_MISMATCH")
         if findings:
             all_findings.extend(kind + ":" + item for item in findings)
         output.append({
