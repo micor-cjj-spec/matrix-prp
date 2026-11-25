@@ -195,11 +195,25 @@ class ReplayLedger:
     def _verify_state(self, connection):
         # Exact schema and exactly one independently expected generation.
         # Reject an empty/replaced/legacy database without repairing it.
-        tables = connection.execute(
-            "SELECT name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+        # Enumerate every schema object, including SQLite autoindexes.
+        # Never use LIKE sqlite_%: underscore is a wildcard, not literal.
+        expected = {
+            ("table", "ledger_meta", "ledger_meta", self.META_SQL),
+            ("table", "claims", "claims", self.CLAIMS_SQL),
+            ("index", "sqlite_autoindex_ledger_meta_1", "ledger_meta", None),
+            ("index", "sqlite_autoindex_claims_1", "claims", None),
+            ("index", "sqlite_autoindex_claims_2", "claims", None),
+        }
+        objects = connection.execute(
+            "SELECT type, name, tbl_name, sql FROM main.sqlite_schema"
         ).fetchall()
-        if dict(tables) != {"ledger_meta": self.META_SQL,
-                            "claims": self.CLAIMS_SQL} or len(tables) != 2:
+        if len(objects) != len(expected) or set(objects) != expected:
+            raise RejectedRequest("state unavailable")
+        # A syntactically valid database can have missing unique-index
+        # entries. INSERT alone need not detect them. Check the entire
+        # database inside the same BEGIN IMMEDIATE transaction as claim;
+        # quick_check does not verify table/index consistency.
+        if connection.execute("PRAGMA main.integrity_check(1)").fetchall() != [("ok",)]:
             raise RejectedRequest("state unavailable")
         if connection.execute("SELECT generation FROM ledger_meta LIMIT 2"
                               ).fetchall() != [(self.generation,)]:

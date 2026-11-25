@@ -286,6 +286,69 @@ class V2SecurityContractTests(unittest.TestCase):
                 ReplayLedger(path, GENERATION).claim(self.job, "a" * 32, NOW + 100, NOW)
             self.assertEqual(path.read_bytes(), b"not a sqlite database")
 
+
+    def test_unexpected_trigger_rejected_without_deleting_claims(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+            with sqlite3.connect(path) as db:
+                db.execute("CREATE TRIGGER sqliteX AFTER INSERT ON claims "
+                           "BEGIN DELETE FROM claims; END")
+            with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                ledger.claim(str(uuid.uuid4()), "b" * 32, NOW + 100, NOW)
+            with sqlite3.connect(path) as db:
+                self.assertEqual(db.execute("SELECT job_id, nonce FROM claims").fetchall(),
+                                 [(self.job, "a" * 32)])
+
+    def test_extra_index_and_view_rejected(self):
+        for statement in (
+            "CREATE INDEX extra_idx ON claims(expires_at)",
+            "CREATE VIEW extra_view AS SELECT job_id FROM claims",
+            "CREATE TABLE extra_table (v TEXT)",
+        ):
+            with self.subTest(statement=statement), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "ledger.sqlite"
+                ledger = ReplayLedger.initialize(path, GENERATION)
+                with sqlite3.connect(path) as db:
+                    db.execute(statement)
+                with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                    ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+
+    def test_valid_sqlite_file_with_corrupt_nonce_index_refuses_replay(self):
+        # Only a disposable synthetic DB; retain table/schema/generation
+        # but damage the nonce unique index to simulate missing entries.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite"
+            ledger = ReplayLedger.initialize(path, GENERATION)
+            ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
+            db = sqlite3.connect(path)
+            try:
+                page_size = db.execute("PRAGMA page_size").fetchone()[0]
+                root_page = db.execute(
+                    "SELECT rootpage FROM sqlite_schema "
+                    "WHERE name='sqlite_autoindex_claims_2'"
+                ).fetchone()[0]
+            finally:
+                db.close()
+            raw = bytearray(path.read_bytes())
+            offset = (root_page - 1) * page_size
+            self.assertEqual(raw[offset], 0x0a)  # index leaf
+            self.assertEqual(int.from_bytes(raw[offset+3:offset+5], "big"), 1)
+            raw[offset+3:offset+5] = bytes(2)
+            path.write_bytes(raw)
+            db = sqlite3.connect(path)
+            try:
+                self.assertNotEqual(db.execute("PRAGMA integrity_check").fetchall(),
+                                    [("ok",)])
+                self.assertEqual(db.execute("SELECT job_id FROM claims").fetchall(),
+                                 [(self.job,)])
+            finally:
+                db.close()
+            with self.assertRaisesRegex(RejectedRequest, "state unavailable"):
+                ledger.claim(str(uuid.uuid4()), "a" * 32, NOW + 100, NOW)
+            self.assertEqual(path.read_bytes(), bytes(raw))
+
     def test_response_disk_fields_and_job_binding(self):
         data = {"totalBytes": 102400, "usedBytes": 71680,
                 "freeBytes": 20480, "usagePercent": 70.0}
