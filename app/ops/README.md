@@ -9,3 +9,8 @@
 - systemd service/timer 仅模板，均要求 root-owned `/etc/matrix-prp-ops/ENABLE_LIVE_COLLECTION` 精确内容 `enabled=1\\n`；timer 未启用。模板未安装、启动或在目标主机验证。代码 main 同样检查 marker。
 - M03 synthetic issuer/resource 为 .invalid；无真实 JWT/JWKS/OAuth/MCP listener/grant service。无采集调度以外的远程调用。
 - M04 静态及临时目录测试不证明真实系统用户、目标机 systemd sandbox、时钟或部署可用性。M05/06 未完成/未授权。#414 继续冻结；不接入主机、不部署、不合并、不改生产锁。
+
+## D-M05 Offline MCP surface contract
+- `mcp_adapter.py` describes exactly one fixed tool, `prp_ops_status_get`, with empty-object input schema and MCP readOnly/destructive/idempotent/openWorld annotations. `tools_call` accepts only the exact tool and empty arguments, discards request metadata, and delegates to the M03 identity/grant checks and M04 read-only reader. Errors are uniform. Tool annotations are descriptive, never authorization.
+- `ServerVerifiedContext` is a future server-side object; current tests inject synthetic providers only. There is no JSON-RPC server, HTTP listener, OAuth middleware, JWT/JWKS verifier, grant database, MCP app registration or public route. This module must not be mistaken for a working ChatGPT connector.
+- M05 synthetic tests exercise tool discovery, empty calls, parameter spoofing, metadata spoofing, disabled policy, revoked grant, stale snapshot and output minimization. Live transport remains blocked on independent OAuth and M06 approval.
