@@ -85,6 +85,8 @@ def runtime_cutover():
 
 def read_smoke():
     return record("smoke", "read_smoke", "operator_receipt_claim", "issue-comment:1002", {
+        "request_comment_id": 1002, "run_id": "1006", "run_attempt": 1,
+        "workflow_sha": "d" * 40, "p36_binding_digest": "sha256:" + "b" * 64,
         "cases_passed": 9, "cases_total": 9, "checks_passed": 11, "checks_total": 11,
         "existing_account_reused": True, "account_created": False, "ordinary_non_admin": True,
         "credential_permissions_checked": True, "mcp_grant_rows": 0, "login_method": "password_login",
@@ -305,6 +307,12 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
         self.assertIn("read_smoke:UNTRUSTED_POSITIVE_AUTHORIZATION", result["findings"])
         self.assertFalse(result["live_verified"])
 
+    def test_read_smoke_comment_reference_must_match_receipt(self):
+        data = bundle()
+        data["evidence"][3]["facts"]["request_comment_id"] = 9999
+        result = validate_bundle(data, NOW)
+        self.assertIn("read_smoke:SMOKE_REQUEST_REFERENCE_MISMATCH", result["findings"])
+
     def test_synthetic_write_requires_cleanup_claim(self):
         data = bundle()
         data["evidence"][4]["facts"]["cleanup_status"] = "pending"
@@ -345,6 +353,8 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
         )
         self.assertEqual(evidence["kind"], "read_smoke")
         self.assertEqual(evidence["source_class"], "p36_projection_claim")
+        self.assertEqual(evidence["facts"]["run_id"], "2002")
+        self.assertEqual(evidence["facts"]["request_comment_id"], 2001)
         data = bundle()
         data["evidence"][3] = evidence
         result = validate_bundle(data, NOW)
