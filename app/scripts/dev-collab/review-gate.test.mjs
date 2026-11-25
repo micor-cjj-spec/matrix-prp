@@ -355,3 +355,13 @@ test('redacted Ruleset requires fresh request-bound owner attestation and visibl
  assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,note,binding,workflowRun,Date.parse(observedAt)+700000),
   e=>e.code==='OWNER_RULESET_ATTESTATION_EXPIRED')
 })
+
+test('owner attestation task binding is action-specific: accept requires a task and close forbids one',()=>{
+ const rule=integrationPolicyFixture(),base={requestId:'11111111-1111-4111-8111-111111111111',
+  requirementId:'REQ-20261031-001',prNumber:446,headSha:'a'.repeat(40),
+  stateVersion:19,mainSha:'b'.repeat(40)}
+ assert.throws(()=>buildOwnerRulesetAttestation(rule,{...base,action:'accept',taskId:null}),
+  e=>e.code==='OWNER_RULESET_ATTESTATION_BINDING')
+ assert.throws(()=>buildOwnerRulesetAttestation(rule,{...base,action:'close',taskId:'T-007'}),
+  e=>e.code==='OWNER_RULESET_ATTESTATION_BINDING')
+})

@@ -131,7 +131,7 @@ export function buildOwnerRulesetAttestation(rule,binding){
   check(observedAt,'OWNER_RULESET_ATTESTATION_TIME')
   check(UUID.test(binding.requestId)&&['accept','close'].includes(binding.action)&&
     binding.requirementId==='REQ-20261031-001'&&
-    (binding.taskId===null||TASK_ID.test(binding.taskId))&&
+    (binding.action==='accept'?TASK_ID.test(binding.taskId):binding.taskId===null)&&
     Number.isSafeInteger(binding.prNumber)&&binding.prNumber>0&&
     SHA.test(binding.headSha)&&Number.isSafeInteger(binding.stateVersion)&&binding.stateVersion>=1&&
     SHA.test(binding.mainSha),'OWNER_RULESET_ATTESTATION_BINDING')
@@ -165,7 +165,7 @@ export function verifyOwnerAttestedIntegrationPolicy(requirementId,rule,note,bin
     keys.every(k=>Object.hasOwn(a,k))&&JSON.stringify(a)===raw,'OWNER_RULESET_ATTESTATION_FIELDS')
   check(a.schema_version===1&&UUID.test(a.request_id)&&
     ['accept','close'].includes(a.action)&&a.requirement_id===requirementId&&
-    (a.task_id===null||TASK_ID.test(a.task_id))&&Number.isSafeInteger(a.pr_number)&&a.pr_number>0&&
+    (a.action==='accept'?TASK_ID.test(a.task_id):a.task_id===null)&&Number.isSafeInteger(a.pr_number)&&a.pr_number>0&&
     SHA.test(a.head_sha)&&Number.isSafeInteger(a.state_version)&&a.state_version>=1&&
     SHA.test(a.expected_main_sha)&&a.ruleset_id===INTEGRATION_POLICY.id&&
     normalizeTime(a.rule_updated_at)===normalizeTime(rule.updated_at)&&
