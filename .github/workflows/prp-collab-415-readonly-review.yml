@@ -14,17 +14,29 @@ jobs:
       github.repository == 'micor-cjj-spec/matrix-prp' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'review/collab-415-live-read-probe-20261125' &&
-      github.event.pull_request.base.sha == '66236a1c6cd0d3bbf6c2455f11f04ba48ccd3438'
+      github.event.pull_request.base.sha == 'cd6101ac9b8fc46976e40cb95288e233621078c2'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 66236a1c6cd0d3bbf6c2455f11f04ba48ccd3438
+          ref: cd6101ac9b8fc46976e40cb95288e233621078c2
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
+      - name: Exact isolated main baseline contract and publication hold
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'cd6101ac9b8fc46976e40cb95288e233621078c2'
+          node --test app/scripts/dev-collab/*.test.mjs
+          bash -n app/scripts/dev-collab/state-transaction.sh
+          git -c http.extraheader= fetch --no-tags --depth=1 origin dc6fc41824e28c49610fba6d9858629ab0b8a34a
+          git diff --check dc6fc41824e28c49610fba6d9858629ab0b8a34a HEAD
+          python3 app/deploy/release_control.py
+          grep -Fx 'publish_allowed=false' "$GITHUB_OUTPUT"
+          echo 'MAIN_BASELINE_CONTRACT_PASS_AND_PUBLICATION_HELD'
       - name: Packaged historical evidence collector (GET only)
         env:
           GH_TOKEN: ${{ github.token }}

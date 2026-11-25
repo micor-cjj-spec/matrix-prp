@@ -44,7 +44,7 @@ function setup(){
  git(seed,'remote','add','origin',origin)
  const dest=join(seed,'app/scripts/dev-collab');mkdirSync(dest,{recursive:true})
  for(const n of ['core.mjs','task-scope-policy.mjs','bootstrap-audit.mjs','state-rule-policy.mjs',
-   'migration-guard.mjs','migration-transaction.sh','issue-ingress.mjs','issue-migrate.mjs'])
+   'migration-guard.mjs','migration-transaction.sh','issue-ingress.mjs','issue-migrate.mjs','ruleset-415-attestation.mjs'])
    cpSync(join(source,n),join(dest,n))
  mkdirSync(join(seed,'app/deploy'),{recursive:true})
  writeFileSync(join(seed,'app/deploy/publication-hold.json'),
