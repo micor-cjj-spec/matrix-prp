@@ -59,20 +59,6 @@ jobs:
         run: |
           chmod +x mvnw
           ./mvnw -B test
-      - name: Package backend after successful tests (isolated #412 rehearsal)
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 412 && github.event.pull_request.head.repo.full_name == github.repository
-        working-directory: app/backend
-        run: ./mvnw -B -DskipTests package
-      - name: Stage tested backend output
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 412 && github.event.pull_request.head.repo.full_name == github.repository
-        run: python3 app/scripts/ci_build_output.py --kind backend --output "$RUNNER_TEMP/prp-ci-rehearsal-backend"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 412 && github.event.pull_request.head.repo.full_name == github.repository
-        with:
-          name: prp-ci-rehearsal-backend
-          path: ${{ runner.temp }}/prp-ci-rehearsal-backend
-          if-no-files-found: error
-          retention-days: 3
 
   web-build:
     runs-on: ubuntu-latest
@@ -105,16 +91,6 @@ jobs:
           VITE_APP_BASE=/prp/ npm run build
           node scripts/verify-deploy-base.mjs /prp/
           node scripts/verify-production-mcp-binding.mjs
-      - name: Stage final production-path web output (isolated #412 rehearsal)
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 412 && github.event.pull_request.head.repo.full_name == github.repository
-        run: python3 app/scripts/ci_build_output.py --kind web --output "$RUNNER_TEMP/prp-ci-rehearsal-web"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 412 && github.event.pull_request.head.repo.full_name == github.repository
-        with:
-          name: prp-ci-rehearsal-web
-          path: ${{ runner.temp }}/prp-ci-rehearsal-web
-          if-no-files-found: error
-          retention-days: 3
 
   mobile-build:
     runs-on: ubuntu-latest
@@ -196,10 +172,6 @@ jobs:
         run: python3 -m unittest discover -s app/scripts -p test_release_evidence.py -v
       - name: Validate offline release artifact review contract
         run: python3 -m unittest discover -s app/scripts -p test_release_artifact_review.py -v
-      - name: Validate isolated build output staging contract
-        run: python3 -m unittest discover -s app/scripts -p test_ci_build_output.py -v
-      - name: Validate isolated output assembly contract
-        run: python3 -m unittest discover -s app/scripts -p test_ci_build_assemble.py -v
       - name: Validate OAuth authorization metadata preflight fixtures
         run: python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_*.py' -v
       - name: Validate isolated MCP staging configuration guards
@@ -489,34 +461,3 @@ jobs:
     uses: ./.github/workflows/mcp-production-health-auth.yml
     permissions:
       contents: read
-
-
-  # Temporary PR #412 experiment. REMOVE before any integration into dev/main.
-  # A skipped job would violate the existing all-jobs-success main precheck.
-  ci-rehearsal-assemble:
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 412 && github.event.pull_request.head.repo.full_name == github.repository
-    needs: [backend-tests, web-build, deployment-gate-tests, db-migration-integration, video-db-integration]
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: prp-ci-rehearsal-backend
-          path: ${{ runner.temp }}/prp-ci-input-backend
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: prp-ci-rehearsal-web
-          path: ${{ runner.temp }}/prp-ci-input-web
-      - name: Assemble same-attempt outputs with existing packager (CI ONLY)
-        run: python3 app/scripts/ci_build_assemble.py --output "$RUNNER_TEMP/prp-ci-rehearsal-assembled"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: prp-ci-rehearsal-assembled
-          path: ${{ runner.temp }}/prp-ci-rehearsal-assembled
-          if-no-files-found: error
-          retention-days: 3
