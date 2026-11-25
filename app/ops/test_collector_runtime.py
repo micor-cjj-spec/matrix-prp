@@ -20,10 +20,17 @@ class CollectorTests(unittest.TestCase):
         import stat
         payload=b"cpu 100 0 20 1000 20 0 0 0 5 0\ncpu0 1 2 3 4 5 6 7 8 9 10\n"
         with patch("collector_runtime.os.open",return_value=42), \
-             patch("collector_runtime.os.fstat",return_value=SimpleNamespace(st_mode=stat.S_IFREG)), \
+             patch("collector_runtime.os.fstat",return_value=SimpleNamespace(st_mode=stat.S_IFREG,st_uid=0,st_gid=0)), \
              patch("collector_runtime.os.read",side_effect=[payload,b""]), \
              patch("collector_runtime.os.close"):
             self.assertEqual(collector.read_fixed_proc("stat"),b"cpu 100 0 20 1000 20 0 0 0 5 0\n")
+
+
+    def test_proc_reader_rejects_non_root_owned_proc_source(self):
+        import stat
+        with patch("collector_runtime.os.open",return_value=42), patch("collector_runtime.os.fstat",return_value=SimpleNamespace(st_mode=stat.S_IFREG,st_uid=1000,st_gid=0)), patch("collector_runtime.os.close"):
+            with self.assertRaises(OSError):
+                collector.read_fixed_proc("meminfo")
 
     def test_collect_once_uses_two_cpu_samples_and_fixed_disk_adapter(self):
         samples=iter([BEFORE,AFTER,MEM])

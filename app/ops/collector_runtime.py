@@ -47,7 +47,7 @@ def live_collection_enabled():
     try:
         directory_fd = _open_directory(ENABLE_DIRECTORY)
         directory = os.fstat(directory_fd)
-        if directory.st_uid != 0 or stat.S_IMODE(directory.st_mode) != 0o755:
+        if directory.st_uid != 0 or directory.st_gid != 0 or stat.S_IMODE(directory.st_mode) != 0o755:
             return False
         marker_fd = os.open(ENABLE_MARKER, os.O_RDONLY | os.O_NOFOLLOW |
                             os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=directory_fd)
@@ -73,7 +73,8 @@ def read_fixed_proc(name):
     limit = PROC_LIMITS[name]
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        source = os.fstat(fd)
+        if (not stat.S_ISREG(source.st_mode) or source.st_uid != 0 or source.st_gid != 0):
             raise OSError(errno.EINVAL, "unexpected proc source")
         chunks = bytearray()
         while len(chunks) <= limit:
@@ -132,12 +133,12 @@ def acquire_single_writer_lock():
         directory_fd = _open_directory(RUNTIME_DIRECTORY)
         directory = os.fstat(directory_fd)
         uid = os.geteuid()
-        if (directory.st_uid != uid or stat.S_IMODE(directory.st_mode) != 0o700):
+        if (directory.st_uid != uid or directory.st_gid != os.getegid() or stat.S_IMODE(directory.st_mode) != 0o700):
             raise OSError(errno.EPERM, "runtime directory ownership mismatch")
         fd = os.open(LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW |
                      os.O_CLOEXEC, 0o600, dir_fd=directory_fd)
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != uid or
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_gid != os.getegid() or
                 stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
             os.close(fd)
             raise OSError(errno.EPERM, "lock file ownership mismatch")

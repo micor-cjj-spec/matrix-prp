@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from snapshot_contract import SnapshotStore, unavailable
-from test_snapshot_contract import NOW, sample
+from test_snapshot_contract import NOW, sample, BEFORE, AFTER, MEM
+from collector_runtime import collect_once
 from shared_snapshot import SharedSnapshotWriter, SharedSnapshotReader
 from query_contract import (TOOL, SCOPE, ISSUER, RESOURCE, CLIENT, SUBJECT, SCOPES,
                             Policy, VerifiedIdentity, CurrentGrant, QueryDenied,
@@ -181,6 +182,29 @@ class QueryContractTests(unittest.TestCase):
             value=self.query(store=reader)
         self.assertEqual(value["status"],"fresh")
         self.assertEqual(value["cpu"]["usagePercent"],30.0)
+
+
+    def test_collector_to_shared_snapshot_to_authorized_query(self):
+        import os
+        from types import SimpleNamespace
+        uid=os.geteuid()
+        gid=os.getegid()
+        directory=Path(self.tmp.name)/"collector-shared"
+        directory.mkdir(mode=0o700)
+        directory.chmod(0o2750)
+        writer=SharedSnapshotWriter(directory,uid,gid)
+        samples=iter([BEFORE,AFTER,MEM])
+        collect_once(proc_reader=lambda name: next(samples),
+            disk_reader=lambda:SimpleNamespace(f_frsize=1024,f_blocks=100,f_bfree=40,f_bavail=30),
+            sleeper=lambda seconds:None,wall_clock=lambda:NOW,writer=writer)
+        reader=SharedSnapshotReader(directory,uid,gid)
+        with patch("shared_snapshot.os.geteuid",return_value=uid+10000), patch("shared_snapshot.os.getegid",return_value=gid), patch("shared_snapshot.os.getgroups",return_value=[gid]):
+            result=self.query(store=reader)
+        self.assertEqual(result["status"],"fresh")
+        self.assertEqual(result["cpu"]["usagePercent"],30.0)
+        self.assertEqual(result["memory"]["usagePercent"],50.0)
+        self.assertEqual(result["disk"]["usagePercent"],60.0)
+        self.assertEqual(result["application"],{"backend":"unknown","readiness":"unknown"})
 
 class OfflineBoundaryTests(unittest.TestCase):
     def test_no_network_process_or_live_tool_registration_imports(self):
