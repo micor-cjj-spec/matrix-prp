@@ -1,14 +1,11 @@
 # PRP 预授权状态快照 D-P0（离线）
-关联 #309 ADR-V2-03。D-M01/M02：合成输入固定指标投影、严格 schema、临时目录原子快照、时效判定。没有定时任务、真实主机采集、网络请求、MCP server/工具注册或 OAuth 变更。CI PR-only contents: read，临时文件均在测试中创建。旧 #414 保持冻结。
-- CPU 聚合 /proc/stat 八字段差值，guest 不重复计入，idle+iowait 为非 busy；首轮/计数回退 unknown。尚需真实启动标识、采样间隔、采集超时与隔离证明。
-- 内存 MemAvailable；根盘 freeBytes 为非 root 可用，不含保留块；健康 5xx 为 probe_error，不推断主机 down；readiness 固定 unknown。不回传原始 JSON、路径、配置、版本或凭据。
-- 单环境 staging 合成契约；120 秒到期（含边界），未来容差 5 秒，损坏/缺失/不可信则 unavailable，stale 丢弃指标。fresh 仅代表快照时效，并非服务正常。
-- 存储原型只允许受信任的绝对目录、逐级 no-follow、同 UID 0700/0600，固定 status.json、原子替换及 fsync。临时目录的同 UID 测试不证明真实 writer/reader 账户隔离或不可篡改；M04 应设计独立所有权和 reader 只读挂载。未实现真实采集调度、资源限制、时钟保障或实际部署。不能用当前 class 直接开放 API。
-- D-M03 仍需独立 OAuth resource/audience、固定 scope、owner/grant 与撤销校验，默认关闭，禁止 legacy OAuth-off 路径。禁止注册或暴露真实工具。D-M04/05/06 未验收；不接入主机、不部署、不合并、不改现有业务与发布锁。
 
-Atomic replacement readers validate nlink==1; an opened old inode unlinked before fstat is conservatively unavailable, not partially returned. O_EXCL collision never cleans up a file the invocation did not create. Actual reader/writer isolation and scheduler single-writer enforcement remain M04.
+关联 #309 ADR-V2-03。D-M01/M02：合成输入固定指标投影、严格 schema、临时原子快照、时效判定。D-M03：零参数查询与合成 identity/grant 授权契约。D-M04：固定源采集运行时、单实例锁、分离 UID/GID 快照读写、systemd disabled-by-default 模板。没有 MCP 网络服务或真实 OAuth adapter。
 
-## D-M03 零参数查询与独立授权（合成契约）
-- query_contract.py 固定 prp_ops_status_get，仅接受空 JSON object；拒绝其他工具、环境/路径/URL/身份/审批字段及非规范参数。Policy 默认 OFF。synthetic issuer/resource 使用 .invalid，不配置真实目标。要求外部受信 adapter 提供已独立验证的 OAuth identity；精确 issuer、audience、client、owner、唯一 prp.ops.read scope、grant id、时效；独立 current grant 绑定同一主体、客户端、resource、staging、scope、有效时间与启用状态。无 OAuth/旧 JWT/业务 scope fallback。
-- 只在授权通过后读固定快照一次；读取后再次从权威 grant provider 获取状态、校验不可变 grant 与独立时间（拒绝回退/过期），最后重新按新时间判断 freshness。撤销、provider 故障、未知授权、超时效均统一拒绝，不返回敏感异常。无需逐次人类审批或旧 #414 的执行签名；无读取触发采集/写入/刷新。多会话合成测试复用同一 grant，每次仍查询有效授权。
-- 当前无真正 JWT/JWKS/mTLS/OAuth issuer、独立持久 grant provider、真实注册/transport/网络/监听、审计、限速或跨请求撤销/最后检查到响应交付的原子边界。该代码只可合成运行；真实接口需 M04/M05/M06 独立设计及授权。静态 import/call 守卫只检测明显意外接入，不是沙箱。
+- CPU 聚合 /proc/stat 八字段差值，guest 不重复计入，idle+iowait 为非 busy；首轮/计数回退 unknown。内存 MemAvailable；根盘 freeBytes 为非 root 可用，不含保留块。
+- 120 秒快照 TTL、未来容差 5 秒；损坏/缺失/不可信则 unavailable，stale 丢弃指标。fresh 仅代表快照时效，不代表主机或应用健康。
+- 真实采集仅允许固定 /proc/stat、/proc/meminfo 和 statvfs("/")，CPU 两次采样间隔 1 秒；无网络、健康 HTTP 探针、Shell、DB、Docker 或用户指定路径。应用 readiness 保持 unknown。
+- writer `prp-ops-collector`，reader `prp-ops-mcp`，共享组 `prp-ops-snapshot`；目录 writer:group 2750，快照 writer:group 0640。reader 必须是不同 UID 且仅通过共享组读。共享读写边界由独立类实现。
+- systemd service/timer 仅模板，均要求 root-owned `/etc/matrix-prp-ops/ENABLE_LIVE_COLLECTION` 精确内容 `enabled=1\\n`；timer 未启用。模板未安装、启动或在目标主机验证。代码 main 同样检查 marker。
+- M03 synthetic issuer/resource 为 .invalid；无真实 JWT/JWKS/OAuth/MCP listener/grant service。无采集调度以外的远程调用。
+- M04 静态及临时目录测试不证明真实系统用户、目标机 systemd sandbox、时钟或部署可用性。M05/06 未完成/未授权。#414 继续冻结；不接入主机、不部署、不合并、不改生产锁。

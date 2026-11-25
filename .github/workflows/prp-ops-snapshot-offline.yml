@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'app/ops/**'
+      - 'app/deploy/systemd/prp-ops-collector.*'
       - '.github/workflows/prp-ops-snapshot-offline.yml'
 permissions:
   contents: read
@@ -14,5 +15,5 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Synthetic projections and temporary snapshot files only
+      - name: Synthetic projections, identity separation and disabled service contracts only
         run: python3 -m unittest discover -s app/ops -p 'test_*.py' -v
