@@ -9,6 +9,98 @@ export const REQUIRED_CHECKS=Object.freeze([
 function check(ok,code){ if(!ok) throw new CollabError(code) }
 function exactIso(s){ return typeof s==='string' && Number.isFinite(Date.parse(s)) }
 
+// Full owner-observed policy for the existing integration ref. A drift or a
+// redacted bypass list is a blocker, never grounds to request administration write.
+const INTEGRATION_POLICY={
+  "id": 28050327,
+  "name": "protect-collab-integration",
+  "target": "branch",
+  "source_type": "Repository",
+  "source": "micor-cjj-spec/matrix-prp",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "refs/heads/integrate/REQ-20261031-001"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "require_extra_approval_for_unattributed_changes": false,
+        "allowed_merge_methods": [
+          "merge"
+        ]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {
+            "context": "backend-tests",
+            "integration_id": 15368
+          },
+          {
+            "context": "web-build",
+            "integration_id": 15368
+          },
+          {
+            "context": "mobile-build",
+            "integration_id": 15368
+          },
+          {
+            "context": "db-migration-integration",
+            "integration_id": 15368
+          },
+          {
+            "context": "video-db-integration",
+            "integration_id": 15368
+          },
+          {
+            "context": "impact-report",
+            "integration_id": 15368
+          },
+          {
+            "context": "dev-collab-contract",
+            "integration_id": 15368
+          }
+        ]
+      }
+    }
+  ],
+  "node_id": "RRS_lACqUmVwb3NpdG9yec5LNo7jzgGsA5c",
+  "created_at": "2026-11-25T05:47:06.929Z",
+  "updated_at": "2026-11-25T05:47:07.076Z",
+  "bypass_actors": []
+}
+const canonical=v=>Array.isArray(v)?'['+v.map(canonical).join(',')+']':v&&typeof v==='object'?'{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}':JSON.stringify(v)
+export function verifyIntegrationPolicy(requirementId,rule){
+  check(requirementId==='REQ-20261031-001','INTEGRATION_POLICY_NOT_REGISTERED')
+  check(rule&&Array.isArray(rule.bypass_actors)&&rule.bypass_actors.length===0 && rule.current_user_can_bypass==='never','INTEGRATION_POLICY_BYPASS_UNVERIFIED')
+  check(Object.keys(rule).every(k=>Object.hasOwn(INTEGRATION_POLICY,k)||k==='current_user_can_bypass'||k==='_links'),'INTEGRATION_POLICY_UNKNOWN_FIELDS')
+  const actual=Object.fromEntries(Object.keys(INTEGRATION_POLICY).map(k=>[k,k.endsWith('_at')&&exactIso(rule[k])?new Date(rule[k]).toISOString():rule[k]]))
+  check(canonical(actual)===canonical(INTEGRATION_POLICY),'INTEGRATION_POLICY_DRIFT')
+  return Object.freeze({verified:true,rule_id:rule.id,revision:actual.updated_at})
+}
+
 /**
  * Evidence verification is deliberately read-only. It cannot transition a task or
  * authorize deployment. Future acceptance mutations must re-fetch the evidence
@@ -110,21 +202,54 @@ export function verifyRequirementClose(snapshot, acceptance){
 }
 
 
+/**
+ * Final close is allowed only after a same-repo dev -> main PR has merged.
+ * Every accepted task must already have landed in the protected integration
+ * history, which must be an ancestor of the exact tested dev PR head.
+ * Read-only proof; this function NEVER writes the state or grants release.
+ */
 export function verifyIntegrationRelease(snapshot,command,proof){
   validateSnapshot(snapshot)
   check(snapshot.tasks.every(t=>t.status==='DONE'),'INCOMPLETE_REQUIREMENT')
   check(Number.isInteger(command.pr_number) && SHA.test(command.head_sha),'MISSING_INTEGRATION_PR')
-  const {pr,branch,comparison,checks}=proof ?? {}
-  check(pr?.number===command.pr_number&&pr?.head?.sha===command.head_sha,'WRONG_PR_OR_HEAD')
-  check(pr?.head?.ref==='integrate/'+snapshot.requirement_id &&
-        pr?.head?.repo?.full_name==='micor-cjj-spec/matrix-prp' &&
-        pr?.base?.ref==='main'&&pr?.base?.repo?.full_name==='micor-cjj-spec/matrix-prp',
+  const {pr,branch,comparison,checks,integrationBranch,integrationComparison,
+    mainAncestryComparison}=proof ?? {}
+  const repo='micor-cjj-spec/matrix-prp'
+  const integration='integrate/'+snapshot.requirement_id
+  check(pr?.number===command.pr_number && pr?.head?.sha===command.head_sha,'WRONG_PR_OR_HEAD')
+  check(pr?.head?.ref==='dev' && pr?.head?.repo?.full_name===repo &&
+        pr?.base?.ref==='main' && pr?.base?.repo?.full_name===repo,
         'WRONG_MAIN_RELEASE_TARGET')
-  check(pr?.merged===true&&exactIso(pr?.merged_at)&&SHA.test(pr?.merge_commit_sha),'PR_NOT_MERGED')
-  check(branch?.name==='main'&&branch?.protected===true&&SHA.test(branch?.commit?.sha),'MAIN_NOT_PROTECTED')
-  check((comparison?.status==='ahead'||comparison?.status==='identical')&&
-    comparison.behind_by===0&&comparison.base_commit?.sha===pr.merge_commit_sha&&
-    comparison.merge_base_commit?.sha===pr.merge_commit_sha,'MERGE_NOT_ON_BASE')
+  check(pr?.merged===true && exactIso(pr?.merged_at) &&
+        SHA.test(pr?.merge_commit_sha),'PR_NOT_MERGED')
+  check(branch?.name==='main' && branch?.protected===true &&
+        SHA.test(branch?.commit?.sha),'MAIN_NOT_PROTECTED')
+  check((comparison?.status==='ahead'||comparison?.status==='identical') &&
+        comparison.behind_by===0 &&
+        comparison.base_commit?.sha===pr.merge_commit_sha &&
+        comparison.merge_base_commit?.sha===pr.merge_commit_sha &&
+        Array.isArray(comparison.commits),'MERGE_NOT_ON_BASE')
+  // A squash or rebased PR can be marked merged without preserving the tested
+  // dev commit in main Git ancestry. Require the exact dev HEAD as ancestor.
+  check((mainAncestryComparison?.status==='ahead' ||
+         mainAncestryComparison?.status==='identical') &&
+        mainAncestryComparison.behind_by===0 &&
+        mainAncestryComparison.base_commit?.sha===command.head_sha &&
+        mainAncestryComparison.merge_base_commit?.sha===command.head_sha &&
+        Array.isArray(mainAncestryComparison.commits),
+        'DEV_HEAD_NOT_IN_MAIN_ANCESTRY')
+  check(integrationBranch?.name===integration &&
+        integrationBranch?.protected===true &&
+        SHA.test(integrationBranch?.commit?.sha),'INTEGRATION_BRANCH_NOT_PROTECTED')
+  check((integrationComparison?.status==='ahead' ||
+         integrationComparison?.status==='identical') &&
+        integrationComparison.behind_by===0 &&
+        integrationComparison.base_commit?.sha===integrationBranch.commit.sha &&
+        integrationComparison.merge_base_commit?.sha===integrationBranch.commit.sha &&
+        Array.isArray(integrationComparison.commits),
+        'INTEGRATION_NOT_IN_DEV_ANCESTRY')
   verifyCheckSet(checks,command.head_sha)
-  return Object.freeze({integration_pr:command.pr_number,verified:true,main_sha:branch.commit.sha})
+  return Object.freeze({integration_pr:command.pr_number,verified:true,
+    main_sha:branch.commit.sha,dev_head_sha:command.head_sha,
+    accepted_integration_sha:integrationBranch.commit.sha})
 }

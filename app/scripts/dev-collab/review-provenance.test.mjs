@@ -5,18 +5,19 @@ import { REQUIRED_CHECKS } from './review-gate.mjs'
 const sha='a'.repeat(40),baseRef='integrate/REQ-20261031-001',headRef='feat/REQ-20261031-001/T-001'
 const repo='micor-cjj-spec/matrix-prp',number=138
 const jobs=()=>({total_count:REQUIRED_CHECKS.length,check_runs:REQUIRED_CHECKS.map((name,i)=>({
- name,id:1001+i,head_sha:sha,status:'completed',conclusion:'success',app:{slug:'github-actions'},
+ name,id:1001+i,head_sha:sha,status:'completed',conclusion:'success',app:{slug:'github-actions',id:15368},
  details_url:`https://github.com/${repo}/actions/runs/${name==='impact-report'?102:name==='dev-collab-contract'?103:101}/job/${1001+i}`
 }))})
 const run = (id)=> {
  const map={101:['CI','.github/workflows/ci.yml'],102:['Feature Impact Report','.github/workflows/feature-impact.yml'],
   103:['PRP Dev Collaboration Contract','.github/workflows/prp-dev-collab-contract.yml']}
  const [name,path]=map[id]
- return {name,path,event:'pull_request',status:'completed',conclusion:'success',head_sha:sha,
-  head_branch:headRef,repository:{full_name:repo},head_repository:{full_name:repo},
+ return {id,name,path,run_attempt:2,created_at:'2026-10-31T17:00:00Z',event:'pull_request',status:'completed',conclusion:'success',head_sha:sha,
+  head_branch:headRef,repository:{full_name:repo,id:1261866723},head_repository:{full_name:repo,id:1261866723},
   pull_requests:[{number,head:{sha},base:{ref:baseRef}}]}
 }
-const verify=(data,resolver=run)=>verifyWorkflowProvenance(data,{sha,prNumber:number,baseRef,headRef},resolver)
+const list=id=>{const jobsForRun=jobs().check_runs.filter(c=>c.details_url.includes('/runs/'+id+'/')).map(c=>({name:c.name,id:c.id,run_id:id,run_attempt:1,head_sha:sha,head_branch:headRef,workflow_name:run(id).name,status:'completed',conclusion:'success',started_at:'2026-10-31T17:01:00Z',completed_at:'2026-10-31T17:59:00Z'}));return {total_count:jobsForRun.length,jobs:jobsForRun}}
+const verify=(data,resolver=run,jobLoader=list)=>verifyWorkflowProvenance(data,{sha,prNumber:number,baseRef,headRef,mergedAt:'2026-10-31T18:00:00Z'},resolver,jobLoader)
 const fails=(f,code)=>assert.throws(f,e=>e.code===code)
 test('requires three correct signed workflow identities and precise PR provenance',()=>{
  const r=verify(jobs());assert.deepEqual(r.workflow_runs,[101,102,103])
@@ -47,4 +48,20 @@ test('a newer failed authorized check cannot be obscured by an older green one',
  const x=jobs();x.check_runs.push({...x.check_runs[0],id:9999,conclusion:'failure',
   details_url:`https://github.com/${repo}/actions/runs/101/job/9999`});x.total_count++
  fails(()=>verify(x),'CHECK_NOT_GREEN_backend-tests')
+})
+
+
+test('redacted or multiple PR associations never authorize ordinary provenance',()=>{
+ for(const pr of [[],[{number,head:{sha},base:{ref:baseRef}},{number:999,head:{sha},base:{ref:baseRef}}]])fails(()=>verify(jobs(),id=>({...run(id),pull_requests:pr})),'WORKFLOW_PR_MISMATCH_backend-tests')
+})
+test('latest workflow jobs must bind exact check ID, workflow, repo, SHA and attempt',()=>{
+ for(const mutate of [j=>j.run_id=999,j=>j.id=999,j=>j.head_sha='b'.repeat(40),j=>j.workflow_name='Fake',j=>j.run_attempt=3,j=>j.run_attempt=0,j=>j.conclusion='failure',j=>j.head_branch='other']){
+  fails(()=>verify(jobs(),run,id=>{const l=list(id);if(id===101)mutate(l.jobs[0]);return l}), 'WORKFLOW_JOB_MISMATCH_backend-tests')
+ }
+ const bad=jobs();bad.check_runs[0].app.id=1;fails(()=>verify(bad),'WRONG_CHECK_APP_backend-tests')
+})
+test('job-list omissions, duplicate names and post-merge reruns fail closed',()=>{
+ fails(()=>verify(jobs(),run,id=>{const l=list(id);l.total_count++;return l}),'INCOMPLETE_WORKFLOW_JOBS_backend-tests')
+ fails(()=>verify(jobs(),run,id=>{const l=list(id);l.jobs.push({...l.jobs[0],id:999});l.total_count++;return l}),'AMBIGUOUS_WORKFLOW_JOB_backend-tests')
+ fails(()=>verify(jobs(),run,id=>{const l=list(id);l.jobs[0].completed_at='2026-10-31T18:01:00Z';return l}),'WORKFLOW_JOB_TIME_MISMATCH_backend-tests')
 })

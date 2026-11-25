@@ -19,11 +19,11 @@ const WORKFLOW_NAME = Object.freeze({
 const SHA=/^[a-f0-9]{40}$/
 function check(ok,code){if(!ok)throw new CollabError(code)}
 
-export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef}, loadRun){
+export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef,mergedAt}, loadRun,loadJobs){
   check(SHA.test(sha) && Number.isSafeInteger(prNumber) && prNumber>0 &&
     typeof baseRef==='string' && baseRef.length>0 &&
     typeof headRef==='string' && headRef.length>0 &&
-    typeof loadRun==='function','PROVENANCE_INPUTS')
+    typeof loadRun==='function' && typeof loadJobs==='function' && typeof mergedAt==='string' && Number.isFinite(Date.parse(mergedAt)),'PROVENANCE_INPUTS')
   check(checks && Number.isInteger(checks.total_count) &&
     Array.isArray(checks.check_runs) && checks.total_count===checks.check_runs.length &&
     checks.total_count<=100,'INCOMPLETE_CHECK_PAGINATION')
@@ -34,10 +34,11 @@ export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef},
     const old=recent.get(job.name)
     if(!old || job.id>old.id)recent.set(job.name,job)
   }
-  const seenRun = new Map()
+  const seenRun = new Map(), seenJobs=new Map()
   for(const name of REQUIRED_CHECKS){
     const job=recent.get(name)
     check(job,'CHECK_MISSING_'+name)
+    check(job.app?.id===15368,'WRONG_CHECK_APP_'+name)
     check(job.head_sha===sha && job.status==='completed' && job.conclusion==='success',
       'CHECK_NOT_GREEN_'+name)
     const match=typeof job.details_url==='string' && job.details_url.match(
@@ -48,16 +49,27 @@ export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef},
     if(!seenRun.has(runId)) seenRun.set(runId,loadRun(runId))
     const run=seenRun.get(runId)
     const expected=WORKFLOW_FOR_CHECK[name]
-    check(run?.path===expected && run?.name===WORKFLOW_NAME[expected],
+    check(run?.id===runId && run?.path===expected && run?.name===WORKFLOW_NAME[expected],
       'WRONG_CHECK_WORKFLOW_'+name)
     check(run?.event==='pull_request' && run?.status==='completed' &&
       run?.conclusion==='success' && run?.head_sha===sha &&
       run?.head_branch===headRef &&
-      run?.repository?.full_name===REPO && run?.head_repository?.full_name===REPO,
+      run?.repository?.full_name===REPO && run?.head_repository?.full_name===REPO && run.repository.id===1261866723 && run.head_repository.id===1261866723 && Number.isSafeInteger(run.run_attempt) && run.run_attempt>0 && Number.isFinite(Date.parse(run.created_at)) && Date.parse(run.created_at)<=Date.parse(mergedAt),
       'WRONG_WORKFLOW_ORIGIN_'+name)
-    check(Array.isArray(run?.pull_requests) && run.pull_requests.some(pr=>
+    check(Array.isArray(run?.pull_requests) && run.pull_requests.length===1 && run.pull_requests.every(pr=>
       pr.number===prNumber && pr.head?.sha===sha && pr.base?.ref===baseRef),
       'WORKFLOW_PR_MISMATCH_'+name)
+    if(!seenJobs.has(runId))seenJobs.set(runId,loadJobs(runId))
+    const listing=seenJobs.get(runId)
+    check(Number.isSafeInteger(listing?.total_count) && listing.total_count<=100 && Array.isArray(listing.jobs) && listing.jobs.length===listing.total_count,'INCOMPLETE_WORKFLOW_JOBS_'+name)
+    const matches=listing.jobs.filter(j=>j?.name===name)
+    check(matches.length===1 && listing.jobs.filter(j=>j?.id===job.id).length===1,'AMBIGUOUS_WORKFLOW_JOB_'+name)
+    const actual=matches[0]
+    check(actual.id===job.id && actual.run_id===runId && actual.head_sha===sha && actual.head_branch===headRef && actual.workflow_name===run.name && Number.isSafeInteger(actual.run_attempt) && actual.run_attempt>=1 && actual.run_attempt<=run.run_attempt && actual.status==='completed' && actual.conclusion==='success','WORKFLOW_JOB_MISMATCH_'+name)
+    // A successful preserved job from an earlier attempt is valid only when
+    // present in the latest jobs list. Reject post-merge reruns as evidence.
+    const started=Date.parse(actual.started_at), completed=Date.parse(actual.completed_at)
+    check(Number.isFinite(started)&&Number.isFinite(completed)&&started>=Date.parse(run.created_at)&&completed>=started&&completed<=Date.parse(mergedAt),'WORKFLOW_JOB_TIME_MISMATCH_'+name)
   }
   return Object.freeze({verified:true,workflow_runs:[...seenRun.keys()].sort((a,b)=>a-b)})
 }
