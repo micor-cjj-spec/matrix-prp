@@ -5,6 +5,7 @@ import {execFileSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
 import {resolve} from 'node:path'
 import {validateIssueEvent} from './issue-ingress.mjs'
+import {historicalNote,isHistoricalNote} from './ruleset-415-attestation.mjs'
 import {applyCommand,validateSnapshot,CollabError,requireMigratedLiveState} from './core.mjs'
 export {requireMigratedLiveState}
 import {verifyStateBranchRuleset} from './state-rule-policy.mjs'
@@ -41,7 +42,8 @@ export function verifyTaskIssue(issue,validated){
  return true
 }
 
-export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>false){
+export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>false,
+    reviewedEvidence=null){
  validateSnapshot(snapshot)
  const {command,expected_version,actor}=validated
  const replay=snapshot.processed_requests.some(r=>r.request_id===command.request_id)
@@ -52,6 +54,25 @@ export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>
  // successful state transition. Replay still checks actor and exact fingerprint
  // in applyCommand, but must not depend on a feature branch remaining at that SHA.
  if(replay)return applyCommand(snapshot,command,context)
+ if(command.type==='accept'){
+   const task=snapshot.tasks.find(t=>t.task_id===command.task_id)
+   check(task?.status==='IN_REVIEW' &&
+     task.claim?.actor===actor &&
+     task.claim?.worker_id===command.worker_id &&
+     task.claim?.claim_id===command.claim_id,
+     'ISSUE_ACCEPT_CLAIM_MISMATCH')
+   check(task.pr_number===command.pr_number && task.head_sha===command.head_sha,
+     'ISSUE_ACCEPT_SUBMISSION_MISMATCH')
+   check(reviewedEvidence?.reviewerAuthorized===true &&
+     reviewedEvidence?.ciVerified===true &&
+     reviewedEvidence?.mergedIntoIntegration===true,
+     'ISSUE_ACCEPT_TRUSTED_REVIEW_REQUIRED')
+   if(validated.historical415===true)check(validated.policyAttestation&&command.note===historicalNote(validated.policyAttestation)&&reviewedEvidence.historical415Verified===true,'ISSUE_HISTORICAL_PROOF_REQUIRED')
+   else check(!isHistoricalNote(command.note),'ISSUE_HISTORICAL_ACTION_REQUIRED')
+   context.reviewerAuthorized=true
+   context.ciVerified=true
+   context.mergedIntoIntegration=true
+ }
  if(command.type==='register_task')
    check(validated.taskIssueVerified===true,'ISSUE_TASK_NOT_VERIFIED')
  if(['checkpoint','handoff','takeover'].includes(command.type)){
@@ -169,8 +190,27 @@ async function main(){
    verifyTaskIssue(taskIssue,validated)
    validated.taskIssueVerified=true
  }
+ // Acceptance is intentionally different from a worker command: no positive
+ // reviewer flags may arrive from the Issue. The protected main trust root
+ // must independently verify the merged PR, protected integration base, exact
+ // head, full latest Actions job set and PR-event workflow provenance.
+ const alreadyApplied=before.processed_requests?.some(r=>
+   r.request_id===validated.command.request_id)===true
+ // The isolated Git harness exercises legacy claim/handoff/release with a
+ // minimal runner. Load high-privilege review modules only for genuine new
+ // accept requests; never weaken the accept proof or permit a fallback.
+ let loadReview=null
+ let verifiedReview=null
+ if(validated.command.type==='accept'&&!alreadyApplied){
+   const {trustedReviewContext}=await import('./review-context.mjs')
+   if(validated.historical415===true){
+     const {trustedHistorical415Context}=await import('./review-historical-owner-415.mjs')
+     loadReview=()=>trustedHistorical415Context(before,validated,head,env,route=>gh(route))
+   }else loadReview=()=>trustedReviewContext(before,validated.command,env,route=>gh(route))
+   verifiedReview=loadReview()
+ }
  const {snapshot,receipt}=applyAuthenticatedIssue(before,validated,
-   new Date().toISOString(),verifiedGitCheckpoint)
+   new Date().toISOString(),verifiedGitCheckpoint,verifiedReview)
  const replay=snapshot===before
  if(!replay){
    writeFileSync(file,JSON.stringify(snapshot,null,2)+'\n',{mode:0o600})
@@ -191,6 +231,16 @@ async function main(){
      'ISSUE_RACE_BEFORE_PUSH')
    // Narrow the revocation window: re-read the owner Issue before Git CAS push.
    validateIssueEvent(env,event,gh('repos/'+REPO+'/issues/'+validated.source_issue))
+   // Repeat external evidence verification at the final pre-push boundary.
+   // The non-force Git CAS then prevents a stale state snapshot from winning.
+   if(validated.command.type==='accept'){
+     const fresh=loadReview()
+     check(fresh.reviewerAuthorized===true&&fresh.ciVerified===true&&
+       fresh.mergedIntoIntegration===true&&(validated.historical415!==true||fresh.historical415Verified===true),'ISSUE_ACCEPT_EVIDENCE_REVOKED')
+     check(git('ls-remote','--exit-code','--refs','origin','refs/heads/main')===env.GITHUB_SHA+'\trefs/heads/main','ISSUE_MAIN_CHANGED_BEFORE_PUSH')
+     check(git('ls-remote','--exit-code','--refs','origin',stateRef)===base,'ISSUE_RACE_BEFORE_PUSH')
+     validateIssueEvent(env,event,gh('repos/'+REPO+'/issues/'+validated.source_issue))
+   }
    git('-C',tmp,'push','origin','HEAD:'+stateRef)
  }
  const newSha=git('ls-remote','--exit-code','--refs','origin',stateRef).split('\t')[0]
