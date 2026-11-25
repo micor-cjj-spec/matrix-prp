@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 13,
-  "updated_at": "2026-11-25T05:55:35.757Z",
+  "version": 14,
+  "updated_at": "2026-11-25T08:45:50.085Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -175,6 +175,20 @@
         "status": "IN_REVIEW",
         "replayed": false
       }
+    },
+    {
+      "request_id": "b0022026-1125-4a02-8400-69f6dad9ec33",
+      "fingerprint": "0a985302f6edbf9ff8f001146d44e18fbd6730b1ad3039c695fcb35679b78f0d",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "claim",
+        "task_id": "T-002",
+        "request_id": "b0022026-1125-4a02-8400-69f6dad9ec33",
+        "claim_id": "2c838f0a-f2da-467c-a71e-557aa87afd5f",
+        "version": 14,
+        "status": "CLAIMED",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -226,13 +240,19 @@
       "task_id": "T-002",
       "issue_number": 134,
       "title": "GitHub 需求与任务模板、PR 规范",
-      "status": "READY",
+      "status": "CLAIMED",
       "depends_on": [],
       "allowed_paths": [
         ".github/ISSUE_TEMPLATE/",
         ".github/PULL_REQUEST_TEMPLATE.md"
       ],
-      "claim": null,
+      "claim": {
+        "claim_id": "2c838f0a-f2da-467c-a71e-557aa87afd5f",
+        "worker_id": "chat_t002_delivery_20261125",
+        "actor": "micor-cjj-spec",
+        "claimed_at": "2026-11-25T08:45:50.085Z",
+        "generation": 1
+      },
       "checkpoint": {
         "summary": "模拟原会话失联，恢复端核验现有远端 Git 提交；没有新增任务代码",
         "next_step": "核对授权接管、旧领取拒绝，然后安全释放 T-002",
@@ -241,7 +261,8 @@
         "tests": "Git 分支真实存在且 SHA 精确匹配；原任务无断点；未修改生产或主分支",
         "recorded_at": "2026-11-22T12:09:56.818Z",
         "worker_id": "chatLost_20261122_t002pilot",
-        "origin": "owner_verified_git"
+        "origin": "owner_verified_git",
+        "archived": true
       },
       "handoff_history": [
         {
