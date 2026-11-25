@@ -314,9 +314,9 @@ def validate_bundle(bundle, now):
         _exact(record, {"evidence_id", "kind", "source_class", "source_ref",
                         "observed_at", "binding", "facts"}, "evidence_record")
         kind = record["kind"]
-        _require(kind in PROVENANCE, "UNKNOWN_EVIDENCE_KIND")
+        _require(type(kind) is str and kind in PROVENANCE, "UNKNOWN_EVIDENCE_KIND")
         _require(type(record["evidence_id"]) is str and EVIDENCE_ID.fullmatch(record["evidence_id"]) and
-                 record["source_class"] in PROVENANCE[kind] and
+                 type(record["source_class"]) is str and record["source_class"] in PROVENANCE[kind] and
                  type(record["source_ref"]) is str and _timestamp(record["observed_at"]),
                  "INVALID_EVIDENCE_METADATA")
         _require(record["evidence_id"] not in ids and (kind, record["source_ref"]) not in refs and
