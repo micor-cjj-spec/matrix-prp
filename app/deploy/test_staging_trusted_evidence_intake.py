@@ -53,7 +53,7 @@ def artifact_witness():
         "source_tree": CANDIDATE["source_tree"], "archive_digest": CANDIDATE["archive_digest"],
         "backend_image": CANDIDATE["backend_image"], "gateway_image": CANDIDATE["gateway_image"],
         "expires_at": NOW + 3600, "byte_review_status": "claimed_pass",
-        "archive_bytes_sha256": "e" * 64, "manifest_sha256": "f" * 64,
+        "archive_bytes_sha256": "3" * 64, "manifest_sha256": "f" * 64,
         "files_checked": 4, "files_expected": 4,
     })
 
@@ -250,6 +250,12 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
         data["evidence"][1]["facts"]["files_checked"] = 3
         result = validate_bundle(data, NOW)
         self.assertIn("artifact_witness:ARTIFACT_BYTE_REVIEW_INCOMPLETE", result["findings"])
+
+    def test_archive_provider_digest_must_match_reviewed_zip_bytes(self):
+        data = bundle()
+        data["evidence"][1]["facts"]["archive_bytes_sha256"] = "e" * 64
+        result = validate_bundle(data, NOW)
+        self.assertIn("artifact_witness:ARTIFACT_ARCHIVE_DIGEST_MISMATCH", result["findings"])
 
     def test_github_rerun_attempt_is_not_latest(self):
         data = bundle()
