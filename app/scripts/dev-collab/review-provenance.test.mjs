@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { verifyWorkflowProvenance } from './review-provenance.mjs'
+import { verifyWorkflowProvenance, readReviewJobLog } from './review-provenance.mjs'
 import { REQUIRED_CHECKS } from './review-gate.mjs'
 const sha='a'.repeat(40),baseRef='integrate/REQ-20261031-001',headRef='feat/REQ-20261031-001/T-001'
 const repo='micor-cjj-spec/matrix-prp',number=138
@@ -65,4 +65,19 @@ test('job-list omissions, duplicate names and post-merge reruns fail closed',()=
  fails(()=>verify(jobs(),run,id=>{const l=list(id);l.total_count++;return l}),'INCOMPLETE_WORKFLOW_JOBS_backend-tests')
  fails(()=>verify(jobs(),run,id=>{const l=list(id);l.jobs.push({...l.jobs[0],id:999});l.total_count++;return l}),'AMBIGUOUS_WORKFLOW_JOB_backend-tests')
  fails(()=>verify(jobs(),run,id=>{const l=list(id);l.jobs[0].completed_at='2026-10-31T18:01:00Z';return l}),'WORKFLOW_JOB_TIME_MISMATCH_backend-tests')
+})
+
+test('log download accepts only validated repository route, strips authorization on redirect',async()=>{
+ const route='repos/micor-cjj-spec/matrix-prp/actions/jobs/123/logs'
+ const calls=[]
+ const log=await readReviewJobLog(route,{token:'synthetic',fetcher:async (url,opts)=>{
+   calls.push({url:String(url),opts})
+   if(calls.length===1)return new Response(null,{status:302,headers:{location:'https://logs.blob.core.windows.net/archive?signature=synthetic'}})
+   return new Response('checkout log')
+ }})
+ assert.equal(log,'checkout log')
+ assert.equal(calls[0].opts.headers.Authorization,'Bearer synthetic')
+ assert.equal(calls[1].opts.headers,undefined);assert.equal(calls[1].opts.redirect,'manual')
+ await assert.rejects(readReviewJobLog('repos/evil/repo/actions/jobs/123/logs',{token:'synthetic',fetcher:()=>{throw Error('unexpected fetch')}}),e=>e.code==='REVIEW_LOG_REQUEST')
+ await assert.rejects(readReviewJobLog(route,{token:'synthetic',fetcher:async()=>new Response(null,{status:302,headers:{location:'https://evil.example/log'}})}),e=>e.code==='REVIEW_LOG_REDIRECT')
 })

@@ -202,6 +202,39 @@ export function verifyRequirementClose(snapshot, acceptance){
 }
 
 
+// A squash result need not contain the dev commit in its ancestry. It must
+// contain the exact tree that all seven trusted jobs actually checked out.
+export function hasDevAncestry(comparison,sha){
+  return (comparison?.status==='ahead'||comparison?.status==='identical') &&
+    comparison.behind_by===0 && comparison.base_commit?.sha===sha &&
+    comparison.merge_base_commit?.sha===sha && Array.isArray(comparison.commits)
+}
+export function verifySquashRelease(pr,command,evidence){
+  const {mergeCommit,testCommit,checkouts,workflowBlobs}=evidence??{}
+  const base=pr?.base?.sha, head=command.head_sha
+  check(SHA.test(base||'') && base!==head && pr?.base?.repo?.id===1261866723 &&
+    pr?.head?.repo?.id===1261866723,'SQUASH_PR_BINDING')
+  check(mergeCommit?.sha===pr.merge_commit_sha && mergeCommit.sha!==head &&
+    Array.isArray(mergeCommit.parents) && mergeCommit.parents.length===1 &&
+    mergeCommit.parents[0]?.sha===base && SHA.test(mergeCommit.tree?.sha||''),'SQUASH_COMMIT_BINDING')
+  check(SHA.test(testCommit?.sha||'') && testCommit.sha!==mergeCommit.sha &&
+    testCommit.sha!==head && testCommit.sha!==base &&
+    Array.isArray(testCommit.parents) && testCommit.parents.length===2 &&
+    testCommit.parents[0]?.sha===base && testCommit.parents[1]?.sha===head &&
+    testCommit.tree?.sha===mergeCommit.tree.sha,'SQUASH_TEST_TREE_MISMATCH')
+  check(Array.isArray(checkouts) && checkouts.length===REQUIRED_CHECKS.length &&
+    new Set(checkouts.map(x=>x?.name)).size===REQUIRED_CHECKS.length &&
+    new Set(checkouts.map(x=>x?.jobId)).size===REQUIRED_CHECKS.length &&
+    checkouts.every(x=>REQUIRED_CHECKS.includes(x?.name)&&Number.isSafeInteger(x.jobId)&&
+      x.jobId>0&&x.sha===testCommit.sha),'SQUASH_CHECKOUT_SET_MISMATCH')
+  check(workflowBlobs && Object.keys(workflowBlobs).length===CRITICAL_WORKFLOWS.size &&
+    [...CRITICAL_WORKFLOWS].every(path=>{
+      const b=workflowBlobs[path]
+      return Array.isArray(b)&&b.length===3&&SHA.test(b[0]||'')&&b.every(x=>x===b[0])
+    }),'SQUASH_WORKFLOW_BLOB_MISMATCH')
+  return Object.freeze({verified:true,test_sha:testCommit.sha,tree_sha:testCommit.tree.sha})
+}
+
 /**
  * Final close is allowed only after a same-repo dev -> main PR has merged.
  * Every accepted task must already have landed in the protected integration
@@ -213,7 +246,7 @@ export function verifyIntegrationRelease(snapshot,command,proof){
   check(snapshot.tasks.every(t=>t.status==='DONE'),'INCOMPLETE_REQUIREMENT')
   check(Number.isInteger(command.pr_number) && SHA.test(command.head_sha),'MISSING_INTEGRATION_PR')
   const {pr,branch,comparison,checks,integrationBranch,integrationComparison,
-    mainAncestryComparison}=proof ?? {}
+    mainAncestryComparison,squashProof}=proof ?? {}
   const repo='micor-cjj-spec/matrix-prp'
   const integration='integrate/'+snapshot.requirement_id
   check(pr?.number===command.pr_number && pr?.head?.sha===command.head_sha,'WRONG_PR_OR_HEAD')
@@ -229,15 +262,17 @@ export function verifyIntegrationRelease(snapshot,command,proof){
         comparison.base_commit?.sha===pr.merge_commit_sha &&
         comparison.merge_base_commit?.sha===pr.merge_commit_sha &&
         Array.isArray(comparison.commits),'MERGE_NOT_ON_BASE')
-  // A squash or rebased PR can be marked merged without preserving the tested
-  // dev commit in main Git ancestry. Require the exact dev HEAD as ancestor.
-  check((mainAncestryComparison?.status==='ahead' ||
-         mainAncestryComparison?.status==='identical') &&
-        mainAncestryComparison.behind_by===0 &&
-        mainAncestryComparison.base_commit?.sha===command.head_sha &&
-        mainAncestryComparison.merge_base_commit?.sha===command.head_sha &&
-        Array.isArray(mainAncestryComparison.commits),
-        'DEV_HEAD_NOT_IN_MAIN_ANCESTRY')
+  // Preserve the existing ancestry proof. A legitimate squash needs a separate
+  // exact tested-tree proof, never an assumption from a merged PR or green checks.
+  if(!hasDevAncestry(mainAncestryComparison,command.head_sha)){
+    check(squashProof,'DEV_HEAD_NOT_IN_MAIN_ANCESTRY')
+    check(['behind','diverged'].includes(mainAncestryComparison?.status) &&
+      Number.isInteger(mainAncestryComparison.behind_by) && mainAncestryComparison.behind_by>0 &&
+      mainAncestryComparison.base_commit?.sha===command.head_sha &&
+      SHA.test(mainAncestryComparison.merge_base_commit?.sha||'') &&
+      Array.isArray(mainAncestryComparison.commits),'SQUASH_ANCESTRY_EVIDENCE_INVALID')
+    verifySquashRelease(pr,command,squashProof)
+  }
   check(integrationBranch?.name===integration &&
         integrationBranch?.protected===true &&
         SHA.test(integrationBranch?.commit?.sha),'INTEGRATION_BRANCH_NOT_PROTECTED')

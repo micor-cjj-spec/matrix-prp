@@ -237,3 +237,63 @@ test('generic review fails closed if complete integration policy cannot be seen'
  const cmd={type:'accept',task_id:'T-001',pr_number:138,head_sha:sha}
  assert.throws(()=>trustedReviewContext(state(),cmd,ctx,route=>{const x=fake(route);if(route.endsWith('/rulesets/28050327'))delete x.bypass_actors;return x}),e=>e.code==='INTEGRATION_POLICY_BYPASS_UNVERIFIED')
 })
+
+const squashBase='e'.repeat(40),squashTest='f'.repeat(40),squashTree='1'.repeat(40)
+const squashApi=route=>{
+ if(route.endsWith('/pulls/139')){
+  const pr=validDevCloseApi(route);pr.base.sha=squashBase;pr.base.repo.id=1261866723;pr.head.repo.id=1261866723;return pr
+ }
+ if(route.includes('/compare/'+sha+'...'))return {status:'diverged',behind_by:1,base_commit:{sha},merge_base_commit:{sha:squashBase},commits:[]}
+ if(route.includes('/git/commits/'))return route.endsWith('/'+merge)?
+   {sha:merge,tree:{sha:squashTree},parents:[{sha:squashBase}]}:
+   {sha:squashTest,tree:{sha:squashTree},parents:[{sha:squashBase},{sha}]}
+ if(route.includes('/contents/.github/workflows/'))return {sha:squashTree}
+ if(route.includes('/jobs?')){
+  const x=fakeJobs(route,'dev')
+  for(const j of x.jobs){
+   const action=j.workflow_name==='CI'?'v4':'3d3c42e5aac5ba805825da76410c181273ba90b1'
+   j.steps=[{name:'Set up job',conclusion:'success'},{name:'Run actions/checkout@'+action,conclusion:'success',started_at:'2026-10-31T17:02:00Z',completed_at:'2026-10-31T17:02:05Z'}]
+  }
+  return x
+ }
+ if(route.endsWith('/logs')){
+  const id=Number(route.split('/').at(-2)),name=checks.check_runs.find(c=>c.id===id).name
+  const action=['impact-report','dev-collab-contract'].includes(name)?'3d3c42e5aac5ba805825da76410c181273ba90b1':'v4'
+  const resolved=action==='v4'?'11d5960a326750d5838078e36cf38b85af677262':action
+  return [
+   "2026-10-31T17:01:59Z Download action repository 'actions/checkout@"+action+"' (SHA:"+resolved+")",
+   '2026-10-31T17:02:00Z ##[group]Run actions/checkout@'+action,
+   '2026-10-31T17:02:01Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags origin +'+squashTest+':refs/remotes/pull/139/merge',
+   '2026-10-31T17:02:02Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/139/merge',
+   '2026-10-31T17:02:03Z [command]/usr/bin/git log -1 --format=%H',
+   '2026-10-31T17:02:04Z '+squashTest,
+   '2026-10-31T17:02:06Z ##[group]Run tests'
+  ].join('\n')
+ }
+ if(route.includes('/actions/runs/')){
+  const run=validDevCloseApi(route)
+  run.pull_requests[0].base.sha=squashBase
+  run.pull_requests[0].base.repo={id:1261866723}
+  run.pull_requests[0].head.repo={id:1261866723}
+  run.pull_requests[0].head.ref='dev'
+  return run
+ }
+ return validDevCloseApi(route)
+}
+test('trusted close obtains seven real-checkout proofs for a verified squash',()=>{
+ const s=state();s.tasks[0].status='DONE';s.tasks[0].claim=null
+ const cmd={type:'close',pr_number:139,head_sha:sha}
+ const requested=[]
+ const out=trustedReviewContext(s,cmd,ctx,route=>{if(route.endsWith('/logs'))requested.push(route);return squashApi(route)})
+ assert.equal(out.integrationReviewVerified,true);assert.equal(new Set(requested).size,7)
+})
+test('trusted squash refuses missing associations, wrong checkout, missing bypass list or altered squash tree',()=>{
+ const s=state();s.tasks[0].status='DONE';s.tasks[0].claim=null
+ const cmd={type:'close',pr_number:139,head_sha:sha}
+ for(const [matcher,change,code] of [
+  [r=>r.includes('/actions/runs/')&&!r.includes('/jobs?'),x=>({...x,pull_requests:[]}),'WORKFLOW_PR_MISMATCH_backend-tests'],
+  [r=>r.endsWith('/logs'),x=>x.replace('refs/remotes/pull/139/merge','refs/remotes/pull/999/merge'),'REVIEW_CHECKOUT_REF_OR_SHA'],
+  [r=>r.endsWith('/rulesets/28050327'),x=>{delete x.bypass_actors;return x},'INTEGRATION_POLICY_BYPASS_UNVERIFIED'],
+  [r=>r.endsWith('/git/commits/'+merge),x=>({...x,tree:{sha:'2'.repeat(40)}}),'SQUASH_TEST_TREE_MISMATCH'],
+ ])assert.throws(()=>trustedReviewContext(s,cmd,ctx,r=>{const x=squashApi(r);return matcher(r)?change(x):x}),e=>e.code===code)
+})

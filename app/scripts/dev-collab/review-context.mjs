@@ -1,13 +1,17 @@
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { CollabError } from './core.mjs'
-import { verifyTaskEvidence, verifyIntegrationRelease, verifyRequirementClose, verifyIntegrationPolicy } from './review-gate.mjs'
-import { verifyWorkflowProvenance } from './review-provenance.mjs'
+import { verifyTaskEvidence, verifyIntegrationRelease, verifyRequirementClose, verifyIntegrationPolicy, hasDevAncestry } from './review-gate.mjs'
+import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/
 function check(ok,code){if(!ok)throw new CollabError(code)}
 export function ghApi(route){
-  const json=execFileSync('gh',['api',route],{encoding:'utf8',maxBuffer:5*1024*1024})
+  if(isReviewLogRoute(route))return execFileSync(process.execPath,
+    [fileURLToPath(new URL('./review-provenance.mjs',import.meta.url)),'--job-log',route],
+    {encoding:'utf8',maxBuffer:4*1024*1024,timeout:35000,stdio:['ignore','pipe','pipe']})
+  const json=execFileSync('gh',['api','--method','GET','--hostname','github.com',route],{encoding:'utf8',maxBuffer:5*1024*1024,timeout:30000,stdio:['ignore','pipe','pipe']})
   return JSON.parse(json)
 }
 
@@ -56,13 +60,29 @@ export function trustedReviewContext(snapshot,command,env,api){
   // history, not merely that a squash PR reported "merged".
   const mainAncestryComparison=api(`repos/${REPO}/compare/${command.head_sha}...${branch.commit.sha}`)
   const checks=api(`repos/${REPO}/commits/${command.head_sha}/check-runs?per_page=100`)
-  verifyIntegrationRelease(snapshot,command,
-    {pr,branch,comparison,checks,integrationBranch,integrationComparison,
-      mainAncestryComparison})
+  const proof={pr,branch,comparison,checks,integrationBranch,integrationComparison,mainAncestryComparison}
+  const runInput={sha:command.head_sha,prNumber:command.pr_number,
+    baseRef:'main',headRef:pr.head.ref,mergedAt:pr.merged_at}
+  const loadRun=id=>api(root+'/actions/runs/'+id)
+  // Only a fully identified squash candidate may request raw checkout evidence.
+  // A missing or malformed ancestry response is not itself squash proof.
+  if(!hasDevAncestry(mainAncestryComparison,command.head_sha)&&SHA.test(pr?.base?.sha||'')&&
+    pr.base.ref==='main'&&pr.head.ref==='dev'&&pr.head.sha===command.head_sha&&pr.number===command.pr_number&&pr.merged===true){
+    requireMain(branch)
+    requirePolicy()
+    const result=verifyWorkflowProvenance(checks,{...runInput,
+      checkout:{baseSha:pr.base.sha,loadLog:id=>api(root+'/actions/jobs/'+id+'/logs')}},loadRun,loadJobs)
+    const testSha=result.checkouts[0].sha
+    const mergeCommit=api(root+'/git/commits/'+pr.merge_commit_sha)
+    const testCommit=api(root+'/git/commits/'+testSha)
+    const workflows=['ci.yml','feature-impact.yml','prp-dev-collab-contract.yml'].map(n=>'.github/workflows/'+n)
+    const workflowBlobs=Object.fromEntries(workflows.map(path=>[path,[pr.base.sha,testSha,pr.merge_commit_sha].map(ref=>api(root+'/contents/'+path+'?ref='+ref)?.sha)]))
+    proof.squashProof={mergeCommit,testCommit,checkouts:result.checkouts,workflowBlobs}
+  }
+  verifyIntegrationRelease(snapshot,command,proof)
   requireMain(branch)
   requirePolicy()
-  verifyWorkflowProvenance(checks,{sha:command.head_sha,prNumber:command.pr_number,
-    baseRef:'main',headRef:pr.head.ref,mergedAt:pr.merged_at},id=>api(`repos/${REPO}/actions/runs/${id}`),loadJobs)
+  if(!proof.squashProof)verifyWorkflowProvenance(checks,runInput,loadRun,loadJobs)
   verifyRequirementClose(snapshot,{
     actorIsRepositoryOwner:true,explicitAcceptance:true,integrationReviewVerified:true
   })

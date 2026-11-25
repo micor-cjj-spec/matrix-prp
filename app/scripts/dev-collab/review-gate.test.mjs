@@ -286,3 +286,33 @@ test('integration policy requires full exact Ruleset and no bypass',()=>{
  const r=integrationPolicyFixture();r.unexpected=true;refuses(()=>verifyIntegrationPolicy('REQ-20261031-001',r),'INTEGRATION_POLICY_UNKNOWN_FIELDS')
  refuses(()=>verifyIntegrationPolicy('REQ-20261031-002',integrationPolicyFixture()),'INTEGRATION_POLICY_NOT_REGISTERED')
 })
+
+const squashFixture=()=>{
+ const x=validDevRelease(),base='e'.repeat(40),tested='f'.repeat(40),tree='1'.repeat(40)
+ x.proof.pr.base.sha=base;x.proof.pr.base.repo.id=1261866723;x.proof.pr.head.repo.id=1261866723
+ x.proof.mainAncestryComparison={status:'diverged',behind_by:1,base_commit:{sha},merge_base_commit:{sha:base},commits:[]}
+ x.proof.squashProof={
+  mergeCommit:{sha:merge,tree:{sha:tree},parents:[{sha:base}]},
+  testCommit:{sha:tested,tree:{sha:tree},parents:[{sha:base},{sha}]},
+  checkouts:REQUIRED_CHECKS.map((name,i)=>({name,jobId:i+1,sha:tested})),
+  workflowBlobs:Object.fromEntries(['ci.yml','feature-impact.yml','prp-dev-collab-contract.yml'].map(n=>['.github/workflows/'+n,[tree,tree,tree]]))
+ }
+ return x
+}
+test('verified squash closes only with exact tested merge tree and full job coverage',()=>{
+ const {s,command,proof}=squashFixture()
+ assert.equal(verifyIntegrationRelease(s,command,proof).verified,true)
+})
+test('squash proof rejects foreign repo, changed parents, wrong tree, omitted job and workflow drift',()=>{
+ for(const [mutate,code] of [
+  [p=>p.pr.base.repo.id=1,'SQUASH_PR_BINDING'],
+  [p=>p.squashProof.mergeCommit.parents.push({sha}),'SQUASH_COMMIT_BINDING'],
+  [p=>p.squashProof.mergeCommit.parents[0].sha=sha,'SQUASH_COMMIT_BINDING'],
+  [p=>p.squashProof.testCommit.parents.reverse(),'SQUASH_TEST_TREE_MISMATCH'],
+  [p=>p.squashProof.testCommit.tree.sha='2'.repeat(40),'SQUASH_TEST_TREE_MISMATCH'],
+  [p=>p.squashProof.checkouts.pop(),'SQUASH_CHECKOUT_SET_MISMATCH'],
+  [p=>p.squashProof.checkouts[1].jobId=p.squashProof.checkouts[0].jobId,'SQUASH_CHECKOUT_SET_MISMATCH'],
+  [p=>p.squashProof.workflowBlobs['.github/workflows/ci.yml'][2]='2'.repeat(40),'SQUASH_WORKFLOW_BLOB_MISMATCH'],
+  [p=>p.mainAncestryComparison=null,'SQUASH_ANCESTRY_EVIDENCE_INVALID'],
+ ]){const {s,command,proof}=squashFixture();mutate(proof);refuses(()=>verifyIntegrationRelease(s,command,proof),code)}
+})
