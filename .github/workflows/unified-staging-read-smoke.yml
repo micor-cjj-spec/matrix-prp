@@ -7,6 +7,7 @@ on:
       - 'app/scripts/unified_staging_read_smoke*'
       - 'app/scripts/unified_staging_smoke_review*'
       - 'app/scripts/unified_staging_live_runner*'
+      - 'app/scripts/unified_staging_task_request*'
       - 'app/scripts/provision_unified_staging_uat*'
       - '.github/workflows/unified-staging-read-smoke.yml'
 
@@ -25,7 +26,7 @@ jobs:
         with:
           node-version: '22'
       - name: Run synthetic contract tests only
-        run: node --test app/scripts/unified_staging_read_smoke.test.cjs app/scripts/unified_staging_smoke_review.test.cjs app/scripts/unified_staging_live_runner.test.cjs
+        run: node --test app/scripts/unified_staging_read_smoke.test.cjs app/scripts/unified_staging_smoke_review.test.cjs app/scripts/unified_staging_live_runner.test.cjs app/scripts/unified_staging_task_request.test.cjs
       - name: Print fixture summary (not live evidence)
         run: node app/scripts/unified_staging_smoke_review.cjs --fixture
       - name: Run mocked staging provisioning and GET-only smoke contract tests
