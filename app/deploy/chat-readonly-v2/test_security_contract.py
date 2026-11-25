@@ -417,6 +417,25 @@ class V2SecurityContractTests(unittest.TestCase):
                         ledger.claim(self.job, "a" * 32, NOW + 100, NOW)
                     connect.assert_not_called()
 
+
+    def test_event_comment_ids_cannot_be_reused_or_swapped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = ReplayLedger.initialize(Path(directory) / "ledger.sqlite", GENERATION)
+            ledger.claim(self.job, "a" * 32, NOW + 100, NOW,
+                         challenge_comment_id=100, execution_comment_id=101)
+            for challenge, execution in ((100, 102), (102, 101), (101, 103), (104, 100)):
+                with self.subTest(challenge=challenge, execution=execution), self.assertRaises(RejectedRequest):
+                    ledger.claim(str(uuid.uuid4()), "b" * 32, NOW + 100, NOW,
+                                 challenge_comment_id=challenge, execution_comment_id=execution)
+
+    def test_event_comment_ids_must_be_distinct_positive_pair(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = ReplayLedger.initialize(Path(directory) / "ledger.sqlite", GENERATION)
+            for challenge, execution in ((1, 1), (True, 2), (None, 2), (1, None), (0, 2)):
+                with self.subTest(challenge=challenge, execution=execution), self.assertRaises(RejectedRequest):
+                    ledger.claim(self.job, "a" * 32, NOW + 100, NOW,
+                                 challenge_comment_id=challenge, execution_comment_id=execution)
+
     def test_response_disk_fields_and_job_binding(self):
         data = {"totalBytes": 102400, "usedBytes": 71680,
                 "freeBytes": 20480, "usagePercent": 70.0}

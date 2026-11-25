@@ -163,3 +163,10 @@ R1 只在可可靠发现故障并验证撤销时成立，**不能自动检测静
 - result_binding_fixture/verify_signed_result_fixture 采用独立域 prp-readonly-v2-result 和独立受信服务端 Ed25519 keyId；签名绑定已验证授权 SHA-256、原始结果字节 SHA-256、job/operation/nonce、目标实例/代际、repo/issue、challenge 与独立 execution comment、observedAt/issuedAt/expiresAt。严格要求唯一规范元数据、64-byte 签名、结果白名单 schema、授权时窗内观察与接收；错误响应也签名。签名者/公钥由外部可信配置选择，不能由回传内容选择。
 - 临时签发者、服务端签名者、CMS 收件人分别使用独立合成密钥，新增 8 项回归，含错误密钥、数据及绑定篡改、非规范元数据、过期/未来观察、provider 故障以及签验→真实 SQLite 临时认领→模拟磁盘投影→独立签名→实际 CMS 加密解密→签验。没有读取真实磁盘、创建外部事件或连接主机；测试 envelope 仅为合成帧，不是上线协议。
 - 尚无真实可信 issuer/服务端签名 provider、证书链/撤销、challenge 到执行评论的独立可信映射、响应一次性消费/撤销检查或生产传输适配器。相同签名回包在有效期内仍可重复验证，不能声称实现一次性消费；不允许触发二次执行。G1–G5 OPEN；HOST-PILOT-NO-GO / PRODUCTION-NO-GO。
+
+### 6.7 可信事件映射、撤销检查与响应一次性消费（离线契约，2026-11-25）
+
+- claim_bound_execution_fixture 先验证合成 created event 与签名授权，再精确比较由独立受信映射源提供的规范字节：repo/issue/actor/job/nonce、consentDigest、实例/代际、独立 challenge 与 execution comment、密文 token 与可信解密请求字节 SHA-256。映射不得由执行评论或请求自报；本原型不建立独立映射源、GitHub 认证或真实解密适配器。
+- 同一事务内认领 job/nonce 与两类 comment ID；拒绝同一 ID 重用、跨角色交换、空缺或相等的 ID。旧低层 claim API 仍用于无 comment 的合成历史测试，不能单独接入真实执行。台账 schema 新增 purpose 与两个唯一 ID 字段；两表五条自动索引，旧 schema fail closed，不自动迁移或恢复。receipt 专用台账 purpose=receipt 与 execution 不可互换；各自独立私有路径，绑定同一授权代际但不能替代独立防回滚锚。
+- consume_signed_result_fixture 在客户端签验成功后、返回任何结果前，以专用持久台账原子消费 job/nonce/comment；重复回包、错误签名、错误代际、错误台账、撤销状态未知/拒绝均 fail closed。执行与消费均于认领前后重新调用独立 active_check(scope)，只允许 exact True。authority 必须由 consentDigest/签名 scope 独立解析签发者、用户、密钥/证书、目标、代际、grant 与事件，并检查撤销和时效；合成回调不是实时可信撤销系统。认领后拒绝保留已消费记录，不自动释放或重试。
+- 双检查不能消除最后一次检查与实际操作之间的 TOCTOU；真实撤销需独立原子准入/停止机制、可信时间、队列清空、并发及主机 watchdog 证据。receipt 只能证明本地消费，不能保证用户收到结果；同代际快照仍可回滚，独立防回滚状态锚仍未实现。G1–G5 OPEN；HOST-PILOT-NO-GO / PRODUCTION-NO-GO。

@@ -215,9 +215,12 @@ class ReplayLedger:
     PROGRESS_OPS = 1000
     MAX_VM_STEPS = 500_000
 
-    META_SQL = ("CREATE TABLE ledger_meta (generation TEXT PRIMARY KEY NOT NULL)")
+    PURPOSE = "execution"
+    META_SQL = ("CREATE TABLE ledger_meta (generation TEXT PRIMARY KEY NOT NULL, "
+                "purpose TEXT NOT NULL)")
     CLAIMS_SQL = ("CREATE TABLE claims (job_id TEXT PRIMARY KEY, "
-                  "nonce TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL)")
+                  "nonce TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, "
+                  "challenge_id INTEGER UNIQUE, execution_id INTEGER UNIQUE)")
 
     def __init__(self, path, generation):
         self.path = Path(path)
@@ -275,8 +278,8 @@ class ReplayLedger:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(cls.META_SQL)
             connection.execute(cls.CLAIMS_SQL)
-            connection.execute("INSERT INTO ledger_meta VALUES (?)",
-                               (ledger.generation,))
+            connection.execute("INSERT INTO ledger_meta VALUES (?, ?)",
+                               (ledger.generation, ledger.PURPOSE))
             connection.execute("COMMIT")
             return ledger
         except (OSError, sqlite3.Error, ValueError) as exc:
@@ -304,6 +307,8 @@ class ReplayLedger:
             ("index", "sqlite_autoindex_ledger_meta_1", "ledger_meta", None),
             ("index", "sqlite_autoindex_claims_1", "claims", None),
             ("index", "sqlite_autoindex_claims_2", "claims", None),
+            ("index", "sqlite_autoindex_claims_3", "claims", None),
+            ("index", "sqlite_autoindex_claims_4", "claims", None),
         }
         objects = connection.execute(
             "SELECT type, name, tbl_name, sql FROM main.sqlite_schema"
@@ -316,12 +321,20 @@ class ReplayLedger:
         # quick_check does not verify table/index consistency.
         if connection.execute("PRAGMA main.integrity_check(1)").fetchall() != [("ok",)]:
             raise RejectedRequest("state unavailable")
-        if connection.execute("SELECT generation FROM ledger_meta LIMIT 2"
-                              ).fetchall() != [(self.generation,)]:
+        if connection.execute("SELECT generation, purpose FROM ledger_meta LIMIT 2"
+                              ).fetchall() != [(self.generation, self.PURPOSE)]:
             raise RejectedRequest("state unavailable")
 
-    def claim(self, job_id, nonce, expires_at, now=None):
+    def claim(self, job_id, nonce, expires_at, now=None, *,
+              challenge_comment_id=None, execution_comment_id=None):
         _uuid(job_id)
+        if challenge_comment_id is not None or execution_comment_id is not None:
+            challenge_comment_id = _positive_id(challenge_comment_id)
+            execution_comment_id = _positive_id(execution_comment_id)
+            if challenge_comment_id == execution_comment_id:
+                raise RejectedRequest("invalid request")
+        elif self.PURPOSE == "receipt":
+            raise RejectedRequest("invalid request")
         timestamp = int(time.time()) if now is None else now
         if (type(nonce) is not str or re.fullmatch(r"[0-9a-f]{32}", nonce) is None or
                 type(expires_at) is not int or type(timestamp) is not int or
@@ -353,9 +366,19 @@ class ReplayLedger:
             self._verify_state(connection)
             if connection.execute("SELECT COUNT(*) FROM claims").fetchone()[0] >= self.MAX_CLAIMS:
                 raise RejectedRequest("state unavailable")
+            if challenge_comment_id is not None:
+                # The same comment must never switch roles on another claim.
+                if connection.execute(
+                    "SELECT 1 FROM claims WHERE challenge_id IN (?,?) "
+                    "OR execution_id IN (?,?) LIMIT 1",
+                    (challenge_comment_id, execution_comment_id,
+                     challenge_comment_id, execution_comment_id),
+                ).fetchone() is not None:
+                    raise RejectedRequest("already claimed")
             connection.execute(
-                "INSERT INTO claims (job_id,nonce,expires_at) VALUES (?,?,?)",
-                (job_id, nonce, expires_at),
+                "INSERT INTO claims (job_id,nonce,expires_at,challenge_id,execution_id) "
+                "VALUES (?,?,?,?,?)",
+                (job_id, nonce, expires_at, challenge_comment_id, execution_comment_id),
             )
             # Do not commit growth beyond the allowed database page budget.
             self._check_page_budget(connection)
@@ -371,6 +394,11 @@ class ReplayLedger:
             # RejectedRequest raised by schema/generation verification.
             if connection is not None:
                 connection.close()
+
+class ReceiptLedger(ReplayLedger):
+    """Separate synthetic client-consumption state; never an execution ledger."""
+
+    PURPOSE = "receipt"
 
 
 def _safe_data(operation, data):
@@ -536,3 +564,103 @@ def verify_signed_result_fixture(raw_result, raw_binding, signature, *,
         return parse_result(raw_result, job_id, operation)
     except Exception:
         raise RejectedRequest("response rejected") from None
+
+
+def _canonical_fixture(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=True, allow_nan=False).encode("ascii")
+
+
+def _check_active_fixture(provider, scope):
+    """Trusted simulated revocation authority; exact True only, never cache."""
+    if not callable(provider) or provider(scope) is not True:
+        raise RejectedRequest("authorization unavailable")
+
+
+def claim_bound_execution_fixture(event, trusted_runtime, *, raw_request,
+                                  raw_claim, signature, trusted_mapping,
+                                  consent_context, active_check, ledger):
+    """Offline composition only; not a real GitHub or authorization adapter.
+
+    trusted_mapping is canonical bytes from an independently authenticated
+    mapping of an inert challenge to a created execution comment, ciphertext
+    and decrypted request. This function never establishes that provenance.
+    consent_context and active_check are independently configured fixtures.
+    A successful return is a digest, not permission to execute a live command.
+    """
+    try:
+        if (type(consent_context) is not dict or
+                type(trusted_mapping) is not bytes or
+                not 0 < len(trusted_mapping) <= 2048 or
+                type(ledger) is not ReplayLedger):
+            raise RejectedRequest("authorization unavailable")
+        context = dict(consent_context)
+        # No duplicate source of truth for request or public job ID.
+        if "raw_request" in context or "public_job_id" in context:
+            raise RejectedRequest("authorization unavailable")
+        entry = parse_event_fixture(event, trusted_runtime, context["issue_number"])
+        digest = verify_consent_fixture(raw_claim, signature,
+            raw_request=raw_request, public_job_id=entry["jobId"], **context)
+        request = parse_decrypted_request(raw_request, entry["jobId"], now=context["now"])
+        challenge = _positive_id(context["challenge_comment_id"])
+        execution = _positive_id(entry["commentId"])
+        if challenge == execution or ledger.generation != context["generation"]:
+            raise RejectedRequest("authorization unavailable")
+        # Require the trusted independent mapping to bind the actual event,
+        # canonical ciphertext token and exact bytes from the trusted decryptor.
+        expected = _canonical_fixture({
+            "purpose": "prp-readonly-v2-execution-mapping",
+            "repoId": REPO_ID, "issueNumber": _positive_id(context["issue_number"]),
+            "actorId": OWNER_ID, "jobId": request["jobId"],
+            "nonce": request["nonce"], "consentDigest": digest,
+            "challengeCommentId": challenge, "executionCommentId": execution,
+            "audience": context["target_instance"], "generation": ledger.generation,
+            "ciphertextDigest": hashlib.sha256(entry["ciphertextB64"].encode("ascii")).hexdigest(),
+            "requestDigest": hashlib.sha256(raw_request).hexdigest(),
+        })
+        if trusted_mapping != expected:
+            raise RejectedRequest("authorization unavailable")
+        # The independent authority resolves consentDigest to issuer, key,
+        # subject, recipient cert, epoch and grant; deny unknown/revoked.
+        _check_active_fixture(active_check, expected)
+        ledger.claim(request["jobId"], request["nonce"], request["expiresAt"],
+                     context["now"], challenge_comment_id=challenge,
+                     execution_comment_id=execution)
+        # If authorization was revoked while claiming, burn the claim and
+        # refuse the handoff. Never release/retry an uncertain claim.
+        _check_active_fixture(active_check, expected)
+        return digest
+    except Exception:
+        raise RejectedRequest("authorization unavailable") from None
+
+
+def consume_signed_result_fixture(raw_result, raw_binding, signature, *,
+                                  receipt_ledger, active_check, verify_signature,
+                                  response_context):
+    """Verify and atomically consume one result in a separate client ledger.
+
+    Context is pinned independently of the response; its generation must
+    match the receipt ledger and the original verified authorization.
+    A post-claim denial burns the receipt. This does not provide a live
+    revocation barrier, response delivery guarantee or rollback protection.
+    """
+    try:
+        if type(receipt_ledger) is not ReceiptLedger or type(response_context) is not dict:
+            raise RejectedRequest("response unavailable")
+        context = dict(response_context)
+        if receipt_ledger.generation != context["generation"]:
+            raise RejectedRequest("response unavailable")
+        result = verify_signed_result_fixture(raw_result, raw_binding, signature,
+                                               verify_signature=verify_signature, **context)
+        # A trusted authority must resolve consentDigest and serverKeyId,
+        # and check certificate, instance, epoch, event and authorization.
+        # Scope is already signature-verified canonical metadata.
+        _check_active_fixture(active_check, raw_binding)
+        receipt_ledger.claim(context["job_id"], context["nonce"], context["expires_at"],
+                             context["now"],
+                             challenge_comment_id=context["challenge_comment_id"],
+                             execution_comment_id=context["execution_comment_id"])
+        _check_active_fixture(active_check, raw_binding)
+        return result
+    except Exception:
+        raise RejectedRequest("response unavailable") from None

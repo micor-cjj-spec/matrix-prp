@@ -18,7 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from readonly_ops import RejectedRequest, root_filesystem_usage
 from security_contract import (encode_result, parse_result, verify_consent_fixture,
                                result_binding_fixture, verify_signed_result_fixture,
-                               ReplayLedger)
+                               ReplayLedger, ReceiptLedger, claim_bound_execution_fixture,
+                               consume_signed_result_fixture)
 
 
 def _run(args, input_data=None):
@@ -418,6 +419,128 @@ class OfflineConsentSignatureTests(unittest.TestCase):
                                                  verify_signature=self.verify_server, **context)
             self.assertEqual(value["data"]["usedBytes"], 61440)
             self.assertEqual(value["data"]["freeBytes"], 25600)
+
+
+
+    def bound_execution_args(self, ledger):
+        raw_claim = self.canonical()
+        raw_request = self.context["raw_request"]
+        token = base64.urlsafe_b64encode(b"synthetic ciphertext").decode().rstrip("=")
+        owner = {"login": "micor-cjj-spec", "type": "User", "id": 123868412}
+        event = {"action": "created", "repository": {"full_name": "micor-cjj-spec/matrix-prp",
+                 "id": 1261866723}, "issue": {"number": 9002}, "sender": owner,
+                 "comment": {"id": 5556, "user": owner,
+                             "body": f"/prp-readonly-v2 {self.job} {token}"}}
+        runtime = {"event_name": "issue_comment", "ref": "refs/heads/main",
+                   "repository": "micor-cjj-spec/matrix-prp", "repository_id": 1261866723,
+                   "actor": "micor-cjj-spec", "actor_id": 123868412}
+        mapping = {"purpose": "prp-readonly-v2-execution-mapping",
+                   "repoId": 1261866723, "issueNumber": 9002, "actorId": 123868412,
+                   "jobId": self.job, "nonce": self.request["nonce"],
+                   "consentDigest": hashlib.sha256(raw_claim).hexdigest(),
+                   "challengeCommentId": 5555, "executionCommentId": 5556,
+                   "audience": self.instance, "generation": self.generation,
+                   "ciphertextDigest": hashlib.sha256(token.encode("ascii")).hexdigest(),
+                   "requestDigest": hashlib.sha256(raw_request).hexdigest()}
+        context = {k: v for k, v in self.context.items()
+                   if k not in ("raw_request", "public_job_id")}
+        return dict(event=event, trusted_runtime=runtime, raw_request=raw_request,
+                    raw_claim=raw_claim, signature=self.sign(raw_claim),
+                    trusted_mapping=self.canonical(mapping), consent_context=context,
+                    active_check=lambda scope: True, ledger=ledger)
+
+    def test_bound_execution_valid_and_replayed_event_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = ReplayLedger.initialize(Path(directory) / "claims.sqlite", self.generation)
+            args = self.bound_execution_args(ledger)
+            digest = claim_bound_execution_fixture(**args)
+            self.assertEqual(digest, hashlib.sha256(self.canonical()).hexdigest())
+            with self.assertRaises(RejectedRequest):
+                claim_bound_execution_fixture(**args)
+
+    def test_execution_mapping_mismatch_and_edited_event_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = ReplayLedger.initialize(Path(directory) / "claims.sqlite", self.generation)
+            args = self.bound_execution_args(ledger)
+            for change in ({"trusted_mapping": args["trusted_mapping"] + b" "},
+                           {"event": dict(args["event"], action="edited")},
+                           {"raw_request": args["raw_request"] + b" "},
+                           {"event": dict(args["event"], comment=dict(args["event"]["comment"], id=5557))}):
+                with self.subTest(fields=list(change)), self.assertRaises(RejectedRequest):
+                    claim_bound_execution_fixture(**dict(args, **change))
+            # Rejected requests did not consume the valid grant.
+            self.assertEqual(claim_bound_execution_fixture(**args),
+                             hashlib.sha256(self.canonical()).hexdigest())
+
+    def test_revocation_before_claim_denies_without_consumption(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = ReplayLedger.initialize(Path(directory) / "claims.sqlite", self.generation)
+            args = self.bound_execution_args(ledger)
+            for provider in (None, lambda _: False, lambda _: 1):
+                with self.subTest(provider=provider), self.assertRaises(RejectedRequest):
+                    claim_bound_execution_fixture(**dict(args, active_check=provider))
+            self.assertEqual(claim_bound_execution_fixture(**args),
+                             hashlib.sha256(self.canonical()).hexdigest())
+
+    def test_revocation_after_claim_burns_execution_grant(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = ReplayLedger.initialize(Path(directory) / "claims.sqlite", self.generation)
+            args = self.bound_execution_args(ledger)
+            decisions = iter((True, False))
+            with self.assertRaises(RejectedRequest):
+                claim_bound_execution_fixture(**dict(args, active_check=lambda _: next(decisions)))
+            with self.assertRaises(RejectedRequest):
+                claim_bound_execution_fixture(**args)
+
+    def receipt_args(self, ledger):
+        context = self.response_context()
+        raw = self.synthetic_result()
+        binding = result_binding_fixture(raw, **context)
+        return dict(raw_result=raw, raw_binding=binding,
+                    signature=self.sign(binding, self.server_signer),
+                    receipt_ledger=ledger, active_check=lambda _: True,
+                    verify_signature=self.verify_server, response_context=context)
+
+    def test_response_receipt_is_one_time_and_separate_from_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            execution = ReplayLedger.initialize(folder / "execution.sqlite", self.generation)
+            claim_bound_execution_fixture(**self.bound_execution_args(execution))
+            receipt = ReceiptLedger.initialize(folder / "receipt.sqlite", self.generation)
+            args = self.receipt_args(receipt)
+            self.assertEqual(consume_signed_result_fixture(**args)["data"]["usedBytes"], 600)
+            reopened = ReceiptLedger(folder / "receipt.sqlite", self.generation)
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**dict(args, receipt_ledger=reopened))
+
+    def test_receipt_rejects_execution_ledger_and_wrong_epoch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            execution = ReplayLedger.initialize(folder / "execution.sqlite", self.generation)
+            receipt = ReceiptLedger.initialize(folder / "receipt.sqlite", str(uuid.uuid4()))
+            args = self.receipt_args(receipt)
+            for wrong in (execution, ReceiptLedger(folder / "execution.sqlite", self.generation), receipt):
+                with self.subTest(wrong=wrong), self.assertRaises(RejectedRequest):
+                    consume_signed_result_fixture(**dict(args, receipt_ledger=wrong))
+
+    def test_receipt_rejected_signature_or_revocation_does_not_consume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = ReceiptLedger.initialize(Path(directory) / "receipt.sqlite", self.generation)
+            args = self.receipt_args(receipt)
+            for change in ({"signature": bytes(64)}, {"active_check": lambda _: False}):
+                with self.subTest(fields=list(change)), self.assertRaises(RejectedRequest):
+                    consume_signed_result_fixture(**dict(args, **change))
+            self.assertTrue(consume_signed_result_fixture(**args)["ok"])
+
+    def test_receipt_revocation_after_claim_burns_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = ReceiptLedger.initialize(Path(directory) / "receipt.sqlite", self.generation)
+            args = self.receipt_args(receipt)
+            decisions = iter((True, False))
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**dict(args, active_check=lambda _: next(decisions)))
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**args)
 
 
 if __name__ == "__main__":
