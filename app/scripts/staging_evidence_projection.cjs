@@ -2,7 +2,7 @@
 const {reviewSmokeReport}=require("./unified_staging_smoke_review.cjs");
 const {createHash}=require("node:crypto");
 const exact=(v,keys)=>v!==null&&typeof v==="object"&&!Array.isArray(v)&&
-  Object.keys(v).sort().join("|")===keys.slice().sort().join("|");
+  Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const sha=v=>typeof v==="string"&&/^[a-f0-9]{40}$/.test(v)&&v.length===40;
 const digest=v=>typeof v==="string"&&/^sha256:[a-f0-9]{64}$/.test(v)&&v.length===71;
 const pos=v=>Number.isSafeInteger(v)&&v>0;
@@ -22,7 +22,7 @@ function projectStagingReview(input,now) {
   const {candidate:c,expectedRun:e,receipt:r,before,after,startedAt,finishedAt}=input;
   requireValid(exact(c,candidateKeys)&&candidateValid(c),"INVALID_CANDIDATE");
   requireValid(exact(e,["requestCommentId","runId","runAttempt","workflowSha"])&&
-    pos(e.requestCommentId)&&typeof e.runId==="string"&&/^[1-9][0-9]{0,19}$/.test(e.runId)&&
+    pos(e.requestCommentId)&&typeof e.runId==="string"&&/^[1-9][0-9]{0,19}$/.test(e.runId)&&!/\D/.test(e.runId)&&
     e.runAttempt===1&&sha(e.workflowSha),"INVALID_RUN_CONTEXT");
   requireValid(exact(r,receiptKeys)&&r.schemaVersion===1&&r.kind==="PRP_STAGING_READ_SMOKE_RECEIPT"&&
     r.source==="github_task_candidate"&&r.repository==="micor-cjj-spec/matrix-prp"&&
@@ -54,7 +54,8 @@ function projectStagingReview(input,now) {
       findings.push("STALE_OR_UNBRACKETED_OBSERVATION");
   }
   if(now-finishedAt>900)findings.push("STALE_SMOKE");
-  const binding={commit:c.commit,artifactDigest:c.artifactDigest,schema:c.schema,
+  const binding={domain:"P36_OFFLINE_STAGING_REVIEW_V1",commit:c.commit,artifactDigest:c.artifactDigest,schema:c.schema,
+    receiptState:r.state,apiPassed:r.apiPassed,checksExecuted:r.checksExecuted,
     requestCommentId:e.requestCommentId,runId:e.runId,runAttempt:e.runAttempt,workflowSha:e.workflowSha,
     startedAt,finishedAt,before:before&&{commit:before.commit,artifactDigest:before.artifactDigest,
       schema:before.schema,environment:before.environment,observedAt:before.observedAt},
@@ -63,6 +64,7 @@ function projectStagingReview(input,now) {
     cases:summary?r.report.cases.map(k=>({id:k.id,state:k.state,
       checks:k.checks.map(j=>({check:j.check,result:j.result}))})).sort((a,b)=>a.id.localeCompare(b.id)):null};
   return {schemaVersion:1,source:"offline_unverified_staging_review",state:"BLOCKED",
+    candidate:{commit:c.commit,artifactDigest:c.artifactDigest,schema:c.schema},
     bindingDigest:"sha256:"+createHash("sha256").update(JSON.stringify(binding)).digest("hex"),
     readSmoke:summary?.state||"BLOCKED_RUNNER",apiPassed:r.apiPassed,checksExecuted:r.checksExecuted,
     identityCorrelation:findings.length===0?"CLAIMED_MATCH_ONLY":"INCOMPLETE",

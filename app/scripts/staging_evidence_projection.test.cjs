@@ -61,3 +61,17 @@ test("future or reversed smoke window rejected",()=>{
   for(const change of [f=>f.finishedAt=NOW+1,f=>f.startedAt=NOW-1]){
     const f=fixture();change(f);assert.throws(()=>projectStagingReview(f,NOW),/INVALID_OBSERVATION_WINDOW/);}
 });
+test("distinct blocked report states produce distinct binding digests",()=>{
+  const states=["BLOCKED_NO_SESSION","BLOCKED_WRONG_ORIGIN","BLOCKED_TEST_IDENTITY_NOT_CONFIRMED"];
+  const digests=states.map(state=>{
+    const f=fixture();Object.assign(f.receipt,{state,report:{state,cases:[]},apiPassed:0,checksExecuted:0});
+    const result=projectStagingReview(f,NOW);
+    assert.equal(result.readSmoke,state);assert.equal(result.state,"BLOCKED");return result.bindingDigest;
+  });assert.equal(new Set(digests).size,states.length);
+});
+test("rejects newline run identifiers and delimiter-substituted keys",()=>{
+  const f=fixture();f.expectedRun.runId=f.receipt.runId="456\n";
+  assert.throws(()=>projectStagingReview(f,NOW),/INVALID_RUN_CONTEXT/);
+  const g=fixture();delete g.before.commit;delete g.before.schema;g.before["commit|schema"]="x";
+  assert.throws(()=>projectStagingReview(g,NOW),/INVALID_STAGE_IDENTITY/);
+});
