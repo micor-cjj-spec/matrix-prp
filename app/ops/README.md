@@ -35,3 +35,8 @@
 - audit_store.py 为本地 JSONL 持久候选，预置 0700 目录/0600 单链接普通文件，固定字段与 recordedAt，非阻塞独占锁、1MiB 硬容量、单次 append+fsync；缺失、链接、权限、容量、部分尾记录、锁竞争、写入或 fsync 失败均拒绝返回，不自动清理/创建/截断。fsync 失败可能已写入，非交付证明；当前 UID 可修改文件，非防篡改、非独立审计。真实服务需审计保留/轮换、告警、磁盘空间、独立可信主体归属与防 DoS 验收；已获名额但被拒绝的请求也可能耗尽容量，未获名额的请求不进入同步审计；未来 ingress 须独立聚合超限计数并管理保留/轮换，不能直接启用。审计全量字段不含 token、原始指标或请求数据。没有真实文件/账号/授权变更，测试使用临时目录。
 
 本地管理员时钟异常、旧快照恢复仍需独立停用与撤销流程；不声称 grant 文件具有防回滚能力。查询 grant/token 的最终校验发生在 RPC 层、同步审计前；审计期间的授权变化仍有交付竞态，实际传输实现需再次核验有效期和撤销状态。
+
+## D-M05.4 独立 ASGI 运行候选（未部署）
+- asgi_runtime.py 新增真实 ASGI callable 适配已有 HttpBoundary，保留 raw header pairs、raw_path、拒绝 query/代理路径/非 HTTPS scheme、固定 HTTP/1.1、请求头和 body 限长、最多32次 body event；单进程4个入口名额（含读取 body），固定4 worker，无额外等待队列。5s body+dispatch 响应决策期限，发送独立1s/事件；超时/取消不释放仍在执行的线程名额，真实完成才释放，晚到结果丢弃。不是硬杀死线程；实际 ASGI server、TLS termination、连接及 framing 限制、watchdog、代理可信 scheme 和真实宿主互操作待验收。仅 synthetic ASGI events，不绑定端口。
+- 默认 create_app() 拒绝 lifespan startup，任何 HTTP 返回503；直接执行退出78，不读取主机/配置/凭据、不启动 listener。OpsASGI 仅接受明确注入的 HttpBoundary 供合成测试。尚无真实运行 profile、ASGI runner 依赖锁或 service 安装；下一步需独立批准配置/issuer 与运行模板后才能准备真实接入。
+- RPC 可向 server-owned capture 提供每次请求绑定的最终校验回调。HTTP 在持久审计后重新 introspect 同一 bearer、比对原 identity 与 grant、重查有效时间，拒绝审计期间撤销、轮换、过期；若 fresh 快照到期则不给出旧值；最后仍检查 host disclosure marker。每成功候选 HTTP 调用额外一次 introspection，实际负载与延迟待验收。最后一次检查到 ASGI send/network 之间仍有竞态，不是瞬时撤销或原子网络交付证明。

@@ -5,6 +5,13 @@ from unittest.mock import Mock, patch
 from http_boundary import (HttpBoundary, Budget, RESOURCE_PATH, METADATA_PATH,
                            PROTOCOL, RATE, CONCURRENCY)
 from query_contract import Policy, TOOL, RESOURCE, ISSUER, SCOPE
+from test_snapshot_contract import NOW
+
+def successful_dispatch(value):
+    def dispatch(*args, _capture, **kwargs):
+        _capture(lambda:NOW)
+        return 200,value
+    return dispatch
 
 class HttpTests(unittest.TestCase):
     def setUp(self):
@@ -69,7 +76,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.request(headers=headers).status,status)
 
     def test_marker_default_off_and_revoked_before_return(self):
-        with patch("http_boundary.dispatch_fixture",return_value=(200,{"result":{}})) as dispatch:
+        with patch("http_boundary.dispatch_fixture",side_effect=successful_dispatch({"result":{}})) as dispatch:
             self.marker.return_value=False
             self.assertEqual(self.request().status,503)
             dispatch.assert_not_called()
@@ -88,7 +95,7 @@ class HttpTests(unittest.TestCase):
         dispatch.assert_not_called()
 
     def test_audit_only_fixed_fields_and_fail_closed(self):
-        with patch("http_boundary.dispatch_fixture",return_value=(200,{"result":{"secret":"fixture-metrics"}})):
+        with patch("http_boundary.dispatch_fixture",side_effect=successful_dispatch({"result":{"secret":"fixture-metrics"}})):
             got=self.request()
             self.assertEqual(got.status,200)
             event=self.audit.call_args.args[0]
@@ -100,7 +107,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(got.body,b"")
 
     def test_tool_error_audit_is_denied(self):
-        with patch("http_boundary.dispatch_fixture",return_value=(200,{"result":{"isError":True}})):
+        with patch("http_boundary.dispatch_fixture",side_effect=successful_dispatch({"result":{"isError":True}})):
             self.assertEqual(self.request().status,200)
             self.assertEqual(self.audit.call_args.args[0]["outcome"],"denied")
 
@@ -142,7 +149,7 @@ class HttpTests(unittest.TestCase):
             return len(observations)<3
         boundary=HttpBoundary(server={"policy":Policy(True)},audit_sink=self.audit,
             budget=budget,disclosure_check=check)
-        with patch("http_boundary.dispatch_fixture",return_value=(200,{"result":{}})):
+        with patch("http_boundary.dispatch_fixture",side_effect=successful_dispatch({"result":{}})):
             got=boundary.handle("POST",RESOURCE_PATH,self.headers,self.body)
         self.assertEqual(got.status,503)
         self.assertEqual(observations,[False,False,False])

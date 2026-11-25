@@ -18,11 +18,30 @@ def error(code, message, request_id=None):
 def result(value, request_id):
     return {"jsonrpc":"2.0","id":request_id,"result":value}
 
-def dispatch_fixture(raw, authorization, **server):
+def dispatch_fixture(raw, authorization, *, _capture=None, **server):
     """Returns (HTTP status candidate, JSON response or None)."""
     try:
         context = authorize_request(authorization, **server)
-    except QueryDenied:
+        if _capture is not None:
+            # Server-owned, per-request callback only. It is never parsed
+            # from RPC params and never returned in the response.
+            original = context.identity_provider()
+            original_grant = context.grant_provider(original.grant_id)
+            initial = instant(context.trusted_clock)
+            check_identity(original, initial)
+            check_grant(original_grant, original, initial)
+            def final_check():
+                renewed = authorize_request(authorization, **server)
+                identity = renewed.identity_provider()
+                grant = renewed.grant_provider(identity.grant_id)
+                now = instant(renewed.trusted_clock, initial)
+                check_identity(identity, now)
+                check_grant(grant, identity, now)
+                if identity != original or grant != original_grant:
+                    raise QueryDenied("query denied")
+                return now
+            _capture(final_check)
+    except Exception:
         return 401, None
     try:
         p = strict_json(raw, MAX_RPC)

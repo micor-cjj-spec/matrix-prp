@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from collections import deque
 from query_contract import ISSUER, RESOURCE, SCOPE, Policy
 from rpc_adapter import dispatch_fixture, MAX_RPC, PROTOCOL
-from snapshot_contract import strict_json, utc
+from snapshot_contract import strict_json, timestamp, TTL_SECONDS, FUTURE_TOLERANCE, utc
 from collector_runtime import live_collection_enabled
 
 RESOURCE_PATH = "/mcp"
@@ -129,6 +129,7 @@ class HttpBoundary:
         route="unknown"
         outcome="denied"
         result=response(400)
+        receipts=[]
         try:
             acquired=self._budget.acquire()
             if not acquired:
@@ -139,7 +140,7 @@ class HttpBoundary:
                     route="mcp"
                 elif target==METADATA_PATH:
                     route="metadata"
-                result=self._dispatch(method,target,header_pairs,body)
+                result=self._dispatch(method,target,header_pairs,body,receipts)
                 outcome="handled" if 200<=result.status<300 else "denied"
                 # Even an HTTP 200 tool error is not a successful query.
                 if route=="mcp" and result.status==200:
@@ -169,8 +170,22 @@ class HttpBoundary:
                     # No atomic barrier with actual network delivery exists.
                     if route=="mcp" and 200<=result.status<300:
                         try:
-                            if self._disclosure() is not True:
-                                result=response(503)
+                            if len(receipts)!=1:
+                                result=unauthorized()
+                            else:
+                                now=receipts[0]()
+                                utc(now)
+                                # A slow audit/authority call must not expose a
+                                # snapshot that became stale before return.
+                                if result.status==200:
+                                    value=strict_json(result.body,MAX_RESPONSE)
+                                    snapshot=value.get("result",{}).get("structuredContent")
+                                    if type(snapshot) is dict and snapshot.get("status")=="fresh":
+                                        age=now-timestamp(snapshot["observedAt"])
+                                        if not -FUTURE_TOLERANCE<=age<TTL_SECONDS:
+                                            result=response(503)
+                                if self._disclosure() is not True:
+                                    result=response(503)
                         except Exception:
                             result=response(503)
                 finally:
@@ -178,7 +193,7 @@ class HttpBoundary:
                         self._budget.release()
         return result
 
-    def _dispatch(self,method,target,pairs,body):
+    def _dispatch(self,method,target,pairs,body,receipts):
         if type(method) is not str or type(target) is not str or type(body) is not bytes:
             return response(400)
         if target not in (RESOURCE_PATH,METADATA_PATH):
@@ -218,7 +233,7 @@ class HttpBoundary:
             return unauthorized()
         if self._disclosure() is not True:
             return response(503)
-        status,value=dispatch_fixture(body,headers.get("authorization"),**self._server)
+        status,value=dispatch_fixture(body,headers.get("authorization"),_capture=receipts.append,**self._server)
         if status==401:
             return unauthorized()
         if status not in (200,202,400):

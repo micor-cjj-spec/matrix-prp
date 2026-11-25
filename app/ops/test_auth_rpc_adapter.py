@@ -88,6 +88,34 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(json.loads(got.body)["result"]["structuredContent"]["status"],"fresh")
         self.assertEqual(audit.call_args.args[0]["outcome"],"handled")
 
+    def test_audit_time_revocation_or_expiry_suppresses_response(self):
+        from http_boundary import HttpBoundary, Budget
+        body=b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"prp_ops_status_get","arguments":{}}}'
+        headers=[("Host","ops.invalid"),("Content-Type","application/json"),
+            ("Accept","application/json, text/event-stream"),
+            ("Content-Length",str(len(body))),("Authorization","Bearer synthetic-token")]
+        for mode in ("grant","token","expiry","freshness"):
+            self.write_grant(self.grant)
+            self.claims["active"]=True
+            clock=[NOW]
+            def audit(_):
+                if mode=="grant":
+                    self.write_grant(dict(self.grant,active=False))
+                elif mode=="token":
+                    self.claims["active"]=False
+                elif mode=="expiry":
+                    clock[0]=NOW+300
+                else:
+                    clock[0]=NOW+120
+                return True
+            boundary=HttpBoundary(server=dict(self.server,trusted_clock=lambda:clock[0]),
+                audit_sink=audit,budget=Budget(lambda:100),disclosure_check=lambda:True)
+            a,b,c=self.as_reader()
+            with a,b,c:
+                got=boundary.handle("POST","/mcp",headers,body)
+            self.assertIn(got.status,(401,503),mode)
+            self.assertEqual(got.body,b"",mode)
+
     def test_initialization_and_list_authorized(self):
         status,body=self.dispatch("initialize",{"protocolVersion":PROTOCOL,"capabilities":{},"clientInfo":{"name":"fixture","version":"1"}})
         self.assertEqual(status,200)
