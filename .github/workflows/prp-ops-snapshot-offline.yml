@@ -1,0 +1,18 @@
+name: PRP ops snapshot D offline contract
+on:
+  pull_request:
+    paths:
+      - 'app/ops/**'
+      - '.github/workflows/prp-ops-snapshot-offline.yml'
+permissions:
+  contents: read
+jobs:
+  offline-snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Synthetic projections and temporary snapshot files only
+        run: python3 -m unittest discover -s app/ops -p 'test_*.py' -v
