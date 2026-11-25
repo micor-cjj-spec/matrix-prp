@@ -10,6 +10,8 @@ class CollectorTests(unittest.TestCase):
     def test_fixed_source_allowlist_has_only_proc_metrics(self):
         self.assertEqual(collector.PROC_SOURCES,{"stat":"/proc/stat","meminfo":"/proc/meminfo"})
         self.assertEqual(collector.PROC_LIMITS,{"stat":512,"meminfo":65536})
+        self.assertEqual(collector.ENABLE_MARKER,"ALLOW_HOST_METRICS")
+        self.assertEqual(collector.MARKER_CONTENT,b"host-metrics=approved\n")
         with patch("collector_runtime.os.open") as opener:
             with self.assertRaises(OSError):
                 collector.read_fixed_proc("/etc/passwd")

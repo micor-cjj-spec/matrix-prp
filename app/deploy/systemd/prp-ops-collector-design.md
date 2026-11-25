@@ -1,7 +1,7 @@
 # D-M04 独立采集运行与读写隔离（离线设计）
 
 ## Scope / safety
-This is an offline implementation and unit-file review only. Neither systemd unit is installed, enabled, started, nor validated on a live host. Live collection remains OFF unless a root-owned marker with exact bytes `host-metrics=approved\\n` exists at `/etc/matrix-prp-ops/ALLOW_HOST_METRICS`; both units also have `ConditionPathExists`. The marker is absent from the repository. M06 remains separately gated. No host connection, network, SSH, shell, DB, Docker socket, process enumeration, deployment, or production change.
+This is an offline implementation and unit-file review only. Neither systemd unit is installed, enabled, started, nor validated on a live host. Live collection remains OFF unless a root-owned marker with exact bytes `host-metrics=approved\n` exists at `/etc/matrix-prp-ops/ALLOW_HOST_METRICS`; both units also have `ConditionPathExists`. The marker is absent from the repository. M06 remains separately gated. No host connection, network, SSH, shell, DB, Docker socket, process enumeration, deployment, or production change.
 
 ## Collector
 - Fixed allowlist only: `/proc/stat`, `/proc/meminfo`, and `statvfs("/")`; no user-controlled path, environment target, command or argument.
@@ -27,4 +27,4 @@ This is an offline implementation and unit-file review only. Neither systemd uni
 - No database, application, Keycloak, shared OAuth, GitHub release lock, V1 Shell, main/dev merge or production deployment changes.
 
 ### Explicit host-metric disclosure gate
-The marker name `ALLOW_HOST_METRICS` is intentional: CPU, RAM and root-filesystem figures are host-wide and may reveal shared production/staging capacity. A future administrator must explicitly provision the root-owned marker with exact content `host-metrics=approved\\n` only after confirming the host/environment disclosure boundary. The marker is absent and must remain absent until separate M06 authorization. No per-container substitution is implied.
+The marker name `ALLOW_HOST_METRICS` is intentional: CPU, RAM and root-filesystem figures are host-wide and may reveal shared production/staging capacity. A future administrator must explicitly provision the root-owned marker with exact content `host-metrics=approved\n` only after confirming the host/environment disclosure boundary. The marker is absent and must remain absent until separate M06 authorization. No per-container substitution is implied.

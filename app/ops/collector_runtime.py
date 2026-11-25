@@ -21,7 +21,7 @@ ENABLE_DIRECTORY = "/etc/matrix-prp-ops"
 ENABLE_MARKER = "ALLOW_HOST_METRICS"
 RUNTIME_DIRECTORY = "/run/prp-ops-collector"
 LOCK_NAME = "collector.lock"
-MARKER_CONTENT = b"enabled=1\n"
+MARKER_CONTENT = b"host-metrics=approved\n"
 PROC_LIMITS = {"stat": 512, "meminfo": 65536}
 
 def _open_directory(path):
