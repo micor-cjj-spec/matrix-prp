@@ -168,16 +168,18 @@ class StagingReleaseDecisionJournalIT {
         var grant = new AtomicReference<>(Set.of(SCOPE));
         var account = new AtomicReference<>(Optional.of(
             new UserAccount(OWNER,"owner","Synthetic owner","unused-test-hash",false,true)));
-        var initialAuth = new CountDownLatch(1);
+        var enteringJournal = new CountDownLatch(1);
         when(users.findById(OWNER)).thenAnswer(invocation -> account.get());
-        when(grants.grantedScopes(OWNER,CLIENT)).thenAnswer(invocation -> {
-            Set<String> sampled = grant.get();
-            initialAuth.countDown();
-            return sampled;
-        });
+        when(grants.grantedScopes(OWNER,CLIENT)).thenAnswer(invocation -> grant.get());
         var req = request();
+        var delegate = new StagingReleaseDecisionJournal(suffix);
+        DecisionJournal observed = (reviewed, envelope, recheck) -> {
+            // Initial identity, session, expiry and signature checks are complete.
+            enteringJournal.countDown();
+            delegate.record(reviewed,envelope,recheck);
+        };
         var boundary = new StagingReleaseApprovalBoundary(users,grants,OWNER,keys.getPublic(),
-            clock,new StagingReleaseDecisionJournal(suffix));
+            clock,observed);
         Envelope e = proof(pending,Decision.APPROVE,UUID.randomUUID());
         try (var pool = Executors.newSingleThreadExecutor()) {
             java.util.concurrent.Future<String> future;
@@ -187,7 +189,7 @@ class StagingReleaseDecisionJournalIT {
                     catch (IllegalArgumentException denied) { return denied.getMessage(); }
                 });
                 try {
-                    assertThat(initialAuth.await(3,TimeUnit.SECONDS)).isTrue();
+                    assertThat(enteringJournal.await(3,TimeUnit.SECONDS)).isTrue();
                     // The journal cannot write while this independent transaction holds its row.
                     change.accept(new Contention(now,current,grant,account,req));
                 } finally { lock.rollback(); }
