@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/scripts/unified_staging_read_smoke*'
       - 'app/scripts/unified_staging_smoke_review*'
+      - 'app/scripts/unified_staging_live_runner*'
       - '.github/workflows/unified-staging-read-smoke.yml'
 
 permissions:
@@ -23,6 +24,6 @@ jobs:
         with:
           node-version: '22'
       - name: Run synthetic contract tests only
-        run: node --test app/scripts/unified_staging_read_smoke.test.cjs app/scripts/unified_staging_smoke_review.test.cjs
+        run: node --test app/scripts/unified_staging_read_smoke.test.cjs app/scripts/unified_staging_smoke_review.test.cjs app/scripts/unified_staging_live_runner.test.cjs
       - name: Print fixture summary (not live evidence)
         run: node app/scripts/unified_staging_smoke_review.cjs --fixture
