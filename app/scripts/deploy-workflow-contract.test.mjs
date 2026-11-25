@@ -38,6 +38,10 @@ test('disposable E2E emits a fixed Maven failure class but never raw build logs'
   assert.match(retry, /for attempt in 1 2 3; do/)
   assert.match(retry, /"\$retryable" == true && "\$attempt" -lt 3/)
   assert.match(retry, /diagnostic=WRAPPER_DOWNLOAD/)
+  assert.match(retry, /detail=UNCLASSIFIED_WRAPPER/)
+  const wrapperBranch = retry.split('diagnostic=WRAPPER_DOWNLOAD')[1].split('elif grep')[0]
+  assert.doesNotMatch(wrapperBranch, /retryable=true/)
+  assert.match(retry, /DIAG_MAVEN_BUILD_DETAIL=\$detail ATTEMPT=\$attempt/)
   assert.match(retry, /diagnostic=DEPENDENCY_OR_NETWORK/)
   assert.match(retry, /exit "\$status"/)
   assert.doesNotMatch(retry, /(?:cat|tail|head)\s+["']?\$log/)

@@ -46,11 +46,35 @@ class RetryTests(unittest.TestCase):
         self.assertEqual((p.returncode,n),(17,3))
         self.assertIn("OCI_DIAG_MAVEN_BUILD_CATEGORY=DEPENDENCY_OR_NETWORK",p.stderr)
 
-    def test_wrapper_only_in_e2e(self):
+    def test_ambiguous_wrapper_fails_closed_without_outer_retry(self):
+        for mode in ("E2E","OCI"):
+            p,n = self.execute([WRAPPER,"PASS"],mode)
+            self.assertEqual((p.returncode,n),(17,1))
+            self.assertNotIn("RETRY_CATEGORY",p.stderr)
         p,n = self.execute([WRAPPER,"PASS"])
-        self.assertEqual((p.returncode,n),(0,2))
-        p,n = self.execute([WRAPPER,"PASS"],"OCI")
+        self.assertIn("E2E_DIAG_MAVEN_BUILD_DETAIL=UNCLASSIFIED_WRAPPER",p.stderr)
+
+    def test_wrapper_with_incidental_network_text_not_retried(self):
+        for evidence in ("Connection timed out","status code: 429","SSLHandshakeException",
+                         "status code: 403","status code: 404","checksum mismatch"):
+            with self.subTest(evidence=evidence):
+                p,n = self.execute([WRAPPER+"\n"+evidence,"PASS"])
+                self.assertEqual((p.returncode,n),(17,1))
+                self.assertNotIn("RETRY_CATEGORY",p.stderr)
+
+    def test_fixed_transport_details_and_no_raw_logs(self):
+        for evidence, detail in (("status code: 429","RATE_LIMIT"),
+                                 ("UnknownHostException","DNS"),
+                                 ("Read timed out","TIMEOUT_OR_RESET"),
+                                 ("Connection reset","TIMEOUT_OR_RESET")):
+            with self.subTest(evidence=evidence):
+                p,n = self.execute(["Could not transfer artifact PRIVATE_TEST_SENTINEL "+evidence,"PASS"])
+                self.assertEqual((p.returncode,n),(0,2))
+                self.assertIn("E2E_DIAG_MAVEN_BUILD_DETAIL="+detail+" ATTEMPT=1",p.stderr)
+                self.assertNotIn("PRIVATE_TEST_SENTINEL",p.stdout+p.stderr)
+        p,n = self.execute(["Could not resolve dependencies: absent artifact","PASS"])
         self.assertEqual((p.returncode,n),(17,1))
+        self.assertIn("UNCLASSIFIED_DEPENDENCY",p.stderr)
 
     def test_generic_resolution_without_transport_not_retried(self):
         p,n = self.execute(["Could not resolve dependencies: absent artifact","PASS"])

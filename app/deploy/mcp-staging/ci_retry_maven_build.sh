@@ -24,6 +24,7 @@ for attempt in 1 2 3; do
   fi
   diagnostic=UNKNOWN
   retryable=false
+  detail=NOT_APPLICABLE
   # Hard failures take precedence over incidental transport text.
   if grep -Eiq 'checksum (mismatch|validation failed|failure)|invalid checksum|PKIX path building failed|certificate verify failed|SSLHandshakeException' "$log"; then
     diagnostic=INTEGRITY_OR_TLS
@@ -37,13 +38,28 @@ for attempt in 1 2 3; do
     diagnostic=LAUNCH_OR_FILESYSTEM
   elif [[ "$mode" == E2E ]] && grep -Eq '(wget|curl): Failed to fetch .*apache-maven-[0-9.]+-bin.zip' "$log"; then
     diagnostic=WRAPPER_DOWNLOAD
-    retryable=true
+    # The current wrapper uses quiet wget/silent curl and reports the same
+    # generic message for transient and permanent failures. Its wget path
+    # already has bounded internal retries. Never retry this ambiguous
+    # outcome in the outer helper, even if incidental transport text exists.
+    detail=UNCLASSIFIED_WRAPPER
   elif grep -Eiq 'Could not transfer artifact|Could not resolve dependencies|Non-resolvable parent POM' "$log"; then
     diagnostic=DEPENDENCY_OR_NETWORK
-    if grep -Eiq 'status code: 429|Too Many Requests|UnknownHostException|Connection timed out|Read timed out|Connection reset|Name or service not known' "$log"; then
+    if grep -Eiq 'status code: 429|Too Many Requests' "$log"; then
+      detail=RATE_LIMIT
       retryable=true
+    elif grep -Eiq 'UnknownHostException|Name or service not known' "$log"; then
+      detail=DNS
+      retryable=true
+    elif grep -Eiq 'Connection timed out|Read timed out|Connection reset' "$log"; then
+      detail=TIMEOUT_OR_RESET
+      retryable=true
+    else
+      detail=UNCLASSIFIED_DEPENDENCY
     fi
   fi
+  # Static categories only: never display the matched raw line or URL.
+  echo "${mode}_DIAG_MAVEN_BUILD_DETAIL=$detail ATTEMPT=$attempt" >&2
   if [[ "$retryable" == true && "$attempt" -lt 3 ]]; then
     echo "${mode}_DIAG_MAVEN_RETRY_CATEGORY=$diagnostic ATTEMPT=$attempt" >&2
     # 8s then 20s, no source/version changes and no unbounded retry.
