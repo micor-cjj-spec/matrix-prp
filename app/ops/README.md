@@ -16,3 +16,9 @@
 - M05 synthetic tests exercise tool discovery, empty calls, parameter spoofing, metadata spoofing, disabled policy, revoked grant, stale snapshot and output minimization. Live transport remains blocked on independent OAuth and M06 approval.
 
 - Host-wide CPU/RAM/root-disk collection is explicitly gated by root-owned `/etc/matrix-prp-ops/ALLOW_HOST_METRICS` exact content `host-metrics=approved\n`; this is a disclosure authorization, not just a service enable flag. Marker absent by default; shared production/staging host requires separate explicit approval.
+
+## D-M05.1 独立鉴权与 JSON-RPC 接入候选（离线）
+- 现有 McpClientGrantService 依赖业务数据库，McpOAuthResourceServerConfig 还依赖业务账号与身份链接；方案 D 独立服务不能直接依赖它们。候选采用 RFC 7662 introspection（单独 confidential resource client，TLS 证书/主机名校验、固定 URL、无 redirect、响应限长）与独立管理员持有 grant.json，避免手写 JWT 验签。HTTPS 连接仅对 .invalid fixture，测试全部 mock；不触达真实 issuer，不申请真实 client、不写入凭据、不变更 Keycloak。真实 issuer 的 introspection 权限、响应字段及 scope/audience/client profile 需 M06 前独立确认。
+- grant.json 默认 /etc/matrix-prp-ops/grant.json，root 所有、reader group 0640、目录 0755，固定 schema、单硬链接、无 symlink、只读且每次重读。授权 ID 从管理员记录产生，不信任 token/model 传入的 grant ID；新 grant issuedAt 拒绝此前签发的 token。撤销 active=false 或移除文件；仅提供 reader，未实现管理员授权 UI/写入/签发或真实持久授权流程。真实路径祖先、UID/GID、文件原子发布及备份回滚策略仍需审查。
+- Bearer token 通过独立 TLS introspection 获取 active/iss/sub/aud/client_id/azp/token_type/scope/iat/exp/nbf，严格固定单 audience、唯一 ops scope、双 client 一致、明确时间；不透传 claims，不缓存跨请求，不记录 token。一次 introspection 加本地 grant 前后检查；已开始请求的最后检查到响应交付之间仍有残余竞态，未宣称瞬时撤销。
+- rpc_adapter.py 仅 in-process candidate：有界严格 JSON-RPC envelope，支持仓库现有 2025-06-18 initialize、ping、tools/list、tools/call、initialized notification；所有入口先鉴权，无批处理、路径或命令参数。不是 HTTP server，未验证 Streamable HTTP header/Origin/Accept、重复 Authorization、并发配额、传输超时、协议协商、真实客户端互操作。保留 M06 阻塞，不自动启动。
