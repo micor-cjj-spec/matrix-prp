@@ -5,6 +5,7 @@ import {execFileSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
 import {resolve} from 'node:path'
 import {validateIssueEvent} from './issue-ingress.mjs'
+import {historicalNote,isHistoricalNote} from './ruleset-415-attestation.mjs'
 import {applyCommand,validateSnapshot,CollabError,requireMigratedLiveState} from './core.mjs'
 export {requireMigratedLiveState}
 import {verifyStateBranchRuleset} from './state-rule-policy.mjs'
@@ -66,8 +67,8 @@ export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>
      reviewedEvidence?.ciVerified===true &&
      reviewedEvidence?.mergedIntoIntegration===true,
      'ISSUE_ACCEPT_TRUSTED_REVIEW_REQUIRED')
-   if(validated.historical415===true)check(command.note==='historical-415-approved-recovery-v1'&&reviewedEvidence.historical415Verified===true,'ISSUE_HISTORICAL_PROOF_REQUIRED')
-   else check(command.note!=='historical-415-approved-recovery-v1','ISSUE_HISTORICAL_ACTION_REQUIRED')
+   if(validated.historical415===true)check(validated.policyAttestation&&command.note===historicalNote(validated.policyAttestation)&&reviewedEvidence.historical415Verified===true,'ISSUE_HISTORICAL_PROOF_REQUIRED')
+   else check(!isHistoricalNote(command.note),'ISSUE_HISTORICAL_ACTION_REQUIRED')
    context.reviewerAuthorized=true
    context.ciVerified=true
    context.mergedIntoIntegration=true

@@ -14,13 +14,13 @@ jobs:
       github.repository == 'micor-cjj-spec/matrix-prp' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'review/collab-415-live-read-probe-20261125' &&
-      github.event.pull_request.base.sha == '01443cda160d03aef066ee427eec0b228602d983'
+      github.event.pull_request.base.sha == '66236a1c6cd0d3bbf6c2455f11f04ba48ccd3438'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 01443cda160d03aef066ee427eec0b228602d983
+          ref: 66236a1c6cd0d3bbf6c2455f11f04ba48ccd3438
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -38,9 +38,10 @@ jobs:
           set -euo pipefail
           node --input-type=module <<'NODE'
           import {execFileSync} from 'node:child_process'
-          import {verifyHistoricalIntegrationPolicy} from './app/scripts/dev-collab/review-historical-owner-415.mjs'
+          import {verifyOwnerAttestedPolicy} from './app/scripts/dev-collab/ruleset-415-attestation.mjs'
           const rule=JSON.parse(execFileSync('gh',['api','--method','GET','repos/micor-cjj-spec/matrix-prp/rulesets/28050327'],{encoding:'utf8'}))
           console.log('RULESET_BYPASS_LIST_VISIBLE='+Array.isArray(rule.bypass_actors))
-          verifyHistoricalIntegrationPolicy(rule)
-          console.log('HISTORICAL_INTEGRATION_POLICY=PASS')
+          const visible=verifyOwnerAttestedPolicy(rule)
+          console.log(JSON.stringify(visible))
+          console.log('OWNER_ATTESTATION_AND_ACCEPT_NOT_EXECUTED')
           NODE
