@@ -28,7 +28,28 @@ jobs:
       - name: Real historical evidence collector (GET only)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node app/scripts/dev-collab/collect-historical-415.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {execFileSync} from 'node:child_process'
+          import {collectHistorical415} from './app/scripts/dev-collab/collect-historical-415.mjs'
+          const read=route=>{
+            try {
+              const out=execFileSync('gh',['api','--method','GET','--hostname','github.com',route],{encoding:'utf8',maxBuffer:4*1024*1024,timeout:30000,stdio:['ignore','pipe','pipe']})
+              console.log('GET_OK '+route+' bytes='+Buffer.byteLength(out))
+              return out
+            }catch(e){
+              const status=String(e.stderr||'').match(/HTTP (\d{3})/)?.[1]||'unknown'
+              console.log('GET_FAILED '+route+' http='+status+' exit='+String(e.status??'none'))
+              throw Error('PROBE_GET_FAILED')
+            }
+          }
+          try{console.log(JSON.stringify(collectHistorical415(read)))}catch(e){
+            console.log('COLLECTOR_RESULT='+(/^HISTORICAL_[A-Z_]+$/.test(e.message)?e.message:'API_OR_EVIDENCE_ERROR'))
+            process.exitCode=1
+          }
+          NODE
       - name: Read-only Ruleset visibility and strict policy validation
         if: always()
         env:
