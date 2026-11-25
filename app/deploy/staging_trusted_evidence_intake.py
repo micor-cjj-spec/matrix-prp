@@ -134,9 +134,10 @@ def _job_list(value, run):
 def _facts(kind, facts, candidate, now):
     findings = []
     if kind == "github_run":
-        _exact(facts, {"workflow_path", "workflow_sha", "run_id", "attempt", "latest_attempt", "total_count",
+        _exact(facts, {"run_role", "workflow_path", "workflow_sha", "run_id", "attempt", "latest_attempt", "total_count",
                        "head_sha", "tree_sha", "event", "status", "conclusion", "jobs"}, kind)
-        _require(_one_of(facts["workflow_path"], WORKFLOWS) and _sha(facts["workflow_sha"]) and
+        _require(_one_of(facts["run_role"], {"candidate_ci", "artifact_witness"}) and
+                 _one_of(facts["workflow_path"], WORKFLOWS) and _sha(facts["workflow_sha"]) and
                  _positive(facts["run_id"]) and _positive(facts["attempt"]) and
                  _positive(facts["latest_attempt"]) and _positive(facts["total_count"]) and
                  facts["total_count"] <= MAX_JOBS and _sha(facts["head_sha"]) and
@@ -146,22 +147,27 @@ def _facts(kind, facts, candidate, now):
         findings.extend(_job_list(facts["jobs"], facts))
         if len(facts["jobs"]) != facts["total_count"]:
             findings.append("JOB_INVENTORY_INCOMPLETE")
-        if (facts["head_sha"], facts["tree_sha"]) != (
+        if facts["run_role"] == "candidate_ci" and (facts["head_sha"], facts["tree_sha"]) != (
                 candidate["source_sha"], candidate["source_tree"]):
             findings.append("RUN_CANDIDATE_OR_TREE_MISMATCH")
+        if facts["run_role"] == "artifact_witness" and (
+                facts["run_id"], facts["attempt"], facts["head_sha"]) != (
+                candidate["witness_run_id"], candidate["witness_attempt"], candidate["witness_sha"]):
+            findings.append("WITNESS_RUN_BINDING_MISMATCH")
         if facts["attempt"] != facts["latest_attempt"]:
             findings.append("RUN_ATTEMPT_SUPERSEDED")
         if facts["status"] != "completed" or facts["conclusion"] != "success":
             findings.append("RUN_NOT_SUCCESS")
     elif kind == "artifact_witness":
         _exact(facts, {"artifact_id", "witness_run_id", "witness_attempt", "witness_sha",
-                       "source_sha", "source_tree", "archive_digest", "expires_at",
+                       "source_sha", "source_tree", "archive_digest", "backend_image", "gateway_image", "expires_at",
                        "byte_review_status", "archive_bytes_sha256", "manifest_sha256",
                        "files_checked", "files_expected"}, kind)
         _require(_positive(facts["artifact_id"]) and _positive(facts["witness_run_id"]) and
                  _positive(facts["witness_attempt"]) and _sha(facts["witness_sha"]) and
                  _sha(facts["source_sha"]) and _sha(facts["source_tree"]) and
-                 _digest(facts["archive_digest"]) and _timestamp(facts["expires_at"]) and
+                 _digest(facts["archive_digest"]) and _digest(facts["backend_image"]) and
+                 _digest(facts["gateway_image"]) and _timestamp(facts["expires_at"]) and
                  _one_of(facts["byte_review_status"], {"not_reviewed", "claimed_pass", "failed"}) and
                  (facts["archive_bytes_sha256"] is None or
                   type(facts["archive_bytes_sha256"]) is str and HEX.fullmatch(facts["archive_bytes_sha256"])) and
@@ -171,10 +177,10 @@ def _facts(kind, facts, candidate, now):
                  "INVALID_ARTIFACT_WITNESS")
         if (facts["artifact_id"], facts["witness_run_id"], facts["witness_attempt"],
                 facts["witness_sha"], facts["source_sha"], facts["source_tree"],
-                facts["archive_digest"]) != (
+                facts["archive_digest"], facts["backend_image"], facts["gateway_image"]) != (
                 candidate["artifact_id"], candidate["witness_run_id"], candidate["witness_attempt"],
                 candidate["witness_sha"], candidate["source_sha"], candidate["source_tree"],
-                candidate["archive_digest"]):
+                candidate["archive_digest"], candidate["backend_image"], candidate["gateway_image"]):
             findings.append("ARTIFACT_CANDIDATE_OR_WITNESS_MISMATCH")
         if facts["expires_at"] <= now:
             findings.append("ARTIFACT_EXPIRED")
@@ -312,6 +318,7 @@ def validate_bundle(bundle, now):
     _require(type(records) is list and len(records) <= MAX_RECORDS, "INVALID_EVIDENCE_LIST")
     ids, refs, kinds = set(), set(), set()
     output = []
+    github_runs = []
     all_findings = []
     for record in records:
         _exact(record, {"evidence_id", "kind", "source_class", "source_ref",
@@ -323,7 +330,7 @@ def validate_bundle(bundle, now):
                  type(record["source_ref"]) is str and _timestamp(record["observed_at"]),
                  "INVALID_EVIDENCE_METADATA")
         _require(record["evidence_id"] not in ids and (kind, record["source_ref"]) not in refs and
-                 kind not in kinds, "DUPLICATE_OR_CONFLICTING_EVIDENCE")
+                 (kind == "github_run" or kind not in kinds), "DUPLICATE_OR_CONFLICTING_EVIDENCE")
         ids.add(record["evidence_id"])
         refs.add((kind, record["source_ref"]))
         kinds.add(kind)
@@ -332,6 +339,8 @@ def validate_bundle(bundle, now):
         _require(match_ref is not None, "INVALID_EVIDENCE_REFERENCE")
         facts_findings = _facts(kind, record["facts"], candidate, now)
         findings = list(facts_findings)
+        if kind == "github_run":
+            github_runs.append(record["facts"])
         if kind == "artifact_witness":
             byte_review_reported = record["facts"]["byte_review_status"] != "not_reviewed"
             if byte_review_reported != (record["source_class"] == "artifact_bytes_review_claim"):
@@ -361,6 +370,18 @@ def validate_bundle(bundle, now):
         })
     for kind in sorted(REQUIRED_KINDS - kinds):
         all_findings.append("MISSING_REQUIRED_EVIDENCE:" + kind)
+    candidate_runs = [run for run in github_runs if run["run_role"] == "candidate_ci"]
+    witness_runs = [run for run in github_runs if run["run_role"] == "artifact_witness"]
+    if len(candidate_runs) != 1:
+        all_findings.append("CANDIDATE_CI_RUN_MISSING_OR_CONFLICTING")
+    if len(witness_runs) != 1:
+        all_findings.append("ARTIFACT_WITNESS_RUN_MISSING_OR_CONFLICTING")
+    if len(candidate_runs) == 1 and len(witness_runs) == 1:
+        if candidate_runs[0]["run_id"] == witness_runs[0]["run_id"]:
+            all_findings.append("CANDIDATE_AND_WITNESS_RUN_CONFLATED")
+        if (witness_runs[0]["run_id"], witness_runs[0]["attempt"], witness_runs[0]["head_sha"]) != (
+                candidate["witness_run_id"], candidate["witness_attempt"], candidate["witness_sha"]):
+            all_findings.append("ARTIFACT_WITNESS_RUN_METADATA_MISMATCH")
     all_findings = sorted(set(all_findings))
     return {
         "schema_version": 1,
