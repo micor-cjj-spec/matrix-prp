@@ -152,19 +152,6 @@ class OfflineApprovals:
             self._event(record, "REJECTED", actor, now)
             return copy.deepcopy(record)
 
-    def reject_pending(self, approval_id, reviewed_digest, snapshot, actor, now):
-        """A pending-card decision, not revocation of an already approved record."""
-        require(actor == OWNER, "OWNER_DECISION_REQUIRED")
-        fresh, _, _, _ = binding(snapshot)
-        with self._lock:
-            self._clock(now)
-            record = self._record(approval_id, reviewed_digest, now)
-            require(record["state"] == "REQUESTED", "NOT_REQUESTED_OR_EXPIRED")
-            require(fresh == reviewed_digest, "STALE_OR_CHANGED_EVIDENCE")
-            record["state"] = "REJECTED"
-            self._event(record, "REJECTED", actor, now)
-            return copy.deepcopy(record)
-
     def consume(self, approval_id, reviewed_digest, snapshot, environment, actor, now):
         require(actor == CONTROLLER, "SYNTHETIC_CONTROLLER_REQUIRED")
         fresh, _, _, _ = binding(snapshot)

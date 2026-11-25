@@ -216,9 +216,6 @@ class PersistentOfflineApprovals:
     def reject(self, approval_id, reviewed_digest, actor, now):
         return self._apply(OfflineApprovals.reject, approval_id, reviewed_digest, actor, now)
 
-    def reject_pending(self, approval_id, reviewed_digest, snapshot, actor, now):
-        return self._apply(OfflineApprovals.reject_pending, approval_id, reviewed_digest, snapshot, actor, now)
-
     def consume(self, approval_id, reviewed_digest, snapshot, environment, actor, now):
         return self._apply(OfflineApprovals.consume, approval_id, reviewed_digest, snapshot, environment, actor, now)
 
