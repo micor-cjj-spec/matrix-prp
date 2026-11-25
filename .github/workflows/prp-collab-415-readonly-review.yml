@@ -1,0 +1,89 @@
+name: PRP #415 packaged read-only review witness
+on:
+  pull_request:
+    branches: [review/collab-415-main-isolated-20261125]
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  pull-requests: read
+jobs:
+  historical-readonly-witness:
+    if: >-
+      github.repository == 'micor-cjj-spec/matrix-prp' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'review/collab-415-live-read-probe-20261125' &&
+      github.event.pull_request.base.sha == 'cd6101ac9b8fc46976e40cb95288e233621078c2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: cd6101ac9b8fc46976e40cb95288e233621078c2
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Exact isolated main baseline contract and publication hold
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'cd6101ac9b8fc46976e40cb95288e233621078c2'
+          node --test app/scripts/dev-collab/*.test.mjs
+          bash -n app/scripts/dev-collab/state-transaction.sh
+          git -c http.extraheader= fetch --no-tags --depth=1 origin dc6fc41824e28c49610fba6d9858629ab0b8a34a
+          git diff --check dc6fc41824e28c49610fba6d9858629ab0b8a34a HEAD
+          python3 app/deploy/release_control.py
+          grep -Fx 'publish_allowed=false' "$GITHUB_OUTPUT"
+          echo 'MAIN_BASELINE_CONTRACT_PASS_AND_PUBLICATION_HELD'
+      - name: Packaged historical evidence collector (GET only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node app/scripts/dev-collab/collect-historical-415.mjs
+      - name: Read-only Ruleset visibility and strict policy validation
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {execFileSync} from 'node:child_process'
+          import {verifyOwnerAttestedPolicy} from './app/scripts/dev-collab/ruleset-415-attestation.mjs'
+          const rule=JSON.parse(execFileSync('gh',['api','--method','GET','repos/micor-cjj-spec/matrix-prp/rulesets/28050327'],{encoding:'utf8'}))
+          console.log('RULESET_BYPASS_LIST_VISIBLE='+Array.isArray(rule.bypass_actors))
+          const visible=verifyOwnerAttestedPolicy(rule)
+          console.log(JSON.stringify(visible))
+          console.log('OWNER_ATTESTATION_AND_ACCEPT_NOT_EXECUTED')
+          NODE
+      - name: Inspect current Environment metadata without entering Environment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {execFileSync} from 'node:child_process'
+          const root='repos/micor-cjj-spec/matrix-prp/environments/prp-collab-automation'
+          const read=path=>JSON.parse(execFileSync('gh',['api','--method','GET','--hostname','github.com',path],{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:30000,maxBuffer:1024*1024}))
+          try{
+            const e=read(root)
+            if(e.name!=='prp-collab-automation'||!Array.isArray(e.protection_rules))throw Error('ENVIRONMENT_METADATA_INCOMPLETE')
+            const policy=e.deployment_branch_policy
+            const rules=e.protection_rules.map(r=>({id:r.id,type:r.type,wait_timer:r.wait_timer,prevent_self_review:r.prevent_self_review,reviewers:r.reviewers?.map(v=>({type:v.type,id:v.reviewer?.id,login:v.reviewer?.login,slug:v.reviewer?.slug}))}))
+            let branchPolicies=null
+            if(policy?.custom_branch_policies===true){
+              const p=read(root+'/deployment-branch-policies?per_page=100')
+              if(!Array.isArray(p.branch_policies)||p.branch_policies.length!==p.total_count||p.total_count>100)throw Error('ENVIRONMENT_BRANCH_POLICIES_INCOMPLETE')
+              branchPolicies=p.branch_policies.map(x=>({id:x.id,name:x.name,type:x.type}))
+            }
+            console.log('ENVIRONMENT_METADATA='+JSON.stringify({name:e.name,id:e.id,updated_at:e.updated_at,can_admins_bypass:e.can_admins_bypass??null,protection_rules:rules,deployment_branch_policy:policy??null,branch_policies:branchPolicies}))
+            console.log('ENVIRONMENT_READ_ONLY_NO_ENTRY_NO_SECRETS')
+          }catch(e){
+            const status=String(e.stderr||'').match(/HTTP (\d{3})/)?.[1]||'unknown'
+            console.log('ENVIRONMENT_METADATA_UNVERIFIED http='+status+' category='+(String(e.message).startsWith('ENVIRONMENT_')?e.message:'API_UNAVAILABLE'))
+            process.exitCode=1
+          }
+          NODE
