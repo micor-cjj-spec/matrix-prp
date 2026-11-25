@@ -133,6 +133,12 @@ jobs:
           java-version: '21'
           cache: maven
           cache-dependency-path: app/backend/pom.xml
+      - name: Prepare pinned official Maven 3.9.16 (disposable CI only)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n app/deploy/mcp-staging/ci_prepare_maven_3916.sh
+          bash app/deploy/mcp-staging/ci_prepare_maven_3916.sh
       - name: Apply video schema to real MySQL
         run: |
           sudo apt-get update -qq
@@ -158,7 +164,7 @@ jobs:
           MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
         run: |
           chmod +x mvnw
-          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT,StagingReleaseDecisionJournalIT test
+          "$RUNNER_TEMP/apache-maven-3.9.16/bin/mvn" -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT,StagingReleaseDecisionJournalIT test
 
 
   deployment-gate-tests:

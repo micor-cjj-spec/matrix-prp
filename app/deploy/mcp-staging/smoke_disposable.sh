@@ -19,7 +19,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Build actual PRP Java 21 JAR and /prp/ SPA from the selected PR commit.
-"${compose[@]}" build backend
+BUILDKIT_PROGRESS=plain bash ci_retry_maven_build.sh OCI "${compose[@]}" build backend
 "${compose[@]}" build gateway
 "${compose[@]}" up -d
 

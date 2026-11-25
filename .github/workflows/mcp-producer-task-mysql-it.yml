@@ -51,6 +51,12 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: app/backend/pom.xml
+      - name: Prepare pinned official Maven 3.9.16 (disposable CI only)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n app/deploy/mcp-staging/ci_prepare_maven_3916.sh
+          bash app/deploy/mcp-staging/ci_prepare_maven_3916.sh
       - name: Run fresh isolated MySQL and Java producer task owner test
         shell: bash
         run: |
@@ -105,7 +111,7 @@ jobs:
           echo "CI_PRODUCER_REAL_MYSQL_NEW_EMPTY_DB_READY=YES"
           cd app/backend
           chmod +x mvnw
-          ./mvnw -B -ntp -Dtest=TaskReadProducerDatabaseIT,ProducerTaskDelegationMysqlProofIT,ProductionInProcessMcpTaskReadDatabaseIT,McpProductionTaskOnlyGuardTests,McpOAuthToolManifestTests,McpOAuthAdvertisedScopesTests test
+          "$RUNNER_TEMP/apache-maven-3.9.16/bin/mvn" -B -ntp -Dtest=TaskReadProducerDatabaseIT,ProducerTaskDelegationMysqlProofIT,ProductionInProcessMcpTaskReadDatabaseIT,McpProductionTaskOnlyGuardTests,McpOAuthToolManifestTests,McpOAuthAdvertisedScopesTests test
           echo "CI_ONLY_MYSQL_TWO_SYNTHETIC_OWNERS_NO_PRODUCTION_PRP=YES"
           echo "DISPOSABLE_DATABASE_CONCURRENT_JTI_AND_REVOKE_EPOCH_PROOF=YES"
           echo "SAME_APP_SAME_DATABASE_MCP_READ_OPTION_REVIEW_ONLY=YES"
