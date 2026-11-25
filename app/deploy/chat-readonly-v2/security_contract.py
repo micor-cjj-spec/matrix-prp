@@ -7,6 +7,7 @@ ReplayLedger requires an operator-controlled private SQLite directory; no
 production filesystem, account, or SSH setup is implemented here.
 """
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,7 +18,7 @@ import time
 import uuid
 from urllib.parse import quote
 
-from readonly_ops import RejectedRequest
+from readonly_ops import RejectedRequest, parse_decrypted_request
 
 REPO = "micor-cjj-spec/matrix-prp"
 REPO_ID = 1261866723
@@ -112,6 +113,87 @@ def parse_event_fixture(event, trusted_runtime, pinned_issue_number):
     if base64.urlsafe_b64encode(binary).decode("ascii").rstrip("=") != token:
         raise RejectedRequest("invalid event")
     return {"jobId": job, "ciphertextB64": token, "commentId": comment["id"]}
+
+
+# The issuer and verifier are deliberately absent from the runtime module.
+# The only concrete crypto provider in this candidate is a disposable
+# OpenSSL Ed25519 TEST fixture. No live issuer/adapter is authorized.
+CONSENT_PURPOSE = "prp-readonly-v2-consent"
+MAX_CONSENT_BYTES = 2048
+MAX_VERIFIED_CERT_DER = 4096
+
+
+def _consent_token(value):
+    if type(value) is not str or re.fullmatch(r"[A-Za-z0-9._:-]{1,96}", value) is None:
+        raise RejectedRequest("authorization rejected")
+    return value
+
+
+def _positive_id(value):
+    if type(value) is not int or not 0 < value <= (1 << 63) - 1:
+        raise RejectedRequest("authorization rejected")
+    return value
+
+
+def verify_consent_fixture(raw_claim, signature, *, raw_request, public_job_id,
+                           issuer, key_id, subject, target_instance, generation,
+                           issue_number, challenge_comment_id, verified_answer_der,
+                           verify_signature, now):
+    """Offline contract: verify an independently approved, exact signed claim.
+
+    All keyword-only context (except request bytes) is from a FUTURE trusted
+    adapter/configuration. Never read it from the comment or signed claim.
+    verified_answer_der must be the actual previously X.509-validated
+    recipient certificate; this function only checks equality/fingerprint.
+    verify_signature is a pinned Ed25519 verification provider, never an
+    attacker-selected key/algorithm. No production provider is implemented.
+    A returned digest is not an executable grant and proves no real consent.
+    The signed challenge comment ID predates the authorization; binding
+    it to an eventual separate execution event requires a trusted adapter.
+    """
+    try:
+        if (type(raw_claim) is not bytes or not 0 < len(raw_claim) <= MAX_CONSENT_BYTES or
+                type(signature) is not bytes or len(signature) != 64 or
+                not callable(verify_signature) or
+                type(verified_answer_der) is not bytes or
+                not 0 < len(verified_answer_der) <= MAX_VERIFIED_CERT_DER or
+                type(now) is not int or not 0 <= now <= (1 << 63) - 1):
+            raise RejectedRequest("authorization rejected")
+        request = parse_decrypted_request(raw_request, public_job_id, now=now)
+        if not 0 <= request["issuedAt"] <= now < request["expiresAt"] <= (1 << 63) - 1:
+            raise RejectedRequest("authorization rejected")
+        # parse_decrypted_request checks only PEM shape. Decode and compare
+        # the exact DER bytes with the independently validated certificate.
+        pem = request["answerCertificate"].strip().splitlines()
+        der = base64.b64decode("".join(pem[1:-1]), validate=True)
+        if der != verified_answer_der:
+            raise RejectedRequest("authorization rejected")
+        expected = {
+            "version": 1, "purpose": CONSENT_PURPOSE,
+            "issuer": _consent_token(issuer), "keyId": _consent_token(key_id),
+            "subject": _consent_token(subject),
+            "audience": _uuid(target_instance), "generation": _uuid(generation),
+            "repoId": REPO_ID, "issueNumber": _positive_id(issue_number),
+            "challengeCommentId": _positive_id(challenge_comment_id),
+            "jobId": request["jobId"], "operation": request["operation"],
+            "parameters": {}, "nonce": request["nonce"],
+            "issuedAt": request["issuedAt"], "expiresAt": request["expiresAt"],
+            "answerCertificateFingerprint": hashlib.sha256(der).hexdigest(),
+        }
+        # This deliberately narrow profile contains only ASCII tokens,
+        # bounded integers and the empty object. Exact canonical bytes
+        # eliminate alternate encodings, duplicate/unknown fields, etc.
+        canonical = json.dumps(expected, sort_keys=True, separators=(",", ":"),
+                               ensure_ascii=True, allow_nan=False).encode("ascii")
+        if raw_claim != canonical:
+            raise RejectedRequest("authorization rejected")
+        if verify_signature(canonical, signature) is not True:
+            raise RejectedRequest("authorization rejected")
+        return hashlib.sha256(canonical).hexdigest()
+    except Exception as exc:
+        # Only a fixed failure is exposed. No untrusted claim/certificate
+        # or provider diagnostic should escape to the event/response layer.
+        raise RejectedRequest("authorization rejected") from None
 
 
 class ReplayLedger:
