@@ -147,6 +147,45 @@ def inventory(data):
     }
 
 
+def attach_staging_review(report, review):
+    """Consume only the v1 S6 validator's sanitized review summary.
+
+    This is advisory context from #396, not a staging receipt. Do not execute
+    the producer or accept claimed live states in this consumer.
+    """
+    exact(review, {"status", "snapshot_valid", "ci_archive_expired_by_clock",
+                   "stage_deployment_authorized", "production_authorized",
+                   "persistent_readiness"}, "S6 review summary")
+    if (review["status"] != "blocked" or review["snapshot_valid"] is not True or
+            type(review["ci_archive_expired_by_clock"]) is not bool or
+            review["stage_deployment_authorized"] is not False or
+            review["production_authorized"] is not False or
+            review["persistent_readiness"] != "not_established"):
+        raise ValueError("Unsupported or unsafe S6 review summary")
+    # Never use a repository-review snapshot to satisfy the staging gate.
+    # If actual staging evidence has been asserted, its contradiction with
+    # the supplied blocked review must not be silently ignored.
+    output = dict(report)
+    output["staging_review"] = {
+        "source": "issue_396_s6_v1_review_summary",
+        "snapshot_valid_claimed": True,
+        "status": "blocked",
+        "persistent_readiness": "not_established",
+        "ci_archive_expired_by_clock_claimed": review["ci_archive_expired_by_clock"],
+        "evidence_trust": "unverified_caller_assertions",
+        "stage_deployment_authorized": False,
+        "production_authorized": False,
+    }
+    output["gates"] = [dict(row) for row in report["gates"]]
+    stage = next(row for row in output["gates"] if row["gate"] == "staging")
+    stage["status"] = "pending"
+    stage["reason"] = "S6_REVIEW_ONLY_NOT_ESTABLISHED"
+    output["blockers"] = [b for b in report["blockers"] if not b.startswith("staging:")]
+    output["blockers"].append("staging:S6_REVIEW_ONLY_NOT_ESTABLISHED")
+    output["state"] = "HELD" if report["hold_state"] == "active" else "BLOCKED"
+    return output
+
+
 def markdown(report):
     lines = ["# PRP candidate evidence inventory", "",
              "**Offline assertions only. No release approval or LIVE verification.**", "",
@@ -159,6 +198,13 @@ def markdown(report):
                          row["owner"], row["evidence_ref"] or "-"]) + " |")
     lines += ["", "## Blockers", ""] + (["- " + b for b in report["blockers"]] or
               ["- No logical blocker in supplied assertions; independent evidence still required."])
+    if "staging_review" in report:
+        review = report["staging_review"]
+        lines += ["", "## Unified Staging (#396) review only", "",
+                  "- Persistent readiness: NOT ESTABLISHED",
+                  "- CI archive expired by clock (asserted): " +
+                  ("yes" if review["ci_archive_expired_by_clock_claimed"] else "no"),
+                  "- This is not a live runtime, UAT or restore receipt."]
     return "\n".join(lines) + "\n"
 
 
@@ -167,8 +213,13 @@ def main():
     p.add_argument("--input", required=True, type=Path)
     p.add_argument("--json", required=True, type=Path)
     p.add_argument("--markdown", required=True, type=Path)
+    p.add_argument("--staging-review", type=Path,
+                   help="Optional sanitized #396 S6 v1 review-validator JSON output")
     args = p.parse_args()
-    if len({x.resolve() for x in (args.input, args.json, args.markdown)}) != 3:
+    paths = [args.input, args.json, args.markdown]
+    if args.staging_review is not None:
+        paths.append(args.staging_review)
+    if len({x.resolve() for x in paths}) != len(paths):
         raise ValueError("Input and output paths must be distinct")
     def no_duplicates(pairs):
         result = {}
@@ -179,6 +230,12 @@ def main():
         return result
     report = inventory(json.loads(args.input.read_text(encoding="utf-8"),
                                   object_pairs_hook=no_duplicates))
+    if args.staging_review is not None:
+        path = args.staging_review
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+            raise ValueError("Invalid staging review input file")
+        review = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicates)
+        report = attach_staging_review(report, review)
     args.json.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     args.markdown.write_text(markdown(report), encoding="utf-8")
 

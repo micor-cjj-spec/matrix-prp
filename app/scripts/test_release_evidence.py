@@ -1,5 +1,5 @@
 import unittest
-from release_evidence import GATES, ARTIFACT_GATES, inventory, markdown
+from release_evidence import GATES, ARTIFACT_GATES, inventory, markdown, attach_staging_review
 
 A = "a" * 40
 B = "b" * 40
@@ -157,6 +157,54 @@ class ReleaseEvidenceTests(unittest.TestCase):
 
     def test_report_is_explicitly_unverified(self):
         self.assertIn("No release approval or LIVE verification", markdown(inventory(fixture())))
+
+
+class StagingReviewTests(unittest.TestCase):
+    def review(self):
+        return {"status": "blocked", "snapshot_valid": True,
+                "ci_archive_expired_by_clock": False,
+                "stage_deployment_authorized": False, "production_authorized": False,
+                "persistent_readiness": "not_established"}
+
+    def test_review_only_summary_cannot_promote_staging(self):
+        d = fixture(True)
+        d["hold"]["state"] = "clear"
+        original = inventory(d)
+        r = attach_staging_review(original, self.review())
+        self.assertEqual(r["state"], "BLOCKED")
+        self.assertIn("staging:S6_REVIEW_ONLY_NOT_ESTABLISHED", r["blockers"])
+        self.assertEqual(original["state"], "LIVE_CLAIMED_UNVERIFIED")
+        self.assertFalse(r["live_verified"])
+        self.assertFalse(r["deployment_authorized"])
+
+    def test_active_hold_remains_held(self):
+        r = attach_staging_review(inventory(fixture(True)), self.review())
+        self.assertEqual(r["state"], "HELD")
+
+    def test_expiration_is_advisory_not_image_digest(self):
+        review = self.review()
+        review["ci_archive_expired_by_clock"] = True
+        r = attach_staging_review(inventory(fixture()), review)
+        self.assertTrue(r["staging_review"]["ci_archive_expired_by_clock_claimed"])
+        self.assertIn("expired by clock (asserted): yes", markdown(r))
+        self.assertIn("not a live runtime", markdown(r))
+
+    def test_refuse_unsafe_status_or_approvals(self):
+        for key, value in [("status", "verified"), ("persistent_readiness", "verified"),
+                           ("snapshot_valid", False), ("stage_deployment_authorized", True),
+                           ("production_authorized", True), ("ci_archive_expired_by_clock", 1)]:
+            review = self.review()
+            review[key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                attach_staging_review(inventory(fixture()), review)
+
+    def test_reject_raw_snapshot_and_unexpected_fields(self):
+        review = self.review()
+        review["host"] = "must-not-appear"
+        with self.assertRaises(ValueError):
+            attach_staging_review(inventory(fixture()), review)
+        with self.assertRaises(ValueError):
+            attach_staging_review(inventory(fixture()), {"schema_version": 1, "issue": 396})
 
 
 if __name__ == "__main__":
