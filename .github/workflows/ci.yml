@@ -151,13 +151,14 @@ jobs:
         working-directory: app/backend
         env:
           MATRIX_PRP_DB_PASSWORD: ci-app-password
+          PRP_P35_DISPOSABLE_MYSQL: '1'
           MATRIX_PRP_BOOTSTRAP_USERNAME: video_admin
           MATRIX_PRP_BOOTSTRAP_PASSWORD: video-test-admin-password-2026
           MATRIX_PRP_JWT_SECRET: ci-integration-only-secret-key-at-least-32-bytes
           MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
         run: |
           chmod +x mvnw
-          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT test
+          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT,StagingReleaseDecisionJournalIT test
 
 
   deployment-gate-tests:

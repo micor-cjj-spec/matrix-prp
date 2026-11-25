@@ -64,24 +64,50 @@ final class StagingReleaseApprovalBoundary {
     private final long allowedOwner;
     private final PublicKey proofKey;
     private final Clock clock;
-    private final Set<UUID> decided = new HashSet<>();
-    private final Set<UUID> usedNonces = new HashSet<>();
-    private long lastTime;
+    private final DecisionJournal journal;
+
+    interface DecisionJournal {
+        void record(Pending pending, Envelope envelope, long now);
+    }
+
+    private static final class MemoryJournal implements DecisionJournal {
+        private final Set<UUID> decided = new HashSet<>();
+        private final Set<UUID> usedNonces = new HashSet<>();
+        private long lastTime;
+
+        @Override public synchronized void record(Pending pending, Envelope envelope, long now) {
+            require(now >= lastTime, "INVALID_SERVER_CLOCK");
+            require(!decided.contains(pending.approvalId()) && !usedNonces.contains(envelope.nonce()),
+                    "REPLAY_OR_ALREADY_DECIDED");
+            require(decided.size() < MAX_RECORDS && usedNonces.size() < MAX_RECORDS,
+                    "REHEARSAL_CAPACITY");
+            lastTime = now;
+            decided.add(pending.approvalId());
+            usedNonces.add(envelope.nonce());
+        }
+    }
 
     StagingReleaseApprovalBoundary(UserStore users, McpClientGrantService grants,
                                    long allowedOwner, PublicKey proofKey, Clock clock) {
+        this(users, grants, allowedOwner, proofKey, clock, new MemoryJournal());
+    }
+
+    StagingReleaseApprovalBoundary(UserStore users, McpClientGrantService grants,
+                                   long allowedOwner, PublicKey proofKey, Clock clock,
+                                   DecisionJournal journal) {
         require(allowedOwner > 0 && proofKey != null && clock != null
-                && users != null && grants != null, "INVALID_REHEARSAL_CONFIG");
+                && users != null && grants != null && journal != null, "INVALID_REHEARSAL_CONFIG");
         this.users = users;
         this.grants = grants;
         this.allowedOwner = allowedOwner;
         this.proofKey = proofKey;
         this.clock = clock;
+        this.journal = journal;
     }
 
     synchronized Receipt submit(HttpServletRequest request, Pending pending, Envelope envelope) {
         long now = clock.instant().getEpochSecond();
-        require(now > 0 && now >= lastTime, "INVALID_SERVER_CLOCK");
+        require(now > 0, "INVALID_SERVER_CLOCK");
         require(request != null && pending != null && envelope != null, "MISSING_REVIEW");
         validatePending(pending, now);
         authenticate(request, pending);
@@ -94,15 +120,9 @@ final class StagingReleaseApprovalBoundary {
                 "PROOF_EXPIRED_OR_FUTURE");
         byte[] signature = envelope.signature();
         require(signature != null && signature.length == 64, "INVALID_INDEPENDENT_PROOF");
-        require(!decided.contains(pending.approvalId()) && !usedNonces.contains(envelope.nonce()),
-                "REPLAY_OR_ALREADY_DECIDED");
-        require(decided.size() < MAX_RECORDS && usedNonces.size() < MAX_RECORDS,
-                "REHEARSAL_CAPACITY");
         verify(signature, signedBytes(pending, envelope));
-        // Local process only: no external execution and no durable replay claim.
-        lastTime = now;
-        decided.add(pending.approvalId());
-        usedNonces.add(envelope.nonce());
+        // Journal owns the atomic decision/nonce/clock boundary. Return only after commit.
+        journal.record(pending, envelope, now);
         return new Receipt(pending.approvalId(), envelope.decision(), "REVIEW_RECORDED_ONLY",
                 ENVIRONMENT, false, false, false, false);
     }
