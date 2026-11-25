@@ -55,3 +55,23 @@ jobs:
           "$RUNNER_TEMP/prp-ops-runtime-313/bin/python" -m pip --isolated install --no-cache-dir --only-binary=:all: --require-hashes -r app/ops/requirements-runtime.lock
           "$RUNNER_TEMP/prp-ops-runtime-313/bin/python" -m pip check
           "$RUNNER_TEMP/prp-ops-runtime-313/bin/python" app/ops/ci_process_smoke.py
+  nginx-126-target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13.5'
+          architecture: x64
+          check-latest: false
+      - name: Install hash-locked runtime in disposable venv
+        run: |
+          python -m venv "$RUNNER_TEMP/prp-ops-nginx-runtime"
+          "$RUNNER_TEMP/prp-ops-nginx-runtime/bin/python" -m pip --isolated install --no-cache-dir --only-binary=:all: --require-hashes -r app/ops/requirements-runtime.lock
+          "$RUNNER_TEMP/prp-ops-nginx-runtime/bin/python" -m pip check
+      - name: Exact Nginx 1.26.3 isolated TLS proxy acceptance
+        run: |
+          "$RUNNER_TEMP/prp-ops-nginx-runtime/bin/python" app/ops/ci_nginx_smoke.py
