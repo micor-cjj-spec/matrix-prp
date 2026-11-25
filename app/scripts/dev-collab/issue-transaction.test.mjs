@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {applyAuthenticatedIssue,redactedReceipt,verifyTaskIssue,requireMigratedLiveState} from './issue-transaction.mjs'
 import {validateIssueEvent} from './issue-ingress.mjs'
+import {historicalNote} from './ruleset-415-attestation.mjs'
 const sha='a'.repeat(40),req='REQ-20261031-001'
 const uuid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const snap=()=>({schema_version:1,requirement_id:req,issue_number:132,
@@ -369,9 +370,9 @@ test('owner-accept workflow remains protected-main-only and grants no checks or 
 
 test('historical action requires independently verified historical proof',()=>{
  const s=migrated();s.tasks[0]={...s.tasks[0],status:'IN_REVIEW',claim:{claim_id:'11111111-1111-4111-8111-111111111111',worker_id:'chat-A',actor:'micor-cjj-spec'},pr_number:415,head_sha:'ba05b6ebe5e435d7cd474bade5accb6fc0c71b65'}
- const v0=v('accept',{claim_id:s.tasks[0].claim.claim_id,pr_number:415,head_sha:'ba05b6ebe5e435d7cd474bade5accb6fc0c71b65',note:'historical-415-approved-recovery-v1'},s.version)
+ const policyAttestation={synthetic:true},v0=v('accept',{claim_id:s.tasks[0].claim.claim_id,pr_number:415,head_sha:'ba05b6ebe5e435d7cd474bade5accb6fc0c71b65',note:historicalNote(policyAttestation)},s.version)
  const flags={reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true}
- assert.throws(()=>applyAuthenticatedIssue(s,{...v0,historical415:true},'2026-11-25T07:00:00Z',()=>false,flags),/ISSUE_HISTORICAL_PROOF_REQUIRED/)
+ assert.throws(()=>applyAuthenticatedIssue(s,{...v0,historical415:true,policyAttestation},'2026-11-25T07:00:00Z',()=>false,flags),/ISSUE_HISTORICAL_PROOF_REQUIRED/)
  assert.throws(()=>applyAuthenticatedIssue(s,v0,'2026-11-25T07:00:00Z',()=>false,flags),/ISSUE_HISTORICAL_ACTION_REQUIRED/)
- assert.equal(applyAuthenticatedIssue(s,{...v0,historical415:true},'2026-11-25T07:00:00Z',()=>false,{...flags,historical415Verified:true}).snapshot.tasks[0].status,'DONE')
+ assert.equal(applyAuthenticatedIssue(s,{...v0,historical415:true,policyAttestation},'2026-11-25T07:00:00Z',()=>false,{...flags,historical415Verified:true}).snapshot.tasks[0].status,'DONE')
 })
