@@ -151,11 +151,15 @@ class HttpBoundary:
             outcome="unavailable"
         finally:
             try:
-                event={"version":1,"traceId":trace,"route":route,
-                    "candidateStatus":result.status,"outcome":outcome}
-                # No user input, token, request ID, headers, payload, or metrics.
-                if self._audit(event) is not True:
-                    result=response(503)
+                # Unadmitted attempts must not bypass the disk/concurrency
+                # budget via synchronous audit. The external ingress must
+                # aggregate/drop-log rate-limit rejects independently.
+                if acquired:
+                    event={"version":1,"traceId":trace,"route":route,
+                        "candidateStatus":result.status,"outcome":outcome}
+                    # No user input, token, request ID, headers, payload, or metrics.
+                    if self._audit(event) is not True:
+                        result=response(503)
             except Exception:
                 result=response(503)
             finally:

@@ -26,10 +26,12 @@
 ## D-M05.2 HTTP 入口、预算及脱敏审计（离线）
 - http_boundary.py 仅接受可信 ingress 传入的原始 header pairs、精确 target 和有界 body；未监听端口。固定 .invalid Host、/mcp POST、RFC 9728 resource metadata GET 路径及 401 challenge；拒绝重复安全头、错误 Origin、路径别名、转发分块、压缩及 session ID。仅支持固定 2025-06-18 JSON 响应子集（Accept 同时包含 JSON/SSE），不是完整 Streamable HTTP 实现。真实 TLS、原始 header 保留、连接/请求体读取超时、代理和 ChatGPT 互操作仍需单独验收。
 - 单进程全局滚动窗口 60 请求/60 秒（含未授权）、4 个并发（名额保持至审计与最终披露判断完成）；内存有界、单调时间回退拒绝；不依赖可伪造请求头或动态用户桶。恶意请求可耗尽全局配额，非分布式限流；真实入口需独立限额、连接管理与拒绝服务验收。
-- 每次请求构造固定审计事件（随机 traceId、固定 route、candidateStatus、outcome）；不记录 token、用户输入、JSON-RPC id、原始指标。审计 sink 由服务器注入，失败返回 503，不泄露数据。无持久日志实现；最终披露检查可能改变 HTTP 结果，审计仅记录检查前候选结果，不是响应交付证明。真实审计持久性与主体归属、写入时间、采集与读取超时仍待实现。
+- 每次已获并发/速率名额的请求构造固定审计事件（随机 traceId、固定 route、candidateStatus、outcome）；不记录 token、用户输入、JSON-RPC id、原始指标。审计 sink 由服务器注入，失败返回 503，不泄露数据。无持久日志实现；最终披露检查可能改变 HTTP 结果，审计仅记录检查前候选结果，不是响应交付证明。真实审计持久性与主体归属、写入时间、采集与读取超时仍待实现。
 - 读取入口也要求 root-owned ALLOW_HOST_METRICS 门禁（调用现有校验函数），防止仅停采集后仍返回未过期快照；请求前、dispatch 后、审计后均校验。最后检查到实际网络发送仍有竞态。合成测试注入 marker，不创建真实文件。新增完整 HTTP->Bearer introspection->grant->RPC->snapshot 测试。无真实 MCP 服务注册、真实端口监听或主机访问。
 
 ## D-M05.3 管理员授权生命周期与本地持久审计（离线）
 - 修复 P2：HTTP header 在类型检查后、字符扫描或 regex 前先做累计长度与 key 长度校验；5M 字符输入回归不依赖计时，直接证明扫描未调用。
-- admin_grant.py 为离线管理员候选，不注册 MCP 工具或 CLI。要求独立审批标志与可信 admin UID/GID、固定 schema、预置 inactive seed 和独立 0600 lock；缺失/错误状态不自动创建。非阻塞 flock 下比对完整旧记录 SHA256 再原子替换 0640 grant.json，fsync 文件与目录。issue 仅在撤销/过期后，renew 仅有效 grant，均轮换 UUID 和 issuedAt；单次授权候选最长7天；revoke 保留原 ID/时效的 inactive tombstone。需独立管理员真实审批与初始化；不能将 approved=True fixture 当作真实人类批准。未提供真实初始化、CLI、自动续期、OAuth grant 撤销或备份回滚保护；未知 commit 不可自动重试，需人工核验。独立 OAuth token 需新 iat 严格晚于轮换授权时间。
-- audit_store.py 为本地 JSONL 持久候选，预置 0700 目录/0600 单链接普通文件，固定字段与 recordedAt，非阻塞独占锁、1MiB 硬容量、单次 append+fsync；缺失、链接、权限、容量、部分尾记录、锁竞争、写入或 fsync 失败均拒绝返回，不自动清理/创建/截断。fsync 失败可能已写入，非交付证明；当前 UID 可修改文件，非防篡改、非独立审计。真实服务需审计保留/轮换、告警、磁盘空间、独立可信主体归属与防 DoS 验收；拒绝请求的审计也可能耗尽容量，不能直接启用。审计全量字段不含 token、原始指标或请求数据。没有真实文件/账号/授权变更，测试使用临时目录。
+- admin_grant.py 为离线管理员候选，不注册 MCP 工具或 CLI。要求独立审批标志与可信 admin UID/GID、固定 schema、预置 inactive seed 和独立 0600 lock；缺失/错误状态不自动创建。非阻塞 flock 下比对完整旧记录 SHA256 再原子替换 0640 grant.json，fsync 文件与目录。issue 仅在撤销/过期后，renew 仅有效 grant，均轮换 UUID 和 issuedAt；单次授权候选最长7天；revoke 保留原 ID，更新 inactive tombstone 的时间屏障（同秒可撤销；下一次签发必须严格晚于撤销）。需独立管理员真实审批与初始化；不能将 approved=True fixture 当作真实人类批准。未提供真实初始化、CLI、自动续期、OAuth grant 撤销或备份回滚保护；未知 commit 不可自动重试，需人工核验。独立 OAuth token 需新 iat 严格晚于轮换授权时间。
+- audit_store.py 为本地 JSONL 持久候选，预置 0700 目录/0600 单链接普通文件，固定字段与 recordedAt，非阻塞独占锁、1MiB 硬容量、单次 append+fsync；缺失、链接、权限、容量、部分尾记录、锁竞争、写入或 fsync 失败均拒绝返回，不自动清理/创建/截断。fsync 失败可能已写入，非交付证明；当前 UID 可修改文件，非防篡改、非独立审计。真实服务需审计保留/轮换、告警、磁盘空间、独立可信主体归属与防 DoS 验收；已获名额但被拒绝的请求也可能耗尽容量，未获名额的请求不进入同步审计；未来 ingress 须独立聚合超限计数并管理保留/轮换，不能直接启用。审计全量字段不含 token、原始指标或请求数据。没有真实文件/账号/授权变更，测试使用临时目录。
+
+本地管理员时钟异常、旧快照恢复仍需独立停用与撤销流程；不声称 grant 文件具有防回滚能力。查询 grant/token 的最终校验发生在 RPC 层、同步审计前；审计期间的授权变化仍有交付竞态，实际传输实现需再次核验有效期和撤销状态。

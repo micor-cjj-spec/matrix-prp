@@ -56,10 +56,13 @@ def plan(current, action, *, now, expires=None, approved=False):
     require(approved is True)
     utc(now)
     old=parse_grant(current)
-    require(now>old.issued_at)
     if action=="revoke":
-        require(old.active is True and expires is None)
-        return record(old.grant_id,old.issued_at,old.expires_at,False)
+        # Revocation must not wait until the next clock tick. Keep the ID,
+        # advance the inactive tombstone's time barrier and require any
+        # subsequent issue to be strictly later than that barrier.
+        require(old.active is True and expires is None and now>=old.issued_at)
+        return record(old.grant_id,now,max(old.expires_at,now+1),False)
+    require(now>old.issued_at)
     require(action=="issue" or action=="renew")
     if action=="renew":
         require(old.active is True and now<old.expires_at)

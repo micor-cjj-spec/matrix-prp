@@ -108,6 +108,12 @@ class HttpTests(unittest.TestCase):
         for _ in range(RATE):
             self.assertEqual(self.request(target="/wrong").status,404)
         self.assertEqual(self.request().status,429)
+        self.assertEqual(self.audit.call_count,RATE)
+        # Rejecting an unadmitted attempt never calls the durable sink.
+        self.audit.return_value=False
+        self.assertEqual(self.request().status,429)
+        self.assertEqual(self.audit.call_count,RATE)
+        self.audit.return_value=True
         self.clock.return_value=160
         self.assertEqual(self.request(target="/wrong").status,404)
 

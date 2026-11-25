@@ -44,6 +44,28 @@ class GrantAdminTests(unittest.TestCase):
         self.assertFalse(revoked.active)
         self.assertEqual(self.path.stat().st_mode&0o777,0o640)
 
+    def test_revoke_same_second_and_reissue_after_tombstone(self):
+        first=self.issue()
+        initial=parse_grant(self.path.read_bytes())
+        revoked_digest=self.admin.change("revoke",first,now=NOW,approved=True)
+        revoked=parse_grant(self.path.read_bytes())
+        self.assertEqual(revoked.grant_id,initial.grant_id)
+        self.assertFalse(revoked.active)
+        self.assertEqual(revoked.issued_at,NOW)
+        with self.assertRaises(QueryDenied):
+            self.admin.change("issue",revoked_digest,now=NOW,expires=NOW+600,approved=True)
+        self.admin.change("issue",revoked_digest,now=NOW+1,expires=NOW+601,approved=True)
+        self.assertNotEqual(parse_grant(self.path.read_bytes()).grant_id,initial.grant_id)
+
+    def test_revocation_advances_barrier_even_after_expiry(self):
+        first=self.issue()
+        revoked_digest=self.admin.change("revoke",first,now=NOW+601,approved=True)
+        revoked=parse_grant(self.path.read_bytes())
+        self.assertEqual(revoked.issued_at,NOW+601)
+        self.assertFalse(revoked.active)
+        with self.assertRaises(QueryDenied):
+            self.admin.change("issue",revoked_digest,now=NOW+600,expires=NOW+700,approved=True)
+
     def test_old_token_cannot_use_renewed_grant(self):
         first=self.issue()
         self.admin.change("renew",first,now=NOW+10,expires=NOW+700,approved=True)
