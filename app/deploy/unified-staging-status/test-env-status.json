@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "issue": 396,
+  "observed_at": "2026-11-25T03:00:00Z",
+  "status": "blocked",
+  "scope": "repository_review_only",
+  "repository_baseline": {
+    "dev": "76aa550b4b6ab3124846d384ce19aa445071aa8c",
+    "main": "dc6fc41824e28c49610fba6d9858629ab0b8a34a"
+  },
+  "candidates": [
+    {
+      "pr": 398,
+      "pr_head_sha": "b70007badf3d2229dc0ed47d13105cd11be50f3c",
+      "expected_flyway": null,
+      "checks": [
+        {
+          "kind": "s0_contract",
+          "run_id": 45205585536,
+          "attempt": 1,
+          "conclusion": "success"
+        },
+        {
+          "kind": "full_ci",
+          "run_id": 45205585877,
+          "attempt": 1,
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "pr": 400,
+      "pr_head_sha": "563f6f65d6656581c9353e8037f15a5492444bc3",
+      "expected_flyway": 29,
+      "checks": [
+        {
+          "kind": "compose_static",
+          "run_id": 45099781831,
+          "attempt": 1,
+          "conclusion": "success"
+        },
+        {
+          "kind": "disposable_runtime",
+          "run_id": 45099781925,
+          "attempt": 1,
+          "conclusion": "success"
+        },
+        {
+          "kind": "full_ci",
+          "run_id": 45099781906,
+          "attempt": 1,
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "pr": 403,
+      "pr_head_sha": "f454b6ab95bc339feda9ad5b673753042d2c52fa",
+      "expected_flyway": 31,
+      "checks": [
+        {
+          "kind": "disposable_runtime",
+          "run_id": 45113960471,
+          "attempt": 1,
+          "conclusion": "success"
+        },
+        {
+          "kind": "full_ci",
+          "run_id": 45113960646,
+          "attempt": 1,
+          "conclusion": "success"
+        },
+        {
+          "kind": "ui_synthetic_browser",
+          "run_id": 45113960473,
+          "attempt": 1,
+          "conclusion": "success"
+        },
+        {
+          "kind": "health_synthetic_browser",
+          "run_id": 45113960415,
+          "attempt": 1,
+          "conclusion": "success"
+        },
+        {
+          "kind": "personal_os_synthetic_browser",
+          "run_id": 45113960413,
+          "attempt": 2,
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "pr": 407,
+      "pr_head_sha": "abd757cef0685bf103aab1fa6ff961b9ebaea7bf",
+      "expected_flyway": 30,
+      "checks": [
+        {
+          "kind": "disposable_runtime",
+          "run_id": 45198457778,
+          "attempt": 1,
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "ci_archive": {
+    "pr": 403,
+    "run_id": 45113960471,
+    "artifact_id": 14790901216,
+    "archive_digest": "sha256:2d67c19097d8e409f5e1d35b950d6e4a588d3bf0e6d383c9d6f4319808b1a779",
+    "expires_at": "2026-11-26T04:50:07Z",
+    "expired_at_observation": false
+  },
+  "persistent_stage": {
+    "source_sha": null,
+    "backend_digest": null,
+    "web_digest": null,
+    "flyway_version": null,
+    "flyway_checksums": null,
+    "last_health_check": null,
+    "last_owner_isolation_check": null,
+    "last_browser_check": null,
+    "last_uat_check": null
+  },
+  "gates": {
+    "s0_host_inventory": "not_run",
+    "s1_placement": "not_run",
+    "s4_install": "not_run",
+    "s5_uat": "not_run",
+    "stage_deployment_authorized": false,
+    "production_authorized": false,
+    "oauth_mcp_authorized": false
+  },
+  "blockers": [
+    "host_identity_and_s0_approval",
+    "host_inventory_and_capacity",
+    "placement_and_isolation",
+    "exact_candidate_and_image_review",
+    "separate_s4_approval",
+    "persistent_https_and_runtime_evidence",
+    "synthetic_owner_and_device_uat",
+    "stage_restore_rehearsal"
+  ]
+}
