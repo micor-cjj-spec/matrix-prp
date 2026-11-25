@@ -1,0 +1,14 @@
+const test=require("node:test");
+const assert=require("node:assert/strict");
+const {reviewSmokeReport,runFixture}=require("./unified_staging_smoke_review.cjs");
+function pass(){
+  return {state:"API_SMOKE_PASS",cases:Array.from({length:9},(_,i)=>({id:"U0"+(i+1),state:"API_PASS",checks:Array.from({length:[3,5].includes(i)?2:1},(_,j)=>({check:j+1,result:"OK"}))}))};
+}
+function review(r){return reviewSmokeReport(r,"operator_report_unverified")}
+test("fixture: 11 GETs, 9 groups, never verifies live or authorizes",async()=>{const r=await runFixture();assert.equal(r.state,"API_SMOKE_PASS");assert.equal(r.apiPassed,9);assert.equal(r.checksExecuted,11);assert.equal(r.liveVerified,false);assert.equal(r.deploymentAuthorized,false);assert.equal(r.productionAuthorized,false);});
+test("untrusted operator success remains unverified",()=>{const r=review(pass());assert.equal(r.apiPassed,9);assert.equal(r.source,"operator_report_unverified");assert.equal(r.liveVerified,false);});
+test("reject forged success, extra fields, duplicate ID and unknown result",()=>{for(const mutate of [r=>r.cases[0].state="PENDING",r=>r.token="secret",r=>r.cases[1].id="U01",r=>r.cases[0].checks[0].result="HTTP_200",r=>r.cases[3].checks.pop(),r=>r.cases[0].checks[0].check=2]){const r=pass();mutate(r);assert.throws(()=>review(r),/INVALID_SMOKE_REPORT/)}});
+test("first identity failure stops all other groups",()=>{const r=pass();r.state="API_SMOKE_INCOMPLETE";for(const c of r.cases){c.state=c.id==="U09"?"REVIEW_REQUIRED":"PENDING";c.checks=c.id==="U09"?[{check:1,result:"HTTP_401"}]:[];}const out=review(r);assert.equal(out.pending,8);assert.equal(out.checksExecuted,1);r.cases[0].state="API_PASS";r.cases[0].checks=[{check:1,result:"OK"}];assert.throws(()=>review(r));});
+test("mid-group rate limit stops later requests",()=>{const r=pass();r.state="API_SMOKE_INCOMPLETE";r.cases[3].state="REVIEW_REQUIRED";r.cases[3].checks=[{check:1,result:"HTTP_429"}];for(let i=4;i<8;i++){r.cases[i].state="PENDING";r.cases[i].checks=[];}const out=review(r);assert.equal(out.pending,4);assert.equal(out.checksExecuted,5);r.cases[3].checks.push({check:2,result:"OK"});assert.throws(()=>review(r));});
+test("ordinary error does not invent blocked or missing checks",()=>{const r=pass();r.state="API_SMOKE_INCOMPLETE";r.cases[3].state="REVIEW_REQUIRED";r.cases[3].checks[0].result="HTTP_503";assert.equal(review(r).reviewRequired,1);r.cases[3].checks.pop();assert.throws(()=>review(r));});
+test("blocked/no session, unknown input, source and extra fields",()=>{assert.equal(review({state:"BLOCKED_NO_SESSION",cases:[]}).pending,9);assert.throws(()=>review({state:"BLOCKED_NO_SESSION",cases:pass().cases}));assert.throws(()=>review(null));assert.throws(()=>reviewSmokeReport(pass(),"live_verified"));assert.throws(()=>review({...pass(),secret:"PRIVATE"}));});
