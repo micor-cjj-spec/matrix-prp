@@ -1,7 +1,7 @@
 # TEMPLATE ONLY. Not enabled or installed by this change.
 [Unit]
 Description=PRP fixed-metric snapshot collection timer
-ConditionPathExists=/etc/matrix-prp-ops/ENABLE_LIVE_COLLECTION
+ConditionPathExists=/etc/matrix-prp-ops/ALLOW_HOST_METRICS
 
 [Timer]
 OnBootSec=30s

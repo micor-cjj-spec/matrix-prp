@@ -1,7 +1,7 @@
 # TEMPLATE ONLY. Do not install/enable without independent M06 authorization.
 [Unit]
 Description=PRP fixed-metric read-only snapshot collector (offline-reviewed template)
-ConditionPathExists=/etc/matrix-prp-ops/ENABLE_LIVE_COLLECTION
+ConditionPathExists=/etc/matrix-prp-ops/ALLOW_HOST_METRICS
 After=local-fs.target
 
 [Service]

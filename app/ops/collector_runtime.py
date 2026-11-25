@@ -18,7 +18,7 @@ from snapshot_contract import build_snapshot
 PROC_SOURCES = {"stat": "/proc/stat", "meminfo": "/proc/meminfo"}
 ROOT_FILESYSTEM = "/"
 ENABLE_DIRECTORY = "/etc/matrix-prp-ops"
-ENABLE_MARKER = "ENABLE_LIVE_COLLECTION"
+ENABLE_MARKER = "ALLOW_HOST_METRICS"
 RUNTIME_DIRECTORY = "/run/prp-ops-collector"
 LOCK_NAME = "collector.lock"
 MARKER_CONTENT = b"enabled=1\n"
@@ -42,7 +42,7 @@ def _open_directory(path):
         raise
 
 def live_collection_enabled():
-    """Require an exact root-owned opt-in marker; absent by default."""
+    """Require an exact root-owned host-metrics opt-in marker; absent by default."""
     directory_fd = marker_fd = None
     try:
         directory_fd = _open_directory(ENABLE_DIRECTORY)

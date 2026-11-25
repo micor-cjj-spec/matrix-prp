@@ -15,7 +15,7 @@ def unit(path):
 class DeploymentContractTests(unittest.TestCase):
     def test_collector_service_is_disabled_by_default_and_non_root(self):
         service=unit(SERVICE)
-        self.assertEqual(service["Unit"]["ConditionPathExists"],"/etc/matrix-prp-ops/ENABLE_LIVE_COLLECTION")
+        self.assertEqual(service["Unit"]["ConditionPathExists"],"/etc/matrix-prp-ops/ALLOW_HOST_METRICS")
         cfg=service["Service"]
         self.assertEqual(cfg["Type"],"oneshot")
         self.assertEqual(cfg["User"],"prp-ops-collector")
@@ -41,7 +41,7 @@ class DeploymentContractTests(unittest.TestCase):
 
     def test_timer_is_gated_and_thirty_second_monotonic(self):
         timer=unit(TIMER)
-        self.assertEqual(timer["Unit"]["ConditionPathExists"],"/etc/matrix-prp-ops/ENABLE_LIVE_COLLECTION")
+        self.assertEqual(timer["Unit"]["ConditionPathExists"],"/etc/matrix-prp-ops/ALLOW_HOST_METRICS")
         cfg=timer["Timer"]
         self.assertEqual(cfg["OnBootSec"],"30s")
         self.assertEqual(cfg["OnUnitActiveSec"],"30s")
