@@ -37,7 +37,6 @@ def adapt_p36_read_smoke(projection, receipt, expected_run, identity, binding,
     }, "identity_assertion")
     _exact(binding, {"source_sha", "source_tree", "schema"}, "candidate_binding")
 
-    _exact(projection["report"] if "report" in projection else {}, set(), "projection_has_no_report")
     if (type(projection["schemaVersion"]) is not int or projection["schemaVersion"] != 1 or
             projection["source"] != "offline_unverified_staging_review" or
             projection["state"] != "BLOCKED" or
@@ -47,7 +46,8 @@ def adapt_p36_read_smoke(projection, receipt, expected_run, identity, binding,
             projection["liveVerified"] is not False or
             type(projection["bindingDigest"]) is not str or
             not _digest(projection["bindingDigest"]) or
-            projection["readSmoke"] not in {"API_SMOKE_PASS", "API_SMOKE_INCOMPLETE", "BLOCKED_RUNNER"} or
+            type(projection["readSmoke"]) is not str or
+            projection["readSmoke"] not in {"API_SMOKE_PASS", "API_SMOKE_INCOMPLETE"} or
             type(projection["apiPassed"]) is not int or projection["apiPassed"] < 0 or
             type(projection["checksExecuted"]) is not int or projection["checksExecuted"] < 0 or
             projection["identityCorrelation"] not in {"CLAIMED_MATCH_ONLY", "INCOMPLETE"} or
@@ -58,6 +58,9 @@ def adapt_p36_read_smoke(projection, receipt, expected_run, identity, binding,
             receipt["kind"] != "PRP_STAGING_READ_SMOKE_RECEIPT" or
             receipt["source"] != "github_task_candidate" or receipt["repository"] != REPOSITORY or
             receipt["issue"] != 396 or receipt["operation"] != "READ_SMOKE_ONLY" or
+            type(receipt["requestCommentId"]) is not int or
+            type(receipt["runAttempt"]) is not int or
+            type(receipt["apiPassed"]) is not int or type(receipt["checksExecuted"]) is not int or
             receipt["liveVerified"] is not False or receipt["deploymentAuthorized"] is not False or
             receipt["productionAuthorized"] is not False):
         raise ValueError("INVALID_P36_RECEIPT")
@@ -77,7 +80,9 @@ def adapt_p36_read_smoke(projection, receipt, expected_run, identity, binding,
         raise ValueError("P36_PROJECTION_RECEIPT_MISMATCH")
 
     _exact(receipt["report"], {"state", "cases"}, "p36_smoke_report")
-    if receipt["report"]["state"] not in {"API_SMOKE_PASS", "API_SMOKE_INCOMPLETE"}:
+    if (type(receipt["report"]["state"]) is not str or
+            receipt["report"]["state"] not in {"API_SMOKE_PASS", "API_SMOKE_INCOMPLETE"} or
+            receipt["report"]["state"] != projection["readSmoke"]):
         raise ValueError("INVALID_P36_REPORT_STATE")
     cases = receipt["report"]["cases"]
     if type(cases) is not list or len(cases) != len(EXPECTED_CASE_CHECKS):
@@ -91,7 +96,8 @@ def adapt_p36_read_smoke(projection, receipt, expected_run, identity, binding,
         _exact(case, {"id", "state", "checks"}, "p36_case")
         case_id = case["id"]
         if (type(case_id) is not str or case_id not in EXPECTED_CASE_CHECKS or
-                case_id in seen or case["state"] not in {"API_PASS", "REVIEW_REQUIRED", "PENDING"} or
+                case_id in seen or type(case["state"]) is not str or
+                case["state"] not in {"API_PASS", "REVIEW_REQUIRED", "PENDING"} or
                 type(case["checks"]) is not list or
                 len(case["checks"]) > EXPECTED_CASE_CHECKS.get(case_id, 0)):
             raise ValueError("INVALID_P36_CASE")
@@ -113,6 +119,8 @@ def adapt_p36_read_smoke(projection, receipt, expected_run, identity, binding,
                 passed_checks += 1
             else:
                 all_pass = False
+        if case["state"] == "API_PASS" and any(row["result"] != "OK" for row in case["checks"]):
+            raise ValueError("P36_CASE_STATUS_CONFLICT")
     if seen != set(EXPECTED_CASE_CHECKS):
         raise ValueError("P36_CASE_INVENTORY_MISMATCH")
     if (passed_cases, executed_checks) != (projection["apiPassed"], projection["checksExecuted"]):
@@ -132,11 +140,12 @@ def adapt_p36_read_smoke(projection, receipt, expected_run, identity, binding,
             type(identity["ordinary_non_admin"]) is not bool or
             type(identity["credential_permissions_checked"]) is not bool or
             type(identity["mcp_grant_rows"]) is not int or identity["mcp_grant_rows"] < 0 or
+            type(identity["login_method"]) is not str or
             identity["login_method"] not in {"password_login", "oauth_pkce"}):
         raise ValueError("INVALID_IDENTITY_ASSERTION")
 
     expected_ref = "issue-comment:" + str(expected_run["requestCommentId"])
-    if source_ref != expected_ref or type(evidence_id) is not str or re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", evidence_id) is None:
+    if type(source_ref) is not str or source_ref != expected_ref or type(evidence_id) is not str or re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", evidence_id) is None:
         raise ValueError("INVALID_EVIDENCE_REFERENCE")
     if type(observed_at) is not int or observed_at <= 0:
         raise ValueError("INVALID_OBSERVATION_TIME")
