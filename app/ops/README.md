@@ -7,3 +7,8 @@
 - D-M03 仍需独立 OAuth resource/audience、固定 scope、owner/grant 与撤销校验，默认关闭，禁止 legacy OAuth-off 路径。禁止注册或暴露真实工具。D-M04/05/06 未验收；不接入主机、不部署、不合并、不改现有业务与发布锁。
 
 Atomic replacement readers validate nlink==1; an opened old inode unlinked before fstat is conservatively unavailable, not partially returned. O_EXCL collision never cleans up a file the invocation did not create. Actual reader/writer isolation and scheduler single-writer enforcement remain M04.
+
+## D-M03 零参数查询与独立授权（合成契约）
+- query_contract.py 固定 prp_ops_status_get，仅接受空 JSON object；拒绝其他工具、环境/路径/URL/身份/审批字段及非规范参数。Policy 默认 OFF。synthetic issuer/resource 使用 .invalid，不配置真实目标。要求外部受信 adapter 提供已独立验证的 OAuth identity；精确 issuer、audience、client、owner、唯一 prp.ops.read scope、grant id、时效；独立 current grant 绑定同一主体、客户端、resource、staging、scope、有效时间与启用状态。无 OAuth/旧 JWT/业务 scope fallback。
+- 只在授权通过后读固定快照一次；读取后再次从权威 grant provider 获取状态、校验不可变 grant 与独立时间（拒绝回退/过期），最后重新按新时间判断 freshness。撤销、provider 故障、未知授权、超时效均统一拒绝，不返回敏感异常。无需逐次人类审批或旧 #414 的执行签名；无读取触发采集/写入/刷新。多会话合成测试复用同一 grant，每次仍查询有效授权。
+- 当前无真正 JWT/JWKS/mTLS/OAuth issuer、独立持久 grant provider、真实注册/transport/网络/监听、审计、限速或跨请求撤销/最后检查到响应交付的原子边界。该代码只可合成运行；真实接口需 M04/M05/M06 独立设计及授权。静态 import/call 守卫只检测明显意外接入，不是沙箱。

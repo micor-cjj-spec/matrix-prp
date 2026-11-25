@@ -260,7 +260,8 @@ class SnapshotStore:
                     pass
             os.close(fd)
 
-    def read(self, now):
+    def read_raw(self):
+        """Bounded raw read from trusted fixed store, never returned directly."""
         fd = source = None
         try:
             fd = self._directory_fd()
@@ -269,14 +270,17 @@ class SnapshotStore:
             if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or
                     stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1 or
                     not 0 < info.st_size <= MAX_BYTES):
-                return unavailable()
+                return None
             with os.fdopen(source, "rb") as f:
                 source = None
-                return query_snapshot(f.read(MAX_BYTES+1), now)
+                return f.read(MAX_BYTES+1)
         except (OSError, InvalidSnapshot, ValueError):
-            return unavailable()
+            return None
         finally:
             if source is not None:
                 os.close(source)
             if fd is not None:
                 os.close(fd)
+
+    def read(self, now):
+        return query_snapshot(self.read_raw(), now)
