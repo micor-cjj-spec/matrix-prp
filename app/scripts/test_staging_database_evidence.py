@@ -28,7 +28,10 @@ def database():
                            data_digest=I, backup_digest=T, created_at=NOW-100, checksum_review="pass"),
             "restore": dict(binding, backup_digest=T, target_instance=Y, restored_schema=29,
                             history_digest=H, data_digest=I, started_at=NOW-99,
-                            finished_at=NOW-90, validation="pass", isolated=True),
+                            finished_at=NOW-90, validation="pass", isolated=True,
+                            rehearsal=dict(target_schema=30, policy_digest=P, applied=[dict(migrations[0])],
+                                           failed_count=0, validation="pass", historical_rows="pass",
+                                           historical_ddl="pass", new_tables="pass")),
             "risk": dict(binding, classification="HIGH_REVIEW", flags=dict.fromkeys(RISK_FLAGS, False),
                          reviewed_at=NOW-5, specialist_reviews={"database": "pass", "security": "pass"})}
 
@@ -49,6 +52,7 @@ class DatabaseEvidenceTests(unittest.TestCase):
         s.update(baseline_schema=30, expected_migrations=[])
         s["migration"].update(before_schema=30, after_history=H, applied=[])
         s["backup"]["baseline_schema"] = s["restore"]["restored_schema"] = 30
+        s["restore"]["rehearsal"]["applied"] = []
         self.assertTrue(all(self.check(s)["correlation_claimed"].values()))
 
     def test_missing_receipts(self):
@@ -98,6 +102,51 @@ class DatabaseEvidenceTests(unittest.TestCase):
         self.assertIn("RESTORE_BACKUP_OR_CANDIDATE_MISMATCH", findings)
         self.assertIn("RESTORE_TARGET_NOT_ISOLATED", findings)
 
+    def test_rehearsal_must_finish_strictly_before_migration(self):
+        for start, finish in ((NOW-10, NOW-1), (NOW-95, NOW-80), (NOW-90, NOW-70)):
+            with self.subTest(start=start, finish=finish):
+                s = database()
+                s["restore"].update(started_at=start, finished_at=finish)
+                r = self.check(s)
+                self.assertFalse(r["correlation_claimed"]["backup_restore"])
+                self.assertIn("RESTORE_REHEARSAL_NOT_BEFORE_MIGRATION", r["findings"]["backup_restore"])
+
+    def test_missing_migration_cannot_establish_rehearsal_order(self):
+        s = database()
+        s["migration"] = None
+        self.assertIn("RESTORE_REHEARSAL_NOT_BEFORE_MIGRATION",
+                      self.check(s)["findings"]["backup_restore"])
+
+    def test_missing_target_rehearsal(self):
+        s = database()
+        s["restore"]["rehearsal"] = None
+        self.assertIn("TARGET_MIGRATION_REHEARSAL_MISSING", self.check(s)["findings"]["backup_restore"])
+
+    def test_rehearsal_wrong_candidate_policy_or_sql(self):
+        for key, value in (("target_schema", 31), ("policy_digest", S),
+                           ("applied", [{"version":30, "sql_digest":P}])):
+            with self.subTest(key=key):
+                s = database()
+                s["restore"]["rehearsal"][key] = value
+                self.assertIn("REHEARSAL_TARGET_OR_POLICY_MISMATCH",
+                              self.check(s)["findings"]["backup_restore"])
+
+    def test_rehearsal_preservation_checks_fail_closed(self):
+        for key, value in (("failed_count", 1), ("validation", "fail"),
+                           ("historical_rows", "fail"), ("historical_ddl", "skipped"),
+                           ("new_tables", "pending")):
+            with self.subTest(key=key):
+                s = database()
+                s["restore"]["rehearsal"][key] = value
+                self.assertIn("REHEARSAL_PRESERVATION_NOT_PASS",
+                              self.check(s)["findings"]["backup_restore"])
+
+    def test_reject_unsafe_rehearsal_shape(self):
+        s = database()
+        s["restore"]["rehearsal"]["authorized"] = True
+        with self.assertRaises(ValueError):
+            self.check(s)
+
     def test_restore_data_drift_or_skipped(self):
         s = database()
         s["restore"].update(data_digest=S, validation="skipped")
@@ -128,6 +177,7 @@ class DatabaseEvidenceTests(unittest.TestCase):
         s.update(baseline_schema=30, expected_migrations=[])
         s["migration"].update(before_schema=30, after_history=H, applied=[])
         s["backup"]["baseline_schema"] = s["restore"]["restored_schema"] = 30
+        s["restore"]["rehearsal"]["applied"] = []
         s["risk"]["flags"]["oauth_scope_change"] = True
         s["risk"]["classification"] = "NO_RUNTIME_CHANGE"
         self.assertIn("RISK_UNCLASSIFIED_OR_UNDERRATED", self.check(s)["findings"]["risk"])
@@ -198,6 +248,16 @@ class UnifiedOfflineChainTests(unittest.TestCase):
         r = self.chain(db=s)
         self.assertIn("migration:MIGRATION_NOT_BEFORE_UAT", r["blockers"])
         self.assertFalse(r["offline_database_review"]["correlation_claimed"]["migration"])
+
+    def test_late_rehearsal_blocks_combined_report_and_markdown(self):
+        s = database()
+        s["restore"].update(started_at=NOW-10, finished_at=NOW-1)
+        r = self.chain(db=s)
+        finding = "backup_restore:RESTORE_REHEARSAL_NOT_BEFORE_MIGRATION"
+        self.assertFalse(r["offline_database_review"]["correlation_claimed"]["backup_restore"])
+        self.assertIn(finding, r["blockers"])
+        self.assertIn(finding, unified_markdown(r))
+        self.assertFalse(r["production_authorized"])
 
     def test_multiple_failures_preserved_in_one_report(self):
         names, snap = build_snapshot()

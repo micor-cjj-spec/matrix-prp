@@ -102,7 +102,7 @@ def assess_database(candidate, snapshot, now):
     else:
         exact(r, {"commit", "artifact_digest", "schema", "backup_digest", "target_instance",
                   "restored_schema", "history_digest", "data_digest", "started_at",
-                  "finished_at", "validation", "isolated"}, "restore receipt")
+                  "finished_at", "validation", "isolated", "rehearsal"}, "restore receipt")
         if (not all(digest(r[k]) for k in ("backup_digest", "target_instance", "history_digest",
                                            "data_digest")) or not schema(r["restored_schema"]) or
                 not positive(r["started_at"]) or not positive(r["finished_at"]) or
@@ -121,6 +121,30 @@ def assess_database(candidate, snapshot, now):
         if (not fresh(r["started_at"]) or not fresh(r["finished_at"]) or
                 r["started_at"] > r["finished_at"] or b is None or r["started_at"] < b["created_at"]):
             br.append("RESTORE_TIME_INVALID")
+        # The whole isolated rehearsal (restore, target migration and preservation
+        # checks) must finish strictly before the candidate database migration.
+        if m is None or r["finished_at"] >= m["started_at"]:
+            br.append("RESTORE_REHEARSAL_NOT_BEFORE_MIGRATION")
+        rehearsal = r["rehearsal"]
+        if rehearsal is None:
+            br.append("TARGET_MIGRATION_REHEARSAL_MISSING")
+        else:
+            exact(rehearsal, {"target_schema", "policy_digest", "applied", "failed_count",
+                              "validation", "historical_rows", "historical_ddl",
+                              "new_tables"}, "isolated migration rehearsal")
+            _versions(rehearsal["applied"])
+            if (not schema(rehearsal["target_schema"]) or not digest(rehearsal["policy_digest"]) or
+                    type(rehearsal["failed_count"]) is not int or rehearsal["failed_count"] < 0 or
+                    any(type(rehearsal[k]) is not str or rehearsal[k] not in STATUS
+                        for k in ("validation", "historical_rows", "historical_ddl", "new_tables"))):
+                raise ValueError("Invalid isolated migration rehearsal")
+            if (rehearsal["target_schema"] != target or
+                    rehearsal["policy_digest"] != snapshot["policy_digest"] or
+                    rehearsal["applied"] != expected):
+                br.append("REHEARSAL_TARGET_OR_POLICY_MISMATCH")
+            if rehearsal["failed_count"] or any(rehearsal[k] != "pass" for k in
+                    ("validation", "historical_rows", "historical_ddl", "new_tables")):
+                br.append("REHEARSAL_PRESERVATION_NOT_PASS")
     classification = "UNCLASSIFIED"
     if risk is None:
         rk.append("RISK_RECEIPT_MISSING")
