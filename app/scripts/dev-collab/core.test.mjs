@@ -344,3 +344,63 @@ test('client cannot forge checkpoint archival metadata', () => {
   }), { ...actor, recoveryAuthorized: true, gitEvidenceVerified: true }),
   'CHECKPOINT_METADATA_RESERVED')
 })
+
+test('re-claim fences previous progress and PR pointers but preserves release audit', () => {
+  const first=claim(make(),'T-001','workerOld')
+  const ext={worker_id:'workerOld',claim_id:first.claim_id}
+  let s=applyCommand(first.state,command('start','T-001',ext),actor).snapshot
+  s=applyCommand(s,command('submit','T-001',{...ext,pr_number:138,head_sha:'a'.repeat(40)}),actor).snapshot
+  s=applyCommand(s,command('rework','T-001',{...ext,note:'Review requires further changes'}),actor).snapshot
+  s=applyCommand(s,command('checkpoint','T-001',{...ext,checkpoint:{
+    summary:'Prior review checkpoint',next_step:'Revise the submitted work',
+    branch:'feature/old',head_sha:'a'.repeat(40),pr_number:138
+  }}),actor).snapshot
+  const release=command('release','T-001',ext)
+  const released=applyCommand(s,release,actor)
+  const next=claim(released.snapshot,'T-001','workerNew')
+  assert.equal(next.state.tasks[0].head_sha,undefined)
+  assert.equal(next.state.tasks[0].pr_number,undefined)
+  assert.equal(next.state.tasks[0].checkpoint.archived,true)
+  assert.equal(next.state.tasks[0].checkpoint.pr_number,138)
+  assert.equal(released.receipt.released_head_sha,'a'.repeat(40))
+  assert.equal(released.receipt.released_pr_number,138)
+  const replay=applyCommand(next.state,release,actor)
+  assert.strictEqual(replay.snapshot,next.state)
+  assert.equal(replay.receipt.released_pr_number,138)
+  assert.equal(replay.receipt.replayed,true)
+  const incoming={summary:'New claimant work',next_step:'Review independent new branch',
+    branch:'feature/new',head_sha:'b'.repeat(40)}
+  assertCode(()=>applyCommand(next.state,command('checkpoint','T-001',{
+    ...ext,checkpoint:incoming}),actor),'STALE_OR_FOREIGN_CLAIM')
+  const fresh=applyCommand(next.state,command('checkpoint','T-001',{
+    worker_id:'workerNew',claim_id:next.claim_id,checkpoint:incoming}),actor).snapshot
+  assert.equal(fresh.tasks[0].checkpoint.head_sha,'b'.repeat(40))
+  assert.equal(fresh.tasks[0].checkpoint.pr_number,undefined)
+  assert.equal(fresh.tasks[0].checkpoint.archived,undefined)
+  assert.equal(fresh.tasks[0].checkpoint.worker_id,'workerNew')
+  assertCode(()=>claim(fresh,'T-003'),'DEPENDENCY_BLOCKED')
+})
+
+test('owner verified takeover after re-claim accepts a new head despite previous progress', () => {
+  const first=claim(make(),'T-001','workerOld')
+  const ext={worker_id:'workerOld',claim_id:first.claim_id}
+  let s=applyCommand(first.state,command('start','T-001',ext),actor).snapshot
+  s=applyCommand(s,command('progress','T-001',{...ext,note:'Previous work',head_sha:'a'.repeat(40)}),actor).snapshot
+  s=applyCommand(s,command('release','T-001',ext),actor).snapshot
+  const next=claim(s,'T-001','workerNew')
+  const cp={summary:'Owner verified new branch',next_step:'Continue recovered task',
+    branch:'feature/new',head_sha:'b'.repeat(40)}
+  const takeover=command('takeover','T-001',{
+    worker_id:'workerNew',claim_id:next.claim_id,expected_claim_id:next.claim_id,
+    expected_version:next.state.version,new_worker_id:'workerRecovery',
+    expected_head_sha:cp.head_sha,note:'Recover current claimant work',checkpoint:cp
+  })
+  assertCode(()=>applyCommand(next.state,takeover,{...actor,recoveryAuthorized:true}),
+    'RECOVERY_GIT_EVIDENCE_REQUIRED')
+  const recovered=applyCommand(next.state,takeover,{...actor,recoveryAuthorized:true,gitEvidenceVerified:true}).snapshot
+  assert.equal(recovered.tasks[0].claim.worker_id,'workerRecovery')
+  assert.equal(recovered.tasks[0].checkpoint.head_sha,cp.head_sha)
+  assert.equal(recovered.tasks[0].checkpoint.origin,'owner_verified_git')
+  assertCode(()=>applyCommand(recovered,command('start','T-001',{
+    worker_id:'workerNew',claim_id:next.claim_id}),actor),'STALE_OR_FOREIGN_CLAIM')
+})
