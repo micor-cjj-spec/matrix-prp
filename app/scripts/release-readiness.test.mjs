@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {parseOwnerRequest, validateHoldSnapshot, assessGithubPrecheck, summaryMarkdown, REQUIRED_JOBS} from './release-readiness.mjs'
+import {parseOwnerRequest, validateHoldSnapshot, assessGithubPrecheck, summaryMarkdown, REQUIRED_JOBS, collectGithubSnapshot} from './release-readiness.mjs'
 
 const A = 'a'.repeat(40)
 const B = 'b'.repeat(40)
@@ -166,4 +166,109 @@ test('global hold always overrides other precheck failures', () => {
     ciJobs:[...jobs(),{name:'additional-integration',status:'completed',conclusion:'failure'}]}))
   assert.equal(r.state,'BLOCKED')
   assert.ok(r.blockers.includes('CI_JOB_NOT_SUCCESS'))
+})
+
+
+function snapshotFixture(options={}) {
+  const latest = run(A,{path:'.github/workflows/ci.yml',run_attempt:1,...options.run})
+  const allJobs = jobs().map((j,i)=>({...j,id:i+1,run_id:latest.id,
+    run_attempt:latest.run_attempt,head_sha:A,workflow_name:'CI'}))
+  let mainReads=0, listReads=0
+  const calls=[]
+  const get=async path=>{
+    calls.push(path)
+    if(path.endsWith('/branches/main')) {
+      mainReads++
+      return {commit:{sha:mainReads>1 && options.moveMain ? B : (options.mainSha || A)}}
+    }
+    if(path.includes('/actions/workflows/ci.yml/runs?')) {
+      listReads++
+      const rr=options.runs || [latest]
+      return {total_count:rr.length+(options.truncated?1:0),
+        workflow_runs:listReads>1 && options.moveRun ? [{...latest,run_attempt:2}] : rr}
+    }
+    if(path.includes('/attempts/')) {
+      const jj=options.changeJobs ? options.changeJobs(allJobs) : allJobs
+      return {total_count:jj.length+(options.truncatedJobs?1:0),jobs:jj}
+    }
+    if(path.endsWith('/actions/runs/'+latest.id)) return options.changedDetail ? {...latest,run_attempt:2} : latest
+    throw Error('Unexpected path')
+  }
+  return {calls, input:{requestedSha:A,checkedOutSha:A,hold:true,get}}
+}
+
+test('collector generates exact candidate CI and hold bindings, no other evidence', async()=>{
+  const {input,calls}=snapshotFixture()
+  const {report,bundle}=await collectGithubSnapshot(input)
+  assert.equal(report.state,'HELD')
+  assert.equal(report.snapshot.enumerated_jobs,REQUIRED_JOBS.length)
+  assert.equal(bundle.hold.state,'active')
+  assert.deepEqual(Object.keys(bundle.evidence),['ci'])
+  assert.equal(bundle.evidence.ci.run_attempt,1)
+  assert.equal(bundle.evidence.ci.status,'pass')
+  assert.equal(bundle.candidate.artifact_digest,null)
+  assert.ok(calls.some(p=>p.includes('/attempts/1/jobs')))
+  assert.equal(report.production_authorized,false)
+})
+
+test('collector does not import a stale candidate as passing CI or clear hold',async()=>{
+  const {input}=snapshotFixture({mainSha:B})
+  const {bundle}=await collectGithubSnapshot({...input,hold:false})
+  assert.equal(bundle.hold.state,'unknown')
+  assert.deepEqual(bundle.evidence,{})
+})
+
+test('collector records latest failed or pending CI, without inventing successful jobs',async()=>{
+  for(const [run,status] of [
+    [{status:'completed',conclusion:'failure'},'fail'],
+    [{status:'queued',conclusion:null},'pending']
+  ]) {
+    const {input,calls}=snapshotFixture({run})
+    const {bundle}=await collectGithubSnapshot(input)
+    assert.equal(bundle.evidence.ci.status,status)
+    assert.equal(bundle.evidence.ci.all_jobs_success,false)
+    assert.ok(!calls.some(p=>p.includes('/attempts/')))
+  }
+})
+
+test('collector refuses incomplete inventories and changed snapshots',async()=>{
+  for(const options of [{truncated:true},{truncatedJobs:true},{moveMain:true},
+      {moveRun:true},{changedDetail:true}]) {
+    await assert.rejects(()=>collectGithubSnapshot(snapshotFixture(options).input))
+  }
+})
+
+test('collector refuses foreign run attempts, wrong SHA and duplicate job IDs',async()=>{
+  for(const field of [{run_attempt:2},{head_sha:B},{workflow_name:'other'}]) {
+    await assert.rejects(()=>collectGithubSnapshot(snapshotFixture({
+      changeJobs:jj=>[{...jj[0],...field},...jj.slice(1)]}).input))
+  }
+  await assert.rejects(()=>collectGithubSnapshot(snapshotFixture({
+    changeJobs:jj=>[...jj,jj[0]]}).input))
+})
+
+test('green workflow with missing or failed job cannot count as successful CI',async()=>{
+  for(const changeJobs of [jj=>jj.slice(1),jj=>[{...jj[0],conclusion:'failure'},...jj.slice(1)]]) {
+    const {bundle}=await collectGithubSnapshot(snapshotFixture({changeJobs}).input)
+    assert.equal(bundle.evidence.ci.status,'fail')
+    assert.equal(bundle.evidence.ci.all_jobs_success,false)
+  }
+})
+
+test('collector excludes PR, fork and unexpected workflow path',async()=>{
+  for(const run of [{event:'pull_request'},{head_repository:{full_name:'fork/prp'}},
+      {path:'.github/workflows/other.yml'}]) {
+    const {bundle}=await collectGithubSnapshot(snapshotFixture({run}).input)
+    assert.deepEqual(bundle.evidence,{})
+  }
+})
+
+test('newer exact main failure overrides older green run in collector',async()=>{
+  const {input}=snapshotFixture({run:{id:124,conclusion:'failure'},runs:[
+    run(A,{path:'.github/workflows/ci.yml',run_attempt:1}),
+    run(A,{id:124,path:'.github/workflows/ci.yml',run_attempt:1,conclusion:'failure'})
+  ]})
+  const {bundle}=await collectGithubSnapshot(input)
+  assert.equal(bundle.evidence.ci.run_id,124)
+  assert.equal(bundle.evidence.ci.status,'fail')
 })

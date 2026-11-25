@@ -121,11 +121,110 @@ export function summaryMarkdown(r) {
 async function githubGet(path, token) {
   if (!/^\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\//.test(path)) throw Error('Unsupported GitHub API path')
   const response = await fetch('https://api.github.com' + path, {
+    method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
     headers: {Accept:'application/vnd.github+json',Authorization:'Bearer ' + token,
       'X-GitHub-Api-Version':'2022-11-28', 'User-Agent':'matrix-prp-release-readonly-precheck'}
   })
   if (!response.ok) throw Error('GitHub API precheck unavailable: HTTP ' + response.status)
   return await response.json()
+}
+
+const REPO = 'micor-cjj-spec/matrix-prp'
+const API = '/repos/' + REPO
+const exactSha = v => typeof v === 'string' && v.length === 40 && SHA.test(v)
+const positive = v => Number.isSafeInteger(v) && v > 0
+const exactRun = (r, sha) => r && r.name === 'CI' &&
+  r.path === '.github/workflows/ci.yml' &&
+  r.event === 'push' && r.head_branch === 'main' && r.head_sha === sha &&
+  r.head_repository?.full_name === REPO
+
+function completeList(response, key) {
+  if (!Array.isArray(response?.[key]) || !Number.isInteger(response.total_count) ||
+      response.total_count < 0 || response.total_count > 100 ||
+      response[key].length !== response.total_count) throw Error('Incomplete GitHub enumeration: ' + key)
+  return response[key]
+}
+
+function runSignature(r) {
+  return [r.id, r.run_attempt, r.status, r.conclusion, r.head_sha,
+    r.head_branch, r.event, r.name, r.path, r.head_repository?.full_name]
+}
+
+// Only a same-repository main-push snapshot is supported. get is injected
+// for synthetic contract tests; the production-facing wrapper uses GET only.
+export async function collectGithubSnapshot({requestedSha, checkedOutSha, hold, get}) {
+  if (!exactSha(requestedSha) || !exactSha(checkedOutSha) ||
+      typeof hold !== 'boolean' || typeof get !== 'function') throw Error('Invalid collection arguments')
+  const main = await get(API + '/branches/main')
+  const mainSha = main?.commit?.sha
+  if (!exactSha(mainSha)) throw Error('Unverifiable main SHA')
+  const runsPath = API + '/actions/workflows/ci.yml/runs?branch=main&event=push&head_sha=' +
+    requestedSha + '&per_page=100'
+  const list = async () => {
+    const runs = completeList(await get(runsPath), 'workflow_runs')
+    if (runs.some(r => !r || !positive(r.id) || !positive(r.run_attempt)) ||
+        new Set(runs.map(r=>r.id)).size !== runs.length) throw Error('Invalid run inventory')
+    return runs
+  }
+  const runs = await list()
+  const latest = runs.filter(r => exactRun(r, requestedSha)).sort((a,b)=>b.id-a.id)[0] || null
+  let jobs = []
+  if (latest?.status === 'completed' && latest.conclusion === 'success') {
+    jobs = completeList(await get(API + '/actions/runs/' + latest.id +
+      '/attempts/' + latest.run_attempt + '/jobs?per_page=100'), 'jobs')
+    if (jobs.some(j => !j || !positive(j.id) || j.run_id !== latest.id ||
+        j.run_attempt !== latest.run_attempt || j.head_sha !== requestedSha ||
+        j.workflow_name !== 'CI') || new Set(jobs.map(j=>j.id)).size !== jobs.length) {
+      throw Error('CI job provenance mismatch')
+    }
+  }
+  if (latest) {
+    const current = await get(API + '/actions/runs/' + latest.id)
+    if (!current || JSON.stringify(runSignature(current)) !== JSON.stringify(runSignature(latest))) {
+      throw Error('CI changed during inspection')
+    }
+  }
+  const after = await list()
+  const signature = rr => JSON.stringify(rr.map(runSignature).sort((a,b)=>a[0]-b[0]))
+  if (signature(after) !== signature(runs)) throw Error('CI run inventory changed')
+  const finalMain = await get(API + '/branches/main')
+  if (finalMain?.commit?.sha !== mainSha) throw Error('Main changed during inspection')
+
+  // Preserve the previous diagnostic policy, but pass only eligible CI runs.
+  const report = assessGithubPrecheck({
+    requestedSha, checkedOutSha, currentMainSha:mainSha, hold,
+    ciRuns:runs.filter(r => exactRun(r, requestedSha)), ciJobs:jobs,
+  })
+  const aligned = requestedSha === checkedOutSha && requestedSha === mainSha
+  const allJobsSuccess = Boolean(latest && latest.status === 'completed' &&
+    latest.conclusion === 'success' && jobs.length > 0 &&
+    jobs.every(j=>j.status==='completed' && j.conclusion==='success') &&
+    REQUIRED_JOBS.every(n=>jobs.filter(j=>j.name===n).length===1))
+  const bundle = {
+    schema_version:1,
+    candidate:{repository:REPO,commit:requestedSha,artifact_digest:null,schema:null},
+    hold:{state:aligned ? (hold ? 'active' : 'clear') : 'unknown',
+      commit:checkedOutSha,ref:'git:' + checkedOutSha + ':publication-hold'},
+    evidence:{},
+  }
+  if (aligned && latest) {
+    const status = latest.status !== 'completed' ? 'pending' :
+      allJobsSuccess ? 'pass' : latest.conclusion === 'skipped' ? 'skipped' : 'fail'
+    bundle.evidence.ci = {
+      source:'github_actions',environment:'review',commit:requestedSha,status,
+      ref:'github:actions:' + latest.id + ':attempt:' + latest.run_attempt,
+      run_id:latest.id,run_attempt:latest.run_attempt,tested_commit:requestedSha,
+      all_jobs_success:allJobsSuccess,
+    }
+  }
+  report.snapshot = {
+    checked_out_sha:checkedOutSha, current_main_sha:mainSha, aligned,
+    latest_run_id:latest?.id ?? null, latest_run_attempt:latest?.run_attempt ?? null,
+    latest_run_status:latest?.status ?? null, latest_run_conclusion:latest?.conclusion ?? null,
+    enumerated_jobs:jobs.length, successful_jobs:jobs.filter(j=>j.conclusion==='success' && j.status==='completed').length,
+    all_jobs_success:allJobsSuccess,
+  }
+  return {report,bundle}
 }
 
 async function collect() {
@@ -147,50 +246,13 @@ async function collect() {
     Boolean(holdStat),Boolean(holdStat?.isSymbolicLink()))
   const token = process.env.GITHUB_TOKEN
   if (!token) throw Error('Missing read-only GitHub API token')
-  const main = await githubGet('/repos/' + repo + '/branches/main', token)
-  const mainSha = main?.commit?.sha
-  if (!SHA.test(mainSha)) throw Error('Unverifiable current main SHA')
-  // Never trust a successful CI from a previous main commit or a pull_request event.
-  const runsResponse = await githubGet('/repos/' + repo +
-    '/actions/workflows/ci.yml/runs?branch=main&event=push&head_sha=' + requestedSha +
-    '&per_page=100',token)
-  if (!Array.isArray(runsResponse?.workflow_runs) ||
-      !Number.isInteger(runsResponse.total_count) || runsResponse.total_count > 100 ||
-      runsResponse.workflow_runs.length !== runsResponse.total_count) throw Error('Incomplete CI run enumeration')
-  const ciRuns = runsResponse.workflow_runs
-  const latest = ciRuns.filter(run =>
-    run?.name === 'CI' && run?.event === 'push' && run?.head_sha === requestedSha &&
-    run?.head_branch === 'main' &&
-    run?.head_repository?.full_name === repo).sort((a,b) => b.id - a.id)[0]
-  const exact = latest?.status === 'completed' && latest?.conclusion === 'success' ? latest : null
-  let ciJobs = []
-  if (exact) {
-    if (!Number.isSafeInteger(exact.run_attempt) || exact.run_attempt < 1) throw Error('Invalid CI run attempt')
-    const response = await githubGet('/repos/' + repo +
-      '/actions/runs/' + exact.id + '/attempts/' + exact.run_attempt + '/jobs?per_page=100',token)
-    if (!Array.isArray(response?.jobs) || !Number.isInteger(response.total_count) ||
-        response.total_count > 100 || response.jobs.length !== response.total_count) {
-      throw Error('Incomplete CI job enumeration: fail closed')
-    }
-    ciJobs = response.jobs
-    if (ciJobs.some(job => job.run_id !== exact.id || job.run_attempt !== exact.run_attempt)) throw Error('CI job provenance mismatch')
-    const current = await githubGet('/repos/' + repo + '/actions/runs/' + exact.id, token)
-    if (current.run_attempt !== exact.run_attempt || current.status !== 'completed' ||
-        current.conclusion !== 'success' || current.head_sha !== requestedSha) throw Error('CI changed during inspection')
-  }
-  // Re-read both main and the exact-SHA run list after collecting jobs.
-  const latestMain = await githubGet('/repos/' + repo + '/branches/main', token)
-  if (latestMain?.commit?.sha !== mainSha) throw Error('Main changed during inspection')
-  const latestRuns = await githubGet('/repos/' + repo +
-    '/actions/workflows/ci.yml/runs?branch=main&event=push&head_sha=' + requestedSha +
-    '&per_page=100',token)
-  const signature = runs => JSON.stringify(runs.map(x => [x.id,x.run_attempt,x.status,x.conclusion]).sort((a,b)=>a[0]-b[0]))
-  if (!Array.isArray(latestRuns?.workflow_runs) || latestRuns.total_count !== runsResponse.total_count ||
-      signature(latestRuns.workflow_runs) !== signature(ciRuns)) throw Error('CI runs changed during inspection')
-  const report = assessGithubPrecheck({
-    requestedSha, checkedOutSha, currentMainSha:mainSha,
-    hold, ciRuns, ciJobs,
+  const {report, bundle} = await collectGithubSnapshot({
+    requestedSha, checkedOutSha, hold, get: path => githubGet(path, token),
   })
+  if (process.env.RUNNER_TEMP) {
+    writeFileSync(resolve(process.env.RUNNER_TEMP,'prp-release-evidence-input.json'),
+      JSON.stringify(bundle,null,2) + '\n')
+  }
   const summary = summaryMarkdown(report)
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,summary)
   if (process.env.RUNNER_TEMP) writeFileSync(resolve(process.env.RUNNER_TEMP,'prp-release-precheck.json'),

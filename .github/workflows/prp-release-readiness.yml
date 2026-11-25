@@ -8,6 +8,8 @@ on:
     paths:
       - app/scripts/release-readiness.mjs
       - app/scripts/release-readiness.test.mjs
+      - app/scripts/release_evidence.py
+      - app/scripts/test_release_evidence.py
       - .github/workflows/prp-release-readiness.yml
   # The request is an exact owner-authored comment on Issue #323.
   # GitHub executes issue_comment workflows from the default branch only.
@@ -32,6 +34,8 @@ jobs:
           node-version: '22'
       - name: Validate fixed read-only release precheck contract
         run: node --test app/scripts/release-readiness.test.mjs
+      - name: Validate offline evidence contract
+        run: python3 -m unittest discover -s app/scripts -p test_release_evidence.py -v
       - name: Verify no production change permissions in readiness workflow
         shell: bash
         run: |
@@ -72,10 +76,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node app/scripts/release-readiness.mjs
+      - name: Generate advisory evidence inventory
+        run: |
+          python3 app/scripts/release_evidence.py \
+            --input "$RUNNER_TEMP/prp-release-evidence-input.json" \
+            --json "$RUNNER_TEMP/prp-release-evidence.json" \
+            --markdown "$RUNNER_TEMP/prp-release-evidence.md"
+          cat "$RUNNER_TEMP/prp-release-evidence.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload sanitized GitHub-only precheck
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: prp-readonly-release-precheck
-          path: ${{ runner.temp }}/prp-release-precheck.json
-          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/prp-release-precheck.json
+            ${{ runner.temp }}/prp-release-evidence-input.json
+            ${{ runner.temp }}/prp-release-evidence.json
+            ${{ runner.temp }}/prp-release-evidence.md
+          if-no-files-found: error
           retention-days: 7
