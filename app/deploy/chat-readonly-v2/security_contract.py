@@ -629,10 +629,26 @@ def _check_active_fixture(provider, scope):
         raise RejectedRequest("authorization unavailable")
 
 
+def _trusted_instant_fixture(clock, previous=None, *, issued=None, expires=None):
+    """Read a fresh independently trusted UTC epoch second, fail on regression.
+
+    This checks only the fixture's supplied clock; it neither establishes
+    a trusted time source nor guarantees that an external provider responds.
+    """
+    if not callable(clock):
+        raise RejectedRequest("time unavailable")
+    now = clock()
+    if (type(now) is not int or not 0 <= now <= (1 << 63) - 1 or
+            (previous is not None and now < previous) or
+            (issued is not None and not issued <= now < expires)):
+        raise RejectedRequest("time unavailable")
+    return now
+
+
 def claim_bound_execution_fixture(event, trusted_runtime, *, raw_request,
                                   raw_claim, signature, trusted_mapping,
                                   consent_context, active_check, ledger,
-                                  anchor_advance):
+                                  anchor_advance, trusted_clock):
     """Offline composition only; not a real GitHub or authorization adapter.
 
     trusted_mapping is canonical bytes from an independently authenticated
@@ -649,8 +665,9 @@ def claim_bound_execution_fixture(event, trusted_runtime, *, raw_request,
             raise RejectedRequest("authorization unavailable")
         context = dict(consent_context)
         # No duplicate source of truth for request or public job ID.
-        if "raw_request" in context or "public_job_id" in context:
+        if any(k in context for k in ("raw_request", "public_job_id", "now")):
             raise RejectedRequest("authorization unavailable")
+        context["now"] = _trusted_instant_fixture(trusted_clock)
         entry = parse_event_fixture(event, trusted_runtime, context["issue_number"])
         digest = verify_consent_fixture(raw_claim, signature,
             raw_request=raw_request, public_job_id=entry["jobId"], **context)
@@ -676,12 +693,16 @@ def claim_bound_execution_fixture(event, trusted_runtime, *, raw_request,
         # The independent authority resolves consentDigest to issuer, key,
         # subject, recipient cert, epoch and grant; deny unknown/revoked.
         _check_active_fixture(active_check, expected)
+        fresh = _trusted_instant_fixture(trusted_clock, context["now"],
+            issued=request["issuedAt"], expires=request["expiresAt"])
         ledger.claim(request["jobId"], request["nonce"], request["expiresAt"],
-                     context["now"], challenge_comment_id=challenge,
+                     fresh, challenge_comment_id=challenge,
                      execution_comment_id=execution, anchor_advance=anchor_advance)
         # If authorization was revoked while claiming, burn the claim and
         # refuse the handoff. Never release/retry an uncertain claim.
         _check_active_fixture(active_check, expected)
+        _trusted_instant_fixture(trusted_clock, fresh,
+            issued=request["issuedAt"], expires=request["expiresAt"])
         return digest
     except Exception:
         raise RejectedRequest("authorization unavailable") from None
@@ -689,7 +710,7 @@ def claim_bound_execution_fixture(event, trusted_runtime, *, raw_request,
 
 def consume_signed_result_fixture(raw_result, raw_binding, signature, *,
                                   receipt_ledger, active_check, verify_signature,
-                                  response_context, anchor_advance):
+                                  response_context, anchor_advance, trusted_clock):
     """Verify and atomically consume one result in a separate client ledger.
 
     Context is pinned independently of the response; its generation must
@@ -703,6 +724,9 @@ def consume_signed_result_fixture(raw_result, raw_binding, signature, *,
                 or not callable(anchor_advance)):
             raise RejectedRequest("response unavailable")
         context = dict(response_context)
+        if "now" in context:
+            raise RejectedRequest("response unavailable")
+        context["now"] = _trusted_instant_fixture(trusted_clock)
         if receipt_ledger.generation != context["generation"]:
             raise RejectedRequest("response unavailable")
         result = verify_signed_result_fixture(raw_result, raw_binding, signature,
@@ -711,12 +735,16 @@ def consume_signed_result_fixture(raw_result, raw_binding, signature, *,
         # and check certificate, instance, epoch, event and authorization.
         # Scope is already signature-verified canonical metadata.
         _check_active_fixture(active_check, raw_binding)
+        fresh = _trusted_instant_fixture(trusted_clock, context["now"],
+            issued=context["issued_at"], expires=context["expires_at"])
         receipt_ledger.claim(context["job_id"], context["nonce"], context["expires_at"],
-                             context["now"],
+                             fresh,
                              challenge_comment_id=context["challenge_comment_id"],
                              execution_comment_id=context["execution_comment_id"],
                              anchor_advance=anchor_advance)
         _check_active_fixture(active_check, raw_binding)
+        _trusted_instant_fixture(trusted_clock, fresh,
+            issued=context["issued_at"], expires=context["expires_at"])
         return result
     except Exception:
         raise RejectedRequest("response unavailable") from None

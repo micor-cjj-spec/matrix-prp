@@ -444,11 +444,12 @@ class OfflineConsentSignatureTests(unittest.TestCase):
                    "ciphertextDigest": hashlib.sha256(token.encode("ascii")).hexdigest(),
                    "requestDigest": hashlib.sha256(raw_request).hexdigest()}
         context = {k: v for k, v in self.context.items()
-                   if k not in ("raw_request", "public_job_id")}
+                   if k not in ("raw_request", "public_job_id", "now")}
         return dict(event=event, trusted_runtime=runtime, raw_request=raw_request,
                     raw_claim=raw_claim, signature=self.sign(raw_claim),
                     trusted_mapping=self.canonical(mapping), consent_context=context,
                     active_check=lambda scope: True, ledger=ledger,
+                    trusted_clock=lambda: self.now,
                     anchor_advance=SyntheticAnchor(ledger.initial_anchor_checkpoint()).advance)
 
     def test_bound_execution_valid_and_replayed_event_refused(self):
@@ -498,10 +499,12 @@ class OfflineConsentSignatureTests(unittest.TestCase):
         context = self.response_context()
         raw = self.synthetic_result()
         binding = result_binding_fixture(raw, **context)
+        instant = context.pop("now")
         return dict(raw_result=raw, raw_binding=binding,
                     signature=self.sign(binding, self.server_signer),
                     receipt_ledger=ledger, active_check=lambda _: True,
                     verify_signature=self.verify_server, response_context=context,
+                    trusted_clock=lambda: instant,
                     anchor_advance=SyntheticAnchor(ledger.initial_anchor_checkpoint()).advance)
 
     def test_response_receipt_is_one_time_and_separate_from_execution(self):
@@ -572,6 +575,77 @@ class OfflineConsentSignatureTests(unittest.TestCase):
             path.write_bytes(snapshot)
             with self.assertRaises(RejectedRequest):
                 consume_signed_result_fixture(**args)
+
+
+
+    def test_execution_expired_while_verifying_does_not_claim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = ReplayLedger.initialize(Path(directory) / "claims.sqlite", self.generation)
+            args = self.bound_execution_args(ledger)
+            times = iter((self.now, self.request["expiresAt"]))
+            with self.assertRaises(RejectedRequest):
+                claim_bound_execution_fixture(**dict(args, trusted_clock=lambda: next(times)))
+            self.assertEqual(claim_bound_execution_fixture(**args),
+                             hashlib.sha256(self.canonical()).hexdigest())
+
+    def test_execution_expired_after_claim_burns_grant(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = ReplayLedger.initialize(Path(directory) / "claims.sqlite", self.generation)
+            args = self.bound_execution_args(ledger)
+            times = iter((self.now, self.now + 1, self.request["expiresAt"]))
+            with self.assertRaises(RejectedRequest):
+                claim_bound_execution_fixture(**dict(args, trusted_clock=lambda: next(times)))
+            with self.assertRaises(RejectedRequest):
+                claim_bound_execution_fixture(**args)
+
+    def test_execution_missing_regressed_faulting_or_untrusted_time_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = ReplayLedger.initialize(Path(directory) / "claims.sqlite", self.generation)
+            args = self.bound_execution_args(ledger)
+            def fault():
+                raise RuntimeError("clock unavailable")
+            regressed = iter((self.now + 1, self.now))
+            for clock in (None, fault, lambda: True, lambda: next(regressed)):
+                with self.subTest(clock=clock), self.assertRaises(RejectedRequest):
+                    claim_bound_execution_fixture(**dict(args, trusted_clock=clock))
+            injected = dict(args["consent_context"], now=self.now)
+            with self.assertRaises(RejectedRequest):
+                claim_bound_execution_fixture(**dict(args, consent_context=injected))
+            self.assertEqual(claim_bound_execution_fixture(**args),
+                             hashlib.sha256(self.canonical()).hexdigest())
+
+    def test_receipt_expired_during_verification_not_consumed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = ReceiptLedger.initialize(Path(directory) / "receipt.sqlite", self.generation)
+            args = self.receipt_args(receipt)
+            times = iter((self.now + 1, self.request["expiresAt"]))
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**dict(args, trusted_clock=lambda: next(times)))
+            self.assertTrue(consume_signed_result_fixture(**args)["ok"])
+
+    def test_receipt_expired_after_claim_burns_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = ReceiptLedger.initialize(Path(directory) / "receipt.sqlite", self.generation)
+            args = self.receipt_args(receipt)
+            times = iter((self.now + 1, self.now + 2, self.request["expiresAt"]))
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**dict(args, trusted_clock=lambda: next(times)))
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**args)
+
+    def test_receipt_rejects_regressed_time_and_static_context_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = ReceiptLedger.initialize(Path(directory) / "receipt.sqlite", self.generation)
+            args = self.receipt_args(receipt)
+            times = iter((self.now + 2, self.now + 1))
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**dict(args, trusted_clock=lambda: next(times)))
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**dict(args, trusted_clock=None))
+            injected = dict(args["response_context"], now=self.now + 1)
+            with self.assertRaises(RejectedRequest):
+                consume_signed_result_fixture(**dict(args, response_context=injected))
+            self.assertTrue(consume_signed_result_fixture(**args)["ok"])
 
 
 if __name__ == "__main__":
