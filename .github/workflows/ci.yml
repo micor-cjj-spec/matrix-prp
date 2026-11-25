@@ -185,6 +185,8 @@ jobs:
         run: node --test app/scripts/staging_evidence_projection.test.cjs
       - name: Validate offline combined staging evidence inventory
         run: python3 -m unittest discover -s app/scripts -p test_staging_release_evidence_review.py -v
+      - name: Validate offline build evidence correlation
+        run: python3 -m unittest discover -s app/scripts -p test_staging_build_evidence.py -v
       - name: Validate OAuth authorization metadata preflight fixtures
         run: python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_*.py' -v
       - name: Validate isolated MCP staging configuration guards

@@ -1,5 +1,6 @@
 """P3.6 offline advisory report; never a trusted collector or authorization gate."""
 from release_evidence import inventory, exact, digest, sha, schema
+from staging_build_evidence import assess_build
 
 FIELDS = {"schemaVersion", "source", "state", "candidate", "bindingDigest",
           "readSmoke", "apiPassed", "checksExecuted", "identityCorrelation",
@@ -18,7 +19,7 @@ SMOKE_STATES = {"API_SMOKE_PASS", "API_SMOKE_INCOMPLETE", "BLOCKED_RUNNER",
                 "BLOCKED_TEST_IDENTITY_NOT_CONFIRMED"}
 
 
-def build_review(bundle, projection):
+def build_review(bundle, projection, *, build_snapshot=None, expected_jobs=None, now=None):
     """Combine existing inventory and untrusted projection without promoting any gate."""
     report = inventory(bundle)
     exact(projection, FIELDS, "offline staging projection")
@@ -56,8 +57,11 @@ def build_review(bundle, projection):
     # Inventory remains an inventory of claims, not a source of authenticated facts.
     # Do not transform read smoke, even on exact identity, into a staging pass.
     stage = next(row for row in report["gates"] if row["gate"] == "staging")
-    stage.update(status="pending", reason="OFFLINE_READ_SMOKE_NOT_UAT")
-    blockers = [b for b in report["blockers"] if not b.startswith("staging:")]
+    stage["underlying_claimed_status"] = stage["status"]
+    stage["underlying_claimed_reason"] = stage["reason"]
+    if stage["status"] == "pass":
+        stage.update(status="pending", reason="OFFLINE_READ_SMOKE_NOT_UAT")
+    blockers = list(report["blockers"])
     blockers.append("staging:OFFLINE_READ_SMOKE_NOT_UAT")
     if not matched:
         blockers.append("staging:PROJECTION_CANDIDATE_MISMATCH")
@@ -71,4 +75,15 @@ def build_review(bundle, projection):
         "identity_correlation_claimed": p["identityCorrelation"],
         "findings": sorted(findings), "ci_artifact_run_binding_verified": False,
     }
+    if build_snapshot is not None:
+        build = assess_build(candidate, build_snapshot, expected_jobs, now)
+        claimed_ci = bundle["evidence"].get("ci")
+        if (claimed_ci is None or
+                (claimed_ci["run_id"], claimed_ci["run_attempt"]) !=
+                (build["ci_run_id_claimed"], build["ci_attempt_claimed"])):
+            blockers.append("build:INVENTORY_CI_RUN_MISMATCH")
+        blockers.extend("build:" + f for f in build["findings"])
+        report["offline_build_review"] = build
+    elif expected_jobs is not None or now is not None:
+        raise ValueError("Incomplete build snapshot parameters")
     return report
