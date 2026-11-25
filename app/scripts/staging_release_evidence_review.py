@@ -1,6 +1,7 @@
 """P3.6 offline advisory report; never a trusted collector or authorization gate."""
 from release_evidence import inventory, exact, digest, sha, schema
 from staging_build_evidence import assess_build
+from staging_runtime_evidence import assess_runtime
 
 FIELDS = {"schemaVersion", "source", "state", "candidate", "bindingDigest",
           "readSmoke", "apiPassed", "checksExecuted", "identityCorrelation",
@@ -19,7 +20,8 @@ SMOKE_STATES = {"API_SMOKE_PASS", "API_SMOKE_INCOMPLETE", "BLOCKED_RUNNER",
                 "BLOCKED_TEST_IDENTITY_NOT_CONFIRMED"}
 
 
-def build_review(bundle, projection, *, build_snapshot=None, expected_jobs=None, now=None):
+def build_review(bundle, projection, *, build_snapshot=None, expected_jobs=None, now=None,
+                 runtime_snapshot=None, runtime_now=None):
     """Combine existing inventory and untrusted projection without promoting any gate."""
     report = inventory(bundle)
     exact(projection, FIELDS, "offline staging projection")
@@ -86,4 +88,10 @@ def build_review(bundle, projection, *, build_snapshot=None, expected_jobs=None,
         report["offline_build_review"] = build
     elif expected_jobs is not None or now is not None:
         raise ValueError("Incomplete build snapshot parameters")
+    if runtime_snapshot is not None:
+        runtime = assess_runtime(candidate, p, runtime_snapshot, runtime_now)
+        blockers.extend("runtime:" + f for f in runtime["findings"])
+        report["offline_runtime_review"] = runtime
+    elif runtime_now is not None:
+        raise ValueError("Incomplete runtime snapshot parameters")
     return report
