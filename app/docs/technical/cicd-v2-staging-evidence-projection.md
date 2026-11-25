@@ -1,0 +1,7 @@
+# P3.6 offline evidence projection (Issue #323)
+
+This first isolated slice consumes the existing #420/#432 redacted read-smoke receipt and reuses reviewSmokeReport. It does not invoke the producer or its transport. It takes caller-supplied candidate identity, separately expected run/comment/workflow correlation, smoke time window, and before/after stage identity assertions. Exact schema, case counts and statuses, run identity, candidate commit/archive/schema, stage environment and observation ordering are checked. Missing or stale observations remain incomplete. A 900-second review window is a provisional fixture policy, not an operational SLA.
+
+Output is always BLOCKED and has all authorization/live flags false. CLAIMED_MATCH_ONLY means internally consistent assertions, not authentic source evidence. The digest binds normalized input but is not an independent attestation. It cannot satisfy the existing staging gate or P3.5 CurrentReview PASS. No change to release_evidence.py, release-status, task executor, MCP scope, existing receipt producer, deployment workflows, publication hold or runtime. The next slices require authoritative source provenance and independent review of artifact bytes, actual deployed identity, UAT, migration/restore, risk and human authority. No live collection or activation in this draft.
+
+Tests: node --test app/scripts/staging_evidence_projection.test.cjs. Synthetic inputs only. Added to existing deployment-gate-tests. #420/#432/#429 are already integrated in dev; no duplicated test execution infrastructure.
