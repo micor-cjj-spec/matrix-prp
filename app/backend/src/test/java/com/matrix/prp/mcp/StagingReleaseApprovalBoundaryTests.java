@@ -81,7 +81,7 @@ class StagingReleaseApprovalBoundaryTests {
     }
 
     @Test void validIndependentProofProducesOnlyNonauthorizingReceipt() throws Exception {
-        var receipt = boundary.submit(request,pending,proof(Decision.APPROVE));
+        var receipt = submitFixture(boundary,request,pending,proof(Decision.APPROVE));
         assertThat(receipt.state()).isEqualTo("REVIEW_RECORDED_ONLY");
         assertThat(receipt.environment()).isEqualTo("prp-unified-396");
         assertThat(receipt.decision()).isEqualTo(Decision.APPROVE);
@@ -98,7 +98,7 @@ class StagingReleaseApprovalBoundaryTests {
             SecurityContextHolder.getContext().setAuthentication(auth);
             new McpVerifiedPrincipalCaptureFilter().doFilter(captured,
                 new MockHttpServletResponse(),new MockFilterChain());
-            assertThat(boundary.submit(captured,pending,proof(Decision.APPROVE)).state())
+            assertThat(submitFixture(boundary,captured,pending,proof(Decision.APPROVE)).state())
                 .isEqualTo("REVIEW_RECORDED_ONLY");
         } finally { SecurityContextHolder.clearContext(); }
     }
@@ -109,7 +109,7 @@ class StagingReleaseApprovalBoundaryTests {
         untrusted.addHeader(McpOAuthTransportConfiguration.VERIFIED_AUTH,"owner");
         untrusted.addHeader(SESSION_ATTRIBUTE,SESSION);
         Envelope e = proof(Decision.APPROVE);
-        assertThatThrownBy(() -> boundary.submit(untrusted,pending,e))
+        assertThatThrownBy(() -> submitFixture(boundary,untrusted,pending,e))
             .hasMessage("VERIFIED_OAUTH_REQUIRED");
         verifyNoInteractions(users,grants);
     }
@@ -118,57 +118,57 @@ class StagingReleaseApprovalBoundaryTests {
         request.setAttribute(McpOAuthTransportConfiguration.VERIFIED_AUTH,
             new UsernamePasswordAuthenticationToken(new UserProfile(OWNER,"owner","Owner"),null,List.of()));
         Envelope e = proof(Decision.APPROVE);
-        assertThatThrownBy(() -> boundary.submit(request,pending,e)).hasMessage("VERIFIED_OAUTH_REQUIRED");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,e)).hasMessage("VERIFIED_OAUTH_REQUIRED");
     }
 
     @Test void wrongOwnerAndWrongClientDenied() throws Exception {
         Envelope e = proof(Decision.APPROVE);
-        assertThatThrownBy(() -> boundary.submit(authenticated(99,CLIENT,true,true),pending,e))
+        assertThatThrownBy(() -> submitFixture(boundary,authenticated(99,CLIENT,true,true),pending,e))
             .hasMessage("RELEASE_OWNER_REQUIRED");
-        assertThatThrownBy(() -> boundary.submit(authenticated(OWNER,"other-client",true,true),pending,e))
+        assertThatThrownBy(() -> submitFixture(boundary,authenticated(OWNER,"other-client",true,true),pending,e))
             .hasMessage("REVIEW_SCOPE_REQUIRED");
     }
 
     @Test void bothTokenScopeAndOwnerGrantRequired() throws Exception {
         Envelope e = proof(Decision.APPROVE);
         for (var req : List.of(authenticated(OWNER,CLIENT,false,true),authenticated(OWNER,CLIENT,true,false))) {
-            assertThatThrownBy(() -> boundary.submit(req,pending,e)).hasMessage("REVIEW_SCOPE_REQUIRED");
+            assertThatThrownBy(() -> submitFixture(boundary,req,pending,e)).hasMessage("REVIEW_SCOPE_REQUIRED");
         }
         when(grants.grantedScopes(OWNER,CLIENT)).thenReturn(Set.of());
-        assertThatThrownBy(() -> boundary.submit(request,pending,e)).hasMessage("REVIEW_GRANT_REVOKED");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,e)).hasMessage("REVIEW_GRANT_REVOKED");
     }
 
     @Test void disabledAccountDeniedEvenWithCapturedAuthentication() throws Exception {
         when(users.findById(OWNER)).thenReturn(Optional.of(account(false)));
         Envelope e = proof(Decision.APPROVE);
-        assertThatThrownBy(() -> boundary.submit(request,pending,e)).hasMessage("ACCOUNT_UNAVAILABLE");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,e)).hasMessage("ACCOUNT_UNAVAILABLE");
     }
 
     @Test void missingWrongOrUntrustedSessionDenied() throws Exception {
         Envelope e = proof(Decision.APPROVE);
         request.removeAttribute(SESSION_ATTRIBUTE);
         request.addHeader(SESSION_ATTRIBUTE,SESSION);
-        assertThatThrownBy(() -> boundary.submit(request,pending,e)).hasMessage("VERIFIED_SESSION_MISMATCH");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,e)).hasMessage("VERIFIED_SESSION_MISMATCH");
         request.setAttribute(SESSION_ATTRIBUTE,SESSION);
-        assertThatThrownBy(() -> boundary.submit(request,pending,e)).hasMessage("VERIFIED_SESSION_MISMATCH");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,e)).hasMessage("VERIFIED_SESSION_MISMATCH");
         request.setAttribute(SESSION_ATTRIBUTE,new VerifiedSession("sha256:"+"9".repeat(64)));
-        assertThatThrownBy(() -> boundary.submit(request,pending,e)).hasMessage("VERIFIED_SESSION_MISMATCH");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,e)).hasMessage("VERIFIED_SESSION_MISMATCH");
     }
 
     @Test void attackerSignatureOrUnsignedClickDenied() throws Exception {
         var forged = signed(pending,Decision.APPROVE,UUID.randomUUID(),NOW-1,NOW+30,
             KeyPairGenerator.getInstance("Ed25519").generateKeyPair());
-        assertThatThrownBy(() -> boundary.submit(request,pending,forged)).hasMessage("INVALID_INDEPENDENT_PROOF");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,forged)).hasMessage("INVALID_INDEPENDENT_PROOF");
         var unsigned = new Envelope(pending.approvalId(),Decision.APPROVE,UUID.randomUUID(),NOW-1,NOW+30,null);
-        assertThatThrownBy(() -> boundary.submit(request,pending,unsigned)).hasMessage("INVALID_INDEPENDENT_PROOF");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,unsigned)).hasMessage("INVALID_INDEPENDENT_PROOF");
     }
 
     @Test void signatureBindsDecisionAndNonce() throws Exception {
         Envelope e = proof(Decision.APPROVE);
         var changed = new Envelope(e.approvalId(),Decision.REJECT,e.nonce(),e.issuedAt(),e.expiresAt(),e.signature());
         var nonce = new Envelope(e.approvalId(),e.decision(),UUID.randomUUID(),e.issuedAt(),e.expiresAt(),e.signature());
-        assertThatThrownBy(() -> boundary.submit(request,pending,changed)).hasMessage("INVALID_INDEPENDENT_PROOF");
-        assertThatThrownBy(() -> boundary.submit(request,pending,nonce)).hasMessage("INVALID_INDEPENDENT_PROOF");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,changed)).hasMessage("INVALID_INDEPENDENT_PROOF");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,nonce)).hasMessage("INVALID_INDEPENDENT_PROOF");
     }
 
     @Test void changedCandidateArtifactSchemaAttemptOrEvidenceDenied() throws Exception {
@@ -180,7 +180,7 @@ class StagingReleaseApprovalBoundaryTests {
             changed(pending.commit(),ARTIFACT,30,2,EVIDENCE),
             changed(pending.commit(),ARTIFACT,30,1,"sha256:"+"8".repeat(64)));
         for (Pending next : changes) {
-            assertThatThrownBy(() -> boundary.submit(request,next,e)).hasMessage("INVALID_INDEPENDENT_PROOF");
+            assertThatThrownBy(() -> submitFixture(boundary,request,next,e)).hasMessage("INVALID_INDEPENDENT_PROOF");
         }
     }
 
@@ -194,7 +194,7 @@ class StagingReleaseApprovalBoundaryTests {
             signed(pending,Decision.APPROVE,UUID.randomUUID(),NOW-20,NOW,signer),
             signed(pending,Decision.APPROVE,UUID.randomUUID(),NOW+1,NOW+30,signer),
             signed(pending,Decision.APPROVE,UUID.randomUUID(),NOW-1,NOW+61,signer))) {
-            assertThatThrownBy(() -> boundary.submit(request,pending,e)).hasMessage("PROOF_EXPIRED_OR_FUTURE");
+            assertThatThrownBy(() -> submitFixture(boundary,request,pending,e)).hasMessage("PROOF_EXPIRED_OR_FUTURE");
         }
     }
 
@@ -202,24 +202,24 @@ class StagingReleaseApprovalBoundaryTests {
         var old = new Pending(pending.approvalId(),OWNER,SESSION,pending.commit(),ARTIFACT,
             30,123,1,EVIDENCE,NOW-100,NOW);
         Envelope e = proof(Decision.APPROVE);
-        assertThatThrownBy(() -> boundary.submit(request,old,e)).hasMessage("PENDING_EXPIRED_OR_FUTURE");
+        assertThatThrownBy(() -> submitFixture(boundary,request,old,e)).hasMessage("PENDING_EXPIRED_OR_FUTURE");
     }
 
     @Test void replayAndOppositeDecisionDeniedAfterSuccess() throws Exception {
         Envelope e = proof(Decision.APPROVE);
-        boundary.submit(request,pending,e);
-        assertThatThrownBy(() -> boundary.submit(request,pending,e)).hasMessage("REPLAY_OR_ALREADY_DECIDED");
+        submitFixture(boundary,request,pending,e);
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,e)).hasMessage("REPLAY_OR_ALREADY_DECIDED");
         Envelope other = proof(Decision.REJECT);
-        assertThatThrownBy(() -> boundary.submit(request,pending,other)).hasMessage("REPLAY_OR_ALREADY_DECIDED");
+        assertThatThrownBy(() -> submitFixture(boundary,request,pending,other)).hasMessage("REPLAY_OR_ALREADY_DECIDED");
     }
 
     @Test void sameNonceCannotBeReusedAcrossApprovalIds() throws Exception {
         Envelope e = proof(Decision.APPROVE);
-        boundary.submit(request,pending,e);
+        submitFixture(boundary,request,pending,e);
         var second = new Pending(UUID.randomUUID(),OWNER,SESSION,"b".repeat(40),ARTIFACT,
             30,123,1,EVIDENCE,NOW-30,NOW+300);
         Envelope replay = signed(second,Decision.APPROVE,e.nonce(),NOW-1,NOW+30,signer);
-        assertThatThrownBy(() -> boundary.submit(request,second,replay)).hasMessage("REPLAY_OR_ALREADY_DECIDED");
+        assertThatThrownBy(() -> submitFixture(boundary,request,second,replay)).hasMessage("REPLAY_OR_ALREADY_DECIDED");
     }
 
     @Test void concurrentOpposingDecisionsProduceOneReceipt() throws Exception {
@@ -233,13 +233,18 @@ class StagingReleaseApprovalBoundaryTests {
         }
     }
 
+    private Receipt submitFixture(StagingReleaseApprovalBoundary b,
+                                  MockHttpServletRequest req, Pending reviewed, Envelope e) {
+        return b.submit(req, reviewed, e, () -> new CurrentReview(reviewed, GateState.PASS));
+    }
+
     private String outcome(Envelope e) {
-        try { return boundary.submit(request,pending,e).state(); }
+        try { return submitFixture(boundary,request,pending,e).state(); }
         catch (IllegalArgumentException denied) { return denied.getMessage(); }
     }
 
     @Test void rejectAlsoReturnsNoExecutionAuthority() throws Exception {
-        Receipt receipt = boundary.submit(request,pending,proof(Decision.REJECT));
+        Receipt receipt = submitFixture(boundary,request,pending,proof(Decision.REJECT));
         assertThat(receipt.decision()).isEqualTo(Decision.REJECT);
         assertThat(receipt.productionAuthorized()).isFalse();
         assertThat(receipt.deploymentAuthorized()).isFalse();

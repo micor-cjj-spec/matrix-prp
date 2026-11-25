@@ -7,6 +7,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 
 import static com.matrix.prp.mcp.StagingReleaseApprovalBoundary.*;
 
@@ -64,7 +65,7 @@ final class StagingReleaseDecisionJournal implements DecisionJournal {
         }
     }
 
-    @Override public void record(Pending pending, Envelope envelope, long now) {
+    @Override public void record(Pending pending, Envelope envelope, LongSupplier lockedRecheck) {
         try (var c = open()) {
             c.setAutoCommit(false);
             try {
@@ -76,6 +77,7 @@ final class StagingReleaseDecisionJournal implements DecisionJournal {
                     last = rs.getLong(1);
                     count = rs.getInt(2);
                 }
+                long now = lockedRecheck.getAsLong();
                 if (now < last) throw new IllegalArgumentException("INVALID_SERVER_CLOCK");
                 try (var s = c.prepareStatement("SELECT approval_id FROM " + receipts +
                         " WHERE approval_id=? OR nonce=?")) {
@@ -108,6 +110,23 @@ final class StagingReleaseDecisionJournal implements DecisionJournal {
             }
         } catch (SQLException e) {
             throw new IllegalStateException("TEST_JOURNAL_UNAVAILABLE", e);
+        }
+    }
+
+    // A separate connection holds the exact singleton lock for deterministic
+    // contention regressions. Test must release it before joining submitter.
+    Connection holdLockForTest() throws SQLException {
+        Connection c = open();
+        try {
+            c.setAutoCommit(false);
+            try (var s = c.prepareStatement("SELECT id FROM " + state + " WHERE id=1 FOR UPDATE");
+                 var rs = s.executeQuery()) {
+                if (!rs.next()) throw new SQLException("MISSING_TEST_JOURNAL");
+            }
+            return c;
+        } catch (SQLException | RuntimeException e) {
+            c.close();
+            throw e;
         }
     }
 

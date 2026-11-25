@@ -13,6 +13,8 @@ import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import org.springframework.security.core.Authentication;
 
 /**
@@ -66,8 +68,14 @@ final class StagingReleaseApprovalBoundary {
     private final Clock clock;
     private final DecisionJournal journal;
 
+    enum GateState { PASS, BLOCKED, UNKNOWN }
+
+    // A server-side fixture source, not a tool/card field. No authoritative
+    // collector is connected in this test-only prototype.
+    record CurrentReview(Pending pending, GateState gates) {}
+
     interface DecisionJournal {
-        void record(Pending pending, Envelope envelope, long now);
+        void record(Pending pending, Envelope envelope, LongSupplier lockedRecheck);
     }
 
     private static final class MemoryJournal implements DecisionJournal {
@@ -75,7 +83,8 @@ final class StagingReleaseApprovalBoundary {
         private final Set<UUID> usedNonces = new HashSet<>();
         private long lastTime;
 
-        @Override public synchronized void record(Pending pending, Envelope envelope, long now) {
+        @Override public synchronized void record(Pending pending, Envelope envelope, LongSupplier lockedRecheck) {
+            long now = lockedRecheck.getAsLong();
             require(now >= lastTime, "INVALID_SERVER_CLOCK");
             require(!decided.contains(pending.approvalId()) && !usedNonces.contains(envelope.nonce()),
                     "REPLAY_OR_ALREADY_DECIDED");
@@ -105,12 +114,35 @@ final class StagingReleaseApprovalBoundary {
         this.journal = journal;
     }
 
-    synchronized Receipt submit(HttpServletRequest request, Pending pending, Envelope envelope) {
-        long now = clock.instant().getEpochSecond();
-        require(now > 0, "INVALID_SERVER_CLOCK");
-        require(request != null && pending != null && envelope != null, "MISSING_REVIEW");
-        validatePending(pending, now);
+    synchronized Receipt submit(HttpServletRequest request, Pending pending, Envelope envelope,
+                                Supplier<CurrentReview> current) {
+        long started = clock.instant().getEpochSecond();
+        require(started > 0, "INVALID_SERVER_CLOCK");
+        require(request != null && pending != null && envelope != null && current != null, "MISSING_REVIEW");
+        validatePending(pending, started);
         authenticate(request, pending);
+        validateEnvelope(pending, envelope, started);
+        byte[] signature = envelope.signature();
+        require(signature != null && signature.length == 64, "INVALID_INDEPENDENT_PROOF");
+        verify(signature, signedBytes(pending, envelope));
+        // Both journals invoke this callback after taking their exclusive lock,
+        // before inserting a receipt. Never trust the time sampled before a wait.
+        journal.record(pending, envelope, () -> {
+            CurrentReview fresh = current.get();
+            require(fresh != null && fresh.gates() == GateState.PASS, "CURRENT_GATES_NOT_PASS");
+            require(pending.equals(fresh.pending()), "CURRENT_REVIEW_CHANGED");
+            authenticate(request, pending);
+            long now = clock.instant().getEpochSecond();
+            require(now >= started, "INVALID_SERVER_CLOCK");
+            validatePending(pending, now);
+            validateEnvelope(pending, envelope, now);
+            return now;
+        });
+        return new Receipt(pending.approvalId(), envelope.decision(), "REVIEW_RECORDED_ONLY",
+                ENVIRONMENT, false, false, false, false);
+    }
+
+    private static void validateEnvelope(Pending pending, Envelope envelope, long now) {
         require(validId(envelope.approvalId()) && envelope.approvalId().equals(pending.approvalId())
                 && validId(envelope.nonce()) && envelope.decision() != null,
                 "INVALID_DECISION_BINDING");
@@ -118,13 +150,6 @@ final class StagingReleaseApprovalBoundary {
                 && envelope.expiresAt() > now && envelope.expiresAt() <= pending.expiresAt()
                 && envelope.expiresAt() - envelope.issuedAt() <= MAX_PROOF_TTL,
                 "PROOF_EXPIRED_OR_FUTURE");
-        byte[] signature = envelope.signature();
-        require(signature != null && signature.length == 64, "INVALID_INDEPENDENT_PROOF");
-        verify(signature, signedBytes(pending, envelope));
-        // Journal owns the atomic decision/nonce/clock boundary. Return only after commit.
-        journal.record(pending, envelope, now);
-        return new Receipt(pending.approvalId(), envelope.decision(), "REVIEW_RECORDED_ONLY",
-                ENVIRONMENT, false, false, false, false);
     }
 
     private void authenticate(HttpServletRequest request, Pending pending) {
