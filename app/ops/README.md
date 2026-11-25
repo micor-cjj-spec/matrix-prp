@@ -51,3 +51,5 @@
 IdentityProfile immutable values propagate explicitly through auth/grant, RPC, MCP tool, HTTP metadata/challenge and admin lifecycle. Existing defaults remain .invalid fixture; no global patch or model-controlled profile. New profile input comes exclusively from the separately reviewed administrator configuration, not tool arguments. Actual enablement and installation not authorized.
 
 M05.6 新增 profile_config.py / service_entry.py / systemd reader 模板 / TCP passthrough 模板与 [NONPRODUCTION-RUNBOOK.md](NONPRODUCTION-RUNBOOK.md)。仅 root-owned exact profile digest + host metrics 双门禁通过、独立 reader UID 才可能启动固定 127.0.0.1:18443 TLS。模板 profile .invalid 必须拒绝，实际配置/凭据/标记均未创建；不部署。审计轮换采取停服务、管理员归档及重新审批流程，暂不自动轮换。独立 ingress 与真实 OAuth 互操作、实际主机权限待 M06。
+
+M06.1: Python 3.13.5 compatibility job supplements (does not replace) existing Python 3.12 CI; exact interpreter, full offline suite, existing hash-locked wheels and synthetic TLS loopback. This is not Debian host compatibility proof. Proposed 18443 is occupied; port remains unchanged until read-only evidence supports a replacement. No host installs, service startup, ingress/OAuth or production configuration changes.
