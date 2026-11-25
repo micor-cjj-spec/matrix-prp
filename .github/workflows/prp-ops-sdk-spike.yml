@@ -1,0 +1,29 @@
+name: PRP official MCP SDK substitution spike
+on:
+  pull_request:
+    paths:
+      - 'app/ops/sdk_spike_ci.py'
+      - 'app/ops/STANDARD-PRODUCT-SPIKE.md'
+      - '.github/workflows/prp-ops-sdk-spike.yml'
+permissions:
+  contents: read
+jobs:
+  sdk-spike:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13.5'
+          architecture: x64
+          check-latest: false
+      - name: Disposable SDK evaluation (not a deployable dependency lock)
+        run: |
+          python -m venv "$RUNNER_TEMP/prp-sdk-spike"
+          "$RUNNER_TEMP/prp-sdk-spike/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1'
+          "$RUNNER_TEMP/prp-sdk-spike/bin/python" -m pip check
+          "$RUNNER_TEMP/prp-sdk-spike/bin/python" -m pip freeze
+          "$RUNNER_TEMP/prp-sdk-spike/bin/python" app/ops/sdk_spike_ci.py
