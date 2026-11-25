@@ -1,11 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { CollabError } from './core.mjs'
-import { verifyTaskEvidence, verifyIntegrationRelease, verifyRequirementClose, verifyIntegrationPolicy, hasDevAncestry } from './review-gate.mjs'
+import { verifyTaskEvidence, verifyIntegrationRelease, verifyRequirementClose, verifyIntegrationPolicy, verifyOwnerAttestedIntegrationPolicy, hasDevAncestry } from './review-gate.mjs'
 import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/
+const OWNER_ID=123868412
+const COORDINATOR_PATH='.github/workflows/prp-collab-coordinator.yml'
 function check(ok,code){if(!ok)throw new CollabError(code)}
 export function ghApi(route){
   if(isReviewLogRoute(route))return execFileSync(process.execPath,
@@ -26,7 +28,26 @@ export function trustedReviewContext(snapshot,command,env,api){
   const issue=env.GITHUB_EVENT_NAME==='issues' && env.GITHUB_EVENT_ACTION==='opened' && env.GITHUB_WORKFLOW_REF===REPO+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'
   check(SHA.test(env.GITHUB_SHA||'') && (manual || (issue && command.type==='accept')),'UNTRUSTED_REVIEW_ENTRYPOINT')
   const root='repos/'+REPO
-  const requirePolicy=()=>verifyIntegrationPolicy(snapshot.requirement_id,api(root+'/rulesets/28050327'))
+  const requirePolicy=()=>{
+    const rule=api(root+'/rulesets/28050327')
+    if(Object.hasOwn(rule??{},'bypass_actors'))
+      return verifyIntegrationPolicy(snapshot.requirement_id,rule)
+    const runId=Number(env.GITHUB_RUN_ID),attempt=Number(env.GITHUB_RUN_ATTEMPT)
+    check(Number.isSafeInteger(runId)&&runId>0&&attempt===1&&env.GITHUB_RUN_ATTEMPT==='1',
+      'OWNER_RULESET_WORKFLOW_RUN')
+    const run=api(root+'/actions/runs/'+runId)
+    check(run?.id===runId&&run.event==='workflow_dispatch'&&run.path===COORDINATOR_PATH&&
+      run.status==='in_progress'&&run.head_branch==='main'&&run.head_sha===env.GITHUB_SHA&&
+      run.run_attempt===1&&run.actor?.login===env.GITHUB_ACTOR&&
+      run.actor?.login==='micor-cjj-spec'&&run.actor?.id===OWNER_ID&&
+      run.repository?.full_name===REPO&&run.repository?.id===1261866723,
+      'OWNER_RULESET_WORKFLOW_IDENTITY')
+    return verifyOwnerAttestedIntegrationPolicy(snapshot.requirement_id,rule,command.note,{
+      requestId:command.request_id,action:command.type,taskId:command.task_id??null,
+      prNumber:command.pr_number,headSha:command.head_sha,stateVersion:snapshot.version,
+      mainSha:env.GITHUB_SHA
+    },run)
+  }
   const requireMain=main=>check(main?.name==='main' && main.protected===true && main.commit?.sha===env.GITHUB_SHA,'REVIEW_MAIN_REVISION_MISMATCH')
   const loadJobs=id=>api(root+'/actions/runs/'+id+'/jobs?per_page=100&filter=latest')
   const integrationRef='integrate/'+snapshot.requirement_id

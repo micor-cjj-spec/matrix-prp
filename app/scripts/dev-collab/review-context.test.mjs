@@ -297,3 +297,48 @@ test('trusted squash refuses missing associations, wrong checkout, missing bypas
   [r=>r.endsWith('/git/commits/'+merge),x=>({...x,tree:{sha:'2'.repeat(40)}}),'SQUASH_TEST_TREE_MISMATCH'],
  ])assert.throws(()=>trustedReviewContext(s,cmd,ctx,r=>{const x=squashApi(r);return matcher(r)?change(x):x}),e=>e.code===code)
 })
+
+const ownerRun=(env,createdAt)=>({id:Number(env.GITHUB_RUN_ID),event:'workflow_dispatch',
+ path:'.github/workflows/prp-collab-coordinator.yml',status:'in_progress',head_branch:'main',
+ head_sha:branchSha,run_attempt:1,created_at:createdAt,
+ actor:{login:'micor-cjj-spec',id:123868412},
+ repository:{full_name:'micor-cjj-spec/matrix-prp',id:1261866723}})
+test('trusted accept accepts redacted Ruleset only with a fresh owner-run attestation',()=>{
+ const observedAt=new Date(Date.now()-60000).toISOString()
+ const runEnv={...ctx,GITHUB_RUN_ID:'9001',GITHUB_RUN_ATTEMPT:'1'}
+ const note=buildOwnerRulesetAttestation(policy(),{requestId:'22222222-2222-4222-8222-222222222222',
+  action:'accept',requirementId:req,taskId:'T-001',prNumber:138,headSha:sha,
+  stateVersion:1,mainSha:branchSha,observedAt})
+ const cmd={type:'accept',task_id:'T-001',pr_number:138,head_sha:sha,
+  request_id:'22222222-2222-4222-8222-222222222222',requirement_id:req,note}
+ const api=route=>{
+  if(route.endsWith('/rulesets/28050327')){const x=policy();delete x.bypass_actors;return x}
+  if(route.endsWith('/actions/runs/9001'))return ownerRun(runEnv,new Date(Date.parse(observedAt)+30000).toISOString())
+  return fake(route)
+ }
+ const result=trustedReviewContext(state(),cmd,runEnv,api)
+ assert.equal(result.ciVerified,true)
+})
+test('owner attestation rejects wrong workflow actor, rerun, branch or main SHA',()=>{
+ const observedAt=new Date(Date.now()-60000).toISOString()
+ const runEnv={...ctx,GITHUB_RUN_ID:'9002',GITHUB_RUN_ATTEMPT:'1'}
+ const note=buildOwnerRulesetAttestation(policy(),{requestId:'33333333-3333-4333-8333-333333333333',
+  action:'accept',requirementId:req,taskId:'T-001',prNumber:138,headSha:sha,
+  stateVersion:1,mainSha:branchSha,observedAt})
+ const cmd={type:'accept',task_id:'T-001',pr_number:138,head_sha:sha,
+  request_id:'33333333-3333-4333-8333-333333333333',requirement_id:req,note}
+ for(const mutate of [
+  x=>x.actor.id=999,x=>x.run_attempt=2,x=>x.head_branch='dev',x=>x.head_sha='e'.repeat(40),
+  x=>x.path='.github/workflows/other.yml',x=>x.repository.id=1
+ ]){
+  assert.throws(()=>trustedReviewContext(state(),cmd,runEnv,route=>{
+   if(route.endsWith('/rulesets/28050327')){const x=policy();delete x.bypass_actors;return x}
+   if(route.endsWith('/actions/runs/9002')){const x=ownerRun(runEnv,new Date(Date.parse(observedAt)+30000).toISOString());mutate(x);return x}
+   return fake(route)
+  }),e=>e.code==='OWNER_RULESET_WORKFLOW_IDENTITY')
+ }
+ assert.throws(()=>trustedReviewContext(state(),cmd,{...runEnv,GITHUB_RUN_ATTEMPT:'2'},route=>{
+  if(route.endsWith('/rulesets/28050327')){const x=policy();delete x.bypass_actors;return x}
+  throw new Error('workflow run must not be queried on rerun')
+ }),e=>e.code==='OWNER_RULESET_WORKFLOW_RUN')
+})

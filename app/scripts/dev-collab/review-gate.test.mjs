@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { verifyTaskEvidence, verifyRequirementClose, verifyIntegrationRelease, verifyIntegrationPolicy, REQUIRED_CHECKS } from './review-gate.mjs'
+import { verifyTaskEvidence, verifyRequirementClose, verifyIntegrationRelease, verifyIntegrationPolicy, buildOwnerRulesetAttestation, verifyOwnerAttestedIntegrationPolicy, REQUIRED_CHECKS } from './review-gate.mjs'
 const sha='a'.repeat(40),merge='b'.repeat(40),integration='c'.repeat(40)
 const make=()=>({schema_version:1,requirement_id:'REQ-20261031-001',issue_number:132,
   status:'ACTIVE',version:3,title:'MVP',processed_requests:[],
@@ -315,4 +315,43 @@ test('squash proof rejects foreign repo, changed parents, wrong tree, omitted jo
   [p=>p.squashProof.workflowBlobs['.github/workflows/ci.yml'][2]='2'.repeat(40),'SQUASH_WORKFLOW_BLOB_MISMATCH'],
   [p=>p.mainAncestryComparison=null,'SQUASH_ANCESTRY_EVIDENCE_INVALID'],
  ]){const {s,command,proof}=squashFixture();mutate(proof);refuses(()=>verifyIntegrationRelease(s,command,proof),code)}
+})
+
+test('owner can build a compact attestation only from a full exact Ruleset snapshot',()=>{
+ const rule=integrationPolicyFixture(),observedAt=new Date(Date.now()-60000).toISOString()
+ const note=buildOwnerRulesetAttestation(rule,{requestId:'11111111-1111-4111-8111-111111111111',
+  action:'accept',requirementId:'REQ-20261031-001',taskId:'T-007',prNumber:446,
+  headSha:'a'.repeat(40),stateVersion:19,mainSha:'b'.repeat(40),observedAt})
+ assert.ok(note.startsWith('PRP_RULESET_ATTESTATION_V1:'))
+ assert.ok(note.length<2048)
+ assert.throws(()=>buildOwnerRulesetAttestation({...rule,bypass_actors:[{actor_type:'Team'}]},
+  {requestId:'11111111-1111-4111-8111-111111111111',action:'accept',requirementId:'REQ-20261031-001',
+   taskId:'T-007',prNumber:446,headSha:'a'.repeat(40),stateVersion:19,mainSha:'b'.repeat(40),observedAt}),
+  e=>e.code==='INTEGRATION_POLICY_BYPASS_UNVERIFIED')
+})
+test('redacted Ruleset requires fresh request-bound owner attestation and visible revision match',()=>{
+ const full=integrationPolicyFixture(),rule={...full};delete rule.bypass_actors
+ const observedAt=new Date(Date.now()-60000).toISOString()
+ const binding={requestId:'11111111-1111-4111-8111-111111111111',action:'accept',
+  requirementId:'REQ-20261031-001',taskId:'T-007',prNumber:446,
+  headSha:'a'.repeat(40),stateVersion:19,mainSha:'b'.repeat(40)}
+ const note=buildOwnerRulesetAttestation(full,{...binding,observedAt})
+ const workflowRun={created_at:new Date(Date.parse(observedAt)+30000).toISOString()}
+ const ok=verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,note,binding,workflowRun)
+ assert.equal(ok.ownerAttested,true)
+ for(const [change,code] of [
+  [a=>a.bypass_actors=[{actor_type:'Team',actor_id:1,bypass_mode:'always'}],'OWNER_RULESET_ATTESTATION_POLICY'],
+  [a=>a.rule_updated_at='2026-11-26T00:00:00.000Z','OWNER_RULESET_ATTESTATION_POLICY'],
+  [a=>a.request_id='22222222-2222-4222-8222-222222222222','OWNER_RULESET_ATTESTATION_BINDING'],
+  [a=>a.expected_main_sha='c'.repeat(40),'OWNER_RULESET_ATTESTATION_BINDING'],
+  [a=>a.policy_sha256='0'.repeat(64),'OWNER_RULESET_ATTESTATION_POLICY']
+ ]){
+  const raw=JSON.parse(note.slice('PRP_RULESET_ATTESTATION_V1:'.length));change(raw)
+  const bad='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify(raw)
+  assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,bad,binding,workflowRun),e=>e.code===code)
+ }
+ assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,note,binding,
+  {created_at:new Date(Date.parse(observedAt)+301000).toISOString()}),e=>e.code==='OWNER_RULESET_ATTESTATION_EXPIRED')
+ assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,note,binding,workflowRun,Date.parse(observedAt)+700000),
+  e=>e.code==='OWNER_RULESET_ATTESTATION_EXPIRED')
 })
