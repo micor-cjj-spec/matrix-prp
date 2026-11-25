@@ -122,6 +122,19 @@ class IntakeTests(unittest.TestCase):
             e["witness"][f]=v
             self.check(p,e,"WITNESS_SOURCE_MAPPING_MISMATCH")
 
+    def test_event_and_branch_types_are_normalized_before_digest(self):
+        for field, value in (("event", {"production_authorized": True, "raw_body": "x"}),
+                             ("event", ["push"]), ("event", "workflow_dispatch"),
+                             ("branch", {"production_authorized": True, "raw_body": "x"}),
+                             ("branch", ["dev"]), ("branch", 7),
+                             ("branch", "x" * 201), ("branch", "dev\\nraw_body"),
+                             ("branch", "../production")):
+            for section in ("ci", "witness"):
+                p, e = fixture()
+                e[section][field] = value
+                with self.assertRaises(ValueError):
+                    self.check(p, e)
+
     def test_repository_workflow_environment_rejected(self):
         for k,f,v in (("ci","repository","other/repo"),("ci","head_repository","fork/repo"),
                       ("witness","workflow_id",5),("witness","workflow_path",".github/workflows/deploy-prp.yml"),

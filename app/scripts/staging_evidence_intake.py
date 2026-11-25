@@ -1,6 +1,7 @@
 """P3.7.1: offline intake of normalized evidence claims. No authentication or I/O."""
 import hashlib
 import json
+import re
 from release_evidence import REPO, exact, sha, digest, schema
 from staging_build_evidence import assess_build, CORE_JOBS, job_name
 
@@ -75,6 +76,10 @@ def validate_run(run, workflow, expected_names, now, findings, prefix):
                 "total_count", "jobs", "checkout", "tested_tree"}, prefix)
     require(run["source"] == "github_metadata_claim" and run["repository"] == REPO
             and run["head_repository"] == REPO, prefix + " repository")
+    require(enum(run["event"], ("push", "pull_request")) and
+            type(run["branch"]) is str and len(run["branch"]) <= 200 and
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,99})*",
+                         run["branch"]) is not None, prefix + " event/branch")
     require((run["workflow_id"], run["workflow_path"]) == workflow and
             type(run["workflow_id"]) is int, prefix + " workflow")
     require(ids(run, ("run_id", "attempt", "latest_run_id", "latest_attempt",
