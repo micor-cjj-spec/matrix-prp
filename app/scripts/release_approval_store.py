@@ -8,10 +8,12 @@ import os
 import sqlite3
 import stat
 import tempfile
+import uuid
 from pathlib import Path
 
 from release_approval_contract import (OfflineApprovals, MODE, ACTIVE, MAX_TTL,
-                                       MAX_CLOCK, positive, require)
+                                       MAX_CLOCK, CHAT, OWNER, CONTROLLER, synthetic_ref,
+                                       positive, require)
 from release_evidence import exact, sha, digest, schema, REPO
 
 APP_ID = 0x50525033
@@ -47,6 +49,79 @@ def decode(raw):
     return json.loads(raw, object_pairs_hook=unique)
 
 
+RECORD_KEYS = {"schema_version", "mode", "approval_id", "binding_digest", "candidate",
+               "ci_run_id", "ci_run_attempt", "action", "state", "created_at", "expires_at",
+               "approved_at", "consumed_at", "audit", *FLAGS}
+EVENT_ACTORS = {"REQUESTED": CHAT, "APPROVED": OWNER, "REJECTED": OWNER,
+                "EXPIRED": "synthetic:clock", "SIMULATED_CONSUMED": CONTROLLER}
+PATHS = {
+    "REQUESTED": [("REQUESTED",)],
+    "APPROVED": [("REQUESTED", "APPROVED")],
+    "REJECTED": [("REQUESTED", "REJECTED"), ("REQUESTED", "APPROVED", "REJECTED")],
+    "EXPIRED": [("REQUESTED", "EXPIRED"), ("REQUESTED", "APPROVED", "EXPIRED")],
+    "SIMULATED_CONSUMED": [("REQUESTED", "APPROVED", "SIMULATED_CONSUMED")],
+}
+
+
+def valid_id(value):
+    if type(value) is not str or len(value) != 36:
+        return False
+    try:
+        parsed = uuid.UUID(value)
+        return parsed.version == 4 and str(parsed) == value
+    except ValueError:
+        return False
+
+
+def validate_record(aid, record, last_time):
+    require(type(record) is dict and valid_id(aid) and record.get("approval_id") == aid and
+            record.get("mode") == MODE and record.get("action") == "promote" and
+            type(record.get("schema_version")) is int and record["schema_version"] == 1 and
+            type(record.get("state")) is str and record["state"] in PATHS and
+            digest(record.get("binding_digest")) and all(record.get(k) is False for k in FLAGS),
+            "INVALID_LEDGER_RECORD")
+    status = record["state"]
+    exact(record, RECORD_KEYS | ({"environment_ref"} if status == "SIMULATED_CONSUMED" else set()),
+          "stored record")
+    candidate = record["candidate"]
+    exact(candidate, {"repository", "commit", "artifact_digest", "schema"}, "stored candidate")
+    require(candidate["repository"] == REPO and sha(candidate["commit"])
+            and digest(candidate["artifact_digest"]) and schema(candidate["schema"]),
+            "INVALID_STORED_CANDIDATE")
+    require(type(record["ci_run_id"]) is int and record["ci_run_id"] > 0 and
+            type(record["ci_run_attempt"]) is int and record["ci_run_attempt"] > 0,
+            "INVALID_STORED_CI")
+    created, expires = record["created_at"], record["expires_at"]
+    require(positive(created) and positive(expires) and 0 < expires - created <= MAX_TTL
+            and created <= last_time, "INVALID_STORED_TIME")
+    audit = record["audit"]
+    require(type(audit) is list and 1 <= len(audit) <= 3, "INVALID_STORED_AUDIT")
+    previous = created
+    times = {}
+    events = []
+    for i, event in enumerate(audit, 1):
+        exact(event, {"sequence", "event", "actor", "at", "binding_digest"}, "stored audit event")
+        kind, at = event["event"], event["at"]
+        require(type(kind) is str and kind in EVENT_ACTORS and kind not in times and
+                event["actor"] == EVENT_ACTORS[kind] and type(event["sequence"]) is int and
+                event["sequence"] == i and event["binding_digest"] == record["binding_digest"] and
+                positive(at) and previous <= at <= last_time and
+                (at >= expires if kind == "EXPIRED" else at < expires),
+                "INVALID_STORED_AUDIT")
+        times[kind] = at
+        events.append(kind)
+        previous = at
+    require(tuple(events) in PATHS[status] and times.get("REQUESTED") == created,
+            "INVALID_STORED_TRANSITION")
+    for field, kind in (("approved_at", "APPROVED"), ("consumed_at", "SIMULATED_CONSUMED")):
+        value, expected = record[field], times.get(kind)
+        require((value is None if expected is None else
+                 positive(value) and value == expected), "INVALID_STORED_TIME")
+    if status == "SIMULATED_CONSUMED":
+        require(synthetic_ref(record["environment_ref"]), "INVALID_STORED_ENVIRONMENT")
+    return candidate
+
+
 def load_state(raw):
     state = decode(raw)
     exact(state, {"schema_version", "mode", "last_time", "records"}, "ledger")
@@ -57,27 +132,7 @@ def load_state(raw):
     ledger = OfflineApprovals()
     ledger._last_time = state["last_time"]
     for aid, record in state["records"].items():
-        require(type(record) is dict and record.get("approval_id") == aid and
-                record.get("mode") == MODE and record.get("action") == "promote" and
-                record.get("schema_version") == 1 and
-                record.get("state") in ACTIVE | TERMINAL and digest(record.get("binding_digest")) and
-                all(record.get(k) is False for k in FLAGS), "INVALID_LEDGER_RECORD")
-        candidate = record.get("candidate")
-        exact(candidate, {"repository", "commit", "artifact_digest", "schema"}, "stored candidate")
-        require(candidate["repository"] == REPO and sha(candidate["commit"])
-                and digest(candidate["artifact_digest"]) and schema(candidate["schema"]),
-                "INVALID_STORED_CANDIDATE")
-        require(positive(record.get("created_at")) and positive(record.get("expires_at"))
-                and 0 < record["expires_at"] - record["created_at"] <= MAX_TTL
-                and record["created_at"] <= ledger._last_time, "INVALID_STORED_TIME")
-        audit = record.get("audit")
-        require(type(audit) is list and 1 <= len(audit) <= 3 and
-                all(type(e) is dict and e.get("sequence") == i and
-                    e.get("binding_digest") == record["binding_digest"] and
-                    positive(e.get("at")) and e["at"] <= ledger._last_time
-                    for i,e in enumerate(audit,1)), "INVALID_STORED_AUDIT")
-        require(audit[0].get("event") == "REQUESTED" and
-                audit[-1].get("event") == record["state"], "INVALID_STORED_TRANSITION")
+        candidate = validate_record(aid, record, ledger._last_time)
         key = (candidate["commit"], candidate["artifact_digest"], "promote")
         require(key not in ledger._candidate_keys, "DUPLICATE_STORED_CANDIDATE")
         ledger._candidate_keys.add(key)

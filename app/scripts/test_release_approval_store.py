@@ -1,4 +1,5 @@
 import copy
+import json
 import multiprocessing
 import sqlite3
 import tempfile
@@ -172,6 +173,93 @@ class PersistentTests(unittest.TestCase):
             (Path(other)/"prp-p3-rehearsal.sqlite3").symlink_to(self.store.path)
             with self.assertRaises(ValueError):
                 PersistentOfflineApprovals(other)
+
+    def mutate_record(self, mutate):
+        conn = sqlite3.connect(self.store.path)
+        try:
+            state = json.loads(conn.execute("SELECT payload FROM rehearsal_state").fetchone()[0])
+            mutate(state["records"][self.id])
+            conn.execute("UPDATE rehearsal_state SET payload=?",
+                         (json.dumps(state, separators=(",", ":")),))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_approved_record_missing_timestamp_rejected_on_reopen(self):
+        self.approve()
+        self.mutate_record(lambda r: r.pop("approved_at"))
+        with self.assertRaises(ValueError):
+            self.fresh()
+
+    def test_approved_record_null_timestamp_rejected_on_reopen(self):
+        self.approve()
+        self.mutate_record(lambda r: r.update(approved_at=None))
+        with self.assertRaisesRegex(ValueError, "INVALID_STORED_TIME"):
+            self.fresh()
+
+    def test_approved_timestamp_wrong_type_rejected(self):
+        self.approve()
+        self.mutate_record(lambda r: r.update(approved_at=True))
+        with self.assertRaisesRegex(ValueError, "INVALID_STORED_TIME"):
+            self.fresh()
+
+    def test_approved_timestamp_mismatch_rejected(self):
+        self.approve()
+        self.mutate_record(lambda r: r.update(approved_at=1000))
+        with self.assertRaisesRegex(ValueError, "INVALID_STORED_TIME"):
+            self.fresh()
+
+    def test_consumed_missing_environment_ref_rejected(self):
+        self.approve()
+        self.consume()
+        self.mutate_record(lambda r: r.pop("environment_ref"))
+        with self.assertRaises(ValueError):
+            self.fresh()
+
+    def test_consumed_timestamp_mismatch_rejected(self):
+        self.approve()
+        self.consume()
+        self.mutate_record(lambda r: r.update(consumed_at=1001))
+        with self.assertRaisesRegex(ValueError, "INVALID_STORED_TIME"):
+            self.fresh()
+
+    def test_audit_invalid_actor_rejected(self):
+        self.approve()
+        self.mutate_record(lambda r: r["audit"][1].update(actor=CHAT))
+        with self.assertRaisesRegex(ValueError, "INVALID_STORED_AUDIT"):
+            self.fresh()
+
+    def test_audit_invalid_path_rejected(self):
+        self.approve()
+        self.consume()
+        self.mutate_record(lambda r: (r["audit"].pop(1), r["audit"][1].update(sequence=2)))
+        with self.assertRaisesRegex(ValueError, "INVALID_STORED_TRANSITION"):
+            self.fresh()
+
+    def test_expiry_before_deadline_rejected(self):
+        self.approve()
+        with self.assertRaises(ValueError):
+            self.consume(now=1060)
+        self.mutate_record(lambda r: r["audit"][-1].update(at=1059))
+        with self.assertRaisesRegex(ValueError, "INVALID_STORED_AUDIT"):
+            self.fresh()
+
+    def test_unexpected_stored_field_rejected(self):
+        self.mutate_record(lambda r: r.update(environment_ref="synthetic:environment"))
+        with self.assertRaises(ValueError):
+            self.fresh()
+
+    def test_rejected_after_approval_reopens(self):
+        self.approve()
+        r = self.fresh().reject(self.id,self.binding,OWNER,1002)
+        self.assertEqual(self.fresh().inspect(self.id,self.binding,1003),r)
+        self.assertEqual(r["approved_at"],1001)
+
+    def test_requested_expiry_reopens(self):
+        r = self.fresh().inspect(self.id,self.binding,1060)
+        self.assertEqual(r["state"],"EXPIRED")
+        self.assertIsNone(r["approved_at"])
+        self.assertEqual(self.fresh().inspect(self.id,self.binding,1061),r)
 
 
 if __name__ == "__main__":
