@@ -43,7 +43,7 @@ function setup({v1=false}={}){
  mkdirSync(dest,{recursive:true})
  for(const filename of [
   'core.mjs','issue-ingress.mjs','issue-transaction.mjs','issue-migrate.mjs',
-  'migration-guard.mjs','bootstrap-audit.mjs','state-rule-policy.mjs','task-scope-policy.mjs'])
+  'migration-guard.mjs','bootstrap-audit.mjs','state-rule-policy.mjs','task-scope-policy.mjs','ruleset-415-attestation.mjs'])
   cpSync(join(location,filename),join(dest,filename))
  mkdirSync(join(seed,'app/deploy'),{recursive:true})
  writeFileSync(join(seed,'app/deploy/publication-hold.json'),
