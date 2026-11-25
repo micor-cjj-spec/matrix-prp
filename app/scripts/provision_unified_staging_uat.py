@@ -87,9 +87,9 @@ def validate_target(metadata):
     if not mysql.get("MYSQL_ROOT_PASSWORD"):
         raise ProvisionError("BLOCKED_MYSQL_ADMIN_SECRET")
     gateway_bindings = metadata["gateway"]["ports"].get("8080/tcp") or []
-    if not any(
-        binding.get("HostIp") == "127.0.0.1" and binding.get("HostPort") == "23080"
-        for binding in gateway_bindings
+    if gateway_bindings != [{"HostIp": "127.0.0.1", "HostPort": "23080"}] or any(
+        bindings for port, bindings in metadata["gateway"]["ports"].items()
+        if port != "8080/tcp"
     ):
         raise ProvisionError("BLOCKED_GATEWAY_BINDING")
     for key in ("backend", "mysql"):
@@ -360,16 +360,117 @@ def provision_and_smoke():
     except Exception:
         raise ProvisionError("PROVISIONING_REQUIRES_MANUAL_REVIEW") from None
 
+
+def read_existing_credentials():
+    """Read only the already-provisioned root-owned, private credential file."""
+    try:
+        parent = CREDENTIAL_DIR.lstat()
+        if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or stat.S_IMODE(parent.st_mode) != 0o700:
+            raise ProvisionError("BLOCKED_CREDENTIAL_DIRECTORY")
+        fd = os.open(CREDENTIAL_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+                raise ProvisionError("BLOCKED_CREDENTIAL_FILE_PERMISSIONS")
+            raw = handle.read(8193)
+        if len(raw) > 8192:
+            raise ProvisionError("BLOCKED_CREDENTIAL_FILE_SIZE")
+        credential = json.loads(raw)
+    except ProvisionError:
+        raise
+    except Exception:
+        raise ProvisionError("BLOCKED_CREDENTIAL_FILE_UNAVAILABLE") from None
+    return validate_existing_credentials(credential)
+
+def validate_existing_credentials(c):
+    if not (
+        isinstance(c, dict) and c.get("status") == "active"
+        and c.get("target") == TARGET_HOST
+        and type(c.get("user_id")) is int and 0 < c["user_id"] <= 9223372036854775807
+        and isinstance(c.get("username"), str)
+        and re.fullmatch(r"prp_uat_[0-9a-f]{12}", c["username"])
+        and isinstance(c.get("password"), str)
+        and re.fullmatch(r"[A-Za-z0-9_-]{43}", c["password"])
+        and c.get("administrator") is False
+        and type(c.get("mcp_grants_expected")) is int and c["mcp_grants_expected"] == 0
+    ):
+        raise ProvisionError("BLOCKED_CREDENTIAL_IDENTITY")
+    return c
+
+def query_ordinary_identity_readonly(c):
+    """Only fixed SELECT statements, using the staging app account, never root."""
+    uid = str(c["user_id"])
+    name = c["username"]  # validated exact safe alphabet before this function
+    sql = (
+        "START TRANSACTION READ ONLY;\n"
+        "SELECT CONCAT("
+        "(SELECT COUNT(*) FROM prp_users WHERE id=" + uid
+        + " AND BINARY username='" + name + "' AND is_admin=0 AND enabled=1), '|', "
+        "(SELECT COUNT(*) FROM prp_mcp_client_grants WHERE user_id=" + uid + "), '|', "
+        "(SELECT COUNT(*) FROM prp_mcp_identity_links WHERE user_id=" + uid + "), '|', "
+        "(SELECT COUNT(*) FROM prp_mcp_link_tickets WHERE user_id=" + uid + "), '|', "
+        "(SELECT COUNT(*) FROM prp_mcp_oidc_link_flows WHERE user_id=" + uid + "));\nCOMMIT;\n"
+    )
+    command = [
+        "docker", "exec", "-i", MYSQL, "sh", "-c",
+        'test "$MYSQL_DATABASE" = "matrix_prp_unified_stage" && test "$MYSQL_USER" = "prp_unified" && '
+        'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --protocol=TCP --host=127.0.0.1 '
+        '--connect-timeout=5 --user="$MYSQL_USER" --database="$MYSQL_DATABASE" --batch --skip-column-names',
+    ]
+    if _run(command, input_text=sql, timeout=20).splitlines() != ["1|0|0|0|0"]:
+        raise ProvisionError("BLOCKED_ORDINARY_IDENTITY_OR_MCP_GRANTS")
+
+def reuse_account_and_smoke():
+    validate_target(inspect_target())
+    c = read_existing_credentials()
+    query_ordinary_identity_readonly(c)
+    status, content_type, body = http_json(
+        "/api/auth/login", method="POST",
+        payload={"username": c["username"], "password": c["password"]},
+    )
+    data = body.get("data") if isinstance(body, dict) else None
+    user = data.get("user") if isinstance(data, dict) else None
+    token = data.get("token") if isinstance(data, dict) else None
+    if not (
+        status == 200 and valid_json_type(content_type) and isinstance(body, dict)
+        and body.get("code") == "SUCCESS" and isinstance(user, dict)
+        and type(user.get("id")) is int and user["id"] == c["user_id"]
+        and user.get("username") == c["username"] and user.get("administrator") is False
+        and data.get("tokenType") == "Bearer"
+        and type(data.get("expiresInSeconds")) is int and data["expiresInSeconds"] > 0
+        and isinstance(token, str) and len(token) <= 8192
+        and re.fullmatch(r"[-_A-Za-z0-9]+\.[-_A-Za-z0-9]+\.[-_A-Za-z0-9]+", token)
+    ):
+        raise ProvisionError("BLOCKED_LOGIN_OR_TEST_IDENTITY")
+    report = run_readonly_smoke(token, {"id": c["user_id"], "username": c["username"]})
+    report.update({
+        "accountCreated": False,
+        "existingAccountReused": True,
+        "credentialPermissionsChecked": True,
+        "ordinaryNonAdmin": True,
+        "mcpGrantRows": 0,
+        "loginMethod": "password_login",
+    })
+    # Preserve original first-run receipt; repeat reports are stdout only.
+    return report
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--create-account-and-smoke", action="store_true",
         help="Create one ordinary UAT user and execute the bounded GET-only smoke.",
     )
+    modes.add_argument("--reuse-account-and-smoke", action="store_true")
     args = parser.parse_args()
     try:
         metadata = inspect_target()
         validate_target(metadata)
+        if args.reuse_account_and_smoke:
+            report = reuse_account_and_smoke()
+            print(json.dumps(report, indent=2))
+            return 0 if report["state"] == "API_SMOKE_PASS" else 1
         if not args.create_account_and_smoke:
             print(json.dumps({
                 "state": "PREFLIGHT_PASS",
@@ -386,7 +487,7 @@ def main():
         print(json.dumps({
             "state": "BLOCKED",
             "reason": str(exc),
-            "writesPerformed": False if str(exc).startswith("BLOCKED") else "REVIEW_REQUIRED",
+            "writesPerformed": "REVIEW_REQUIRED" if args.create_account_and_smoke else False,
             "productionAccess": False,
         }, indent=2))
         return 2

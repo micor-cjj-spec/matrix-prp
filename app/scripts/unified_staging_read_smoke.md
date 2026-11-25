@@ -38,3 +38,7 @@ Run the approved account creation + first read-only regression:
 python3 app/scripts/provision_unified_staging_uat.py --create-account-and-smoke
 
 Do not pass passwords/invitation/JWT in command arguments or environment dumps. Do not copy the credential file into GitHub Actions, chat, issues, or source control. A future unattended runner needs separate design and authorization for a self-hosted runner identity and secret channel; this script is an operator-run first proof only.
+
+## Repeated read-only operator run (no account recreation)
+
+Use `python3 app/scripts/provision_unified_staging_uat.py --reuse-account-and-smoke` only on the previously approved staging host. Rechecks container boundaries, verifies existing credential directory and file are root-owned 0700/0600, rejects symlinks/hardlinks and mismatched credential metadata, then checks the exact enabled non-admin user and zero MCP records using a fixed read-only SQL transaction with the staging app account. Performs one ordinary password login, validates expected identity, then the same 11 GETs. No registration, invitation, account writes, root SQL, credential edits or report overwrite. Authentication/access logging may occur. The report is stdout only and not trusted release authorization. Do not use the create flag again. Persistent unattended execution remains separate; no self-hosted runner or remote command endpoint is installed.
