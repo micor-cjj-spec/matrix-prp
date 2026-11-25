@@ -40,7 +40,7 @@ def github_run():
         })
     return record("github-run", "github_run", "github_metadata_claim", "actions-run:800", {
         "workflow_path": ".github/workflows/ci.yml", "workflow_sha": "d" * 40,
-        "run_id": run_id, "attempt": 1, "latest_attempt": 1,
+        "run_id": run_id, "attempt": 1, "latest_attempt": 1, "total_count": len(jobs),
         "head_sha": CANDIDATE["source_sha"], "tree_sha": CANDIDATE["source_tree"],
         "event": "pull_request", "status": "completed", "conclusion": "success", "jobs": jobs,
     })
@@ -60,7 +60,8 @@ def artifact_witness():
 def runtime_cutover():
     return record("runtime", "runtime_cutover", "operator_receipt_claim", "issue-comment:1001", {
         "backend_image": CANDIDATE["backend_image"], "gateway_image": CANDIDATE["gateway_image"],
-        "mysql_image": "sha256:" + "4" * 64, "mysql_unchanged": True, "schema": 31,
+        "mysql_before_image": "sha256:" + "4" * 64,
+        "mysql_after_image": "sha256:" + "4" * 64, "schema": 31,
         "fresh_backup_digest": "sha256:" + "5" * 64, "preflight_status": "pass",
         "health_status": "pass", "rollback_status": "pass", "production_targeted": False,
     })
@@ -204,9 +205,9 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
 
     def test_mysql_mutation_is_visible(self):
         data = bundle()
-        data["evidence"][2]["facts"]["mysql_unchanged"] = False
+        data["evidence"][2]["facts"]["mysql_after_image"] = "sha256:" + "f" * 64
         result = validate_bundle(data, NOW)
-        self.assertIn("runtime_cutover:MYSQL_MUTATION_REPORTED", result["findings"])
+        self.assertIn("runtime_cutover:MYSQL_IMAGE_CHANGED", result["findings"])
 
     def test_production_target_report_is_visible(self):
         data = bundle()
@@ -243,6 +244,12 @@ class TrustedEvidenceIntakeTests(unittest.TestCase):
         data["evidence"][0]["facts"]["jobs"][0]["run_id"] = 999
         result = validate_bundle(data, NOW)
         self.assertIn("github_run:JOB_RUN_BINDING_MISMATCH", result["findings"])
+
+    def test_github_job_inventory_count_must_be_complete(self):
+        data = bundle()
+        data["evidence"][0]["facts"]["total_count"] = 3
+        result = validate_bundle(data, NOW)
+        self.assertIn("github_run:JOB_INVENTORY_INCOMPLETE", result["findings"])
 
     def test_unallowlisted_workflow_is_rejected(self):
         data = bundle()
