@@ -262,18 +262,22 @@ class Ledger:
         This does not authorize or implement execution. A future isolated worker
         must reverify immutable inputs and obtain the staging operation lock.
         """
-        now = int(time.time() if now is None else now)
+        # Live callers must evaluate time after the write lock, not before
+        # waiting for SQLite. Explicit now is a fixed clock for offline tests.
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            checked_at = int(time.time() if now is None else now)
             row = self._get(con, job_id, digest)
-            require(row["state"] == "VERIFIED" and row["expires"] > now, "claim not allowed")
+            require(row["state"] == "VERIFIED" and row["expires"] > checked_at, "claim not allowed")
             require(con.execute("SELECT 1 FROM jobs WHERE state IN ('RUNNING','RECONCILE_REQUIRED') LIMIT 1").fetchone() is None,
                     "another job active or uncertain")
             manifest = parse(row["manifest"].encode("ascii"))
             if allowed_operations is not None:
                 require(manifest["operation"] in allowed_operations, "operation not supported by worker")
             self._verify_manifest_files(job_id, manifest)
-            con.execute("UPDATE jobs SET state='RUNNING',updated=? WHERE id=?", (now, job_id))
+            claimed_at = int(time.time() if now is None else now)
+            require(row["expires"] > claimed_at, "claim expired during verification")
+            con.execute("UPDATE jobs SET state='RUNNING',updated=? WHERE id=?", (claimed_at, job_id))
             return manifest
 
     def finish(self, job_id, digest, state, result, now=None):

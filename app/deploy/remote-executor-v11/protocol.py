@@ -261,6 +261,35 @@ def _put(folder, name, value, *, certificate=False):
     path.chmod(0o600)
     return str(path)
 
+def _identity_op(args, data, limit=8192):
+    """Bounded offline public-key extraction; do not disclose private input."""
+    require(type(data) is bytes and 0 < len(data) <= 16384, "invalid identity input")
+    try:
+        result = subprocess.run([OPENSSL, *args], input=data, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, timeout=10, cwd="/",
+                                env={"PATH": "/usr/bin:/bin", "LANG": "C"}, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise InvalidJob("identity verification unavailable") from exc
+    require(result.returncode == 0 and 0 < len(result.stdout) <= limit,
+            "identity verification failed")
+    return result.stdout
+
+def _public_identity(cert, private_key):
+    """Verify the cert/key pair and return its canonical public-key DER."""
+    public_pem = _identity_op(["x509", "-inform", "PEM", "-pubkey", "-noout"],
+                              certificate_bytes(cert))
+    public_der = _identity_op(["pkey", "-pubin", "-inform", "PEM", "-outform", "DER"],
+                              public_pem)
+    private_public_der = _identity_op(["pkey", "-inform", "PEM", "-passin", "pass:",
+                                      "-pubout", "-outform", "DER"], private_key)
+    require(hmac.compare_digest(public_der, private_public_der), "certificate/key mismatch")
+    return public_der
+
+def validate_distinct_identities(recipient_cert, recipient_key, signer_cert, signer_key):
+    recipient = _public_identity(recipient_cert, recipient_key)
+    signer = _public_identity(signer_cert, signer_key)
+    require(not hmac.compare_digest(recipient, signer), "separate recipient and signer keys required")
+
 def cms_seal(plain, recipient_cert):
     require(type(plain) is bytes and 0 < len(plain) <= MAX_CMS_PLAIN, "plaintext too large")
     with tempfile.TemporaryDirectory() as d:

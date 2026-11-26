@@ -239,6 +239,36 @@ class LedgerTests(unittest.TestCase):
         with self.assertRaises(InvalidJob): self.ledger.claim(self.id,self.digest,NOW)
         self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"VERIFIED")
 
+    def test_expiry_after_actual_sqlite_write_lock(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+        from unittest.mock import patch
+        self.ready()
+        started, expired = Event(), Event()
+        def attempt():
+            started.set()
+            return self.ledger.claim(self.id, self.digest)
+        # Hold a real SQLite writer lock; expire the synthetic clock before release.
+        with patch("executor.time.time", side_effect=lambda: NOW+180 if expired.is_set() else NOW):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                with self.ledger._connect() as con:
+                    con.execute("BEGIN IMMEDIATE")
+                    future=pool.submit(attempt)
+                    self.assertTrue(started.wait(2))
+                    self.assertFalse(future.done())
+                    expired.set()
+                with self.assertRaises(InvalidJob):
+                    future.result(timeout=5)
+        self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"VERIFIED")
+
+    def test_expiry_during_input_reverification(self):
+        from unittest.mock import patch
+        self.ready()
+        with patch("executor.time.time", side_effect=[NOW+179,NOW+180]):
+            with self.assertRaises(InvalidJob):
+                self.ledger.claim(self.id,self.digest)
+        self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"VERIFIED")
+
     def test_concurrent_claim_exactly_once(self):
         from concurrent.futures import ThreadPoolExecutor
         from threading import Barrier
@@ -558,6 +588,35 @@ class CryptoTests(unittest.TestCase):
     def receipt(self,req,state="SUCCEEDED"):
         return {**{k:req[k] for k in ("version","target","action","requestId","jobId","manifestSha256","nonce")},
                 "issuedAt":NOW,"state":state,"result":{"exitCode":0,"summary":"synthetic"} if req["action"]=="result" else None}
+
+    def test_receiver_key_identity_and_pair_binding(self):
+        from protocol import validate_distinct_identities
+        cert,key=self.identities["server"]
+        other_cert,other_key=self.identities["other"]
+        validate_distinct_identities(cert,key,other_cert,other_key)
+        with self.assertRaises(InvalidJob):
+            validate_distinct_identities(cert,key,cert.rstrip(b"\n"),key+b"\n")
+        with self.assertRaises(InvalidJob):
+            validate_distinct_identities(cert,other_key,other_cert,key)
+        with self.assertRaises(InvalidJob):
+            validate_distinct_identities(cert,b"not a private key",other_cert,other_key)
+
+    def test_reissued_certificate_same_key_rejected(self):
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        from protocol import validate_distinct_identities
+        cert,key=self.identities["server"]
+        with tempfile.TemporaryDirectory() as directory:
+            key_path=Path(directory)/"synthetic.key"
+            key_path.write_bytes(key)
+            key_path.chmod(0o600)
+            reissued=subprocess.run(["/usr/bin/openssl","req","-new","-x509","-key",str(key_path),
+                                     "-days","1","-subj","/CN=synthetic-reissued"],
+                                     check=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=15).stdout
+        self.assertNotEqual(cert,reissued)
+        with self.assertRaises(InvalidJob):
+            validate_distinct_identities(cert,key,reissued,key+b"\n")
 
     def test_encrypted_request_roundtrip(self):
         from protocol import seal_request,open_request

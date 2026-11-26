@@ -27,7 +27,8 @@ import zipfile
 
 from protocol import (REPOSITORY, MAX_ARTIFACT, MAX_FILES, InvalidJob,
                       require, relative_path, validate_job, inline_bytes, canonical, parse,
-                      exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER, commit, seal_receipt, validate_file, MAX_INLINE)
+                      exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER, commit, seal_receipt, validate_file, MAX_INLINE,
+                      validate_distinct_identities)
 from executor import CHUNK
 
 OWNER = "micor-cjj-spec"
@@ -802,8 +803,7 @@ def receiver_main():
     recipient_key = _fixed_config(CONFIG_ROOT/"recipient.key", account.pw_gid, 16384, secret=True)
     signer_cert = _fixed_config(CONFIG_ROOT/"signer.crt", account.pw_gid, 5000)
     signer_key = _fixed_config(CONFIG_ROOT/"signer.key", account.pw_gid, 16384, secret=True)
-    require(recipient_cert != signer_cert and recipient_key != signer_key,
-            "separate recipient and signer identities required")
+    validate_distinct_identities(recipient_cert, recipient_key, signer_cert, signer_key)
     deadline = time.monotonic()+240
     relay_receiver(_Pipe(sys.stdin.buffer, deadline), _Pipe(sys.stdout.buffer, deadline),
                    issue=issue, ledger=Ledger(LEDGER_ROOT),
