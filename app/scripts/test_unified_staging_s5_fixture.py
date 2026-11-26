@@ -649,5 +649,177 @@ class S5IntegratedRehearsalTests(unittest.TestCase):
         self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
 
 
+
+
+class S5LocalPreflightTests(unittest.TestCase):
+    def setUp(self):
+        import fcntl
+        from unified_staging_s5_local_preflight import LOCK, IMAGES as CURRENT_IMAGES
+        self.fcntl = fcntl
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        root = Path(self.work.name)
+        self.helper = FakeHelper(root, None)
+        self.b_file = self.helper.CREDENTIAL_DIR / "b.json"
+        self.lock = self.helper.CREDENTIAL_DIR / LOCK
+        self.lock.touch(mode=0o600)
+        self.runtime_calls = 0
+        self.observe_calls = 0
+        self.fault = None
+        self.original_http = self.helper.http_json
+        self.original_run = self.helper._run
+
+        def command(cmd, input_text=None):
+            if cmd[:4] == ["docker", "inspect", "--format",
+                           "{{.Id}} {{.Image}} {{.State.StartedAt}} {{.RestartCount}}"]:
+                self.runtime_calls += 1
+                kind = cmd[4]
+                image = IMAGES[kind] if self.fault == "old_image" else CURRENT_IMAGES[kind]
+                identity = {"backend": "a", "gateway": "b", "mysql": "c"}[kind] * 64
+                if self.fault == "runtime_change" and self.runtime_calls > 3:
+                    identity = "d" * 64
+                return identity + " " + image + " 2026-11-26T06:00:00Z 0"
+            return self.original_run(cmd, input_text)
+
+        def http(path, *, method="GET", payload=None, token=None):
+            # No business write method is permitted even in this fake preflight.
+            self.assertTrue(method == "GET" or (method == "POST" and path == "/api/auth/login"))
+            result = self.original_http(path, method=method, payload=payload, token=token)
+            if path == "/api/auth/login":
+                result[2]["data"]["expiresInSeconds"] = 3600
+            if path == "/api/tasks" and method == "GET":
+                self.observe_calls += 1
+                if self.fault == "baseline_drift" and self.observe_calls == 3:
+                    result[2]["data"].append({"id": 91, "title": "changed"})
+                if self.fault == "owner_overlap" and token == "fake.B.jwt":
+                    result[2]["data"].append({"id": 90, "title": "unrelated"})
+            return result
+
+        self.helper._run = command
+        self.helper.http_json = http
+
+        def forbid(*args, **kwargs):
+            raise AssertionError("real network or process forbidden")
+
+        for target in ("socket.socket", "socket.create_connection", "subprocess.Popen", "subprocess.run"):
+            guard = patch(target, side_effect=forbid)
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def run_preflight(self, journal=None):
+        from unified_staging_s5_local_preflight import run_preflight
+        try:
+            return run_preflight(self.helper, self.b_file, journal)
+        finally:
+            self.assertEqual(self.helper.mutations, [])
+            self.assertTrue(all(m == "GET" or (m == "POST" and p == "/api/auth/login")
+                                for m, p in self.helper.calls))
+
+    def test_preflight_only_pass(self):
+        report = self.run_preflight()
+        self.assertEqual(report["state"], "S5_LOCAL_PREFLIGHT_PASS")
+        self.assertEqual(report["ownerLists"], 14)
+        self.assertEqual(report["financeSummaries"], 2)
+        self.assertEqual(report["businessWrites"], 0)
+        self.assertEqual(report["journalState"], "NOT_REQUESTED")
+        self.assertFalse(report["baselineRestored"])
+        self.assertFalse(report["liveVerified"])
+        self.assertEqual(self.runtime_calls, 6)
+        self.assertEqual(self.lock.stat().st_size, 0)
+
+    def test_old_image_rejected_before_login(self):
+        self.fault = "old_image"
+        with self.assertRaisesRegex(RuntimeError, "STAGE_IMAGE_OR_RUNTIME_MISMATCH"):
+            self.run_preflight()
+        self.assertEqual(self.helper.calls, [])
+
+    def test_target_and_schema_rejected(self):
+        for fault, reason in (("target", "STAGE_TARGET_MISMATCH"), ("schema", "STAGE_SCHEMA_MISMATCH")):
+            with self.subTest(fault=fault):
+                self.helper.fault = fault
+                with self.assertRaisesRegex(RuntimeError, reason):
+                    self.run_preflight()
+                self.assertEqual(self.helper.calls, [])
+
+    def test_duplicate_and_admin_identity_rejected(self):
+        original = self.helper.credentials["B"]
+        self.helper.credentials["B"] = dict(self.helper.credentials["A"])
+        with self.assertRaisesRegex(RuntimeError, "DUPLICATE_IDENTITY"):
+            self.run_preflight()
+        self.helper.credentials["B"] = original
+        self.helper.fault = "admin"
+        with self.assertRaisesRegex(RuntimeError, "LOGIN_IDENTITY_MISMATCH"):
+            self.run_preflight()
+
+    def test_held_lock_rejected(self):
+        with self.lock.open("rb") as f:
+            self.fcntl.flock(f, self.fcntl.LOCK_EX | self.fcntl.LOCK_NB)
+            with self.assertRaises(BlockingIOError):
+                self.run_preflight()
+        self.assertEqual(self.helper.calls, [])
+
+    def test_missing_and_unsafe_lock_rejected(self):
+        self.lock.unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.run_preflight()
+        self.lock.touch(mode=0o644)
+        with self.assertRaisesRegex(RuntimeError, "PRIVATE_FILE_REQUIRED"):
+            self.run_preflight()
+        self.assertEqual(self.helper.calls, [])
+
+    def test_runtime_change_rejected(self):
+        self.fault = "runtime_change"
+        with self.assertRaisesRegex(RuntimeError, "RUNTIME_CHANGED"):
+            self.run_preflight()
+
+    def test_baseline_drift_rejected(self):
+        self.fault = "baseline_drift"
+        with self.assertRaisesRegex(RuntimeError, "BASELINE_DRIFT_OR_INVALID"):
+            self.run_preflight()
+
+    def test_cross_owner_list_overlap_rejected(self):
+        self.fault = "owner_overlap"
+        with self.assertRaisesRegex(RuntimeError, "CROSS_OWNER_LIST_OVERLAP"):
+            self.run_preflight()
+
+    def test_journal_residual_blocks_and_no_cleanup(self):
+        run = "UAT396-0123456789abcdef"
+        journal = self.helper.CREDENTIAL_DIR / "old-journal.json"
+        journal.write_text(json.dumps({"run": run, "phase": "TEST", "attempted": [
+            {"owner": "A", "kind": "task", "marker": run + "-A", "id": 101}]}))
+        journal.chmod(0o600)
+        self.helper.rows["A", "task"][101] = {"id": 101, "title": run + "-A"}
+        with self.assertRaisesRegex(RuntimeError, "JOURNAL_REVIEW_REQUIRED"):
+            self.run_preflight(journal)
+        self.assertIn(101, self.helper.rows["A", "task"])
+
+    def test_journal_absence_only_diagnostic(self):
+        run = "UAT396-0123456789abcdef"
+        journal = self.helper.CREDENTIAL_DIR / "old-journal.json"
+        journal.write_text(json.dumps({"run": run, "phase": "TEST", "attempted": [
+            {"owner": "A", "kind": "task", "marker": run + "-A", "id": None}]}))
+        journal.chmod(0o600)
+        report = self.run_preflight(journal)
+        self.assertEqual(report["journalState"], "NO_MARKERS_OBSERVED")
+        self.assertFalse(report["baselineRestored"])
+        self.assertFalse(report["cleanupAuthorized"])
+
+    def test_route_guard_blocks_business_post(self):
+        from unified_staging_s5_local_preflight import success
+        with self.assertRaisesRegex(RuntimeError, "HTTP_ROUTE_BLOCKED"):
+            success(self.helper, "/api/tasks", login_payload={})
+        self.assertEqual(self.helper.calls, [])
+
+    def test_wrong_helper_bytes_never_execute(self):
+        from unified_staging_s5_local_preflight import load_helper
+        helper = self.helper.CREDENTIAL_DIR / "p420.py"
+        helper.write_text("raise AssertionError('must never execute')\n")
+        helper.chmod(0o600)
+        with patch("os.geteuid", return_value=helper.stat().st_uid):
+            # load_helper requires root; verify digest path when root, otherwise root guard.
+            with self.assertRaisesRegex(RuntimeError, "HELPER_DIGEST_MISMATCH|ROOT_REQUIRED"):
+                load_helper(helper)
+
+
 if __name__ == "__main__":
     unittest.main()
