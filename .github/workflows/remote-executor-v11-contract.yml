@@ -88,3 +88,164 @@ jobs:
             --property=WorkingDirectory=/opt/matrix-prp-remote-executor-v11/src \
             --setenv=PRP_REX_DISPOSABLE_CI=1 --setenv=PRP_REX_PILOT_SCOPE=GITHUB_HOSTED_EPHEMERAL \
             /usr/bin/python3 -E -s -m unittest -v test_executor.DisposableIsolationPilot
+
+  debian13-disposable-guest:
+    # Owner-approved credential-free compatibility pilot only.
+    # QEMU TCG boots a real Debian kernel; not a Debian container on Ubuntu.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 0517fa99c89413b6dd55bc68831ab96829415f0b
+          persist-credentials: false
+      - name: Construct and boot disposable offline Debian 13 guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_EVENT_NAME" = pull_request
+          test "$GITHUB_REPOSITORY" = micor-cjj-spec/matrix-prp
+          test "$(git rev-parse HEAD)" = 0517fa99c89413b6dd55bc68831ab96829415f0b
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 debootstrap debian-archive-keyring e2fsprogs
+          work=$(mktemp -d "$RUNNER_TEMP/prp-debian13.XXXXXXXX")
+          guest="$work/guest"
+          sandbox="$guest/opt/matrix-prp-remote-executor-v11/rootfs"
+          cleanup() {
+            # Never recursively remove a tree containing a mounted filesystem.
+            if findmnt -rn -o TARGET | grep -qF "$work/"; then
+              echo 'DEBIAN_GUEST_CLEANUP=RUNNER_DISPOSAL_REQUIRED'
+              return 1
+            fi
+            sudo rm -rf -- "$work"
+            echo 'DEBIAN_GUEST_CLEANUP=PASS'
+          }
+          trap cleanup EXIT
+          keyring=/usr/share/keyrings/debian-archive-keyring.gpg
+          test -f "$keyring"
+          # Only Debian archive packages are executed during image construction.
+          # Repository candidate source is copied, never executed on the host.
+          sudo debootstrap --arch=amd64 --variant=minbase --keyring="$keyring" --force-check-gpg \
+            --include=linux-image-amd64,systemd-sysv,apparmor,python3,bubblewrap,openssl,procps,util-linux \
+            trixie "$guest" https://deb.debian.org/debian/
+          sudo install -d -m 0755 "$sandbox"
+          sudo debootstrap --arch=amd64 --variant=minbase --keyring="$keyring" --force-check-gpg \
+            --include=bash,python3 trixie "$sandbox" https://deb.debian.org/debian/
+          # Confirm the exact target package, rather than substituting another version.
+          sudo chroot "$guest" dpkg-query -W bubblewrap
+          test "$(sudo chroot "$guest" dpkg-query -W -f='${Version}' bubblewrap)" = '0.12.0-1~deb13u1'
+          sudo install -d -m 0755 "$guest/opt/matrix-prp-remote-executor-v11/src" "$guest/etc/matrix-prp-remote-executor-v11"
+          sudo install -d -m 0755 "$sandbox/input"
+          sudo install -m 0444 app/deploy/remote-executor-v11/{protocol,executor,bridge,test_executor}.py "$guest/opt/matrix-prp-remote-executor-v11/src/"
+          sudo chroot "$guest" useradd --system --user-group --no-create-home --shell /usr/sbin/nologin prp-remote-v11
+          sudo chroot "$guest" install -d -m 0700 -o prp-remote-v11 -g prp-remote-v11 /var/lib/matrix-prp-remote-executor-v11
+          for p in "$guest/opt" "$guest/opt/matrix-prp-remote-executor-v11" "$sandbox" "$sandbox"/{proc,dev,tmp,input}; do
+            test -d "$p" && test ! -L "$p"
+            sudo chown root:root "$p"
+            sudo chmod 0755 "$p"
+          done
+          # Only the disposable guest gets a sandbox test marker; no receiver or worker gate.
+          printf '%s\n' PRP_STAGING_SANDBOX_V11 | sudo tee "$guest/etc/matrix-prp-remote-executor-v11/sandbox.enabled" >/dev/null
+          sudo chmod 0444 "$guest/etc/matrix-prp-remote-executor-v11/sandbox.enabled"
+          sudo tee "$guest/usr/local/sbin/prp-debian13-pilot" >/dev/null <<'GUEST_SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+          finish() {
+            rc=$?
+            trap - EXIT
+            if [ "$rc" -eq 0 ]; then
+              echo DEBIAN13_ISOLATION_PILOT=PASS
+            else
+              echo DEBIAN13_ISOLATION_PILOT=FAIL
+            fi
+            systemctl --no-block poweroff
+            exit "$rc"
+          }
+          trap finish EXIT
+          test "$(systemd-detect-virt --vm)" = qemu
+          . /etc/os-release
+          test "$ID" = debian
+          test "$VERSION_ID" = 13
+          test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs
+          test "$(dpkg-query -W -f='${Version}' bubblewrap)" = '0.12.0-1~deb13u1'
+          # No guest network device, SSH service, host mount or live credentials.
+          test "$(ls /sys/class/net)" = lo
+          for gate in receiver.enabled worker.enabled; do
+            test ! -e "/etc/matrix-prp-remote-executor-v11/$gate"
+          done
+          test ! -e /etc/matrix-prp-chat-shell/execution.enabled
+          test ! -e /var/run/docker.sock
+          echo 'DEBIAN13_GUEST_IDENTITY=PASS'
+          uname -r
+          python3 --version
+          systemctl --version | head -1
+          dpkg-query -W bubblewrap apparmor
+          /usr/bin/bwrap --version
+          sysctl kernel.unprivileged_userns_clone user.max_user_namespaces
+          aa-status 2>/dev/null || true
+          systemd-run --wait --pipe --collect --unit=prp-remote-executor-v11.service \
+            --property=Type=exec \
+            --property=User=prp-remote-v11 --property=Group=prp-remote-v11 \
+            --property=NoNewPrivileges=yes --property=CapabilityBoundingSet= \
+            --property=MemoryMax=512M --property=MemorySwapMax=0 \
+            --property=TasksMax=64 --property=CPUQuota=100% \
+            --property=RuntimeMaxSec=100 --property=TimeoutStopSec=5 \
+            --property=KillMode=control-group \
+            --property=WorkingDirectory=/opt/matrix-prp-remote-executor-v11/src \
+            --setenv=PRP_REX_DISPOSABLE_CI=1 --setenv=PRP_REX_PILOT_SCOPE=GITHUB_HOSTED_EPHEMERAL \
+            /usr/bin/python3 -E -s -m unittest -v test_executor.DisposableIsolationPilot
+          test ! -e /sys/fs/cgroup/system.slice/prp-remote-executor-v11.service/cgroup.procs || \
+            test -z "$(cat /sys/fs/cgroup/system.slice/prp-remote-executor-v11.service/cgroup.procs)"
+          echo 'DEBIAN13_GUEST_UNIT_CLEANUP=PASS'
+          GUEST_SCRIPT
+          sudo chmod 0755 "$guest/usr/local/sbin/prp-debian13-pilot"
+          sudo tee "$guest/etc/systemd/system/prp-debian13-pilot.service" >/dev/null <<'GUEST_UNIT'
+          [Unit]
+          Description=Disposable Debian remote executor isolation test
+          After=local-fs.target
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/prp-debian13-pilot
+          StandardOutput=journal+console
+          StandardError=journal+console
+          TimeoutStartSec=180
+          [Install]
+          WantedBy=multi-user.target
+          GUEST_UNIT
+          sudo install -d -m 0755 "$guest/etc/systemd/system/multi-user.target.wants"
+          sudo ln -s ../prp-debian13-pilot.service "$guest/etc/systemd/system/multi-user.target.wants/prp-debian13-pilot.service"
+          # Debian kernel and initrd extracted from the signed package-built guest.
+          kernel=$(find "$guest/boot" -maxdepth 1 -name 'vmlinuz-*' -type f | sort -V | tail -1)
+          test -n "$kernel"
+          initrd="$guest/boot/initrd.img-$(basename "$kernel" | sed 's/^vmlinuz-//')"
+          test -f "$initrd"
+          sudo cp "$kernel" "$work/kernel"
+          sudo cp "$initrd" "$work/initrd"
+          sudo chown "$(id -u):$(id -g)" "$work/kernel" "$work/initrd"
+          sudo chmod 0600 "$work/kernel" "$work/initrd"
+          # Fail if a preparation mount escaped its chroot; no host mount in QEMU.
+          if findmnt -rn -o TARGET | grep -qF "$work/"; then exit 1; fi
+          truncate -s 5G "$work/guest.ext4"
+          sudo mkfs.ext4 -q -F -d "$guest" "$work/guest.ext4"
+          sudo chown "$(id -u):$(id -g)" "$work/guest.ext4"
+          chmod 0600 "$work/guest.ext4"
+          # Unprivileged software emulation, no KVM dependency, no NIC, no host sharing.
+          set +e
+          timeout --kill-after=15s 12m qemu-system-x86_64 \
+            -no-user-config -nodefaults -machine q35,accel=tcg -cpu max -smp 2 -m 2048 \
+            -display none -monitor none -serial "file:$work/serial.log" -nic none -no-reboot \
+            -drive "file=$work/guest.ext4,format=raw,if=virtio" \
+            -kernel "$work/kernel" -initrd "$work/initrd" \
+            -append 'root=/dev/vda rw rootfstype=ext4 console=ttyS0 systemd.unit=multi-user.target'
+          status=$?
+          set -e
+          test -f "$work/serial.log"
+          cat "$work/serial.log"
+          test "$status" -eq 0
+          grep -aF 'DEBIAN13_GUEST_IDENTITY=PASS' "$work/serial.log"
+          grep -aF 'DEBIAN13_GUEST_UNIT_CLEANUP=PASS' "$work/serial.log"
+          grep -aF 'DEBIAN13_ISOLATION_PILOT=PASS' "$work/serial.log"
+          ! grep -aFq 'DEBIAN13_ISOLATION_PILOT=FAIL' "$work/serial.log"
