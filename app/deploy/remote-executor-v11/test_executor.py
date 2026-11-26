@@ -232,5 +232,30 @@ class LedgerTests(unittest.TestCase):
         self.ledger.finish(self.id,self.digest,"FAILED",{"exitCode":1,"summary":"synthetic"},NOW)
         self.assertEqual(self.ledger.result(self.id,self.digest)["exitCode"],1)
 
+    def test_missing_and_late_tamper(self):
+        with self.assertRaises(InvalidJob): self.ledger.verify(self.id,self.digest,NOW)
+        self.ready()
+        (self.root/"jobs"/self.id/"run.py").write_bytes(b"tampered")
+        with self.assertRaises(InvalidJob): self.ledger.claim(self.id,self.digest,NOW)
+        self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"VERIFIED")
+
+    def test_concurrent_claim_exactly_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from executor import Ledger
+        self.ready()
+        gate=Barrier(2,timeout=5)
+        def attempt():
+            worker=Ledger(self.root)
+            gate.wait()
+            try:
+                worker.claim(self.id,self.digest,NOW)
+                return True
+            except InvalidJob:
+                return False
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            attempts=[pool.submit(attempt) for _ in range(2)]
+            self.assertEqual(sorted(a.result(timeout=15) for a in attempts),[False,True])
+
 if __name__ == "__main__":
     unittest.main()
