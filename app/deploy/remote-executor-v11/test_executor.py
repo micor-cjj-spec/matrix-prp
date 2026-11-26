@@ -257,5 +257,109 @@ class LedgerTests(unittest.TestCase):
             attempts=[pool.submit(attempt) for _ in range(2)]
             self.assertEqual(sorted(a.result(timeout=15) for a in attempts),[False,True])
 
+
+class SandboxTests(unittest.TestCase):
+    """Synthetic launcher tests. No real process or host isolation claim."""
+    setUp = LedgerTests.setUp
+    transfer = LedgerTests.transfer
+    ready = LedgerTests.ready
+
+    def test_fixed_argv(self):
+        from executor import sandbox_argv, SANDBOX_ROOT
+        m=manifest()
+        m["args"]=["; echo no-shell","--flag","$(echo no-shell)"]
+        argv=sandbox_argv(m,self.root/"jobs"/self.id)
+        self.assertEqual(argv[-3:],m["args"])
+        self.assertEqual(argv[0],"/usr/bin/prlimit")
+        self.assertIn("--unshare-net",argv)
+        self.assertIn("--unshare-user",argv)
+        self.assertIn("--disable-userns",argv)
+        self.assertIn("--clearenv",argv)
+        self.assertIn("--die-with-parent",argv)
+        self.assertIn("--cap-drop",argv)
+        self.assertNotIn("--bind",argv)
+        self.assertNotIn("--share-net",argv)
+        mounts=[tuple(argv[i+1:i+3]) for i,x in enumerate(argv) if x=="--ro-bind"]
+        self.assertEqual(mounts,[(str(SANDBOX_ROOT),"/"),(str(self.root/"jobs"/self.id),"/input")])
+        self.assertEqual(argv[-6:-3],["-I","-B","/input/run.py"])
+        m.update(operation="sandbox.bash",entrypoint="run.sh",files=[inline("run.sh")],args=[])
+        self.assertEqual(sandbox_argv(m,self.root)[-5:],["/bin/bash","--noprofile","--norc","--","/input/run.sh"])
+        m.update(operation="stage.health",entrypoint=None,files=[])
+        with self.assertRaises(InvalidJob): sandbox_argv(m,self.root)
+
+    def test_preflight_denies_root(self):
+        from unittest.mock import patch
+        from executor import sandbox_preflight
+        with patch("executor.os.geteuid",return_value=0):
+            with self.assertRaises(InvalidJob): sandbox_preflight()
+
+    def test_disabled_no_claim_or_launch(self):
+        from unittest.mock import patch
+        from executor import run_sandbox
+        self.ready()
+        with patch("executor.sandbox_preflight",side_effect=InvalidJob("disabled")), patch("executor.subprocess.Popen") as launch:
+            with self.assertRaises(InvalidJob): run_sandbox(self.ledger,self.id,self.digest)
+            launch.assert_not_called()
+        self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"VERIFIED")
+
+    def test_mock_execution_receipt(self):
+        from unittest.mock import Mock, patch
+        from executor import run_sandbox
+        self.ready()
+        proc=Mock()
+        proc.wait.return_value=0
+        def launch(argv,**kwargs):
+            self.assertEqual(kwargs["cwd"],"/")
+            self.assertTrue(kwargs["close_fds"])
+            self.assertTrue(kwargs["start_new_session"])
+            self.assertEqual(set(kwargs["env"]),{"PATH","LANG"})
+            kwargs["stdout"].write(b"synthetic output"+b"x"*2000)
+            return proc
+        with patch("executor.sandbox_preflight"), patch("executor.time.time",return_value=NOW), patch("executor.subprocess.Popen",side_effect=launch) as called:
+            status=run_sandbox(self.ledger,self.id,self.digest)
+            called.assert_called_once()
+        self.assertEqual(status["state"],"SUCCEEDED")
+        receipt=self.ledger.result(self.id,self.digest)
+        self.assertEqual(receipt["exitCode"],0)
+        summary=parse(receipt["summary"].encode("ascii"))
+        self.assertTrue(summary["truncated"])
+        self.assertEqual(len(summary["stdout"]),1000)
+
+    def test_timeout_uncertain_no_retry(self):
+        from unittest.mock import Mock, patch
+        import subprocess
+        from executor import run_sandbox
+        self.ready()
+        proc=Mock(pid=12345)
+        proc.wait.side_effect=[subprocess.TimeoutExpired("synthetic",30),-9]
+        with patch("executor.sandbox_preflight"), patch("executor.time.time",return_value=NOW), patch("executor.subprocess.Popen",return_value=proc) as launch, patch("executor.os.killpg") as kill:
+            self.assertEqual(run_sandbox(self.ledger,self.id,self.digest)["state"],"RECONCILE_REQUIRED")
+            with self.assertRaises(InvalidJob): run_sandbox(self.ledger,self.id,self.digest)
+            launch.assert_called_once()
+            kill.assert_called_once()
+
+    def test_launch_failure_uncertain(self):
+        from unittest.mock import patch
+        from executor import run_sandbox
+        self.ready()
+        with patch("executor.sandbox_preflight"), patch("executor.time.time",return_value=NOW), patch("executor.subprocess.Popen",side_effect=OSError("synthetic")):
+            with self.assertRaises(InvalidJob): run_sandbox(self.ledger,self.id,self.digest)
+        self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"RECONCILE_REQUIRED")
+
+    def test_no_fixed_stage_operation_claim(self):
+        from unittest.mock import patch
+        from executor import run_sandbox
+        other=job()
+        other["nonce"]="b"*32
+        other["manifest"].update(operation="stage.health",entrypoint=None,files=[])
+        other["manifestSha256"]=manifest_sha256(other["manifest"])
+        sid=self.ledger.accept(other,NOW)
+        sd=other["manifestSha256"]
+        self.ledger.verify(sid,sd,NOW)
+        with patch("executor.sandbox_preflight"), patch("executor.time.time",return_value=NOW), patch("executor.subprocess.Popen") as launch:
+            with self.assertRaises(InvalidJob): run_sandbox(self.ledger,sid,sd)
+            launch.assert_not_called()
+        self.assertEqual(self.ledger.status(sid,sd)["state"],"VERIFIED")
+
 if __name__ == "__main__":
     unittest.main()
