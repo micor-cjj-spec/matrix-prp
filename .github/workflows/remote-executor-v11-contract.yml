@@ -60,8 +60,8 @@ jobs:
             sudo chmod 0755 "$p"
             sudo namei -l "$p"
           done
-          sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin prp-remote-v11
-          sudo install -d -m 0700 -o prp-remote-v11 -g prp-remote-v11 /var/lib/matrix-prp-remote-executor-v11
+          sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin prp-remote-worker-v11
+          sudo install -d -m 0700 -o prp-remote-worker-v11 -g prp-remote-worker-v11 /var/lib/matrix-prp-remote-worker-v11
           sudo install -m 0444 app/deploy/remote-executor-v11/{protocol,executor,bridge,test_executor}.py /opt/matrix-prp-remote-executor-v11/src/
           printf '%s\n' PRP_STAGING_SANDBOX_V11 | sudo tee /etc/matrix-prp-remote-executor-v11/sandbox.enabled >/dev/null
           sudo chmod 0444 /etc/matrix-prp-remote-executor-v11/sandbox.enabled
@@ -79,7 +79,7 @@ jobs:
           # to make this pilot pass. Unsupported isolation is a failed test.
           sudo systemd-run --wait --pipe --collect --unit=prp-remote-executor-v11.service \
             --property=Type=exec \
-            --property=User=prp-remote-v11 --property=Group=prp-remote-v11 \
+            --property=User=prp-remote-worker-v11 --property=Group=prp-remote-worker-v11 \
             --property=NoNewPrivileges=yes --property=CapabilityBoundingSet= \
             --property=MemoryMax=512M --property=MemorySwapMax=0 \
             --property=TasksMax=64 --property=CPUQuota=100% \
@@ -99,7 +99,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: 0517fa99c89413b6dd55bc68831ab96829415f0b
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Construct and boot disposable offline Debian 13 guest
         shell: bash
@@ -108,7 +108,7 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$GITHUB_EVENT_NAME" = pull_request
           test "$GITHUB_REPOSITORY" = micor-cjj-spec/matrix-prp
-          test "$(git rev-parse HEAD)" = 0517fa99c89413b6dd55bc68831ab96829415f0b
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends qemu-system-x86 debootstrap debian-archive-keyring e2fsprogs
           work=$(mktemp -d "$RUNNER_TEMP/prp-debian13.XXXXXXXX")
@@ -141,7 +141,9 @@ jobs:
           sudo install -d -m 0755 "$sandbox/input"
           sudo install -m 0444 app/deploy/remote-executor-v11/{protocol,executor,bridge,test_executor}.py "$guest/opt/matrix-prp-remote-executor-v11/src/"
           sudo chroot "$guest" useradd --system --user-group --no-create-home --shell /usr/sbin/nologin prp-remote-v11
+          sudo chroot "$guest" useradd --system --user-group --no-create-home --shell /usr/sbin/nologin prp-remote-worker-v11
           sudo chroot "$guest" install -d -m 0700 -o prp-remote-v11 -g prp-remote-v11 /var/lib/matrix-prp-remote-executor-v11
+          sudo chroot "$guest" install -d -m 0700 -o prp-remote-worker-v11 -g prp-remote-worker-v11 /var/lib/matrix-prp-remote-worker-v11
           for p in "$guest/opt" "$guest/opt/matrix-prp-remote-executor-v11" "$sandbox" "$sandbox"/{proc,dev,tmp,input}; do
             test -d "$p" && test ! -L "$p"
             sudo chown root:root "$p"
@@ -193,7 +195,7 @@ jobs:
           echo 'DEBIAN13_GUEST_BUS_READY=PASS'
           systemd-run --wait --pipe --collect --unit=prp-remote-executor-v11.service \
             --property=Type=exec \
-            --property=User=prp-remote-v11 --property=Group=prp-remote-v11 \
+            --property=User=prp-remote-worker-v11 --property=Group=prp-remote-worker-v11 \
             --property=NoNewPrivileges=yes --property=CapabilityBoundingSet= \
             --property=MemoryMax=512M --property=MemorySwapMax=0 \
             --property=TasksMax=64 --property=CPUQuota=100% \
@@ -205,6 +207,47 @@ jobs:
           test ! -e /sys/fs/cgroup/system.slice/prp-remote-executor-v11.service/cgroup.procs || \
             test -z "$(cat /sys/fs/cgroup/system.slice/prp-remote-executor-v11.service/cgroup.procs)"
           echo 'DEBIAN13_GUEST_UNIT_CLEANUP=PASS'
+          # Synthetic receiver-only key; no actual SSH or receiver enable gate.
+          cfg=/etc/matrix-prp-remote-executor-v11
+          openssl req -new -x509 -nodes -newkey rsa:2048 -days 1 -subj /CN=synthetic-handoff \
+            -keyout "$cfg/synthetic.key" -out "$cfg/synthetic.crt" 2>/dev/null
+          chown root:prp-remote-v11 "$cfg/synthetic.key"
+          chmod 0440 "$cfg/synthetic.key"
+          chmod 0444 "$cfg/synthetic.crt"
+          runuser -u prp-remote-v11 -- test -r "$cfg/synthetic.key"
+          runuser -u prp-remote-worker-v11 -- test ! -r "$cfg/synthetic.key"
+          runuser -u prp-remote-worker-v11 -- test ! -r /var/lib/matrix-prp-remote-executor-v11
+          runuser -u prp-remote-v11 -- test ! -r /var/lib/matrix-prp-remote-worker-v11
+          install -d -m 2750 -o prp-remote-worker-v11 -g prp-remote-v11 /run/prp-remote-v11-handoff
+          printf '%s\n' PRP_STAGING_WORKER_V11 > "$cfg/worker.enabled"
+          chmod 0444 "$cfg/worker.enabled"
+          systemd-run --no-block --collect --unit=prp-remote-executor-v11.service \
+            --property=Type=exec \
+            --property=User=prp-remote-worker-v11 --property=Group=prp-remote-worker-v11 \
+            --property=NoNewPrivileges=yes --property=CapabilityBoundingSet= \
+            --property=MemoryMax=512M --property=MemorySwapMax=0 \
+            --property=TasksMax=64 --property=CPUQuota=100% \
+            --property=RuntimeMaxSec=100 --property=TimeoutStopSec=5 \
+            --property=KillMode=control-group \
+            --property=WorkingDirectory=/opt/matrix-prp-remote-executor-v11/src \
+            /usr/bin/python3 -E -s /opt/matrix-prp-remote-executor-v11/src/executor.py worker-once
+          for i in $(seq 1 100); do
+            test ! -S /run/prp-remote-v11-handoff/worker.sock || break
+            sleep 0.1
+          done
+          test -S /run/prp-remote-v11-handoff/worker.sock
+          (cd /opt/matrix-prp-remote-executor-v11/src
+           runuser -u prp-remote-v11 -- env PRP_REX_DISPOSABLE_CI=1 PRP_REX_PILOT_SCOPE=GITHUB_HOSTED_EPHEMERAL \
+            /usr/bin/python3 -E -s -m unittest -v test_executor.DisposableHandoffPilot)
+          for i in $(seq 1 100); do
+            test ! -S /run/prp-remote-v11-handoff/worker.sock && break
+            sleep 0.1
+          done
+          test ! -e /run/prp-remote-v11-handoff/worker.sock
+          test -z "$(ls -A /var/lib/matrix-prp-remote-worker-v11)"
+          rm -f "$cfg/worker.enabled" "$cfg/synthetic.key" "$cfg/synthetic.crt"
+          test ! -e "$cfg/receiver.enabled"
+          echo 'DEBIAN13_SEPARATE_UID_HANDOFF=PASS'
           GUEST_SCRIPT
           sudo chmod 0755 "$guest/usr/local/sbin/prp-debian13-pilot"
           sudo tee "$guest/etc/systemd/system/prp-debian13-pilot.service" >/dev/null <<'GUEST_UNIT'
@@ -254,5 +297,6 @@ jobs:
           test "$status" -eq 0
           grep -aF 'DEBIAN13_GUEST_IDENTITY=PASS' "$work/serial.log"
           grep -aF 'DEBIAN13_GUEST_UNIT_CLEANUP=PASS' "$work/serial.log"
+          grep -aF 'DEBIAN13_SEPARATE_UID_HANDOFF=PASS' "$work/serial.log"
           grep -aF 'DEBIAN13_ISOLATION_PILOT=PASS' "$work/serial.log"
           ! grep -aFq 'DEBIAN13_ISOLATION_PILOT=FAIL' "$work/serial.log"

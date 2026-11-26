@@ -14,6 +14,9 @@ import sys
 from pathlib import Path
 import sqlite3
 import signal
+import socket
+import struct
+import uuid
 import subprocess
 import tempfile
 import stat
@@ -520,7 +523,11 @@ def dispatch_verified_job(ledger, job_id, digest, *, enabled=False, now=None):
 INSTALL_ROOT = Path("/opt/matrix-prp-remote-executor-v11")
 CONFIG_ROOT = Path("/etc/matrix-prp-remote-executor-v11")
 LEDGER_ROOT = Path("/var/lib/matrix-prp-remote-executor-v11")
-SERVICE_USER = "prp-remote-v11"
+SERVICE_USER = "prp-remote-v11"  # receiver only
+WORKER_USER = "prp-remote-worker-v11"
+WORK_ROOT = Path("/var/lib/matrix-prp-remote-worker-v11")
+HANDOFF_ROOT = Path("/run/prp-remote-v11-handoff")
+HANDOFF_SOCKET = HANDOFF_ROOT / "worker.sock"
 RECEIVER_GATE = CONFIG_ROOT / "receiver.enabled"
 WORKER_GATE = CONFIG_ROOT / "worker.enabled"
 
@@ -534,9 +541,10 @@ def host_gate(path, expected):
     except OSError as exc:
         raise InvalidJob("host gate unavailable") from exc
 
-def service_identity():
+def service_identity(name=SERVICE_USER):
+    require(name in (SERVICE_USER, WORKER_USER), "unknown service identity")
     try:
-        account = pwd.getpwnam(SERVICE_USER)
+        account = pwd.getpwnam(name)
         require(account.pw_uid > 0 and account.pw_gid > 0
                 and os.geteuid() == os.getuid() == account.pw_uid
                 and os.getegid() == os.getgid() == account.pw_gid
@@ -575,15 +583,161 @@ def worker_once(ledger, *, enabled=False, now=None):
         return None
     return dispatch_verified_job(ledger, *selected, enabled=True, now=now)
 
+def _handoff_accounts():
+    receiver = pwd.getpwnam(SERVICE_USER)
+    worker = pwd.getpwnam(WORKER_USER)
+    require(receiver.pw_uid > 0 and worker.pw_uid > 0 and receiver.pw_uid != worker.pw_uid
+            and receiver.pw_gid > 0 and worker.pw_gid > 0 and receiver.pw_gid != worker.pw_gid,
+            "distinct handoff identities required")
+    return receiver, worker
+
+def _peer(conn, account):
+    _, uid, gid = struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                     struct.calcsize("3i")))
+    require((uid, gid) == (account.pw_uid, account.pw_gid), "unexpected local peer")
+
+def _handoff_dir(receiver, worker):
+    _trusted_path(HANDOFF_ROOT.parent, True)
+    st = HANDOFF_ROOT.lstat()
+    require(stat.S_ISDIR(st.st_mode) and st.st_uid == worker.pw_uid
+            and st.st_gid == receiver.pw_gid and stat.S_IMODE(st.st_mode) == 0o2750,
+            "unsafe handoff directory")
+
+def _handoff_socket(receiver, worker):
+    _handoff_dir(receiver, worker)
+    st = HANDOFF_SOCKET.lstat()
+    require(stat.S_ISSOCK(st.st_mode) and st.st_uid == worker.pw_uid
+            and st.st_gid == receiver.pw_gid and stat.S_IMODE(st.st_mode) == 0o660,
+            "unsafe handoff socket")
+
+@contextmanager
+def _handoff_stream(conn):
+    from bridge import _Pipe
+    deadline = time.monotonic() + 240
+    with conn.makefile("rb", buffering=0) as incoming, conn.makefile("wb", buffering=0) as outgoing:
+        yield _Pipe(incoming, deadline), _Pipe(outgoing, deadline)
+
+def handoff_receiver(conn, ledger, *, now=None):
+    """Receiver owns the authoritative claim and ledger, never launches scripts.
+    Caller must authenticate the local worker peer first."""
+    from bridge import write_control, read_control, encode_file_stream, _write_all
+    from protocol import validate_job, exact
+    selected = next_verified(ledger, now)
+    with _handoff_stream(conn) as (incoming, outgoing):
+        if selected is None:
+            write_control(outgoing, {"idle": True})
+            conn.shutdown(socket.SHUT_WR)
+            require(incoming.read(1) == b"", "unexpected idle response")
+            return None
+        jid, md = selected
+        manifest = ledger.claim(jid, md, now, allowed_operations=SANDBOX_OPS | FIXED_LOCAL_OPS)
+        try:
+            with ledger._connect() as con:
+                row = ledger._get(con, jid, md)
+                # The original absolute expiry is retained. The derived local
+                # issuedAt is a serialization field, not renewed authorization.
+                job = {"version":11,"jobId":jid,"nonce":row["nonce"],
+                       "issuedAt":row["expires"]-300,"expiresAt":row["expires"],
+                       "manifest":manifest,"manifestSha256":md}
+            validate_job(job, now)
+            token = uuid.uuid4().hex
+            binding = {"jobId":jid,"manifestSha256":md,"claim":token}
+            write_control(outgoing, {"job":job,"claim":token})
+            for item in manifest["files"]:
+                path = ledger._directory(jid) / item["path"]
+                _private_file(path)
+                with path.open("rb") as source:
+                    for frame in encode_file_stream(source, jid, md, item):
+                        _write_all(outgoing, frame)
+            write_control(outgoing, dict(binding, done=True))
+            conn.shutdown(socket.SHUT_WR)
+            reply = read_control(incoming)
+            exact(reply, "jobId manifestSha256 claim state result")
+            require(all(reply[k] == v for k,v in binding.items()), "handoff result mismatch")
+            require(incoming.read(1) == b"", "trailing handoff response")
+            if reply["state"] == "RECONCILE_REQUIRED":
+                require(reply["result"] is None, "unexpected uncertain result")
+                ledger.mark_uncertain(jid, md, now)
+            else:
+                require(reply["state"] in ("SUCCEEDED", "FAILED"), "invalid worker result state")
+                ledger.finish(jid, md, reply["state"], reply["result"], now)
+            return ledger.snapshot(jid, md, include_result=True)
+        except Exception:
+            if ledger.status(jid, md)["state"] == "RUNNING":
+                ledger.mark_uncertain(jid, md, now)
+            raise InvalidJob("handoff uncertain") from None
+
+def handoff_worker(conn, work_root, *, now=None):
+    """Worker receives only a bound job and verified bytes, not the receiver
+    ledger, credentials or arbitrary host paths. Peer authenticated by caller."""
+    from bridge import write_control, read_control, file_frame_chunks
+    from protocol import exact, validate_job
+    _private_dir(work_root)
+    with _handoff_stream(conn) as (incoming, outgoing):
+        request = read_control(incoming)
+        if request == {"idle": True}:
+            require(incoming.read(1) == b"", "trailing idle request")
+            conn.shutdown(socket.SHUT_WR)
+            return None
+        exact(request, "job claim")
+        token = request["claim"]
+        require(type(token) is str and len(token) == 32
+                and all(c in "0123456789abcdef" for c in token), "invalid handoff claim")
+        job = validate_job(request["job"], now)
+        require(job["manifest"]["operation"] in SANDBOX_OPS | FIXED_LOCAL_OPS, "unsupported handoff operation")
+        jid, md = job["jobId"], job["manifestSha256"]
+        binding = {"jobId":jid,"manifestSha256":md,"claim":token}
+        with tempfile.TemporaryDirectory(dir=work_root) as directory:
+            local = Ledger(Path(directory))
+            local.accept(job, now)
+            for item in job["manifest"]["files"]:
+                local.receive_file(jid, md, item["path"],
+                                   file_frame_chunks(incoming, jid, md, item, require_eof=False), now)
+            require(read_control(incoming) == dict(binding, done=True), "handoff completion mismatch")
+            require(incoming.read(1) == b"", "trailing handoff input")
+            local.verify(jid, md, now)
+            dispatch_verified_job(local, jid, md, enabled=True, now=now)
+            result = local.snapshot(jid, md, include_result=True)
+        # Cleanup precedes reporting success; any uncertain result blocks replay.
+        write_control(outgoing, dict(binding, **result))
+        conn.shutdown(socket.SHUT_WR)
+        return result
+
+def handoff_once(ledger, *, enabled=False):
+    require(enabled is True, "local handoff disabled")
+    receiver, worker = _handoff_accounts()
+    service_identity(SERVICE_USER)
+    _handoff_socket(receiver, worker)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+        conn.settimeout(10)
+        conn.connect(str(HANDOFF_SOCKET))
+        _peer(conn, worker)
+        return handoff_receiver(conn, ledger)
+
 def worker_main():
-    """One-shot worker for an independently provisioned bounded systemd unit."""
+    """Fixed one-shot worker; no receiver ledger or private key access."""
     require(sys.argv[1:] == ["worker-once"], "invalid worker invocation")
-    service_identity()
+    receiver, worker = _handoff_accounts()
+    service_identity(WORKER_USER)
     host_gate(WORKER_GATE, b"PRP_STAGING_WORKER_V11\n")
-    # Even fixed-operation work runs under the accepted dedicated service
-    # boundary. Do not treat a marker alone as a successful isolation test.
     sandbox_preflight()
-    worker_once(Ledger(LEDGER_ROOT), enabled=True)
+    _private_dir(WORK_ROOT)
+    _handoff_dir(receiver, worker)
+    require(not HANDOFF_SOCKET.exists() and not HANDOFF_SOCKET.is_symlink(),
+            "handoff socket already exists")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+        listener.bind(str(HANDOFF_SOCKET))
+        try:
+            HANDOFF_SOCKET.chmod(0o660)
+            _handoff_socket(receiver, worker)
+            listener.listen(1)
+            listener.settimeout(15)
+            conn, _ = listener.accept()
+            with conn:
+                _peer(conn, receiver)
+                handoff_worker(conn, WORK_ROOT)
+        finally:
+            HANDOFF_SOCKET.unlink()
 
 if __name__ == "__main__":
     try:

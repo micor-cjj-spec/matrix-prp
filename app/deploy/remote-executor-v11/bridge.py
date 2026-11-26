@@ -792,6 +792,15 @@ def receiver_main():
     """
     from executor import (CONFIG_ROOT, LEDGER_ROOT, RECEIVER_GATE, Ledger,
                           host_gate, service_identity)
+    # Local handoff is a separate exact invocation, never an SSH command.
+    if sys.argv[1:] == ["handoff-once"]:
+        from executor import WORKER_GATE, handoff_once
+        require("SSH_ORIGINAL_COMMAND" not in os.environ, "SSH handoff forbidden")
+        service_identity()
+        host_gate(RECEIVER_GATE, b"PRP_STAGING_RECEIVER_V11\n")
+        host_gate(WORKER_GATE, b"PRP_STAGING_WORKER_V11\n")
+        handoff_once(Ledger(LEDGER_ROOT), enabled=True)
+        return
     require(sys.argv[1:] == ["receive-v11"]
             and os.environ.get("SSH_ORIGINAL_COMMAND") == "receive-v11",
             "unexpected receiver command")

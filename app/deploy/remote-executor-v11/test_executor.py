@@ -1292,6 +1292,81 @@ class WorkerReadinessTests(unittest.TestCase):
             relay.assert_not_called()
 
 
+class LocalHandoffTests(unittest.TestCase):
+    setUp=DispatchTests.setUp
+    def prepare(self):
+        from executor import Ledger
+        j=job()
+        j["manifest"].update(operation="artifact.inspect",entrypoint=None,
+                             files=[inline("artifact.txt",b"synthetic")])
+        j["manifestSha256"]=manifest_sha256(j["manifest"])
+        # Build a synthetic request with a valid PEM from existing fixture.
+        return j
+
+    def test_bound_transfer_and_result(self):
+        import socket
+        from concurrent.futures import ThreadPoolExecutor
+        from executor import handoff_receiver,handoff_worker
+        from pathlib import Path
+        from unittest.mock import patch
+        j=self.prepare()
+        jid,md=j["jobId"],j["manifestSha256"]
+        self.ledger.accept(j,NOW)
+        self.ledger.receive_file(jid,md,"artifact.txt",[b"synthetic"],NOW)
+        self.ledger.verify(jid,md,NOW)
+        work=Path(self.tmp.name)/"worker"
+        work.mkdir(mode=0o700)
+        client,server=socket.socketpair()
+        with client,server,ThreadPoolExecutor(max_workers=1) as pool:
+            pending=pool.submit(handoff_worker,server,work,now=NOW)
+            with patch("executor.next_verified",return_value=(jid,md)):
+                result=handoff_receiver(client,self.ledger,now=NOW)
+            self.assertEqual(pending.result(timeout=5),result)
+        self.assertEqual(result["state"],"SUCCEEDED")
+        self.assertEqual(list(work.iterdir()),[])
+
+    def test_peer_mismatch_and_default_off(self):
+        import socket
+        from types import SimpleNamespace
+        from executor import _peer,handoff_once
+        from unittest.mock import patch
+        a,b=socket.socketpair()
+        with a,b:
+            _peer(a,SimpleNamespace(pw_uid=os.geteuid(),pw_gid=os.getegid()))
+            with self.assertRaises(InvalidJob):
+                _peer(a,SimpleNamespace(pw_uid=os.geteuid()+1,pw_gid=os.getegid()))
+        with patch("executor.socket.socket") as connect:
+            with self.assertRaises(InvalidJob): handoff_once(self.ledger)
+            connect.assert_not_called()
+
+    def test_wrong_result_marks_uncertain(self):
+        import socket
+        from concurrent.futures import ThreadPoolExecutor
+        from executor import handoff_receiver,_handoff_stream
+        from bridge import read_control,write_control,file_frame_chunks
+        from unittest.mock import patch
+        j=self.prepare()
+        jid,md=j["jobId"],j["manifestSha256"]
+        self.ledger.accept(j,NOW)
+        self.ledger.receive_file(jid,md,"artifact.txt",[b"synthetic"],NOW)
+        self.ledger.verify(jid,md,NOW)
+        a,b=socket.socketpair()
+        def wrong():
+            with _handoff_stream(b) as (incoming,outgoing):
+                req=read_control(incoming)
+                list(file_frame_chunks(incoming,jid,md,j["manifest"]["files"][0],require_eof=False))
+                read_control(incoming)
+                self.assertEqual(incoming.read(1),b"")
+                write_control(outgoing,{"jobId":jid,"manifestSha256":md,"claim":"0"*32,
+                                        "state":"SUCCEEDED","result":{"exitCode":0,"summary":"wrong"}})
+                b.shutdown(socket.SHUT_WR)
+        with a,b,ThreadPoolExecutor(max_workers=1) as pool:
+            future=pool.submit(wrong)
+            with patch("executor.next_verified",return_value=(jid,md)):
+                with self.assertRaises(InvalidJob): handoff_receiver(a,self.ledger,now=NOW)
+            future.result(timeout=5)
+        self.assertEqual(self.ledger.status(jid,md)["state"],"RECONCILE_REQUIRED")
+
 # Explicit disposable CI pilot only; not included in ordinary offline tests.
 # Never invoke this test against a shared or production host.
 import os
@@ -1300,11 +1375,11 @@ if os.environ.get("PRP_REX_DISPOSABLE_CI") == "1":
         def setUp(self):
             import tempfile
             from pathlib import Path
-            from executor import Ledger, LEDGER_ROOT, service_identity, sandbox_preflight
+            from executor import Ledger, WORK_ROOT, WORKER_USER, service_identity, sandbox_preflight
             self.assertEqual(os.environ.get("PRP_REX_PILOT_SCOPE"), "GITHUB_HOSTED_EPHEMERAL")
-            service_identity()
+            service_identity(WORKER_USER)
             sandbox_preflight()
-            self.tmp = tempfile.TemporaryDirectory(dir=LEDGER_ROOT)
+            self.tmp = tempfile.TemporaryDirectory(dir=WORK_ROOT)
             self.addCleanup(self.tmp.cleanup)
             self.ledger = Ledger(Path(self.tmp.name))
 
@@ -1394,6 +1469,34 @@ print('PYTHON_ISOLATED_OK')
                     break
                 time.sleep(0.1)
             self.assertEqual(set(map(int,cgroup.read_text().split())),{os.getpid()})
+
+    class DisposableHandoffPilot(unittest.TestCase):
+        def test_actual_separate_uid_handoff(self):
+            import time
+            from executor import Ledger, LEDGER_ROOT, service_identity, handoff_once
+            from protocol import seal_request
+            self.assertEqual(os.environ.get("PRP_REX_PILOT_SCOPE"),"GITHUB_HOSTED_EPHEMERAL")
+            service_identity()
+            ledger=Ledger(LEDGER_ROOT)
+            now=int(time.time())
+            j=job()
+            script=b"import pathlib\nassert not pathlib.Path('/etc/matrix-prp-remote-executor-v11').exists()\nprint('SEPARATE_UID_OK')\n"
+            j.update(issuedAt=now,expiresAt=now+180,nonce=uuid.uuid4().hex)
+            j["manifest"]["files"]=[inline("run.py",script)]
+            j["manifestSha256"]=manifest_sha256(j["manifest"])
+            from pathlib import Path
+            certificate=Path("/etc/matrix-prp-remote-executor-v11/synthetic.crt").read_text()
+            req={"version":11,"target":"prp-staging","action":"submit","requestId":str(uuid.uuid4()),
+                 "jobId":j["jobId"],"manifestSha256":j["manifestSha256"],"nonce":j["nonce"],
+                 "issuedAt":now,"expiresAt":now+180,"replyCertificate":certificate,"job":j}
+            ledger.claim_request(req,1)
+            jid,md=j["jobId"],j["manifestSha256"]
+            ledger.accept(j)
+            ledger.receive_file(jid,md,"run.py",[script])
+            ledger.verify(jid,md)
+            result=handoff_once(ledger,enabled=True)
+            self.assertEqual(result["state"],"SUCCEEDED",result)
+            self.assertEqual(parse(result["result"]["summary"].encode())["stdout"].strip(),"SEPARATE_UID_OK")
 
 if __name__ == "__main__":
     unittest.main()
