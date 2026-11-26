@@ -4,6 +4,8 @@ import { CollabError } from './core.mjs'
 import { verifyTaskEvidence, verifyIntegrationRelease, verifyRequirementClose, verifyIntegrationPolicy, verifyOwnerAttestedIntegrationPolicy, hasDevAncestry } from './review-gate.mjs'
 import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.mjs'
 
+import {HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446} from './review-historical-446.mjs'
+
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/
 const OWNER_ID=123868412
@@ -29,9 +31,13 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
   const issue=env.GITHUB_EVENT_NAME==='issues' && env.GITHUB_EVENT_ACTION==='opened' && env.GITHUB_WORKFLOW_REF===REPO+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'
   check(SHA.test(env.GITHUB_SHA||'') && (manual || (issue && command.type==='accept')),'UNTRUSTED_REVIEW_ENTRYPOINT')
   const root='repos/'+REPO
+  const historical446=issueProof?.historical446===true
+  const marked=typeof command.note==='string'&&command.note.startsWith(HISTORICAL_446_PREFIX)
+  check(marked===historical446&&(!historical446||issue),'HISTORICAL_446_EXPLICIT_ISSUE_REQUIRED')
+  const ownerNote=historical446?command.note.slice(HISTORICAL_446_PREFIX.length):command.note
   const requirePolicy=()=>{
     const rule=api(root+'/rulesets/28050327')
-    const noteIsOwner=typeof command.note==='string'&&command.note.startsWith(OWNER_NOTE)
+    const noteIsOwner=typeof ownerNote==='string'&&ownerNote.startsWith(OWNER_NOTE)
     if(!noteIsOwner && issueProof===undefined)return verifyIntegrationPolicy(snapshot.requirement_id,rule)
     // Redacted evidence is supported only by the existing authenticated Issue
     // transaction, which revalidates the original event and evidence before CAS.
@@ -54,7 +60,7 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
       Number.isFinite(issueTime)&&Number.isFinite(runTime)&&runTime>=issueTime-30000&&
       runTime<=Date.now()+30000,
       'OWNER_RULESET_WORKFLOW_IDENTITY')
-    return verifyOwnerAttestedIntegrationPolicy(snapshot.requirement_id,rule,command.note,{
+    return verifyOwnerAttestedIntegrationPolicy(snapshot.requirement_id,rule,ownerNote,{
       requestId:command.request_id,action:command.type,taskId:command.task_id??null,
       prNumber:command.pr_number,headSha:command.head_sha,stateVersion:snapshot.version,
       mainSha:env.GITHUB_SHA,stateSha:issueProof.stateSha
@@ -76,6 +82,13 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
     verifyTaskEvidence(snapshot,command.task_id,{pr,branch,comparison,checks,files})
     requireMain(api(root+'/branches/main'))
     const policyProof=requirePolicy()
+    if(historical446){
+      verifyHistorical446Binding(snapshot,command,issueProof)
+      const evidence=collectHistorical446(api,pr,branch,checks)
+      check(evidence.historicalEvidenceVerified===true&&evidence.pr===446&&evidence.checks===7,'HISTORICAL_446_EVIDENCE')
+      requirePolicy()
+      return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,ownerRulesetAttested:true,historical446Verified:true}
+    }
     verifyWorkflowProvenance(checks,{sha:task.head_sha,prNumber:task.pr_number,
       baseRef:integrationRef,headRef:pr.head.ref,mergedAt:pr.merged_at},id=>api(`repos/${REPO}/actions/runs/${id}`),loadJobs)
     return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,...(policyProof.ownerAttested?{ownerRulesetAttested:true}:{})}

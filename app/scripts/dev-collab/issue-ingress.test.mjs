@@ -307,3 +307,16 @@ test('ordinary accept transports owner note only in an authenticated original Is
   e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
  }
 })
+
+test('historical 446 requires explicit pinned owner Issue and distinct command fingerprint note',()=>{
+ const e=event(),stateSha='c'.repeat(40),note='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:stateSha})
+ const p={...request(),action:'accept_historical_446',task_id:'T-007',worker_id:'chat_t007_security_20261125',expected_version:20,claim_id:'11111111-1111-4111-8111-111111111111',pr_number:446,head_sha:'216b280386120f932eee28f22448d41bcaf82dec',expected_state_sha:stateSha,policy_attestation:note}
+ e.issue.created_at='2026-11-26T03:00:00Z';e.issue.body=JSON.stringify(p)
+ const out=validateIssueEvent(env(),e,e.issue)
+ assert.equal(out.historical446,true);assert.equal(out.ownerPolicy,true);assert.equal(out.command.note,'PRP_HISTORICAL_446_V1:'+note)
+ for(const bad of [{...p,task_id:'T-001'},{...p,pr_number:415},{...p,head_sha:sha},{...p,expected_version:19},{...p,policy_attestation:undefined},{...p,reviewerAuthorized:true}]){
+   e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+ }
+ e.issue.body=JSON.stringify({...p,action:'accept'})
+ const ordinary=validateIssueEvent(env(),e,e.issue);assert.equal(ordinary.historical446,undefined);assert.equal(ordinary.command.note,note)
+})
