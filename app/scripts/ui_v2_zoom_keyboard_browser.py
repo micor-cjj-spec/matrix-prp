@@ -100,8 +100,8 @@ def test(browser, width, height):
         layout_height = page.evaluate("window.innerHeight")
         assert layout_height > 300, f"Unexpected layout viewport {layout_height}"
 
-        def geometry(scale, visual_height, top=0):
-            return page.evaluate("""({scale, visualHeight, top}) => {
+        def geometry(scale, visual_height, top=0, event="resize"):
+            return page.evaluate("""({scale, visualHeight, top, event}) => {
                 const vv = window.visualViewport;
                 if (!vv) throw new Error('VisualViewport unavailable');
                 if (!window.__zoomTestOriginals) {
@@ -113,9 +113,9 @@ def test(browser, width, height):
                     scale, height:visualHeight, offsetTop:top
                 })) Object.defineProperty(vv, key,
                     {configurable:true, value});
-                vv.dispatchEvent(new Event('resize'));
+                vv.dispatchEvent(new Event(event));
                 return {scale:vv.scale, height:vv.height, offsetTop:vv.offsetTop};
-            }""", {"scale": scale, "visualHeight": visual_height, "top": top})
+            }""", {"scale": scale, "visualHeight": visual_height, "top": top, "event": event})
 
         def assert_no_keyboard(label):
             expect(page.locator(".prp-shell-chat.prp-keyboard-open")).to_have_count(0)
@@ -148,6 +148,19 @@ def test(browser, width, height):
         expect(page.locator(".prp-shell-chat.prp-keyboard-open")).to_have_count(1)
         expect(nav).to_be_hidden()
         page.screenshot(path=str(ARTIFACTS / f"zoom-with-keyboard-{width}.png"))
+
+        # Pan without resizing: keyboard must stay open and shell stay constrained.
+        for top in (20, 100):
+            geometry(2, zoom_keyboard_height, top, event="scroll")
+            expect(page.locator(".prp-shell-chat.prp-keyboard-open")).to_have_count(1)
+            expect(nav).to_be_hidden()
+            actual = page.locator(".prp-shell-chat").evaluate(
+                "(el) => el.style.getPropertyValue('--prp-chat-viewport-height').trim()")
+            assert actual == f"{round(zoom_keyboard_height)}px", actual
+
+        # Close the keyboard while still zoomed and panned.
+        geometry(2, layout_height / 2, 100)
+        assert_no_keyboard("closed while zoomed and panned")
 
         # Reset viewport properties to the engine's original native getters.
         page.evaluate("""() => {

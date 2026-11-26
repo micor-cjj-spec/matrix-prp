@@ -365,5 +365,10 @@ test('mobile visual viewport distinguishes pinch zoom from actual keyboard occlu
   assert.equal(isMobileKeyboardVisible(844, { height: 380, offsetTop: 30, scale: 2 }), false)
   // A genuine keyboard while zoomed still occupies additional physical pixels.
   assert.equal(isMobileKeyboardVisible(844, { height: 265, offsetTop: 20, scale: 2 }), true)
+  // Panning changes the viewport offset, not keyboard occlusion.
+  assert.equal(isMobileKeyboardVisible(844, { height: 265, offsetTop: 100, scale: 2 }), true)
+  assert.equal(isMobileKeyboardVisible(844, { height: 265, offsetTop: 150, scale: 2 }), true)
+  // Closing the keyboard restores zoom-normalized height even when panned.
+  assert.equal(isMobileKeyboardVisible(844, { height: 422, offsetTop: 100, scale: 2 }), false)
   assert.equal(isMobileKeyboardVisible(844, null), false)
 })

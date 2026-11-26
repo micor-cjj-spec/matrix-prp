@@ -1,6 +1,7 @@
 /** Identify on-screen keyboard occlusion without mistaking user pinch zoom for a keyboard.
  * VisualViewport.height decreases with BOTH keyboard and pinch zoom. Convert
- * visual viewport geometry into layout-viewport pixels before measuring loss.
+ * visual viewport height into layout-viewport pixels before measuring loss.
+ * Panning changes offsetTop without changing the occluded height.
  */
 export function isMobileKeyboardVisible(
   layoutHeight: number,
@@ -8,5 +9,5 @@ export function isMobileKeyboardVisible(
 ): boolean {
   if (!viewport) return false
   const scale = Number.isFinite(viewport.scale) && viewport.scale > 0 ? viewport.scale : 1
-  return layoutHeight - scale * (viewport.height + viewport.offsetTop) > 150
+  return layoutHeight - scale * viewport.height > 150
 }
