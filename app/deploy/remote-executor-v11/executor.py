@@ -17,7 +17,7 @@ import tempfile
 import stat
 import time
 
-from protocol import InvalidJob, canonical, parse, require, validate_job, relative_path
+from protocol import InvalidJob, canonical, parse, require, validate_job, relative_path, validate_request
 
 TERMINAL = frozenset({"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED", "REJECTED", "RECONCILE_REQUIRED"})
 MAX_RESULT = 16 * 1024
@@ -59,6 +59,43 @@ class Ledger:
                 manifest TEXT NOT NULL, digest TEXT NOT NULL,
                 state TEXT NOT NULL, expires INTEGER NOT NULL,
                 updated INTEGER NOT NULL, result TEXT)""")
+            con.execute("""CREATE TABLE IF NOT EXISTS requests (
+                id TEXT PRIMARY KEY, nonce TEXT UNIQUE NOT NULL,
+                comment_id INTEGER UNIQUE NOT NULL, job_id TEXT NOT NULL,
+                digest TEXT NOT NULL, action TEXT NOT NULL,
+                received INTEGER NOT NULL)""")
+
+    def claim_request(self, req, comment_id, now=None):
+        """Durable request replay barrier, separate from the job execution claim.
+
+        The caller MUST first authenticate the trusted event. Neither the
+        request nonce nor the comment number proves authentication.
+        """
+        now = int(time.time() if now is None else now)
+        validate_request(req, now)
+        require(type(comment_id) is int and 0 < comment_id <= 2**63-1,
+                "invalid comment identity")
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            # Queries must resolve an existing job with the exact digest.
+            if req["action"] != "submit":
+                self._get(con, req["jobId"], req["manifestSha256"])
+            try:
+                con.execute("INSERT INTO requests VALUES(?,?,?,?,?,?,?)",
+                            (req["requestId"], req["nonce"], comment_id,
+                             req["jobId"], req["manifestSha256"], req["action"], now))
+            except sqlite3.IntegrityError as exc:
+                raise InvalidJob("duplicate request, nonce or comment") from exc
+
+    def snapshot(self, job_id, digest, *, include_result=False):
+        """Read state and result together, never mutate execution state."""
+        with self._connect() as con:
+            row = self._get(con, job_id, digest)
+            result = None
+            if include_result and row["state"] in TERMINAL and row["result"]:
+                result = parse(row["result"].encode("ascii"))
+            return {"state": row["state"], "result": result}
+
 
     @contextmanager
     def _connect(self):
