@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 33,
-  "updated_at": "2026-11-26T09:42:31.745Z",
+  "version": 34,
+  "updated_at": "2026-11-26T12:29:20.664Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -440,6 +440,20 @@
         "status": "DONE",
         "replayed": false
       }
+    },
+    {
+      "request_id": "d6060001-1126-4a06-8601-000000000001",
+      "fingerprint": "7f301794d0c286215561e7ba551eadb4efa8382ef777e8a8bbdd0cb574783e9d",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "claim",
+        "task_id": "T-006",
+        "request_id": "d6060001-1126-4a06-8601-000000000001",
+        "claim_id": "6795c15a-8411-4fb1-af71-1524cea6ba60",
+        "version": 34,
+        "status": "CLAIMED",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -577,7 +591,7 @@
       "task_id": "T-006",
       "issue_number": 141,
       "title": "只读任务看板与 Issue 投影",
-      "status": "READY",
+      "status": "CLAIMED",
       "depends_on": [
         "T-003"
       ],
@@ -592,7 +606,13 @@
         "app/scripts/dev-collab/projection.mjs",
         "app/scripts/dev-collab/projection.test.mjs"
       ],
-      "claim": null
+      "claim": {
+        "claim_id": "6795c15a-8411-4fb1-af71-1524cea6ba60",
+        "worker_id": "chat_t006_board_20261126",
+        "actor": "micor-cjj-spec",
+        "claimed_at": "2026-11-26T12:29:20.664Z",
+        "generation": 1
+      }
     },
     {
       "task_id": "T-007",
