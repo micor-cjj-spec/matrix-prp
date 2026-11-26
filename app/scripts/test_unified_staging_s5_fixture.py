@@ -15,7 +15,8 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
-from unified_staging_s5_recovery import assess_interrupted_journal
+from unified_staging_s5_recovery import (assess_interrupted_journal, capture_baseline,
+    persist_baseline_once, read_baseline, compare_baseline, BASELINE_FILE)
 
 SOURCE = Path(__file__).with_name("fixtures") / "unified_396_s5_operator.py.txt"
 DIGEST = "2c199c8b0fae7bdaaae2a10cc3d06f2bfd8fd33ee8c096b9399d4ccb1eb0d04c"
@@ -358,6 +359,102 @@ class S5RecoveryReviewTests(unittest.TestCase):
         self.assertEqual(result["state"], "NO_MARKERS_OBSERVED")
         self.assertEqual(set(result["entries"]), CLEANUP_KEYS)
         self.assertFalse(result["baselineRestored"])
+
+
+class S5BaselineTests(unittest.TestCase):
+    def setUp(self):
+        self.context = {"run": "UAT396-0123456789abcdef", "month": "2026-11",
+                        "target": "https://prp-test.micor.top", "schema": 31,
+                        "images": dict(IMAGES), "owners": {"A": 1, "B": 2},
+                        "sourceSha256": DIGEST}
+        self.snapshots = {k: [] for k in CLEANUP_KEYS}
+        self.snapshots["A_task"] = [{"id": 90, "title": "unrelated-private"},
+                                    {"id": 91, "title": "second"}]
+        self.summaries = {w: {"income": "0.00", "expense": "0", "balance": "0"}
+                          for w in ("A", "B")}
+        self.baseline = capture_baseline(self.context, self.snapshots, self.summaries)
+
+    def compare(self):
+        result = compare_baseline(self.baseline, self.context, self.snapshots, self.summaries)
+        for k in ("baselineRestored", "liveVerified", "cleanupAuthorized", "productionAuthorized"):
+            self.assertIs(result[k], False)
+        return result
+
+    def test_private_roundtrip_and_no_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persist_baseline_once(tmp, self.baseline)
+            file = Path(tmp) / BASELINE_FILE
+            self.assertEqual(file.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(read_baseline(tmp), self.baseline)
+            self.assertNotIn("unrelated-private", file.read_text())
+            self.assertNotIn(self.context["run"], file.read_text())
+            with self.assertRaises(FileExistsError):
+                persist_baseline_once(tmp, self.baseline)
+            self.assertEqual(read_baseline(tmp), self.baseline)
+            self.assertEqual(list(Path(tmp).iterdir()), [file])
+
+    def test_complete_match_and_row_order(self):
+        self.snapshots["A_task"].reverse()
+        self.summaries["A"]["income"] = 0
+        self.assertEqual(self.compare()["state"], "BASELINE_DIGESTS_MATCH")
+
+    def test_changed_existing_row_detected(self):
+        self.snapshots["A_task"][0]["title"] = "changed"
+        self.assertEqual(self.compare()["entries"], {"A_task": "CHANGED"})
+
+    def test_finance_summary_exact_decimal(self):
+        self.summaries["B"]["expense"] = "0.00000000000000000000000000001"
+        self.assertEqual(self.compare()["entries"], {"finance_summary_B": "CHANGED"})
+
+    def test_missing_and_duplicate_lists(self):
+        self.snapshots["A_task"].append(dict(self.snapshots["A_task"][0]))
+        self.assertEqual(self.compare()["state"], "INVALID_BASELINE_OBSERVATION")
+        del self.snapshots["B_task"]
+        self.assertEqual(self.compare()["state"], "INVALID_BASELINE_OBSERVATION")
+
+    def test_context_binding(self):
+        for key, value in (("month", "2026-12"), ("owners", {"A": 2, "B": 1}),
+                           ("images", {**IMAGES, "backend": "sha256:" + "1"*64})):
+            with self.subTest(key=key):
+                original = self.context[key]
+                self.context[key] = value
+                self.assertEqual(self.compare()["state"], "BASELINE_CONTEXT_MISMATCH")
+                self.context[key] = original
+
+    def test_invalid_context(self):
+        self.context["target"] = "https://micor.top"
+        self.assertEqual(self.compare()["state"], "INVALID_BASELINE_OBSERVATION")
+
+    def test_tamper_and_truncation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persist_baseline_once(tmp, self.baseline)
+            file = Path(tmp) / BASELINE_FILE
+            data = json.loads(file.read_text())
+            data["lists"]["A_task"] = "0"*64
+            file.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "BASELINE_DIGEST_MISMATCH"):
+                read_baseline(tmp)
+            file.write_text("{")
+            with self.assertRaises(ValueError):
+                read_baseline(tmp)
+
+    def test_symlink_and_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / BASELINE_FILE
+            file.symlink_to(Path(tmp) / "missing")
+            with self.assertRaises(OSError):
+                read_baseline(tmp)
+            with self.assertRaises(FileExistsError):
+                persist_baseline_once(tmp, self.baseline)
+            file.unlink()
+            persist_baseline_once(tmp, self.baseline)
+            file.chmod(0o644)
+            with self.assertRaisesRegex(ValueError, "INVALID_BASELINE_FILE"):
+                read_baseline(tmp)
+
+    def test_invalid_summary(self):
+        self.summaries["B"]["expense"] = "NaN"
+        self.assertEqual(self.compare()["state"], "INVALID_BASELINE_OBSERVATION")
 
 
 if __name__ == "__main__":

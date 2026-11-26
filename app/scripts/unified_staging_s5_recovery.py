@@ -108,3 +108,198 @@ def assess_interrupted_journal(journal, snapshots):
         "NO_MARKERS_OBSERVED" if all(s == "NO_MATCH_OBSERVED" for s in states.values())
         else "RECOVERY_REVIEW_REQUIRED", states
     )
+
+
+# Baseline sidecar: local/offline rehearsal only. Not an authenticated journal
+# or a live executor. Persist digests, never raw business rows or credentials.
+import hashlib
+import json
+import os
+import stat
+import tempfile
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+
+BASELINE_FILE = "s5-baseline.json"
+MAX_BASELINE_BYTES = 16384
+BASELINE_KEYS = {w + "_" + k for w in OWNERS for k in KINDS}
+IMAGE_KEYS = {"backend", "gateway", "mysql"}
+S5_SOURCE_SHA256 = "2c199c8b0fae7bdaaae2a10cc3d06f2bfd8fd33ee8c096b9399d4ccb1eb0d04c"
+
+
+def _sha(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=True, allow_nan=False).encode()).hexdigest()
+
+
+def _hex(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _binding(context):
+    if not isinstance(context, dict) or set(context) != {
+        "run", "month", "target", "schema", "images", "owners", "sourceSha256"
+    }:
+        raise ValueError("INVALID_CONTEXT")
+    if (not isinstance(context["run"], str)
+            or not re.fullmatch(r"UAT396-[0-9a-f]{16}", context["run"])
+            or not isinstance(context["month"], str)
+            or not re.fullmatch(r"[0-9]{4}-(?:0[1-9]|1[0-2])", context["month"])
+            or context["target"] != "https://prp-test.micor.top"
+            or type(context["schema"]) is not int or context["schema"] != 31
+            or context["sourceSha256"] != S5_SOURCE_SHA256):
+        raise ValueError("INVALID_CONTEXT")
+    images, owners = context["images"], context["owners"]
+    if (not isinstance(images, dict) or set(images) != IMAGE_KEYS
+            or any(not isinstance(v, str) or not v.startswith("sha256:")
+                   or not _hex(v[7:]) for v in images.values())
+            or not isinstance(owners, dict) or set(owners) != set(OWNERS)
+            or any(not _positive_id(v) for v in owners.values())
+            or owners["A"] == owners["B"]):
+        raise ValueError("INVALID_CONTEXT")
+    return _sha(context)
+
+
+def _summary_digest(values):
+    if not isinstance(values, dict) or set(values) != {"income", "expense", "balance"}:
+        raise ValueError("INVALID_SUMMARY")
+    normalized = {}
+    for k, v in values.items():
+        if not isinstance(v, (str, int, float, Decimal)) or isinstance(v, bool):
+            raise ValueError("INVALID_SUMMARY")
+        try:
+            n = Decimal(str(v))
+            if not n.is_finite() or len(n.as_tuple().digits) > 64 or abs(n.as_tuple().exponent) > 64:
+                raise ValueError("INVALID_SUMMARY")
+            # Decimal.normalize uses context precision; avoid rounding arbitrary
+            # input by stripping trailing zeroes from exact fixed-point text.
+            text = format(n, "f")
+            if "." in text:
+                text = text.rstrip("0").rstrip(".")
+            normalized[k] = "0" if n == 0 else text
+        except InvalidOperation as exc:
+            raise ValueError("INVALID_SUMMARY") from exc
+    return _sha(normalized)
+
+
+def capture_baseline(context, snapshots, summaries):
+    """Build an immutable digest-only observation for all 14 lists and 2 summaries."""
+    binding = _binding(context)
+    if not isinstance(snapshots, dict) or set(snapshots) != BASELINE_KEYS:
+        raise ValueError("INCOMPLETE_BASELINE")
+    if not isinstance(summaries, dict) or set(summaries) != set(OWNERS):
+        raise ValueError("INCOMPLETE_BASELINE")
+    digests = {}
+    for key, rows in snapshots.items():
+        if (not isinstance(rows, list) or any(not isinstance(r, dict)
+                or not _positive_id(r.get("id")) for r in rows)
+                or len({r["id"] for r in rows}) != len(rows)):
+            raise ValueError("INVALID_BASELINE_LIST")
+        digests[key] = _sha(sorted(rows, key=lambda r: r["id"]))
+    payload = {
+        "schemaVersion": 1, "contextDigest": binding,
+        "lists": digests,
+        "finance": {w: _summary_digest(summaries[w]) for w in OWNERS},
+    }
+    return {**payload, "contentDigest": _sha(payload)}
+
+
+def _validate_baseline(value):
+    if not isinstance(value, dict) or set(value) != {
+        "schemaVersion", "contextDigest", "lists", "finance", "contentDigest"
+    }:
+        raise ValueError("INVALID_BASELINE")
+    if (type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1
+            or not _hex(value["contextDigest"]) or not _hex(value["contentDigest"])):
+        raise ValueError("INVALID_BASELINE")
+    for name, keys in (("lists", BASELINE_KEYS), ("finance", set(OWNERS))):
+        if (not isinstance(value[name], dict) or set(value[name]) != keys
+                or not all(_hex(v) for v in value[name].values())):
+            raise ValueError("INVALID_BASELINE")
+    if _sha({k: v for k, v in value.items() if k != "contentDigest"}) != value["contentDigest"]:
+        raise ValueError("BASELINE_DIGEST_MISMATCH")
+
+
+def _private_dir(directory):
+    p = Path(directory)
+    if not p.is_absolute() or p.resolve() != p:
+        raise ValueError("PRIVATE_DIRECTORY_REQUIRED")
+    fd = os.open(p, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    s = os.fstat(fd)
+    if s.st_uid != os.geteuid() or stat.S_IMODE(s.st_mode) != 0o700:
+        os.close(fd)
+        raise ValueError("PRIVATE_DIRECTORY_REQUIRED")
+    return fd
+
+
+def persist_baseline_once(directory, baseline):
+    """Rehearsal of durable exclusive sidecar creation in a private directory.
+
+    fsync data, atomically link to the fixed name without replacing existing
+    evidence, remove temp name, fsync directory. No automatic overwrite/retry.
+    """
+    _validate_baseline(baseline)
+    raw = json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    if len(raw) > MAX_BASELINE_BYTES:
+        raise ValueError("BASELINE_TOO_LARGE")
+    fd = _private_dir(directory)
+    tmp = None
+    try:
+        # Use the opened directory descriptor for all filesystem mutations.
+        tmp = ".baseline-" + os.urandom(16).hex()
+        f = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+        try:
+            with os.fdopen(f, "wb") as out:
+                out.write(raw)
+                out.flush()
+                os.fsync(out.fileno())
+            os.link(tmp, BASELINE_FILE, src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
+        finally:
+            os.unlink(tmp, dir_fd=fd)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def read_baseline(directory):
+    fd = _private_dir(directory)
+    try:
+        f = os.open(BASELINE_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        with os.fdopen(f, "rb") as inp:
+            s = os.fstat(inp.fileno())
+            if (not stat.S_ISREG(s.st_mode) or s.st_uid != os.geteuid()
+                    or stat.S_IMODE(s.st_mode) != 0o600 or s.st_nlink != 1
+                    or s.st_size > MAX_BASELINE_BYTES):
+                raise ValueError("INVALID_BASELINE_FILE")
+            raw = inp.read(MAX_BASELINE_BYTES + 1)
+        if len(raw) > MAX_BASELINE_BYTES:
+            raise ValueError("BASELINE_TOO_LARGE")
+        def unique(pairs):
+            result = {}
+            for k, v in pairs:
+                if k in result:
+                    raise ValueError("DUPLICATE_BASELINE_KEY")
+                result[k] = v
+            return result
+        value = json.loads(raw, object_pairs_hook=unique)
+        _validate_baseline(value)
+        return value
+    finally:
+        os.close(fd)
+
+
+def compare_baseline(baseline, context, snapshots, summaries):
+    """Compare complete caller observations; never assert verified restoration."""
+    try:
+        _validate_baseline(baseline)
+        current = capture_baseline(context, snapshots, summaries)
+    except (ValueError, TypeError, OverflowError, RecursionError):
+        return _result("INVALID_BASELINE_OBSERVATION")
+    if baseline["contextDigest"] != current["contextDigest"]:
+        return _result("BASELINE_CONTEXT_MISMATCH")
+    changes = {k: "CHANGED" for k in BASELINE_KEYS
+               if baseline["lists"][k] != current["lists"][k]}
+    changes.update({"finance_summary_" + w: "CHANGED" for w in OWNERS
+                    if baseline["finance"][w] != current["finance"][w]})
+    return _result("BASELINE_DIFFERENCE_OBSERVED" if changes else
+                   "BASELINE_DIGESTS_MATCH", changes)
