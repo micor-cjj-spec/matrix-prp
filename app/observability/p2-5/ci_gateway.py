@@ -10,6 +10,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from fixed_proxy import project
+
 HERE = Path(__file__).resolve().parent
 IMAGES = {
     "nginx": "nginx:1.29-alpine",
@@ -70,6 +72,14 @@ def rejected(url):
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted":
         raise SystemExit("disposable GitHub-hosted runner required")
+    allowed = 'jvm_memory_used_bytes{area="heap",id="G1 Old Gen"} 42'
+    malicious = ['jvm_memory_used_bytes{area="heap",id="private-identifier"} 2',
+                 'http_server_requests_seconds_count{method="GET",status="200",outcome="SUCCESS",uri="/private-identifier"} 1',
+                 'agroal_active_count{datasource="private-identifier"} 2',
+                 'jvm_threads_live_threads{user_id="private-identifier"} 1']
+    valid_http = 'http_server_requests_seconds_count{method="GET",status="200",outcome="SUCCESS",uri="/realms/{realm}/.well-known/{provider}"} 1'
+    result = project("\n".join([allowed, valid_http, *malicious]), "/keycloak/metrics").decode()
+    check(result == allowed + "\n" + valid_http + "\n", "projection-positive-and-negative-label-values")
     token = uuid.uuid4().hex[:12]
     backend, edge, monitor = ("p25-" + x + "-" + token for x in ("backend", "edge", "monitor"))
     names = {key: "p25-" + key + "-" + token for key in IMAGES}
