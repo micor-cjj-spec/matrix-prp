@@ -132,8 +132,15 @@ def main():
         run("fixture", ["--memory", "96m", "--memory-swap", "96m", "--user", "65534:65534",
                         "--label", "p23.private=" + marker, "-e", "P23_PRIVATE=" + marker,
                         *mount(HERE / "fixture.py", "/fixture.py")], ["python", "/fixture.py"])
-        eventually(lambda: cmd("docker", "exec", names["fixture"], "test", "-f", "/tmp/ready") == "",
-                   "fixture ready")
+        def fixture_ready():
+            result = subprocess.run(["docker", "exec", names["fixture"], "test", "-f", "/tmp/ready"],
+                                    capture_output=True, timeout=5)
+            if result.returncode == 0:
+                return True
+            if not inspect(names["fixture"])["State"]["Running"]:
+                raise RuntimeError("synthetic fixture exited before readiness")
+            return False
+        eventually(fixture_ready, "fixture ready")
         ident, path = cgroup(names["fixture"])
         check(kernel_int(path / "memory.max") == 96 * 1024 * 1024, "kernel-memory-limit")
         quota, period = map(int, (path / "cpu.max").read_text().split())
