@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 24,
-  "updated_at": "2026-11-26T06:33:08.338Z",
+  "version": 25,
+  "updated_at": "2026-11-26T08:13:16.982Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -321,6 +321,19 @@
         "status": "IN_REVIEW",
         "replayed": false
       }
+    },
+    {
+      "request_id": "ac092026-1126-4a09-8501-cd8fb52640bf",
+      "fingerprint": "8e1042986f88999c3a0cb2859540dc2d5e3594bc0b2ed9a198577f9aa7e41bca",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "accept",
+        "task_id": "T-009",
+        "request_id": "ac092026-1126-4a09-8501-cd8fb52640bf",
+        "version": 25,
+        "status": "DONE",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -520,7 +533,7 @@
       "task_id": "T-009",
       "issue_number": 146,
       "title": "GPT 会话任务恢复、持久化断点与授权接管",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "depends_on": [
         "T-001",
         "T-007"
@@ -531,13 +544,7 @@
         "app/scripts/dev-collab/recovery.mjs",
         "app/scripts/dev-collab/recovery.test.mjs"
       ],
-      "claim": {
-        "claim_id": "4dc8dedd-30b4-46a3-8f92-958937c4c2fa",
-        "worker_id": "chat_t009_recovery_20261126",
-        "actor": "micor-cjj-spec",
-        "claimed_at": "2026-11-26T06:19:02.749Z",
-        "generation": 1
-      },
+      "claim": null,
       "pr_number": 461,
       "head_sha": "ca5a0c5903ec53c6f06cc7b5d220e42909dec418"
     }
