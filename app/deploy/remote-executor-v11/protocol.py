@@ -5,6 +5,9 @@ import hashlib
 import hmac
 import json
 import re
+import subprocess
+import tempfile
+from pathlib import Path
 import time
 import uuid
 
@@ -54,8 +57,8 @@ def canonical(value):
     except (ValueError, TypeError, RecursionError) as exc:
         raise InvalidJob("invalid canonical JSON") from exc
 
-def parse(raw):
-    require(type(raw) is bytes and len(raw) <= MAX_ENVELOPE, "invalid envelope size")
+def parse(raw, *, limit=MAX_ENVELOPE):
+    require(type(raw) is bytes and len(raw) <= limit, "invalid envelope size")
     def pairs(items):
         out = {}
         for k, v in items:
@@ -187,3 +190,143 @@ def validate_job(job, now=None):
 # Source metadata is declarative, not evidence of successful CI or authorized
 # origin. A later trusted bridge must independently resolve and verify it.
 # This module has no execution, transfer, approval or authentication authority.
+
+
+# Dedicated V1.1 CMS namespace. No key provisioning or live credentials here.
+# Envelope encryption is confidentiality/integrity, not proof of sender approval.
+MAX_CMS_PLAIN = 40 * 1024
+MAX_CMS_DER = 45000
+MAX_CERT = 5000
+OPENSSL = "/usr/bin/openssl"
+CERT_PEM = re.compile(rb"-----BEGIN CERTIFICATE-----\n(?:[A-Za-z0-9+/=]+\n)+-----END CERTIFICATE-----\n?")
+REQUEST_ACTIONS = frozenset({"submit", "status", "result"})
+
+def uuid4_text(value):
+    try:
+        require(type(value) is str and str(uuid.UUID(value)) == value
+                and uuid.UUID(value).version == 4, "invalid UUID")
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise InvalidJob("invalid UUID") from exc
+
+def certificate_bytes(value):
+    require(type(value) is bytes and len(value) <= MAX_CERT
+            and CERT_PEM.fullmatch(value) is not None, "invalid certificate")
+    return value
+
+def validate_request(req, now=None):
+    exact(req, "version target action requestId jobId manifestSha256 nonce issuedAt expiresAt replyCertificate job")
+    require(type(req["version"]) is int and req["version"] == 11 and req["target"] == TARGET, "wrong protocol target")
+    require(type(req["action"]) is str and req["action"] in REQUEST_ACTIONS, "wrong action")
+    uuid4_text(req["requestId"])
+    uuid4_text(req["jobId"])
+    digest(req["manifestSha256"])
+    require(matches(re.compile(r"[0-9a-f]{32}"), req["nonce"]), "invalid nonce")
+    t = int(time.time() if now is None else now)
+    integer(req["issuedAt"], t - 300, t + 15)
+    integer(req["expiresAt"], t + 1, req["issuedAt"] + 300)
+    require(type(req["replyCertificate"]) is str, "invalid reply certificate")
+    try:
+        certificate_bytes(req["replyCertificate"].encode("ascii"))
+    except UnicodeError as exc:
+        raise InvalidJob("invalid reply certificate") from exc
+    if req["action"] == "submit":
+        j = validate_job(req["job"], t)
+        require(all(j[k] == req[k] for k in ("jobId", "manifestSha256", "nonce", "issuedAt", "expiresAt")),
+                "request job binding mismatch")
+    else:
+        require(req["job"] is None, "query cannot submit job")
+    require(len(canonical(req)) <= MAX_CMS_PLAIN, "request too large")
+    return req
+
+def _cms(args, data, limit):
+    """Local OpenSSL with bounded input/output, no diagnostic disclosure."""
+    require(type(data) is bytes and len(data) <= MAX_CMS_DER, "CMS input too large")
+    try:
+        p = subprocess.run([OPENSSL, "cms", *args], input=data, stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL, timeout=10,
+                           cwd="/", env={"PATH": "/usr/bin:/bin", "LANG": "C"},
+                           check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise InvalidJob("CMS unavailable") from exc
+    require(p.returncode == 0 and 0 < len(p.stdout) <= limit, "CMS verification or encryption failed")
+    return p.stdout
+
+def _put(folder, name, value, *, certificate=False):
+    if certificate:
+        certificate_bytes(value)
+    else:
+        require(type(value) is bytes and 0 < len(value) <= 16384, "invalid private identity")
+    path = Path(folder) / name
+    path.write_bytes(value)
+    path.chmod(0o600)
+    return str(path)
+
+def cms_seal(plain, recipient_cert):
+    require(type(plain) is bytes and 0 < len(plain) <= MAX_CMS_PLAIN, "plaintext too large")
+    with tempfile.TemporaryDirectory() as d:
+        cert = _put(d, "recipient.pem", recipient_cert, certificate=True)
+        return _cms(["-encrypt", "-binary", "-aes-256-gcm", "-outform", "DER", cert],
+                    plain, MAX_CMS_DER)
+
+def cms_open(cipher, recipient_cert, recipient_key, *, limit=MAX_CMS_PLAIN):
+    with tempfile.TemporaryDirectory() as d:
+        cert = _put(d, "recipient.pem", recipient_cert, certificate=True)
+        key = _put(d, "recipient.key", recipient_key)
+        return _cms(["-decrypt", "-binary", "-inform", "DER", "-recip", cert, "-inkey", key],
+                    cipher, limit)
+
+def cms_sign(plain, signer_cert, signer_key):
+    require(type(plain) is bytes and 0 < len(plain) <= MAX_CMS_PLAIN, "receipt too large")
+    with tempfile.TemporaryDirectory() as d:
+        cert = _put(d, "signer.pem", signer_cert, certificate=True)
+        key = _put(d, "signer.key", signer_key)
+        return _cms(["-sign", "-binary", "-nodetach", "-nocerts", "-nosmimecap",
+                     "-md", "sha256", "-outform", "DER", "-signer", cert, "-inkey", key],
+                    plain, MAX_CMS_PLAIN)
+
+def cms_verify(signed, pinned_signer):
+    # No chain discovery and no embedded signer trust. The exact independently
+    # provisioned certificate is the trust anchor; rotation is out of band.
+    with tempfile.TemporaryDirectory() as d:
+        cert = _put(d, "pinned.pem", pinned_signer, certificate=True)
+        return _cms(["-verify", "-binary", "-inform", "DER", "-nointern",
+                     "-certfile", cert, "-noverify"], signed, MAX_CMS_PLAIN)
+
+def seal_request(req, server_cert, now=None):
+    return cms_seal(canonical(validate_request(req, now)), server_cert)
+
+def open_request(cipher, server_cert, server_key, now=None):
+    return validate_request(parse(cms_open(cipher, server_cert, server_key), limit=MAX_CMS_PLAIN), now)
+
+def validate_receipt(receipt, req, now=None):
+    exact(receipt, "version target action requestId jobId manifestSha256 nonce issuedAt state result")
+    for k in ("version", "target", "action", "requestId", "jobId", "manifestSha256", "nonce"):
+        require(type(receipt[k]) is type(req[k]) and receipt[k] == req[k], "receipt request mismatch")
+    t = int(time.time() if now is None else now)
+    integer(receipt["issuedAt"], req["issuedAt"] - 15, t + 15)
+    require(t - 300 <= receipt["issuedAt"], "stale receipt")
+    states = {"RECEIVED", "TRANSFERRING", "VERIFIED", "QUEUED", "RUNNING", "SUCCEEDED",
+              "FAILED", "TIMED_OUT", "CANCELLED", "REJECTED", "RECONCILE_REQUIRED"}
+    require(type(receipt["state"]) is str and receipt["state"] in states, "wrong receipt state")
+    result = receipt["result"]
+    if result is not None:
+        require(req["action"] == "result" and receipt["state"] in
+                {"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED", "REJECTED", "RECONCILE_REQUIRED"},
+                "unexpected result")
+        exact(result, "exitCode summary")
+        integer(result["exitCode"], -255, 255)
+        require(type(result["summary"]) is str, "invalid summary")
+        require((receipt["state"] == "SUCCEEDED") == (result["exitCode"] == 0), "result mismatch")
+        require(len(canonical(result)) <= 16 * 1024, "result too large")
+    require(len(canonical(receipt)) <= MAX_CMS_PLAIN - 2048, "receipt too large")
+    return receipt
+
+def seal_receipt(receipt, req, signer_cert, signer_key, now=None):
+    validate_receipt(receipt, req, now)
+    signed = cms_sign(canonical(receipt), signer_cert, signer_key)
+    return cms_seal(signed, req["replyCertificate"].encode("ascii"))
+
+def open_receipt(cipher, req, reply_key, pinned_signer, now=None):
+    signed = cms_open(cipher, req["replyCertificate"].encode("ascii"), reply_key)
+    plain = cms_verify(signed, pinned_signer)
+    return validate_receipt(parse(plain, limit=MAX_CMS_PLAIN), req, now)
