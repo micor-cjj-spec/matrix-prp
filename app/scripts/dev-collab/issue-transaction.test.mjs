@@ -411,3 +411,20 @@ test('explicit receipt accept cannot mutate without separately verified persiste
  const done=applyAuthenticatedIssue(s,{...x,ownerPolicy:true,receiptAccept:true},'2026-11-26T06:00:00Z',()=>false,{...flags,receiptEvidenceVerified:true})
  assert.equal(done.snapshot.tasks[0].status,'DONE');assert.equal(s.tasks[0].status,'IN_REVIEW')
 })
+
+test('historical #271 requires explicit action and verified evidence, updates only selected task and remains idempotent',()=>{
+ for(const task_id of ['T-002','T-003']){
+  const s=migrated();s.version=28
+  const t=s.tasks.find(t=>t.task_id===task_id)
+  Object.assign(t,{status:'IN_REVIEW',claim:{claim_id:'11111111-1111-4111-8111-111111111111',worker_id:'chat-A',actor:'micor-cjj-spec'},pr_number:271,head_sha:'48b3a69232690e7e2fb54a2d92efac02cc512c0e'})
+  const cmd=v('accept',{task_id,claim_id:t.claim.claim_id,pr_number:t.pr_number,head_sha:t.head_sha,note:'PRP_HISTORICAL_271_V1:PRP_RULESET_ATTESTATION_V1:{}'},s.version)
+  const flags={reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,ownerRulesetAttested:true}
+  const accepted={...cmd,historical271:true,ownerPolicy:true}
+  assert.throws(()=>applyAuthenticatedIssue(s,accepted,'2026-11-26T08:00:00Z',()=>false,flags),/ISSUE_HISTORICAL_271_PROOF_REQUIRED/)
+  assert.throws(()=>applyAuthenticatedIssue(s,cmd,'2026-11-26T08:00:00Z',()=>false,{...flags,historical271Verified:true}),/ISSUE_HISTORICAL_271_PROOF_REQUIRED/)
+  const out=applyAuthenticatedIssue(s,accepted,'2026-11-26T08:00:00Z',()=>false,{...flags,historical271Verified:true})
+  assert.equal(out.snapshot.version,29);assert.equal(out.snapshot.tasks.find(t=>t.task_id===task_id).status,'DONE')
+  assert.deepEqual(out.snapshot.tasks.filter(t=>t.task_id!==task_id),s.tasks.filter(t=>t.task_id!==task_id))
+  assert.equal(t.status,'IN_REVIEW');assert.equal(applyAuthenticatedIssue(out.snapshot,accepted,'2026-11-26T08:01:00Z').receipt.replayed,true)
+ }
+})
