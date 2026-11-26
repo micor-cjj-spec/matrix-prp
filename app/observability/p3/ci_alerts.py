@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+import urllib.error
 import uuid
 
 from unit_cases import tests
@@ -105,7 +106,7 @@ def main():
             print(validate_tool("prom","/bin/promtool",["check","rules","/fixture/rules.yml"],folder),flush=True)
             check(True,"promtool-rule-syntax")
             print(validate_tool("prom","/bin/promtool",["test","rules","/fixture/tests.yml"],folder),flush=True)
-            check(True,"promtool-104-rule-assertions")
+            check(True,"promtool-130-rule-assertions")
             print(validate_tool("am","/bin/amtool",["check-config","/fixture/alertmanager.yml"],folder),flush=True)
             check(True,"amtool-config")
             fast=copy.deepcopy(rules)
@@ -216,12 +217,24 @@ def main():
                                "job":"discard","instance":"fixture-discard","severity":"warning"},
                       "annotations":{},"startsAt":"2020-01-01T00:00:00Z",
                       "endsAt":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(time.time()+60))}]
+            # Prove that rejected Webhook POSTs are counted before validation.
+            initial_attempts=get(webhook+"/attempts")["count"]
+            invalid=urllib.request.Request(webhook+"/receive",data=json.dumps({"alerts":payload}).encode(),
+                                           headers={"Content-Type":"application/json"},method="POST")
+            try:
+                OPENER.open(invalid,timeout=5)
+                raise AssertionError("non-synthetic webhook accepted")
+            except urllib.error.HTTPError as exc:
+                check(exc.code==400,"webhook-non-synthetic-rejected")
+            baseline_attempts=get(webhook+"/attempts")["count"]
+            check(baseline_attempts==initial_attempts+1,"rejected-attempt-counted")
             request=urllib.request.Request(am+"/api/v2/alerts",data=json.dumps(payload).encode(),
                                            headers={"Content-Type":"application/json"},method="POST")
             with OPENER.open(request,timeout=5) as response:
                 check(response.status==200,"discard-fixture-accepted")
             time.sleep(7)
-            check("SyntheticDiscardProbe" not in rows("firing"),"non-synthetic-not-delivered")
+            check("SyntheticDiscardProbe" not in rows("firing") and
+                  get(webhook+"/attempts")["count"]==baseline_attempts,"non-synthetic-no-delivery-attempt")
             # Explicitly prove same-target inhibition on Alertmanager even with inconsistent caller assertions.
             def direct(alert,job,instance,severity):
                 return {"labels":{"alertname":alert,"environment":"synthetic","job":job,

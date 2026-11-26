@@ -6,7 +6,7 @@
       "rules": [
         {
           "alert": "HostCPUHigh",
-          "expr": "100 * (1 - avg by (environment,job,instance) (rate(node_cpu_seconds_total{job=\"node\",environment=\"synthetic\",mode=\"idle\"}[1m]))) > 85",
+          "expr": "100 * (1 - sum by (environment,job,instance) (rate(node_cpu_seconds_total{job=\"node\",environment=\"synthetic\",mode=\"idle\"}[1m])) / sum by (environment,job,instance) (rate(node_cpu_seconds_total{job=\"node\",environment=\"synthetic\",mode!~\"guest|guest_nice\"}[1m]))) > 85 and on(environment,job,instance) (sum by (environment,job,instance) (rate(node_cpu_seconds_total{job=\"node\",environment=\"synthetic\",mode!~\"guest|guest_nice\"}[1m])) > 0)",
           "for": "2m",
           "labels": {
             "severity": "warning"

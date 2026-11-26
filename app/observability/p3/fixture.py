@@ -10,6 +10,7 @@ STATE = Path("/control/state.json")
 START = time.monotonic()
 LOCK = threading.Lock()
 EVENTS = []
+ATTEMPTS = 0
 LIMIT = 128
 
 
@@ -25,6 +26,7 @@ def metrics(kind, faults):
     if kind == "node":
         return [
             f'node_cpu_seconds_total{{cpu="0",mode="idle"}} {n*.9}',
+            f'node_cpu_seconds_total{{cpu="0",mode="user"}} {n*.1}',
             'node_memory_MemTotal_bytes 1000',
             f'node_memory_MemAvailable_bytes {50 if faults.get("node") else 500}',
             'node_filesystem_size_bytes{mountpoint="/"} 1000',
@@ -64,6 +66,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.server.mode == "webhook":
+            if self.path == "/attempts":
+                with LOCK:
+                    body=json.dumps({"count":ATTEMPTS}).encode()
+                self.reply(200,body)
+                return
             if self.path != "/events":
                 self.send_error(404)
                 return
@@ -86,9 +93,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(503)
 
     def do_POST(self):
+        global ATTEMPTS
         if self.server.mode!="webhook" or self.path!="/receive":
             self.send_error(404)
             return
+        with LOCK:
+            if ATTEMPTS >= LIMIT:
+                self.send_error(429)
+                return
+            ATTEMPTS += 1
         try:
             size=int(self.headers.get("Content-Length","0"))
             if not 0<size<=65536:

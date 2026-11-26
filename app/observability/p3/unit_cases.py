@@ -8,6 +8,7 @@ def tests(rules):
     n=labels("node","fixture-node")
     disk=labels("node","fixture-node",',mountpoint="/"')
     cpu=labels("node","fixture-node",',cpu="0",mode="idle"')
+    cpu_user=labels("node","fixture-node",',cpu="0",mode="user"')
     http=labels("http_health","fixture-http_health")
     https=labels("https_health","fixture-https_health")
     mysql=labels("p2-mysql","fixture-p2-mysql")
@@ -41,7 +42,7 @@ def tests(rules):
 
     node=tag("node","fixture-node")
     positive=base()+[
-        row("node_cpu_seconds_total",cpu,"0+1x16"),
+        row("node_cpu_seconds_total",cpu,"0+1x16"),row("node_cpu_seconds_total",cpu_user,"0+14x16"),
         row("node_memory_MemAvailable_bytes",n,"50x16"),row("node_memory_MemTotal_bytes",n,"1000x16"),
         row("node_filesystem_avail_bytes",disk,"100x16"),row("node_filesystem_size_bytes",disk,"1000x16"),
         row("probe_success",http,"0x16"),row("probe_success",https,"1x16"),
@@ -62,7 +63,7 @@ def tests(rules):
         "ApplicationMeanLatencyHigh":[tag("p2-app","fixture-p2-app")],
         "CIExecutionFailed":[tag("p2-ci","fixture-ci",state="failure")],
     }
-    healthy=base()+[row("node_cpu_seconds_total",cpu,"0+14x16"),
+    healthy=base()+[row("node_cpu_seconds_total",cpu,"0+14x16"),row("node_cpu_seconds_total",cpu_user,"0+1x16"),
         row("node_memory_MemAvailable_bytes",n,"500x16"),row("node_memory_MemTotal_bytes",n,"1000x16"),
         row("node_filesystem_avail_bytes",disk,"500x16"),row("node_filesystem_size_bytes",disk,"1000x16"),
         row("probe_success",http,"1x16"),row("probe_success",https,"1x16"),
@@ -84,5 +85,7 @@ def tests(rules):
         case(sparse,{},"low-request-volume"),
         case(positive,{},"hold-duration","0m"),
         case([],{},"before-first-scrape"),
+        case(base()+[row("node_cpu_seconds_total",cpu,"0+13.5x16"),row("node_cpu_seconds_total",cpu_user,"0+1.5x16")],{},"short-window-healthy-cpu","30s"),
+        case(base()+[row("node_cpu_seconds_total",cpu,"0x16"),row("node_cpu_seconds_total",cpu_user,"0x16")],{},"zero-cpu-counter-delta"),
         case([row("up",ci,"0x16")],{"TargetScrapeDown":[tag("p2-ci","fixture-ci")]},"ci-scrape-down-not-evidence-missing"),
     ]}
