@@ -870,6 +870,12 @@ class RegressionSimulation(FakeHelper, OfflineSimulation):
                            for e in journal["attempted"]):
                     raise AssertionError("missing durable create attempt")
             self.mutation_requests.append((method, path, token))
+        if self.fault == "finance_cleanup_failed" and method == "DELETE" and path.startswith(
+                "/api/finance/transactions/"):
+            rid = int(path.rsplit("/", 1)[1])
+            who = {"fake.A.jwt": "A", "fake.B.jwt": "B"}[token]
+            if rid in self.rows[who, "finance"]:
+                return 500, "application/json", None
         result = super().http_json(path, method=method, payload=payload, token=token)
         if self.fault == "journal_tamper" and method == "POST" and len(self.mutations) == 1:
             (self.evidence / "local-private-journal.json").write_text("{}")
@@ -977,6 +983,30 @@ class S5RegressionOrchestrationTests(unittest.TestCase):
         sim, result = self.run_regression("cleanup")
         self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
         self.assertEqual(result["cleanupObservedAbsent"], 0)
+
+    def test_failed_finance_cleanup_protects_setup_objects(self):
+        sim, result = self.run_regression("finance_cleanup_failed")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertTrue(all(sim.rows[w, k] for w in ("A", "B")
+                            for k in ("finance", "account", "category")))
+        self.assertFalse(any(m[2] == "DELETE" and m[1] in ("account", "category")
+                             for m in sim.mutations))
+
+    def test_journal_temp_collision_does_not_unlink_existing_file(self):
+        import os
+        from unified_staging_s5_regression import Journal
+        work = self.root / "evidence"
+        work.mkdir(mode=0o700)
+        existing = work / (".journal-" + "a" * 32)
+        existing.write_text("existing")
+        fd = os.open(work, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        journal = Journal(work, fd)
+        with patch("unified_staging_s5_regression.secrets.token_hex", return_value="a" * 32):
+            with self.assertRaisesRegex(RuntimeError, "JOURNAL_PERSIST_FAILED"):
+                journal.save({"phase": "TEST"})
+        self.assertEqual(existing.read_text(), "existing")
+        self.assertFalse((work / "local-private-journal.json").exists())
 
     def test_final_drift_never_passes(self):
         sim, result = self.run_regression("post_drift")

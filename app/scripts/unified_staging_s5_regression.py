@@ -92,6 +92,7 @@ class Journal:
 
     def save(self, payload):
         tmp = None
+        owns_tmp = False
         try:
             check(not self.failed, "JOURNAL_FAILED")
             self.verify_dir()
@@ -102,6 +103,7 @@ class Journal:
             tmp = ".journal-" + secrets.token_hex(16)
             f = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                         0o600, dir_fd=self.fd)
+            owns_tmp = True
             with os.fdopen(f, "wb") as out:
                 out.write(raw)
                 out.flush()
@@ -121,7 +123,7 @@ class Journal:
             self.failed = True
             raise RuntimeError("JOURNAL_PERSIST_FAILED") from None
         finally:
-            if tmp is not None:
+            if tmp is not None and owns_tmp:
                 try:
                     os.unlink(tmp, dir_fd=self.fd)
                 except FileNotFoundError:
@@ -282,6 +284,17 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal):
             owner, rec = exact_owner(kind, rid)
             if phase == "CLEANUP":
                 check(method == "DELETE" and who == owner and payload is None, "CLEANUP_BLOCKED")
+                if kind in ("account", "category"):
+                    # Do not delete a setup object while a transaction attempt
+                    # is unresolved, or any visible transaction references it.
+                    check((owner, "finance") not in g["ATTEMPTED"] or
+                          g["CLEANUP"].get(owner + "_finance") == "API_ABSENT",
+                          "FINANCE_CLEANUP_NOT_VERIFIED")
+                    tag = g["marker"](owner)
+                    check(not any(g["matches"](row, owner, "finance") or
+                                  row.get(kind) in (tag, tag + "-v2")
+                                  for rows in rows_for("finance").values() for row in rows.values()),
+                          "FINANCE_DEPENDENCY_REMAINS")
             else:
                 check(phase == kind and rec["id"] == rid, "TEST_ID_UNCONFIRMED")
                 check((method == "PUT" and isinstance(payload, dict)
