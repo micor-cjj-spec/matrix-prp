@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Test offline manifest contract (no SSH or secrets)
+      - name: Test offline manifest and ledger (no SSH or secrets)
         run: |
-          python3 -m py_compile app/deploy/remote-executor-v11/protocol.py
+          python3 -m py_compile app/deploy/remote-executor-v11/protocol.py app/deploy/remote-executor-v11/executor.py
           python3 -m unittest discover -s app/deploy/remote-executor-v11 -p 'test_*.py' -v
