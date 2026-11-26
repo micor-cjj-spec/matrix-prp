@@ -31,6 +31,9 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PLUGINS_DISABLE_PLUGINS: "postgres,grafana-postgresql-datasource,pyroscope,grafana-pyroscope-datasource,jaeger,loki,mssql,mysql,opentsdb,tempo"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
     volumes:
       - grafana-data:/var/lib/grafana
     mem_limit: 384m
