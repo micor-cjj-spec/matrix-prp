@@ -192,6 +192,7 @@ def main():
                 "global": {"scrape_interval": "3s", "scrape_timeout": "2s"},
                 "scrape_configs": [{
                     "job_name": "p2-cgroup", "sample_limit": 500, "label_limit": 12,
+                    "honor_timestamps": True, "track_timestamps_staleness": True,
                     "static_configs": [{"targets": ["cadvisor:8080"],
                         "labels": {"environment": "synthetic", "instance": "fixture"}}],
                     "metric_relabel_configs": [
@@ -288,15 +289,23 @@ sys.exit(3)
             check(True, "unrelated-network-denied")
             print("OBS_P23_STATS=" + cmd("docker", "stats", "--no-stream", "--format",
                   "{{.Name}}|{{.MemUsage}}|{{.CPUPerc}}", *created).replace("\n", ";"), flush=True)
+            before_stop_stamp = scalar("timestamp(container_memory_usage_bytes)")
             cmd("docker", "stop", names["fixture"])
+            stopped_at = time.time()
+            check(not inspect(names["fixture"])["State"]["Running"], "fixture-really-stopped")
+            # Verify source disappearance independently of Prometheus lookback/stale markers.
+            eventually(lambda: not raw_values("container_memory_usage_bytes"),
+                       "raw fixture exit disappearance", timeout=90)
+            check(True, "raw-source-exit")
             eventually(lambda: not query("container_memory_usage_bytes") and scalar("up") == 1,
                        "fixture exit disappearance", timeout=90)
             check(True, "exit-not-collector-outage")
             cmd("docker", "start", names["fixture"])
             restarted_ident, _ = cgroup(names["fixture"])
             check(restarted_ident == ident, "restart-exact-identity")
-            eventually(lambda: scalar("container_memory_usage_bytes") >= 24 * 1024 * 1024,
-                       "fixture restart")
+            eventually(lambda: scalar("container_memory_usage_bytes") >= 24 * 1024 * 1024
+                       and scalar("timestamp(container_memory_usage_bytes)") > max(before_stop_stamp, stopped_at),
+                       "fixture restart fresh source timestamp")
             check(True, "restart-fresh-series")
             print("OBS_P23_RESTRICTED_CORE=PASS", flush=True)
     except Exception:
