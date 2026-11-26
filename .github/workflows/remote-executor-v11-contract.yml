@@ -44,7 +44,19 @@ jobs:
           sudo install -d -m 0755 /opt/matrix-prp-remote-executor-v11/src /etc/matrix-prp-remote-executor-v11
           sudo debootstrap --variant=minbase --include=bash,python3 noble /opt/matrix-prp-remote-executor-v11/rootfs https://archive.ubuntu.com/ubuntu/
           sudo install -d -m 0755 /opt/matrix-prp-remote-executor-v11/rootfs/input
-          sudo chmod 0755 /opt/matrix-prp-remote-executor-v11/rootfs/tmp
+          # Hosted images can have a writable /opt parent. The candidate
+          # correctly rejects any non-root or group/world-writable ancestor.
+          # Normalize ONLY the fresh disposable VM, not the project host.
+          sudo namei -l /opt/matrix-prp-remote-executor-v11/rootfs
+          test -d /opt && test ! -L /opt
+          sudo chown root:root /opt
+          sudo chmod go-w /opt
+          for p in /opt/matrix-prp-remote-executor-v11 /opt/matrix-prp-remote-executor-v11/rootfs /opt/matrix-prp-remote-executor-v11/rootfs/{proc,dev,tmp,input}; do
+            test -d "$p" && test ! -L "$p"
+            sudo chown root:root "$p"
+            sudo chmod 0755 "$p"
+            sudo namei -l "$p"
+          done
           sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin prp-remote-v11
           sudo install -d -m 0700 -o prp-remote-v11 -g prp-remote-v11 /var/lib/matrix-prp-remote-executor-v11
           sudo install -m 0444 app/deploy/remote-executor-v11/{protocol,executor,bridge,test_executor}.py /opt/matrix-prp-remote-executor-v11/src/
