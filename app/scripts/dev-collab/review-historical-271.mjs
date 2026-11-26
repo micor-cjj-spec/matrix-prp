@@ -19,7 +19,17 @@ const TASKS={
  'T-003':{scopes:['app/scripts/dev-collab/coordinator-cli.mjs','app/scripts/dev-collab/state-transaction.sh','.github/workflows/prp-collab-coordinator.yml'],deps:['T-001','T-007','T-009'],files:{
   'app/scripts/dev-collab/coordinator-cli.mjs':'9de1cd1a6fda98e5458ba3fa57adb06fdd52ad85',
   'app/scripts/dev-collab/state-transaction.sh':'bee4fa48dc1d7c90995eeb1cbdbf159618d0fa1f',
-  '.github/workflows/prp-collab-coordinator.yml':'f7b503b362a066c3e5492dca37db0a8cf510cb68'}}
+  '.github/workflows/prp-collab-coordinator.yml':'f7b503b362a066c3e5492dca37db0a8cf510cb68'}},
+ 'T-006':{scopes:[".github/workflows/prp-collab-board.yml",".github/workflows/prp-collab-issue-projection.yml","app/scripts/dev-collab/board-workflow.test.mjs","app/scripts/dev-collab/board.mjs","app/scripts/dev-collab/board.test.mjs","app/scripts/dev-collab/projection-cli.mjs","app/scripts/dev-collab/projection-workflow.test.mjs","app/scripts/dev-collab/projection.mjs","app/scripts/dev-collab/projection.test.mjs"],deps:['T-003'],files:{
+  '.github/workflows/prp-collab-board.yml':'cd3f97a774f7667a0a9710d4ae2b713a5b636898',
+  '.github/workflows/prp-collab-issue-projection.yml':'22c5a9a67c0c3bdb7045f422b8450b76628c93ba',
+  'app/scripts/dev-collab/board-workflow.test.mjs':'09e15fde743f375365176c94d6363354ecc8e7a9',
+  'app/scripts/dev-collab/board.mjs':'887ed40f5956823d5b1fb32cc1a247bbbfbda272',
+  'app/scripts/dev-collab/board.test.mjs':'6ed38d9597f2bb0917e7ace335d728b615e60a97',
+  'app/scripts/dev-collab/projection-cli.mjs':'71f5d62f17bc7f24adc8553a63184bb6592a22ad',
+  'app/scripts/dev-collab/projection-workflow.test.mjs':'fc399040075ff462af960d721c88cdc2d2af1ddf',
+  'app/scripts/dev-collab/projection.mjs':'39be3a16cabb57abba8820823ac008637353c3a7',
+  'app/scripts/dev-collab/projection.test.mjs':'471bff463cdba97bd359e53650dc541d6a6971c6'}}
 }
 const CI='.github/workflows/ci.yml',CONTRACT='.github/workflows/prp-dev-collab-contract.yml',IMPACT='.github/workflows/feature-impact.yml'
 const WORKFLOW_BLOBS={
@@ -49,7 +59,7 @@ export function verifyHistorical271Binding(snapshot,command,proof){
  validateSnapshot(snapshot)
  const t=snapshot.tasks.find(x=>x.task_id===command.task_id),cfg=Object.hasOwn(TASKS,command.task_id)?TASKS[command.task_id]:null
  check(cfg&&proof?.historical271===true&&proof.actorId===OWNER_ID&&Number.isSafeInteger(proof.sourceIssue)&&proof.sourceIssue>0&&
-  SHA.test(proof.stateSha||'')&&proof.stateSha===proof.expectedStateSha&&proof.expectedVersion===snapshot.version&&snapshot.version>=25&&
+  SHA.test(proof.stateSha||'')&&proof.stateSha===proof.expectedStateSha&&proof.expectedVersion===snapshot.version&&snapshot.version>=(command.task_id==='T-006'?33:25)&&
   snapshot.requirement_id===REQ&&snapshot.status==='ACTIVE'&&command.type==='accept'&&command.requirement_id===REQ&&
   UUID.test(command.request_id)&&command.note===proof.note&&command.note?.startsWith(HISTORICAL_271_PREFIX)&&
   command.pr_number===271&&command.head_sha===HEAD&&t?.status==='IN_REVIEW'&&t.pr_number===271&&t.head_sha===HEAD&&

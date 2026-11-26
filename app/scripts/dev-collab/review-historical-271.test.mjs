@@ -13,7 +13,18 @@ const TASKS={
  'T-003':{scopes:['app/scripts/dev-collab/coordinator-cli.mjs','app/scripts/dev-collab/state-transaction.sh','.github/workflows/prp-collab-coordinator.yml'],deps:['T-001','T-007','T-009'],files:{
  'app/scripts/dev-collab/coordinator-cli.mjs':'9de1cd1a6fda98e5458ba3fa57adb06fdd52ad85',
  'app/scripts/dev-collab/state-transaction.sh':'bee4fa48dc1d7c90995eeb1cbdbf159618d0fa1f',
- '.github/workflows/prp-collab-coordinator.yml':'f7b503b362a066c3e5492dca37db0a8cf510cb68'}}}
+ '.github/workflows/prp-collab-coordinator.yml':'f7b503b362a066c3e5492dca37db0a8cf510cb68'}},
+ 'T-006':{scopes:[".github/workflows/prp-collab-board.yml",".github/workflows/prp-collab-issue-projection.yml","app/scripts/dev-collab/board-workflow.test.mjs","app/scripts/dev-collab/board.mjs","app/scripts/dev-collab/board.test.mjs","app/scripts/dev-collab/projection-cli.mjs","app/scripts/dev-collab/projection-workflow.test.mjs","app/scripts/dev-collab/projection.mjs","app/scripts/dev-collab/projection.test.mjs"],deps:['T-003'],files:{
+  '.github/workflows/prp-collab-board.yml':'cd3f97a774f7667a0a9710d4ae2b713a5b636898',
+  '.github/workflows/prp-collab-issue-projection.yml':'22c5a9a67c0c3bdb7045f422b8450b76628c93ba',
+  'app/scripts/dev-collab/board-workflow.test.mjs':'09e15fde743f375365176c94d6363354ecc8e7a9',
+  'app/scripts/dev-collab/board.mjs':'887ed40f5956823d5b1fb32cc1a247bbbfbda272',
+  'app/scripts/dev-collab/board.test.mjs':'6ed38d9597f2bb0917e7ace335d728b615e60a97',
+  'app/scripts/dev-collab/projection-cli.mjs':'71f5d62f17bc7f24adc8553a63184bb6592a22ad',
+  'app/scripts/dev-collab/projection-workflow.test.mjs':'fc399040075ff462af960d721c88cdc2d2af1ddf',
+  'app/scripts/dev-collab/projection.mjs':'39be3a16cabb57abba8820823ac008637353c3a7',
+  'app/scripts/dev-collab/projection.test.mjs':'471bff463cdba97bd359e53650dc541d6a6971c6'}}
+}
 const CI='.github/workflows/ci.yml',CONTRACT='.github/workflows/prp-dev-collab-contract.yml',IMPACT='.github/workflows/feature-impact.yml'
 const workflows={[CI]:'695b53214437053943908217ab855b069dd30a24',[IMPACT]:'ce48ed0e167509e60b04d50c4c9493a705096b52',[CONTRACT]:'b00af8f8c53ba88fa62d873d1543b0bddfe96880'}
 const runs=[[44973283672,'CI',CI,2,34],[44973283492,'PRP Dev Collaboration Contract',CONTRACT,1,1],[44973284191,'Feature Impact Report',IMPACT,1,1]]
@@ -22,9 +33,10 @@ const repo={id:1261866723,full_name:REPO},actor='micor-cjj-spec',claim_id='11111
 const request_id='22222222-2222-4222-8222-222222222222',version=28
 const mainDefault='a'.repeat(40),integrationDefault='b'.repeat(40),stateDefault='c'.repeat(40)
 export function historical271Fixture(task_id='T-003',mainSha=mainDefault,stateSha=stateDefault){
+ const version=task_id==='T-006'?36:28
  const cfg=TASKS[task_id],command={type:'accept',requirement_id:REQ,task_id,worker_id:'chat-A',claim_id,request_id,pr_number:271,head_sha:HEAD,note:HISTORICAL_271_PREFIX+'PRP_RULESET_ATTESTATION_V1:{}'}
  const snapshot={schema_version:1,requirement_id:REQ,issue_number:132,title:'MVP',version,status:'ACTIVE',
-  tasks:Array.from({length:9},(_,i)=>{const id='T-'+String(i+1).padStart(3,'0'),c=TASKS[id];return {task_id:id,issue_number:[133,134,135,136,137,141,142,143,146][i],title:id,status:id===task_id?'IN_REVIEW':['T-001','T-007','T-009'].includes(id)?'DONE':'READY',depends_on:c?.deps??[],allowed_paths:c?.scopes??[],claim:id===task_id?{claim_id,worker_id:'chat-A',actor}:null,...(id===task_id?{pr_number:271,head_sha:HEAD}:{})}}),
+  tasks:Array.from({length:9},(_,i)=>{const id='T-'+String(i+1).padStart(3,'0'),c=TASKS[id];return {task_id:id,issue_number:[133,134,135,136,137,141,142,143,146][i],title:id,status:id===task_id?'IN_REVIEW':(['T-001','T-007','T-009'].includes(id)||(task_id==='T-006'&&id==='T-003'))?'DONE':'READY',depends_on:c?.deps??[],allowed_paths:c?.scopes??[],claim:id===task_id?{claim_id,worker_id:'chat-A',actor}:null,...(id===task_id?{pr_number:271,head_sha:HEAD}:{})}}),
   processed_requests:[{request_id:submitId,fingerprint:'a'.repeat(64),actor,receipt:{type:'submit',task_id,request_id:submitId,version,status:'IN_REVIEW',replayed:false}}]}
  const proof={historical271:true,actorId:123868412,sourceIssue:999,stateSha,expectedStateSha:stateSha,expectedVersion:version,note:command.note}
  const routes={},put=(p,v)=>routes[ROOT+p]=v
@@ -32,8 +44,8 @@ export function historical271Fixture(task_id='T-003',mainSha=mainDefault,stateSh
  put('/branches/'+encodeURIComponent(TARGET),{name:TARGET,protected:true,commit:{sha:integrationDefault}})
  for(const ref of [mainSha,integrationDefault])put('/compare/'+MERGE+'...'+ref,{status:'ahead',behind_by:0,base_commit:{sha:MERGE},merge_base_commit:{sha:MERGE},commits:[]})
  put('/pulls/271',{number:271,state:'closed',merged:true,merged_at:'2026-11-22T03:07:20Z',merge_commit_sha:MERGE,user:{id:123868412},merged_by:{id:123868412},base:{ref:'main',sha:BASE,repo},head:{ref:SOURCE,sha:HEAD,repo},changed_files:70})
- const files=Object.assign({},TASKS['T-002'].files,TASKS['T-003'].files)
- put('/pulls/271/files?per_page=100',[...Object.entries(files).map(([filename,sha])=>({filename,sha,status:'added'})),...Array.from({length:64},(_,i)=>({filename:'other/file-'+i,sha:'d'.repeat(40),status:'modified'}))])
+ const files=Object.assign({},...Object.values(TASKS).map(t=>t.files))
+ put('/pulls/271/files?per_page=100',[...Object.entries(files).map(([filename,sha])=>({filename,sha,status:'added'})),...Array.from({length:70-Object.keys(files).length},(_,i)=>({filename:'other/file-'+i,sha:'d'.repeat(40),status:'modified'}))])
  for(const [path,sha] of Object.entries(files))for(const ref of [HEAD,TEST,MERGE,mainSha,integrationDefault])put('/contents/'+path+'?ref='+ref,{type:'file',path,sha})
  for(const [path,sha] of Object.entries(workflows))for(const ref of [HEAD,TEST,MERGE])put('/contents/'+path+'?ref='+ref,{type:'file',path,sha})
  put('/git/commits/'+MERGE,{sha:MERGE,tree:{sha:TREE},parents:[{sha:BASE}]})
@@ -64,8 +76,8 @@ export function historical271Fixture(task_id='T-003',mainSha=mainDefault,stateSh
  return {snapshot,command,proof,routes,api,mainSha,HEAD,request_id,claim_id}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
- test('both #271 task projections verify full original CI, exact tested tree and current six blobs without new PR',()=>{
-  for(const task of ['T-002','T-003']){
+ test('three #271 task projections verify full original CI, exact tested tree and current fifteen blobs without new PR',()=>{
+  for(const task of ['T-002','T-003','T-006']){
    const f=historical271Fixture(task)
    assert.equal(verifyHistorical271(f.snapshot,f.command,f.proof,f.mainSha,f.api).task,task)
   }
@@ -75,6 +87,19 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    f=>f.snapshot.tasks[2].allowed_paths.push('app/other.mjs'),f=>f.snapshot.tasks[6].status='READY',f=>f.snapshot.processed_requests=[]]){
    const f=historical271Fixture();mutate(f)
    assert.throws(()=>verifyHistorical271Binding(f.snapshot,f.command,f.proof))
+  }
+ })
+ test('T-006 rejects missing T-003 completion, old revision and every changed board/projection blob',()=>{
+  const f=historical271Fixture('T-006')
+  f.snapshot.tasks[2].status='READY'
+  assert.throws(()=>verifyHistorical271Binding(f.snapshot,f.command,f.proof),/HISTORICAL_271_SCOPE_OR_DEPENDENCY/)
+  const old=historical271Fixture('T-006')
+  old.snapshot.version=32;old.proof.expectedVersion=32;old.snapshot.processed_requests[0].receipt.version=32
+  assert.throws(()=>verifyHistorical271Binding(old.snapshot,old.command,old.proof),/HISTORICAL_271_BINDING/)
+  for(const path of Object.keys(TASKS['T-006'].files)){
+   const q=historical271Fixture('T-006')
+   q.routes[ROOT+'/contents/'+path+'?ref='+q.mainSha].sha='f'.repeat(40)
+   assert.throws(()=>verifyHistorical271(q.snapshot,q.command,q.proof,q.mainSha,q.api),/HISTORICAL_271_BLOB_DRIFT/)
   }
  })
  test('historical #271 rejects current blob drift, ancestor loss, scope smuggling, checkout drift, failed jobs and altered trees',()=>{

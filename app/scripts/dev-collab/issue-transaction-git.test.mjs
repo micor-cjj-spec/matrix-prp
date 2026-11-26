@@ -650,8 +650,8 @@ test('real isolated Git: evidence drift in final capture recheck prevents any st
  }finally{f.dispose()}
 })
 
-test('real isolated Git: historical #271 accepts T-002 and T-003 independently, one state file and exact replay', {timeout:300000},()=>{
- for(const historicalTask of ['T-002','T-003']){
+test('real isolated Git: historical #271 accepts T-002, T-003 and T-006 independently, one state file and exact replay', {timeout:300000},()=>{
+ for(const historicalTask of ['T-002','T-003','T-006']){
   const h=setup({review:true,historicalTask})
   try{
    const before=h.snapshot(),extra=h.prepareHistorical271(),result=h.execute(extra)

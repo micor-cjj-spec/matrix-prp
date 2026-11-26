@@ -338,17 +338,17 @@ test('receipt actions require explicit owner Issue, exact state and no caller ev
  }
 })
 
-test('explicit #271 historical accept only admits T-002/T-003 and pinned source',()=>{
+test('explicit #271 historical accept only admits T-002/T-003/T-006 and pinned source',()=>{
  const e=event(),stateSha='c'.repeat(40),note='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:stateSha})
  const p={...request(),action:'accept_historical_271',task_id:'T-002',expected_version:28,
    claim_id:'11111111-1111-4111-8111-111111111111',pr_number:271,head_sha:'48b3a69232690e7e2fb54a2d92efac02cc512c0e',expected_state_sha:stateSha,policy_attestation:note}
  e.issue.created_at='2026-11-26T08:00:00Z'
- for(const task_id of ['T-002','T-003']){
-   e.issue.body=JSON.stringify({...p,task_id});const x=validateIssueEvent(env(),e,e.issue)
+ for(const task_id of ['T-002','T-003','T-006']){
+   e.issue.body=JSON.stringify({...p,task_id,expected_version:task_id==='T-006'?36:28});const x=validateIssueEvent(env(),e,e.issue)
    assert.equal(x.command.type,'accept');assert.equal(x.historical271,true);assert.equal(x.ownerPolicy,true)
    assert.equal(x.command.note,'PRP_HISTORICAL_271_V1:'+note)
  }
- for(const bad of [{...p,task_id:'T-004'},{...p,pr_number:446},{...p,head_sha:sha},{...p,expected_version:24},
+ for(const bad of [{...p,task_id:'T-004'},{...p,task_id:'T-008'},{...p,task_id:'T-006',expected_version:32},{...p,pr_number:446},{...p,head_sha:sha},{...p,expected_version:24},
   {...p,policy_attestation:undefined},{...p,expected_state_sha:undefined},{...p,historical271Verified:true}]){
    e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
  }
