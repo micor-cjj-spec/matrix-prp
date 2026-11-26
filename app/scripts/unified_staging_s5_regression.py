@@ -11,6 +11,7 @@ import re
 import secrets
 import stat
 import sys
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from unified_staging_s5_local_preflight import (
     private_fd, private_parent, require_disjoint, same_user, success, verify_stage,
 )
 from unified_staging_s5_recovery import (
-    S5_SOURCE_SHA256, build_offline_receipt, capture_baseline, compare_baseline,
+    BASELINE_FILE, S5_SOURCE_SHA256, build_offline_receipt, capture_baseline, compare_baseline,
     persist_baseline_once, read_baseline,
 )
 
@@ -153,6 +154,117 @@ def check(ok, label):
         raise RuntimeError(label)
 
 
+EVIDENCE_DOMAIN = "PRP_S63_S5_ADVISORY_V1"
+CANDIDATE_KEYS = {"commit", "tree", "artifact_digest", "backend_image", "executor_commit"}
+
+
+def _digest(raw):
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def _candidate_claim(value):
+    """Optional, unverified mapping; not a trust anchor or execution approval."""
+    if value is None:
+        return None
+    check(type(value) is dict and set(value) == CANDIDATE_KEYS, "INVALID_CANDIDATE_CLAIM")
+    for key in ("commit", "tree", "executor_commit"):
+        check(type(value[key]) is str and re.fullmatch(r"[0-9a-f]{40}", value[key]),
+              "INVALID_CANDIDATE_CLAIM")
+    for key in ("artifact_digest", "backend_image"):
+        check(type(value[key]) is str and re.fullmatch(r"sha256:[0-9a-f]{64}", value[key]),
+              "INVALID_CANDIDATE_CLAIM")
+    check(value["backend_image"] == IMAGES["backend"], "CANDIDATE_IMAGE_PIN_MISMATCH")
+    return dict(value)
+
+
+def _source_digests():
+    """Local file hashes, not proof of Git commit or executed bytes."""
+    return {"regression": _digest(Path(__file__).read_bytes()),
+            "preflight": _digest(Path(__file__).with_name("unified_staging_s5_local_preflight.py").read_bytes()),
+            "recovery": _digest(Path(__file__).with_name("unified_staging_s5_recovery.py").read_bytes()),
+            "fixture": _digest(SOURCE.read_bytes())}
+
+
+def _baseline_bytes(journal, baseline):
+    journal.verify_dir()
+    fd = os.open(BASELINE_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=journal.fd)
+    with os.fdopen(fd, "rb") as inp:
+        info = os.fstat(inp.fileno())
+        check(stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid()
+              and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+              and info.st_size <= LIMIT, "INVALID_BASELINE_EVIDENCE")
+        raw = inp.read(LIMIT + 1)
+    check(raw == Journal.encode(baseline), "BASELINE_EVIDENCE_BYTES_MISMATCH")
+    return raw
+
+
+def _advisory_evidence(*, live, claim, sources, before, after, window, journal_bytes,
+                       baseline_bytes, diagnostic):
+    check(len(window) == 4 and all(type(v) is int and v > 0 for v in window)
+          and list(window) == sorted(window), "EVIDENCE_TIME_WINDOW_INVALID")
+    check(before == after, "EVIDENCE_RUNTIME_MISMATCH")
+    images = {k: row[1] for k, row in before[0].items()}
+    check(images == IMAGES, "EVIDENCE_IMAGE_MISMATCH")
+    j = json.loads(journal_bytes)
+    mode = "OPERATOR_LIVE" if live else "OFFLINE_SIMULATION"
+    check(j["phase"] == "FINISHED" and j["executionMode"] == mode
+          and j["candidateClaim"] == claim and j["sourceDigests"] == sources
+          and [j["runtimeBeforeAt"], j["startedAt"]] == window[:2]
+          and j["runtimeDigest"] == hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest(),
+          "EVIDENCE_JOURNAL_BINDING_MISMATCH")
+    baseline = json.loads(baseline_bytes)
+    check(j["baselineDigest"] == baseline["contentDigest"]
+          and j["contextDigest"] == baseline["contextDigest"], "EVIDENCE_BASELINE_BINDING_MISMATCH")
+    modules = {k: ("pass" if j["results"].get(k) == "CRUD_AND_BIDIRECTIONAL_ISOLATION_PASS"
+                   else "pending") for k in MODULES}
+    cleanup = {w + "_" + k: ("pass" if j["cleanup"].get(w + "_" + k) == "API_ABSENT"
+               else "pending") for w in ("A", "B") for k in PATHS}
+    statuses = [o["outcome"] for o in j["mutationRequests"]]
+    counts = {"recorded": len(statuses), "http_200": statuses.count("HTTP_200"),
+              "http_denied": sum(x in ("HTTP_403", "HTTP_404") for x in statuses),
+              "unknown_or_pending": sum(x in ("UNKNOWN", "PENDING") for x in statuses)}
+    counts["other"] = len(statuses) - sum(counts[k] for k in ("http_200", "http_denied", "unknown_or_pending"))
+    matched = diagnostic["baselineState"] == "BASELINE_DIGESTS_MATCH"
+    complete = (diagnostic["state"] == "OFFLINE_REHEARSAL_PASS" and matched
+                and counts == {"recorded": REQUEST_LIMIT, "http_200": 38, "http_denied": 20,
+                               "unknown_or_pending": 0, "other": 0}
+                and set(modules.values()) == {"pass"} and set(cleanup.values()) == {"pass"})
+    findings = ["SOURCE_AUTHENTICITY_NOT_ESTABLISHED", "TRUSTED_CLOCK_NOT_ESTABLISHED",
+                "INDEPENDENT_RUNTIME_AND_DATABASE_PROOF_NOT_ESTABLISHED",
+                "INDEPENDENT_EVIDENCE_BYTES_NOT_ESTABLISHED", "INDEPENDENT_HUMAN_PROOF_NOT_ESTABLISHED"]
+    if claim is None:
+        findings.append("CANDIDATE_CLAIM_MISSING")
+    if not live:
+        findings.append("OFFLINE_SIMULATION_NOT_STAGE_BUSINESS_UAT")
+    if not complete:
+        findings.append("BUSINESS_REGRESSION_INCOMPLETE")
+    value = {
+        "schema_version": 1, "source": "operator_regression_claim" if live else "offline_simulation",
+        "state": "BLOCKED", "repository": "micor-cjj-spec/matrix-prp",
+        "environment": "prp-unified-396", "issue": 396, "execution_mode": mode,
+        "candidate": None if claim is None else {"repository": "micor-cjj-spec/matrix-prp",
+                         "commit": claim["commit"], "artifact_digest": claim["artifact_digest"], "schema": 31},
+        "candidate_tree_claim": None if claim is None else claim["tree"],
+        "executor_commit_claim": None if claim is None else claim["executor_commit"],
+        "candidate_backend_image_claim": None if claim is None else claim["backend_image"],
+        "candidate_source_verified": False, "source_digests": dict(sources),
+        "observed_images": images, "schema": 31,
+        "window": dict(zip(("runtime_before_at", "started_at", "finished_at", "runtime_after_at"), window)),
+        "ordinary_two_owner_checks_claimed": True, "runtime_unchanged_claimed": True,
+        "module_results": modules, "cleanup_results": cleanup,
+        "journal_recorded_mutation_outcomes": counts,
+        "api_visible_baseline_matched_claimed": matched, "regression_complete_claimed": complete,
+        "journal_bytes_digest": _digest(journal_bytes), "baseline_bytes_digest": _digest(baseline_bytes),
+        "baseline_content_digest": "sha256:" + j["baselineDigest"],
+        "context_digest": "sha256:" + j["contextDigest"], "findings": sorted(findings),
+        "source_authenticated": False, "artifact_bytes_verified": False, "runtime_verified": False,
+        "business_uat_verified": False, "baseline_restored": False, "current_review_satisfied": False,
+        "release_eligible": False, "approval_authorized": False, "deployment_authorized": False,
+        "production_authorized": False, "live_verified": False,
+    }
+    return {**value, "binding_digest": _digest(Journal.encode({"domain": EVIDENCE_DOMAIN, "evidence": value}))}
+
+
 def load_functions(g):
     # Only these exact, digest-pinned definitions; no historical imports,
     # helper loader, top-level runner, stale image constants or exit().
@@ -247,32 +359,35 @@ def blocked_receipt():
             "baselineState": "NOT_VERIFIED", "recoveryState": "NOT_VERIFIED",
             "liveVerified": False, "baselineRestored": False, "cleanupAuthorized": False,
             "automatedRunnerEnabled": False, "productionAuthorized": False,
-            "deploymentAuthorized": False, "businessWrites": 0}
+            "deploymentAuthorized": False, "businessWrites": 0,
+            "advisoryEvidence": None}
 
 
-def rehearse(sim, directory, b_file):
+def rehearse(sim, directory, b_file, *, candidate_claim=None):
     """Run only an injected synthetic simulation under the original lock.
 
     The module does not load p420 or expose a live-write flag. Future real
     execution requires a separately reviewed adapter and operator approval.
     """
     check(isinstance(sim, OfflineSimulation), "OFFLINE_SIMULATION_REQUIRED")
-    return _run_once(sim, directory, b_file, live=False)
+    return _run_once(sim, directory, b_file, live=False, candidate_claim=candidate_claim)
 
 
-def run_operator_once(helper_path, directory, b_file, *, confirmation):
+def run_operator_once(helper_path, directory, b_file, *, confirmation, candidate_claim=None):
     """Explicit local operator call, never invoked by CI with real transport.
 
     The confirmation is an operator acknowledgement, not authenticated external
     approval. The operator must already have separate owner authorization.
     """
     check(confirmation == APPROVAL, "OPERATOR_CONFIRMATION_REQUIRED")
+    candidate_claim = _candidate_claim(candidate_claim)
     helper = load_helper(Path(helper_path))
     transport = _LocalTransport(helper)
-    return _run_once(transport, directory, b_file, live=True)
+    return _run_once(transport, directory, b_file, live=True, candidate_claim=candidate_claim)
 
 
-def _run_once(sim, directory, b_file, *, live):
+def _run_once(sim, directory, b_file, *, live, candidate_claim=None):
+    candidate_claim = _candidate_claim(candidate_claim)
     if live:
         check(type(sim) is _LocalTransport and not sim._used, "OPERATOR_TRANSPORT_REQUIRED")
         sim._used, sim._active = True, True
@@ -291,7 +406,8 @@ def _run_once(sim, directory, b_file, *, live):
         journal = Journal(directory, evidence_fd)
         journal.verify_dir()
         check(not os.listdir(evidence_fd), "NEW_EMPTY_EVIDENCE_DIR_REQUIRED")
-        diagnostic = _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, live=live)
+        diagnostic = _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal,
+                                      live=live, candidate_claim=candidate_claim)
     except (Exception, KeyboardInterrupt):
         diagnostic = blocked_receipt()
     finally:
@@ -304,11 +420,13 @@ def _run_once(sim, directory, b_file, *, live):
     return sim._receipt(diagnostic) if live else diagnostic
 
 
-def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, *, live):
+def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, *, live, candidate_claim):
     dispatch = sim._dispatch if live else sim.simulate
     operations = []
     g = load_functions({"Decimal": Decimal, "m": sim})
+    sources = _source_digests()
     first = verify_stage(sim)
+    runtime_before_at = int(time.time())
     accounts = credentials(sim, b_file)
     tokens = {w: login(sim, c) for w, c in accounts.items()}
     check(tokens["A"] != tokens["B"], "DUPLICATE_TOKEN")
@@ -339,6 +457,7 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, *, liv
     check(compare_baseline(baseline, context, current, current_summaries)["state"]
           == "BASELINE_DIGESTS_MATCH", "BASELINE_DRIFT")
     halted = False
+    started_at = int(time.time())
 
     def payload():
         return {"run": run, "phase": g["PHASE"], "attempted": list(g["ATTEMPTED"].values()),
@@ -346,7 +465,8 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, *, liv
                 "runtimeDigest": runtime_digest, "baselineDigest": baseline["contentDigest"],
                 "contextDigest": baseline["contextDigest"],
                 "executionMode": "OPERATOR_LIVE" if live else "OFFLINE_SIMULATION",
-                "mutationRequests": operations}
+                "mutationRequests": operations, "candidateClaim": candidate_claim,
+                "sourceDigests": sources, "runtimeBeforeAt": runtime_before_at, "startedAt": started_at}
 
     def save():
         journal.save(payload())
@@ -354,11 +474,13 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, *, liv
     def recheck():
         lock_identity(lock_fd, lock_path)
         journal.verify_dir()
-        check(verify_stage(sim) == first, "RUNTIME_CHANGED")
+        observed = verify_stage(sim)
+        check(observed == first, "RUNTIME_CHANGED")
         for who, c in accounts.items():
             sim.query_ordinary_identity_readonly(c)
             check(same_user(success(sim, "/api/users/me", tokens[who]), c), "IDENTITY_CHANGED")
         lock_identity(lock_fd, lock_path)
+        return observed
 
     def durable():
         nonlocal halted
@@ -468,6 +590,7 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, *, liv
     failure = None
     final_rows, final_summaries, final_journal, final_baseline = {}, {}, None, None
     baseline_ok = False
+    material = None
     try:
         g["PHASE"] = "TEST"
         save()
@@ -501,9 +624,23 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, *, liv
             check(final_baseline == baseline, "BASELINE_CHANGED")
             journal.verify(payload())
             final_journal = json.loads(journal.read())
-            recheck()
+            finished_at = int(time.time())
+            after = recheck()
+            runtime_after_at = int(time.time())
             baseline_ok = compare_baseline(final_baseline, context, final_rows,
                                            final_summaries)["state"] == "BASELINE_DIGESTS_MATCH"
+            # Output-only: a failed handoff never changes observed request counts.
+            try:
+                journal.verify(payload())
+                raw = journal.read()
+                check(raw == journal.current, "EVIDENCE_JOURNAL_CHANGED")
+                base_raw = _baseline_bytes(journal, final_baseline)
+                check(_source_digests() == sources, "EVIDENCE_SOURCE_CHANGED")
+                material = dict(before=first, after=after,
+                    window=[runtime_before_at, started_at, finished_at, runtime_after_at],
+                    journal_bytes=raw, baseline_bytes=base_raw)
+            except Exception:
+                material = None
         except Exception:
             failure = "OFFLINE_FINAL_REVIEW_REQUIRED"
     passed = (failure is None and len(g["RESULT"]) == 5 and baseline_ok
@@ -518,7 +655,14 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, *, liv
               "automatedRunnerEnabled": False, "productionAuthorized": False, "liveVerified": False}
     result = build_offline_receipt(report, final_journal, final_baseline, context,
                                    final_rows, final_summaries)
-    return {**result, "businessWrites": 0}
+    evidence = None
+    if material is not None:
+        try:
+            evidence = _advisory_evidence(live=live, claim=candidate_claim, sources=sources,
+                                          diagnostic=result, **material)
+        except Exception:
+            evidence = None
+    return {**result, "businessWrites": 0, "advisoryEvidence": evidence}
 
 
 
@@ -528,7 +672,21 @@ def main():
     parser.add_argument("--helper", type=Path)
     parser.add_argument("--b-file", type=Path)
     parser.add_argument("--evidence-dir", type=Path)
+    parser.add_argument("--candidate-commit")
+    parser.add_argument("--candidate-tree")
+    parser.add_argument("--candidate-artifact-digest")
+    parser.add_argument("--candidate-backend-image")
+    parser.add_argument("--executor-commit")
     args = parser.parse_args()
+    claim = {"commit": args.candidate_commit, "tree": args.candidate_tree,
+             "artifact_digest": args.candidate_artifact_digest,
+             "backend_image": args.candidate_backend_image, "executor_commit": args.executor_commit}
+    if not any(v is not None for v in claim.values()):
+        claim = None
+    try:
+        claim = _candidate_claim(claim)
+    except RuntimeError:
+        parser.error("candidate claim requires all five exact fields and current Backend pin")
     # No default live behavior, no non-interactive or environment bypass.
     if not args.execute_approved_once or not all((args.helper, args.b_file, args.evidence_dir)):
         parser.error("explicit operator flag and all three existing private paths required")
@@ -538,12 +696,12 @@ def main():
         confirmation = input("After separate owner approval and idle-window confirmation, type "
                              + APPROVAL + ": ")
         result = run_operator_once(args.helper, args.evidence_dir, args.b_file,
-                                   confirmation=confirmation)
+                                   confirmation=confirmation, candidate_claim=claim)
     except (Exception, KeyboardInterrupt):
         # Loading/confirmation errors occur before the adapter can send writes.
         result = {"kind": "S5_LOCAL_OPERATOR_REGRESSION", "state": "S5_LOCAL_REGRESSION_BLOCKED",
                   "businessMutationRequests": 0, "businessWrites": 0, "liveVerified": False,
-                  "productionAuthorized": False, "deploymentAuthorized": False}
+                  "productionAuthorized": False, "deploymentAuthorized": False, "advisoryEvidence": None}
     print(json.dumps(result, sort_keys=True))
     return 0 if result["state"] == "S5_LOCAL_REGRESSION_PASS" else 2
 

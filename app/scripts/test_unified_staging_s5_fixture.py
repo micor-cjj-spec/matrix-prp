@@ -1194,5 +1194,143 @@ class S5LocalAdapterTests(unittest.TestCase):
             _run_once(adapter, helper.evidence, helper.CREDENTIAL_DIR / "b.json", live=True)
 
 
+
+
+class S63AdvisoryEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        def forbid(*args, **kwargs):
+            raise AssertionError("real network or process forbidden")
+        for target in ("socket.socket", "socket.create_connection", "subprocess.Popen", "subprocess.run"):
+            guard = patch(target, side_effect=forbid)
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def claim(self):
+        from unified_staging_s5_local_preflight import IMAGES as PIN
+        return {"commit": "a" * 40, "tree": "b" * 40, "artifact_digest": "sha256:" + "c" * 64,
+                "executor_commit": "d" * 40, "backend_image": PIN["backend"]}
+
+    def run_claim(self, *, live=False, claim=None, fault=None):
+        from unified_staging_s5_regression import rehearse, run_operator_once, APPROVAL
+        helper = LocalAdapterHelper(self.root, fault) if live else RegressionSimulation(self.root, fault)
+        if live:
+            with patch("unified_staging_s5_regression.load_helper", return_value=helper):
+                result = run_operator_once(self.root / "p420.py", helper.evidence,
+                            helper.CREDENTIAL_DIR / "b.json", confirmation=APPROVAL, candidate_claim=claim)
+        else:
+            result = rehearse(helper, helper.evidence, helper.CREDENTIAL_DIR / "b.json", candidate_claim=claim)
+        return helper, result
+
+    def test_synthetic_evidence_binds_exact_bytes_without_promotion(self):
+        from unified_staging_s5_regression import Journal, EVIDENCE_DOMAIN
+        helper, report = self.run_claim(claim=self.claim())
+        self.assertEqual(report["state"], "OFFLINE_REHEARSAL_PASS")
+        e = report["advisoryEvidence"]
+        self.assertEqual(e["state"], "BLOCKED")
+        self.assertEqual(e["source"], "offline_simulation")
+        self.assertTrue(e["regression_complete_claimed"])
+        self.assertEqual(e["candidate"]["commit"], "a" * 40)
+        self.assertEqual(e["candidate_tree_claim"], "b" * 40)
+        self.assertEqual(e["executor_commit_claim"], "d" * 40)
+        self.assertEqual(e["candidate"]["artifact_digest"], "sha256:" + "c" * 64)
+        self.assertEqual(e["schema"], 31)
+        self.assertEqual(set(e["module_results"]), MODULES)
+        self.assertEqual(set(e["cleanup_results"]), CLEANUP_KEYS)
+        self.assertEqual(e["journal_recorded_mutation_outcomes"]["recorded"], 58)
+        for key in ("source_authenticated", "artifact_bytes_verified", "runtime_verified",
+                    "business_uat_verified", "baseline_restored", "current_review_satisfied",
+                    "release_eligible", "approval_authorized", "deployment_authorized",
+                    "production_authorized", "live_verified", "candidate_source_verified"):
+            self.assertIs(e[key], False)
+        self.assertIn("OFFLINE_SIMULATION_NOT_STAGE_BUSINESS_UAT", e["findings"])
+        for field, filename in (("journal_bytes_digest", "local-private-journal.json"),
+                                ("baseline_bytes_digest", BASELINE_FILE)):
+            self.assertEqual(e[field], "sha256:" + hashlib.sha256(
+                             (helper.evidence / filename).read_bytes()).hexdigest())
+        unsigned = {k: v for k, v in e.items() if k != "binding_digest"}
+        self.assertEqual(e["binding_digest"], "sha256:" + hashlib.sha256(Journal.encode(
+            {"domain": EVIDENCE_DOMAIN, "evidence": unsigned})).hexdigest())
+        raw = json.dumps(e)
+        for secret in ("fake.A.jwt", "fake.B.jwt", "fixture-password", "fixture_A", "fixture_B",
+                       "user_id", "UAT396-", "mutationRequests", "attempted", "credentials.json",
+                       "runtimeDigest", "unrelated"):
+            self.assertNotIn(secret, raw)
+        times = [e["window"][k] for k in ("runtime_before_at", "started_at", "finished_at", "runtime_after_at")]
+        self.assertEqual(times, sorted(times))
+
+    def test_mocked_operator_evidence_stays_blocked(self):
+        _, report = self.run_claim(live=True, claim=self.claim())
+        self.assertEqual(report["state"], "S5_LOCAL_REGRESSION_PASS")
+        e = report["advisoryEvidence"]
+        self.assertEqual(e["source"], "operator_regression_claim")
+        self.assertEqual(e["execution_mode"], "OPERATOR_LIVE")
+        self.assertEqual(e["state"], "BLOCKED")
+        self.assertFalse(e["business_uat_verified"])
+        self.assertFalse(e["candidate_source_verified"])
+
+    def test_missing_claim_never_implies_candidate_match(self):
+        _, report = self.run_claim()
+        e = report["advisoryEvidence"]
+        self.assertIsNone(e["candidate"])
+        self.assertIsNone(e["candidate_tree_claim"])
+        self.assertIn("CANDIDATE_CLAIM_MISSING", e["findings"])
+
+    def test_invalid_claim_blocks_before_helper_load(self):
+        from unified_staging_s5_regression import run_operator_once, APPROVAL
+        for claim in ({"commit": "a" * 40}, dict(self.claim(), tree="not-a-sha"),
+                      dict(self.claim(), backend_image="sha256:" + "f" * 64),
+                      dict(self.claim(), arbitrary="injection")):
+            with patch("unified_staging_s5_regression.load_helper") as loader:
+                with self.assertRaisesRegex(RuntimeError, "INVALID_CANDIDATE_CLAIM|CANDIDATE_IMAGE_PIN_MISMATCH"):
+                    run_operator_once(self.root / "p420.py", self.root, self.root / "b.json",
+                                      confirmation=APPROVAL, candidate_claim=claim)
+                loader.assert_not_called()
+
+    def test_lost_create_evidence_never_complete(self):
+        _, report = self.run_claim(live=True, claim=self.claim(), fault="lost_create")
+        self.assertEqual(report["state"], "S5_LOCAL_REGRESSION_REVIEW_REQUIRED")
+        e = report["advisoryEvidence"]
+        self.assertEqual(e["state"], "BLOCKED")
+        self.assertFalse(e["regression_complete_claimed"])
+        self.assertIn("BUSINESS_REGRESSION_INCOMPLETE", e["findings"])
+        self.assertEqual(e["journal_recorded_mutation_outcomes"]["unknown_or_pending"], 1)
+
+    def test_runtime_drift_has_no_advisory_evidence(self):
+        _, report = self.run_claim(live=True, claim=self.claim(), fault="runtime_after_write")
+        self.assertIsNone(report["advisoryEvidence"])
+        self.assertEqual(report["businessMutationRequests"], 1)
+
+    def test_evidence_read_failure_preserves_mutation_counts(self):
+        with patch("unified_staging_s5_regression._baseline_bytes", side_effect=RuntimeError):
+            _, report = self.run_claim(live=True, claim=self.claim())
+        self.assertIsNone(report["advisoryEvidence"])
+        self.assertEqual(report["businessMutationRequests"], 58)
+
+    def test_clock_reversal_suppresses_summary(self):
+        with patch("unified_staging_s5_regression.time.time", side_effect=[200, 201, 202, 199]):
+            _, report = self.run_claim(claim=self.claim())
+        self.assertIsNone(report["advisoryEvidence"])
+
+    def test_local_source_change_suppresses_summary(self):
+        from unified_staging_s5_regression import _source_digests
+        first = _source_digests()
+        second = dict(first, regression="sha256:" + "f" * 64)
+        with patch("unified_staging_s5_regression._source_digests", side_effect=[first, second]):
+            _, report = self.run_claim(claim=self.claim())
+        self.assertIsNone(report["advisoryEvidence"])
+
+    def test_no_cli_partial_candidate_claim(self):
+        from unified_staging_s5_regression import main
+        with patch.object(sys, "argv", ["runner", "--candidate-commit", "a"*40]), \
+             patch("unified_staging_s5_regression.load_helper") as loader:
+            with self.assertRaises(SystemExit) as exc:
+                main()
+            self.assertEqual(exc.exception.code, 2)
+            loader.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
