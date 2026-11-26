@@ -891,5 +891,93 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(result["state"],"VERIFIED")
         self.assertIsNone(result["result"])
 
+
+class RelayTests(unittest.TestCase):
+    setUpClass=classmethod(CryptoTests.setUpClass.__func__)
+    request=CryptoTests.request
+    event=DispatchTests.event
+    decode=DispatchTests.decode
+    query=DispatchTests.query
+    setUp=DispatchTests.setUp
+
+    def exchange(self,req,comment_id,provider,allowed=frozenset()):
+        import socket
+        from concurrent.futures import ThreadPoolExecutor
+        from bridge import relay_receiver,relay_sender
+        cert,key=self.identities["server"]
+        client,server=socket.socketpair()
+        client.settimeout(10)
+        server.settimeout(10)
+        event=self.event(req,comment_id)
+        def receive():
+            with server,server.makefile("rb",buffering=0) as incoming,server.makefile("wb",buffering=0) as outgoing:
+                relay_receiver(incoming,outgoing,issue=123,ledger=self.ledger,
+                               recipient_cert=cert,recipient_key=key,signer_cert=cert,signer_key=key,now=NOW)
+                server.shutdown(socket.SHUT_WR)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending=pool.submit(receive)
+            try:
+                with client,client.makefile("rb",buffering=0) as incoming,client.makefile("wb",buffering=0) as outgoing:
+                    result=relay_sender(event,REPOSITORY,"refs/heads/main",123,incoming,outgoing,
+                                        close_input=lambda:client.shutdown(socket.SHUT_WR),
+                                        provider=provider,approved_producers=allowed,scratch=self.ledger.root)
+                pending.result(timeout=15)
+                return result
+            finally:
+                client.close()
+
+    def test_duplex_submit_external_and_cross_chat(self):
+        import io
+        from unittest.mock import Mock
+        from executor import Ledger
+        req=self.request()
+        item=inline("config.json",b"{}")
+        item["source"]={"kind":"repository","repository":REPOSITORY,
+                        "commit":"b"*40,"path":"fixtures/config.json"}
+        req["job"]["manifest"]["files"].append(item)
+        req["job"]["manifestSha256"]=manifest_sha256(req["job"]["manifest"])
+        req["manifestSha256"]=req["job"]["manifestSha256"]
+        provider=Mock()
+        provider.repository_file.return_value=io.BytesIO(b"{}")
+        receipt=self.decode(self.exchange(req,1,provider),req)
+        self.assertEqual(receipt["state"],"VERIFIED")
+        provider.repository_file.assert_called_once_with("b"*40,"fixtures/config.json")
+        jid,md=req["jobId"],req["manifestSha256"]
+        self.assertEqual((self.ledger.root/"jobs"/jid/"config.json").read_bytes(),b"{}")
+        self.ledger.claim(jid,md,NOW)
+        self.ledger.finish(jid,md,"SUCCEEDED",{"exitCode":0,"summary":"synthetic"},NOW)
+        self.ledger=Ledger(self.ledger.root)
+        query=self.query(req,"result")
+        query["replyCertificate"]=self.identities["other"][0].decode("ascii")
+        reply=self.decode(self.exchange(query,2,provider),query,self.identities["other"][1])
+        self.assertEqual(reply["result"],{"exitCode":0,"summary":"synthetic"})
+        provider.repository_file.assert_called_once()
+
+    def test_duplex_ci_artifact(self):
+        raw=BridgeTests.archive_bytes([("image.tar",b"image data")])
+        j=BridgeTests.artifact_job(self,raw)
+        req=self.request()
+        req.update(job=j,jobId=j["jobId"],manifestSha256=j["manifestSha256"],nonce=j["nonce"])
+        provider=BridgeTests.provider(j,raw)
+        receipt=self.decode(self.exchange(req,1,provider,{("build.yml","b"*40)}),req)
+        self.assertEqual(receipt["state"],"VERIFIED")
+        provider.artifact_zip.assert_called_once_with(2)
+        self.assertEqual((self.ledger.root/"jobs"/j["jobId"]/"image.tar").read_bytes(),b"image data")
+
+    def test_control_and_plan_rejection(self):
+        import io
+        import struct
+        from bridge import read_control,write_control,CONTROL_MAGIC,MAX_CONTROL,_validate_plan
+        stream=io.BytesIO()
+        write_control(stream,{"done":True})
+        stream.seek(0)
+        self.assertEqual(read_control(stream),{"done":True})
+        with self.assertRaises(InvalidJob):
+            read_control(io.BytesIO(CONTROL_MAGIC+struct.pack(">I",MAX_CONTROL+1)))
+        j=job()
+        plan={"version":11,"jobId":j["jobId"],"manifestSha256":j["manifestSha256"],
+              "files":[inline()]}
+        with self.assertRaises(InvalidJob): _validate_plan(plan,j["jobId"])
+
 if __name__ == "__main__":
     unittest.main()
