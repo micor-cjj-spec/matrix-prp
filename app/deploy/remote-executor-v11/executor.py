@@ -31,6 +31,12 @@ CHUNK = 1024 * 1024
 MAX_RETAINED_JOBS = 32
 MAX_RESERVED_BYTES = 1024 * 1024 * 1024
 MAX_RETAINED_REQUESTS = 1024
+MAX_PHYSICAL_SPOOL_BYTES = MAX_RESERVED_BYTES
+MIN_FREE_BYTES = 512 * 1024 * 1024
+MIN_FREE_INODES = 1024
+RECOVERY_GRACE_SECONDS = 180
+TERMINAL_RETENTION_SECONDS = 24 * 60 * 60
+CLEANUP_STATES = frozenset({"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED", "REJECTED"})
 
 def _private_dir(path):
     info = path.lstat()
@@ -67,7 +73,11 @@ class Ledger:
                 id TEXT PRIMARY KEY, nonce TEXT UNIQUE NOT NULL,
                 manifest TEXT NOT NULL, digest TEXT NOT NULL,
                 state TEXT NOT NULL, expires INTEGER NOT NULL,
-                updated INTEGER NOT NULL, result TEXT)""")
+                updated INTEGER NOT NULL, result TEXT,
+                artifacts_purged INTEGER NOT NULL DEFAULT 0)""")
+            columns = {row["name"] for row in con.execute("PRAGMA table_info(jobs)")}
+            if "artifacts_purged" not in columns:
+                con.execute("ALTER TABLE jobs ADD COLUMN artifacts_purged INTEGER NOT NULL DEFAULT 0")
             con.execute("""CREATE TABLE IF NOT EXISTS requests (
                 id TEXT PRIMARY KEY, nonce TEXT UNIQUE NOT NULL,
                 comment_id INTEGER UNIQUE NOT NULL, job_id TEXT NOT NULL,
@@ -111,6 +121,143 @@ class Ledger:
             return {"state": row["state"], "result": result}
 
 
+    def _tree_usage(self):
+        """Measure the actual artifact spool without following links."""
+        _private_dir(self.spool)
+        total = 0
+        entries = 0
+        pending = [self.spool]
+        while pending:
+            directory = pending.pop()
+            with os.scandir(directory) as children:
+                for child in children:
+                    path = Path(child.path)
+                    info = child.stat(follow_symlinks=False)
+                    entries += 1
+                    if stat.S_ISDIR(info.st_mode):
+                        _private_dir(path)
+                        pending.append(path)
+                    elif stat.S_ISREG(info.st_mode):
+                        _private_file(path)
+                        total += info.st_size
+                    else:
+                        raise InvalidJob("unexpected spool entry")
+        return total, entries
+
+    def _assert_storage_capacity(self, additional_bytes=0, additional_inodes=1):
+        """Application quota plus a real filesystem free-space/inode reserve."""
+        require(type(additional_bytes) is int and 0 <= additional_bytes <= MAX_RESERVED_BYTES,
+                "invalid storage reservation")
+        require(type(additional_inodes) is int and 0 <= additional_inodes <= 1024,
+                "invalid inode reservation")
+        used, _ = self._tree_usage()
+        require(used + additional_bytes <= MAX_PHYSICAL_SPOOL_BYTES,
+                "physical spool capacity exhausted")
+        try:
+            capacity = os.statvfs(self.root)
+        except OSError as exc:
+            raise InvalidJob("filesystem capacity unavailable") from exc
+        available = capacity.f_bavail * capacity.f_frsize
+        require(capacity.f_frsize > 0 and available >= MIN_FREE_BYTES + additional_bytes,
+                "filesystem free-space reserve exhausted")
+        require(capacity.f_favail >= MIN_FREE_INODES + additional_inodes,
+                "filesystem inode reserve exhausted")
+
+    def _remove_partial_files(self):
+        """Remove only interrupted transfer temporaries after the SQLite writer lock."""
+        removed = 0
+        pending = [self.spool]
+        while pending:
+            directory = pending.pop()
+            changed = False
+            with os.scandir(directory) as children:
+                for child in children:
+                    path = Path(child.path)
+                    info = child.stat(follow_symlinks=False)
+                    if stat.S_ISDIR(info.st_mode):
+                        _private_dir(path)
+                        pending.append(path)
+                    elif stat.S_ISREG(info.st_mode):
+                        _private_file(path)
+                        if path.name.startswith(".") and path.name.endswith(".partial"):
+                            path.unlink()
+                            removed += 1
+                            changed = True
+                    else:
+                        raise InvalidJob("unexpected spool entry")
+            if changed:
+                _sync_dir(directory)
+        return removed
+
+    def _purge_job_artifacts(self, job_id):
+        """Delete one terminal job's files, never its durable ledger row."""
+        require(type(job_id) is str and str(uuid.UUID(job_id)) == job_id,
+                "invalid cleanup job identity")
+        folder = self.spool / job_id
+
+        def clear(directory):
+            _private_dir(directory)
+            with os.scandir(directory) as children:
+                for child in children:
+                    path = Path(child.path)
+                    info = child.stat(follow_symlinks=False)
+                    if stat.S_ISDIR(info.st_mode):
+                        _private_dir(path)
+                        clear(path)
+                    elif stat.S_ISREG(info.st_mode):
+                        _private_file(path)
+                        path.unlink()
+                    else:
+                        raise InvalidJob("unexpected job artifact")
+            directory.rmdir()
+            _sync_dir(directory.parent)
+
+        try:
+            folder.lstat()
+        except FileNotFoundError:
+            return
+        clear(folder)
+
+    def recover(self, now=None):
+        """Fail-closed restart reconciliation and bounded terminal artifact cleanup.
+
+        RUNNING is never retried. It becomes RECONCILE_REQUIRED only after the
+        worker cgroup is empty and the fixed execution grace period has elapsed.
+        Job/request rows and unique replay barriers are retained permanently.
+        """
+        partials_removed = 0
+        uncertain = 0
+        artifacts_purged = 0
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            checked_at = int(time.time() if now is None else now)
+            worker_active = _worker_cgroup_active()
+            rows = con.execute("SELECT id,state,expires,updated FROM jobs").fetchall()
+            for row in rows:
+                if (row["state"] == "RUNNING"
+                        and checked_at - row["updated"] >= RECOVERY_GRACE_SECONDS
+                        and not worker_active):
+                    con.execute("UPDATE jobs SET state='RECONCILE_REQUIRED',updated=? WHERE id=? AND state='RUNNING'",
+                                (checked_at, row["id"]))
+                    uncertain += 1
+                elif (row["state"] in ("RECEIVED", "TRANSFERRING", "VERIFIED")
+                      and row["expires"] <= checked_at):
+                    con.execute("UPDATE jobs SET state='CANCELLED',updated=? WHERE id=?",
+                                (checked_at, row["id"]))
+            partials_removed = self._remove_partial_files()
+            cutoff = checked_at - TERMINAL_RETENTION_SECONDS
+            expired = con.execute("""SELECT id FROM jobs
+                WHERE artifacts_purged=0 AND state IN
+                ('SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','REJECTED')
+                AND updated<=?""", (cutoff,)).fetchall()
+            for row in expired:
+                self._purge_job_artifacts(row["id"])
+                con.execute("UPDATE jobs SET artifacts_purged=1 WHERE id=? AND artifacts_purged=0",
+                            (row["id"],))
+                artifacts_purged += 1
+        return {"partialsRemoved": partials_removed, "uncertain": uncertain,
+                "artifactsPurged": artifacts_purged}
+
     @contextmanager
     def _connect(self):
         _private_dir(self.root)
@@ -131,13 +278,16 @@ class Ledger:
         job_id = job["jobId"]
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
-            retained = con.execute("SELECT manifest FROM jobs").fetchall()
+            retained = con.execute("SELECT manifest FROM jobs WHERE artifacts_purged=0").fetchall()
             require(len(retained) < MAX_RETAINED_JOBS, "job retention capacity exhausted")
             reserved = sum(f["size"] for row in retained for f in parse(row["manifest"].encode("ascii"))["files"])
             incoming = sum(f["size"] for f in job["manifest"]["files"])
             require(reserved + incoming <= MAX_RESERVED_BYTES, "spool reservation exhausted")
+            self._assert_storage_capacity(incoming, len(job["manifest"]["files"]))
             try:
-                con.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,NULL)",
+                con.execute("""INSERT INTO jobs
+                    (id,nonce,manifest,digest,state,expires,updated,result,artifacts_purged)
+                    VALUES(?,?,?,?,?,?,?,NULL,0)""",
                             (job_id, job["nonce"], canonical(job["manifest"]).decode("ascii"),
                              job["manifestSha256"], "RECEIVED", job["expiresAt"], now))
             except sqlite3.IntegrityError as exc:
@@ -203,6 +353,8 @@ class Ledger:
             if temp.exists() or temp.is_symlink():
                 _private_file(temp)
                 temp.unlink()
+                _sync_dir(dest.parent)
+            self._assert_storage_capacity(item["size"], 1 + path.count("/"))
             fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             count = 0
             hasher = hashlib.sha256()
@@ -326,6 +478,18 @@ class Ledger:
 SANDBOX_ROOT = Path("/opt/matrix-prp-remote-executor-v11/rootfs")
 SANDBOX_GATE = Path("/etc/matrix-prp-remote-executor-v11/sandbox.enabled")
 SANDBOX_CGROUP = "/system.slice/prp-remote-executor-v11.service"
+
+
+def _worker_cgroup_active():
+    """Conservatively detect a live fixed worker before crash reconciliation."""
+    path = Path("/sys/fs/cgroup") / SANDBOX_CGROUP.lstrip("/") / "cgroup.procs"
+    try:
+        return bool(path.read_text().strip())
+    except FileNotFoundError:
+        return False
+    except OSError:
+        # Unreadable cgroup state is not proof that execution stopped.
+        return True
 BWRAP = Path("/usr/bin/bwrap")
 PRLIMIT = Path("/usr/bin/prlimit")
 SANDBOX_OPS = frozenset({"sandbox.bash", "sandbox.python"})
