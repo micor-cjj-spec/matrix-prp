@@ -1,6 +1,6 @@
 # Remote Executor V1.1 — detailed offline candidate
 
-Status: design only. Reuse #277 / #273 / #296 / #299 CMS and SSH transport; reference #309 / #424 security findings and #396 / #456 regression contract. No activation, new live permission, merge or deployment authorized.
+Status: P1 protocol and P2 offline ledger/spool candidate implemented; tests pending exact-head CI. Reuse #277 / #273 / #296 / #299 CMS and SSH transport; reference #309 / #424 security findings and #396 / #456 regression contract. No activation, new live permission, merge or deployment authorized.
 
 ## Objective and delivery scope
 
@@ -51,3 +51,7 @@ E2E acceptance: harmless Bash/Python, multi-file upload with SHA256, trusted CI 
 - .github/workflows/remote-executor-v11.yml (default disabled; no live secrets in PR CI)
 
 Implementation order: P1 immutable manifest/inline and CI artifact contract; P2 sandbox/ledger/status; P3 trusted bridge and streamed CI artifact; P4 offline and complete CI plus independent code review; P5 separately authorized initialization and E2E. No changes to other tasks, production publication hold, existing workflows, OAuth or Keycloak. No merge/deployment without explicit separate approval.
+
+## Implementation checkpoint P2
+
+The internal Ledger provides durable SQLite job/nonce claim, private per-job files, bounded streaming with SHA256 verification, atomic file publication, preclaim re-verification, single active/uncertain job, pending cancellation, persistent status and bounded result. It contains no process launcher or network interface. Interrupted transfer restarts a single file from byte zero; true chunk resume remains P3. No actual shell, Python, SSH, or staging operation runs. The caller must authenticate, bind approval and provide a validated isolation adapter; the manifest digest is not an authentication credential. Remaining live blockers include cumulative disk quota/TTL/cleanup, trusted spool ownership and separate sandbox identity, transport deadlines, host resource isolation, result signing, stage mutex integration, and explicit uncertain-state reconciliation. Offline tests use temporary local storage and synthetic result records. No live server activation.
