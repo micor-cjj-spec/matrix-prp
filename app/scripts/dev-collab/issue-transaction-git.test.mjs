@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {buildOwnerRulesetAttestation,REQUIRED_CHECKS} from './review-gate.mjs'
+import {historical271Fixture} from './review-historical-271.test.mjs'
 const OWNER='micor-cjj-spec',REPO=OWNER+'/matrix-prp'
 const REF='refs/heads/prp-collab-state',REQ='requirements/REQ-20261031-001.json'
 const location=fileURLToPath(new URL('.',import.meta.url))
@@ -113,7 +114,7 @@ const policy=()=>({
   "current_user_can_bypass": "never"
 })
 const reviewHead='a'.repeat(40),reviewMerge='b'.repeat(40),reviewClaim='11111111-1111-4111-8111-111111111111'
-function setup({v1=false,review=false,capture=false}={}){
+function setup({v1=false,review=false,capture=false,historicalTask=null}={}){
  const root=mkdtempSync(join(tmpdir(),'prp-issue-local-'))
  const origin=join(root,'origin.git'),seed=join(root,'seed'),runner=join(root,'runner')
  mkdirSync(seed)
@@ -127,7 +128,7 @@ function setup({v1=false,review=false,capture=false}={}){
  for(const filename of [
   'core.mjs','issue-ingress.mjs','issue-transaction.mjs','issue-migrate.mjs',
   'migration-guard.mjs','bootstrap-audit.mjs','state-rule-policy.mjs','task-scope-policy.mjs','ruleset-415-attestation.mjs',
-  ...(review?['review-context.mjs','review-gate.mjs','review-provenance.mjs','review-receipt-runtime.mjs','review-receipt.mjs','review-receipt-store.mjs']:[])])
+  ...(review?['review-context.mjs','review-gate.mjs','review-provenance.mjs','review-receipt-runtime.mjs','review-receipt.mjs','review-receipt-store.mjs']:[]),...(historicalTask?['review-historical-271.mjs']:[])])
   cpSync(join(location,filename),join(dest,filename))
  mkdirSync(join(seed,'app/deploy'),{recursive:true})
  writeFileSync(join(seed,'app/deploy/publication-hold.json'),
@@ -138,8 +139,8 @@ function setup({v1=false,review=false,capture=false}={}){
  const main=git(seed,'rev-parse','HEAD')
  git(seed,'checkout','-b','prp-collab-state')
  mkdirSync(join(seed,'requirements'))
- const seedSnapshot=(v1||review)?reviewedV1():initial()
- if(review)Object.assign(seedSnapshot.tasks[0],{status:'IN_REVIEW',
+ const seedSnapshot=historicalTask?historical271Fixture(historicalTask).snapshot:(v1||review)?reviewedV1():initial()
+ if(review&&!historicalTask)Object.assign(seedSnapshot.tasks[0],{status:'IN_REVIEW',
    claim:{claim_id:reviewClaim,worker_id:'chat-A',actor:OWNER},pr_number:138,head_sha:reviewHead})
  if(capture){
    const submitId='33333333-3333-4333-8333-333333333333'
@@ -300,11 +301,27 @@ function setup({v1=false,review=false,capture=false}={}){
    writeFileSync(mockFetch,"import {readFileSync} from 'node:fs';globalThis.fetch=async (url,opts)=>{const u=new URL(url);if(u.origin!=='https://api.github.com'||opts?.headers?.Authorization!=='Bearer not-a-real-token')throw Error('unexpected external fetch');const value=JSON.parse(readFileSync(process.env.PRP_MOCK_REVIEW_ROUTES,'utf8'))[u.pathname.slice(1)];if(typeof value!=='string')throw Error('missing log fixture');return new Response(value,{status:200})}")
    return {...extra,NODE_OPTIONS:'--import='+mockFetch}
  }
+ const prepareHistorical271=()=>{
+   assert.ok(historicalTask&&review)
+   const extra=prepareReview(),fixture=historical271Fixture(historicalTask,main,first)
+   const {command,request_id,claim_id,HEAD}=fixture,req='REQ-20261031-001',version=fixture.snapshot.version
+   const note=buildOwnerRulesetAttestation(policy(),{requestId:request_id,action:'accept',requirementId:req,taskId:historicalTask,
+     prNumber:271,headSha:HEAD,stateVersion:version,mainSha:main,stateSha:first,observedAt:new Date(Date.now()-1000).toISOString()})
+   prepare({schema_version:1,action:'accept_historical_271',request_id,requirement_id:req,task_id:historicalTask,
+     worker_id:command.worker_id,claim_id,expected_version:version,expected_state_sha:first,pr_number:271,head_sha:HEAD,policy_attestation:note})
+   const root='repos/'+REPO,oldRoutes=JSON.parse(readFileSync(routesPath,'utf8'))
+   const routes={...fixture.routes,[root+'/rulesets/28050327']:oldRoutes[root+'/rulesets/28050327'],[root+'/actions/runs/9001']:oldRoutes[root+'/actions/runs/9001']}
+   routes[root+'/actions/runs/9001'].created_at=new Date().toISOString()
+   writeFileSync(routesPath,JSON.stringify(routes))
+   const mockFetch=join(temp,'mock-fetch.mjs')
+   writeFileSync(mockFetch,"import {readFileSync} from 'node:fs';globalThis.fetch=async (url,opts)=>{const u=new URL(url);if(u.origin!=='https://api.github.com'||opts?.headers?.Authorization!=='Bearer not-a-real-token')throw Error('unexpected external fetch');const value=JSON.parse(readFileSync(process.env.PRP_MOCK_REVIEW_ROUTES,'utf8'))[u.pathname.slice(1)];if(typeof value!=='string')throw Error('missing log fixture');return new Response(value,{status:200})}")
+   return {...extra,NODE_OPTIONS:'--import='+mockFetch}
+ }
  const execute=(extra={})=>spawnSync(process.execPath,['app/scripts/dev-collab/issue-transaction.mjs'],
-  {cwd:runner,env:{...env,...extra},encoding:'utf8',timeout:capture?90000:15000})
+  {cwd:runner,env:{...env,...extra},encoding:'utf8',timeout:capture||historicalTask?120000:15000})
  const head=()=>git(root,'--git-dir',origin,'rev-parse',REF)
  const snapshot=()=>JSON.parse(git(root,'--git-dir',origin,'show',REF+':'+REQ))
- return {root,prepare,prepareTaskIssue,prepareReview,prepareCapture,execute,head,snapshot,initialHead:first,initialMain:main,origin,checkpointSha,appReposPath,ruleReadsPath,
+ return {root,prepare,prepareTaskIssue,prepareReview,prepareCapture,prepareHistorical271,execute,head,snapshot,initialHead:first,initialMain:main,origin,checkpointSha,appReposPath,ruleReadsPath,
   dispose:()=>rmSync(root,{recursive:true,force:true})}
 }
 test('isolated Git: owner probe verifies App scope without mutating protected state',
@@ -631,4 +648,32 @@ test('real isolated Git: evidence drift in final capture recheck prevents any st
    const result=f.execute({...f.prepareCapture(),PRP_MOCK_POLICY_DRIFT:'1',PRP_MOCK_POLICY_DRIFT_AFTER:'3'})
    assert.notEqual(result.status,0);assert.equal(f.head(),initial);assert.deepEqual(f.snapshot(),before)
  }finally{f.dispose()}
+})
+
+test('real isolated Git: historical #271 accepts T-002 and T-003 independently, one state file and exact replay', {timeout:300000},()=>{
+ for(const historicalTask of ['T-002','T-003']){
+  const h=setup({review:true,historicalTask})
+  try{
+   const before=h.snapshot(),extra=h.prepareHistorical271(),result=h.execute(extra)
+   assert.equal(result.status,0,result.stderr)
+   const after=h.snapshot(),sha=h.head()
+   assert.equal(after.version,before.version+1)
+   assert.equal(after.tasks.find(t=>t.task_id===historicalTask).status,'DONE')
+   assert.deepEqual(after.tasks.filter(t=>t.task_id!==historicalTask),before.tasks.filter(t=>t.task_id!==historicalTask))
+   assert.equal(git(h.root,'--git-dir',h.origin,'show','-s','--format=%P',sha),h.initialHead)
+   assert.equal(git(h.root,'--git-dir',h.origin,'diff','--name-only',h.initialHead,sha),REQ)
+   // A fresh runner temp directory simulates an independent retry of the same Issue.
+   const retry=join(h.root,'retry-temp');mkdirSync(retry)
+   const replay=h.execute({...extra,RUNNER_TEMP:retry})
+   assert.equal(replay.status,0,replay.stderr);assert.equal(h.head(),sha)
+  }finally{h.dispose()}
+ }
+})
+test('real isolated Git: #271 final Ruleset recheck failure preserves the exact original state', {timeout:180000},()=>{
+ const h=setup({review:true,historicalTask:'T-003'})
+ try{
+  const before=h.snapshot(),extra=h.prepareHistorical271(),result=h.execute({...extra,PRP_MOCK_POLICY_DRIFT:'1',PRP_MOCK_POLICY_DRIFT_AFTER:'3'})
+  assert.notEqual(result.status,0);assert.match(result.stderr,/OWNER_RULESET_ATTESTATION_POLICY|INTEGRATION_POLICY_DRIFT/)
+  assert.equal(h.head(),h.initialHead);assert.deepEqual(h.snapshot(),before)
+ }finally{h.dispose()}
 })
