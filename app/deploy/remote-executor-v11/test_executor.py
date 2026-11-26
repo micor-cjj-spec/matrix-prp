@@ -784,5 +784,112 @@ class ProviderTests(unittest.TestCase):
             with self.assertRaises(InvalidJob): ssh_receive_argv(host,"/tmp/key","/tmp/hosts")
         with self.assertRaises(InvalidJob): ssh_receive_argv("staging.example.invalid","relative","/tmp/hosts")
 
+
+class DispatchTests(unittest.TestCase):
+    # Reuse only ephemeral test identity setup, not inherited test methods.
+    setUpClass=classmethod(CryptoTests.setUpClass.__func__)
+    request=CryptoTests.request
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from executor import Ledger
+        from unittest.mock import Mock
+        self.tmp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.ledger=Ledger(Path(self.tmp.name))
+        self.provider=Mock()
+
+    def event(self,req,comment_id):
+        from bridge import OWNER
+        from protocol import seal_request
+        cipher=seal_request(req,self.identities["server"][0],NOW)
+        encoded=base64.urlsafe_b64encode(cipher).decode("ascii").rstrip("=")
+        actor={"login":OWNER,"type":"User"}
+        return {"action":"created","repository":{"full_name":REPOSITORY},
+                "sender":actor,"issue":{"number":123,"state":"open"},
+                "comment":{"id":comment_id,"user":actor,
+                "body":"/prp-remote-v11 "+req["jobId"]+" "+encoded}}
+
+    def dispatch(self,event,issue=123):
+        from bridge import dispatch_event
+        cert,key=self.identities["server"]
+        return dispatch_event(event,REPOSITORY,"refs/heads/main",issue,self.ledger,
+                              self.provider,cert,key,cert,key,now=NOW)
+
+    def decode(self,body,req,key=None):
+        from protocol import open_receipt
+        prefix,rid,encoded=body.split(" ")
+        self.assertEqual((prefix,rid),("/prp-remote-result-v11",req["requestId"]))
+        cipher=base64.urlsafe_b64decode(encoded+"="*(-len(encoded)%4))
+        return open_receipt(cipher,req,key or self.identities["reply"][1],
+                            self.identities["server"][0],NOW)
+
+    def query(self,req,action):
+        return dict(req,action=action,job=None,requestId=str(uuid.uuid4()),
+                    nonce=uuid.uuid4().hex)
+
+    def test_submit_and_cross_identity_query(self):
+        from executor import Ledger
+        req=self.request()
+        event=self.event(req,1)
+        receipt=self.decode(self.dispatch(event),req)
+        self.assertEqual(receipt["state"],"VERIFIED")
+        self.assertIsNone(receipt["result"])
+        self.assertNotIn("print",event["comment"]["body"])
+        jid,md=req["jobId"],req["manifestSha256"]
+        # Synthetic worker completion only. Dispatch cannot execute scripts.
+        self.ledger.claim(jid,md,NOW)
+        self.ledger.finish(jid,md,"SUCCEEDED",{"exitCode":0,"summary":"synthetic"},NOW)
+        self.ledger=Ledger(self.ledger.root)
+        status=self.query(req,"status")
+        self.assertIsNone(self.decode(self.dispatch(self.event(status,2)),status)["result"])
+        query=self.query(req,"result")
+        query["replyCertificate"]=self.identities["other"][0].decode("ascii")
+        result=self.decode(self.dispatch(self.event(query,3)),query,self.identities["other"][1])
+        self.assertEqual(result["result"],{"exitCode":0,"summary":"synthetic"})
+        self.assertEqual(self.ledger.status(jid,md)["state"],"SUCCEEDED")
+
+    def test_replay_across_restart_and_comment_reuse(self):
+        from executor import Ledger
+        req=self.request()
+        event=self.event(req,1)
+        self.dispatch(event)
+        self.ledger=Ledger(self.ledger.root)
+        with self.assertRaises(InvalidJob): self.dispatch(event)
+        query=self.query(req,"status")
+        self.dispatch(self.event(query,2))
+        with self.assertRaises(InvalidJob): self.dispatch(self.event(query,3))
+        fresh=self.query(req,"status")
+        with self.assertRaises(InvalidJob): self.dispatch(self.event(fresh,2))
+        fresh["nonce"]=query["nonce"]
+        with self.assertRaises(InvalidJob): self.dispatch(self.event(fresh,4))
+
+    def test_wrong_identity_digest_and_issue(self):
+        req=self.request()
+        event=self.event(req,1)
+        bad=dict(event,sender={"login":"not-owner","type":"User"})
+        with self.assertRaises(InvalidJob): self.dispatch(bad)
+        with self.assertRaises(InvalidJob): self.dispatch(event,277)
+        self.dispatch(event)
+        q=self.query(req,"result")
+        q["manifestSha256"]="f"*64
+        with self.assertRaises(InvalidJob): self.dispatch(self.event(q,2))
+        q=self.query(req,"result")
+        q["jobId"]=str(uuid.uuid4())
+        with self.assertRaises(InvalidJob): self.dispatch(self.event(q,3))
+
+    def test_query_does_not_claim_or_transfer(self):
+        from unittest.mock import patch
+        req=self.request()
+        self.dispatch(self.event(req,1))
+        q=self.query(req,"result")
+        with patch("bridge.transfer_job") as transfer, patch.object(self.ledger,"claim") as claim:
+            result=self.decode(self.dispatch(self.event(q,2)),q)
+            transfer.assert_not_called()
+            claim.assert_not_called()
+        self.assertEqual(result["state"],"VERIFIED")
+        self.assertIsNone(result["result"])
+
 if __name__ == "__main__":
     unittest.main()
