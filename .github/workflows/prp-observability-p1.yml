@@ -25,3 +25,12 @@ jobs:
           persist-credentials: false
       - name: Bounded capacity and TSDB block test (no PRP host)
         run: python3 app/observability/ci_capacity.py
+  isolated-pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exact compose candidate and native metric semantics
+        run: python3 app/observability/ci_pilot.py
