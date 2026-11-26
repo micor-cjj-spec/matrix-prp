@@ -986,9 +986,10 @@ class RelayTests(unittest.TestCase):
         from unittest.mock import patch
         from bridge import relay_over_ssh,_Pipe
         req=self.request()
+        event=self.event(req,1)
         with patch("bridge.subprocess.Popen") as launch:
             with self.assertRaises(InvalidJob):
-                relay_over_ssh(self.event(req,1),REPOSITORY,"refs/heads/main",123)
+                relay_over_ssh(event,REPOSITORY,"refs/heads/main",123)
             launch.assert_not_called()
         read_fd,write_fd=os.pipe()
         with os.fdopen(read_fd,"rb",buffering=0) as source,os.fdopen(write_fd,"wb",buffering=0) as sink:
