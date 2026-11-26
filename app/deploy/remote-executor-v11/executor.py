@@ -584,8 +584,11 @@ def worker_once(ledger, *, enabled=False, now=None):
     return dispatch_verified_job(ledger, *selected, enabled=True, now=now)
 
 def _handoff_accounts():
-    receiver = pwd.getpwnam(SERVICE_USER)
-    worker = pwd.getpwnam(WORKER_USER)
+    try:
+        receiver = pwd.getpwnam(SERVICE_USER)
+        worker = pwd.getpwnam(WORKER_USER)
+    except (KeyError, OSError):
+        raise InvalidJob("handoff identities unavailable") from None
     require(receiver.pw_uid > 0 and worker.pw_uid > 0 and receiver.pw_uid != worker.pw_uid
             and receiver.pw_gid > 0 and worker.pw_gid > 0 and receiver.pw_gid != worker.pw_gid,
             "distinct handoff identities required")
@@ -717,9 +720,9 @@ def handoff_once(ledger, *, enabled=False):
 def worker_main():
     """Fixed one-shot worker; no receiver ledger or private key access."""
     require(sys.argv[1:] == ["worker-once"], "invalid worker invocation")
-    receiver, worker = _handoff_accounts()
     service_identity(WORKER_USER)
     host_gate(WORKER_GATE, b"PRP_STAGING_WORKER_V11\n")
+    receiver, worker = _handoff_accounts()
     sandbox_preflight()
     _private_dir(WORK_ROOT)
     _handoff_dir(receiver, worker)

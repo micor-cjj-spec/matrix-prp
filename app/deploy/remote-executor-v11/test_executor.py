@@ -1325,6 +1325,18 @@ class LocalHandoffTests(unittest.TestCase):
         self.assertEqual(result["state"],"SUCCEEDED")
         self.assertEqual(list(work.iterdir()),[])
 
+    def test_missing_or_shared_handoff_identity_denied(self):
+        from executor import _handoff_accounts
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        with patch("executor.pwd.getpwnam",side_effect=KeyError("missing")):
+            with self.assertRaises(InvalidJob):
+                _handoff_accounts()
+        account=SimpleNamespace(pw_uid=1001,pw_gid=1001)
+        with patch("executor.pwd.getpwnam",return_value=account):
+            with self.assertRaises(InvalidJob):
+                _handoff_accounts()
+
     def test_peer_mismatch_and_default_off(self):
         import socket
         from types import SimpleNamespace
