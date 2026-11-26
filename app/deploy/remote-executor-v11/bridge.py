@@ -6,6 +6,7 @@ using fixed GitHub API routes. A manifest is not proof of artifact provenance.
 from contextlib import contextmanager
 import base64
 import binascii
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import os
@@ -32,12 +33,26 @@ from protocol import (REPOSITORY, MAX_ARTIFACT, MAX_FILES, InvalidJob,
 from executor import CHUNK
 
 OWNER = "micor-cjj-spec"
+OWNER_ID = 123868412  # same stable GitHub owner ID as dev-collab issue-ingress
 MAX_COMMENT = 62000
 MAX_ARCHIVE_ENTRIES = 128
-COMMAND = re.compile(r"/prp-remote-v11 ([0-9a-f-]{36}) ([A-Za-z0-9_-]{8,60000})\n?")
+COMMAND = re.compile(r"/prp-remote-v11-approve ([0-9a-f-]{36}) ([0-9a-f]{64}) ([A-Za-z0-9_-]{8,60000})\n?")
+
+def _owner(actor):
+    return (type(actor) is dict and actor.get("login") == OWNER
+            and type(actor.get("id")) is int and actor["id"] == OWNER_ID
+            and actor.get("type") == "User")
+
+def approval_body(req, encoded, now=None):
+    """Explicit owner approval binds the entire canonical request, not only
+    the job: action, nonce, expiry, reply certificate and manifest are covered."""
+    validate_request(req, now)
+    require(type(encoded) is str and re.fullmatch(r"[A-Za-z0-9_-]{8,60000}", encoded),
+            "invalid approval ciphertext")
+    return "/prp-remote-v11-approve "+req["jobId"]+" "+hashlib.sha256(canonical(req)).hexdigest()+" "+encoded
 
 def verify_event(event, repository, ref, issue):
-    """GitHub-event checks, not independent proof of chat approval."""
+    """Check forwarded event shape only. Independently fetch approval before claim."""
     require(repository == REPOSITORY and ref == "refs/heads/main", "wrong event context")
     require(type(issue) is int and issue > 0 and type(event) is dict,
             "invalid event configuration")
@@ -46,16 +61,16 @@ def verify_event(event, repository, ref, issue):
             "wrong event")
     comment = event.get("comment", {})
     for actor in (event.get("sender", {}), comment.get("user", {})):
-        require(actor.get("login") == OWNER and actor.get("type") == "User", "untrusted actor")
+        require(_owner(actor), "untrusted actor")
     item = event.get("issue", {})
     require(item.get("number") == issue and item.get("state") == "open"
             and item.get("pull_request") is None, "wrong issue")
-    require(type(comment.get("id")) is int and comment["id"] > 0, "invalid comment")
+    integer(comment.get("id"), 1, 2**63-1)
     body = comment.get("body")
     require(type(body) is str and len(body) <= MAX_COMMENT, "invalid comment body")
     match = COMMAND.fullmatch(body)
     require(match is not None, "wrong protocol")
-    job_id, ciphertext = match.groups()
+    job_id, _, ciphertext = match.groups()
     try:
         require(str(uuid.UUID(job_id)) == job_id and uuid.UUID(job_id).version == 4,
                 "invalid job id")
@@ -197,6 +212,9 @@ def decode_comment_request(event, repository, ref, issue, cert, key, now=None):
             "noncanonical ciphertext")
     request = open_request(raw, cert, key, now)
     require(public_job_id == request["jobId"], "comment job mismatch")
+    require(hmac.compare_digest(COMMAND.fullmatch(event["comment"]["body"]).group(2),
+                                hashlib.sha256(canonical(request)).hexdigest()),
+            "approval request digest mismatch")
     return request
 
 # Candidate binary framing for a single file over a future authenticated
@@ -411,6 +429,83 @@ class GitHubProvider:
         with self._response(host, path, "application/octet-stream", auth=False) as response:
             yield self._stream(response, MAX_ARTIFACT, deadline)
 
+# Public repository, fixed GitHub API, no token, no proxy or redirect.
+# Do not accept approval records supplied by the SSH client. The only live
+# caller is the receiver's fixed entrypoint; offline tests inject fixtures.
+def _approval_metadata(suffix):
+    require(type(suffix) is str and re.fullmatch(r"/issues/(?:comments/)?[1-9][0-9]{0,18}",suffix),
+            "invalid approval API route")
+    deadline = time.monotonic()+15
+    connection = http.client.HTTPSConnection(API_HOST, timeout=5,
+                                             context=ssl.create_default_context())
+    response = None
+    try:
+        connection.request("GET",API_PREFIX+suffix,
+            headers={"Accept":"application/vnd.github+json","User-Agent":"prp-remote-executor-v11",
+                     "Accept-Encoding":"identity","X-GitHub-Api-Version":"2022-11-28",
+                     "Cache-Control":"no-cache"})
+        response = connection.getresponse()
+        stream = GitHubProvider._stream(response,MAX_METADATA,deadline)
+        data = bytearray()
+        for block in chunks(stream):
+            data.extend(block)
+        value = parse(bytes(data),limit=MAX_METADATA)
+        require(type(value) is dict,"invalid approval API metadata")
+        return value
+    except (OSError,http.client.HTTPException,ValueError) as exc:
+        raise InvalidJob("independent approval unavailable") from None
+    finally:
+        if response is not None:
+            response.close()
+        connection.close()
+
+def fetch_owner_approval(issue,comment_id):
+    integer(issue,1,2**63-1)
+    integer(comment_id,1,2**63-1)
+    require(issue != 277,"production issue prohibited")
+    # Read issue first and the exact comment last, directly from GitHub.
+    return (_approval_metadata("/issues/"+str(issue)),
+            _approval_metadata("/issues/comments/"+str(comment_id)))
+
+def _github_timestamp(value):
+    require(type(value) is str and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",value),
+            "invalid approval timestamp")
+    try:
+        return int(datetime.strptime(value,"%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp())
+    except (ValueError,OverflowError,OSError):
+        raise InvalidJob("invalid approval timestamp") from None
+
+def authenticate_owner_approval(event,issue,req,lookup,now=None):
+    """Independent provenance, before claim/transfer or result disclosure.
+    The immutable Owner Issue comment is explicit authorization for this
+    request, not proof of an individual ChatGPT UI approval."""
+    require(callable(lookup),"independent approval lookup required")
+    comment_id=event["comment"]["id"]
+    item,comment=lookup(issue,comment_id)
+    base="https://"+API_HOST+API_PREFIX
+    issue_url=base+"/issues/"+str(issue)
+    require(type(item) is dict and item.get("url")==issue_url
+            and type(item.get("number")) is int and item["number"]==issue
+            and item.get("state")=="open" and "pull_request" not in item,
+            "approval issue mismatch")
+    require(type(comment) is dict and type(comment.get("id")) is int
+            and comment["id"]==comment_id
+            and comment.get("url")==base+"/issues/comments/"+str(comment_id)
+            and comment.get("issue_url")==issue_url
+            and _owner(comment.get("user"))
+            and comment.get("author_association")=="OWNER"
+            and comment.get("body")==event["comment"]["body"],
+            "approval comment mismatch")
+    created=_github_timestamp(comment.get("created_at"))
+    updated=_github_timestamp(comment.get("updated_at"))
+    current=int(time.time() if now is None else now)
+    # Revalidate after network IO. Never extend the request TTL.
+    validate_request(req,current)
+    require(created==updated and req["issuedAt"]-15 <= created < req["expiresAt"]
+            and current-300 <= created <= current+15,
+            "approval edited, stale or not bound to request lifetime")
+    return comment_id
+
 def encode_file_stream(stream, job_id, manifest_digest, item):
     """Generate bounded frames from verified source; retain only one block.
 
@@ -460,7 +555,7 @@ def ssh_receive_argv(host, key_file, known_hosts_file):
 
 def dispatch_event(event, repository, ref, issue, ledger, provider,
                    recipient_cert, recipient_key, signer_cert, signer_key,
-                   approved_producers=frozenset(), now=None):
+                   approved_producers=frozenset(), now=None, approval_lookup=None):
     """Internal integration adapter, NOT a network service or live entrypoint.
 
     Only a trusted event source may call this function. Caller must establish
@@ -472,7 +567,8 @@ def dispatch_event(event, repository, ref, issue, ledger, provider,
     req = decode_comment_request(event, repository, ref, issue,
                                  recipient_cert, recipient_key, now)
     # Preserve None for live clocks across all blocking boundaries.
-    ledger.claim_request(req, event["comment"]["id"], now)
+    comment_id=authenticate_owner_approval(event,issue,req,approval_lookup,now)
+    ledger.claim_request(req,comment_id,now)
     jid, md = req["jobId"], req["manifestSha256"]
     if req["action"] == "submit":
         transfer_job(req["job"], ledger, provider, approved_producers, now)
@@ -597,10 +693,11 @@ def _send_external(plan, provider, approved_producers, scratch, output):
     write_control(output, {"done":True, "jobId":jid, "manifestSha256":md})
 
 def relay_receiver(incoming, outgoing, *, issue, ledger, recipient_cert,
-                   recipient_key, signer_cert, signer_key, now=None):
+                   recipient_key, signer_cert, signer_key, now=None, approval_lookup=None):
     """Server-side session core. Must be invoked ONLY by a trusted restricted
     SSH service after host-local gate and identity checks. Does not launch jobs.
-    No GitHub token or artifact downloader is needed on the server.
+    No GitHub token or artifact downloader is needed on the server. A fixed
+    public GitHub HTTPS read independently checks the owner approval.
     """
     require(type(issue) is int and issue > 0 and issue != 277, "dedicated issue required")
     control = read_control(incoming)
@@ -609,7 +706,8 @@ def relay_receiver(incoming, outgoing, *, issue, ledger, recipient_cert,
     # No frozen session timestamp: decrypt/validate after control reception.
     req = decode_comment_request(event, REPOSITORY, "refs/heads/main", issue,
                                  recipient_cert, recipient_key, now)
-    ledger.claim_request(req, event["comment"]["id"], now)
+    comment_id=authenticate_owner_approval(event,issue,req,approval_lookup,now)
+    ledger.claim_request(req,comment_id,now)
     jid, md = req["jobId"], req["manifestSha256"]
     if req["action"] == "submit":
         j = req["job"]
@@ -787,7 +885,8 @@ def receiver_main():
 
     Root must install reviewed code and fixed authorized_keys command with
     restrict/no PTY/no forwarding/no user rc/environment injection. SSH key
-    possession is the trusted transport boundary, not independent approval.
+    possession is the transport boundary, not independent approval. The
+    receiver independently fetches the exact owner comment over HTTPS.
     The worker is a separate one-shot process under the dedicated cgroup.
     """
     from executor import (CONFIG_ROOT, LEDGER_ROOT, RECEIVER_GATE, Ledger,
@@ -820,7 +919,8 @@ def receiver_main():
     relay_receiver(_Pipe(sys.stdin.buffer, deadline), _Pipe(sys.stdout.buffer, deadline),
                    issue=issue, ledger=Ledger(LEDGER_ROOT),
                    recipient_cert=recipient_cert, recipient_key=recipient_key,
-                   signer_cert=signer_cert, signer_key=signer_key)
+                   signer_cert=signer_cert, signer_key=signer_key,
+                   approval_lookup=fetch_owner_approval)
 
 if __name__ == "__main__":
     try:

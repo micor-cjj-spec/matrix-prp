@@ -446,11 +446,11 @@ class BridgeTests(unittest.TestCase):
 
     def test_event_context(self):
         from bridge import verify_event, OWNER
-        actor={"login":OWNER,"type":"User"}
+        actor={"login":OWNER,"id":123868412,"type":"User"}
         j=job()
         e={"action":"created","repository":{"full_name":REPOSITORY},
            "sender":actor,"issue":{"number":123,"state":"open"},
-           "comment":{"id":1,"user":actor,"body":"/prp-remote-v11 "+j["jobId"]+" abcdefgh"}}
+           "comment":{"id":1,"user":actor,"body":"/prp-remote-v11-approve "+j["jobId"]+" "+"a"*64+" abcdefgh"}}
         self.assertEqual(verify_event(e,REPOSITORY,"refs/heads/main",123),(j["jobId"],"abcdefgh"))
         for changed in ({"action":"edited"},{"sender":{"login":"someone","type":"User"}},
                         {"issue":{"number":123,"state":"open","pull_request":{}}}):
@@ -686,12 +686,12 @@ class CryptoTests(unittest.TestCase):
         req=self.request()
         cert,key=self.identities["server"]
         encoded=base64.urlsafe_b64encode(seal_request(req,cert,NOW)).decode("ascii").rstrip("=")
-        actor={"login":OWNER,"type":"User"}
+        actor={"login":OWNER,"id":123868412,"type":"User"}
         event={"action":"created","repository":{"full_name":REPOSITORY},"sender":actor,
                "issue":{"number":123,"state":"open"},"comment":{"id":1,"user":actor,
-               "body":"/prp-remote-v11 "+req["jobId"]+" "+encoded}}
+               "body":"/prp-remote-v11-approve "+req["jobId"]+" "+hashlib.sha256(canonical(req)).hexdigest()+" "+encoded}}
         self.assertEqual(decode_comment_request(event,REPOSITORY,"refs/heads/main",123,cert,key,NOW),req)
-        event["comment"]["body"]="/prp-remote-v11 "+str(uuid.uuid4())+" "+encoded
+        event["comment"]["body"]="/prp-remote-v11-approve "+str(uuid.uuid4())+" "+hashlib.sha256(canonical(req)).hexdigest()+" "+encoded
         with self.assertRaises(InvalidJob): decode_comment_request(event,REPOSITORY,"refs/heads/main",123,cert,key,NOW)
 
 class FrameTests(unittest.TestCase):
@@ -871,17 +871,31 @@ class DispatchTests(unittest.TestCase):
         from protocol import seal_request
         cipher=seal_request(req,self.identities["server"][0],NOW)
         encoded=base64.urlsafe_b64encode(cipher).decode("ascii").rstrip("=")
-        actor={"login":OWNER,"type":"User"}
+        actor={"login":OWNER,"id":123868412,"type":"User"}
         return {"action":"created","repository":{"full_name":REPOSITORY},
                 "sender":actor,"issue":{"number":123,"state":"open"},
                 "comment":{"id":comment_id,"user":actor,
-                "body":"/prp-remote-v11 "+req["jobId"]+" "+encoded}}
+                "body":"/prp-remote-v11-approve "+req["jobId"]+" "+hashlib.sha256(canonical(req)).hexdigest()+" "+encoded}}
 
-    def dispatch(self,event,issue=123):
+    def approval(self,event):
+        from datetime import datetime,timezone
+        from bridge import API_HOST,API_PREFIX,OWNER
+        base="https://"+API_HOST+API_PREFIX
+        issue_url=base+"/issues/123"
+        timestamp=datetime.fromtimestamp(NOW,timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        item={"url":issue_url,"number":123,"state":"open"}
+        comment={"id":event["comment"]["id"],"url":base+"/issues/comments/"+str(event["comment"]["id"]),
+                 "issue_url":issue_url,"user":{"login":OWNER,"id":123868412,"type":"User"},
+                 "author_association":"OWNER","body":event["comment"]["body"],
+                 "created_at":timestamp,"updated_at":timestamp}
+        return lambda issue,cid: (copy.deepcopy(item),copy.deepcopy(comment))
+
+    def dispatch(self,event,issue=123,approval_lookup=None):
         from bridge import dispatch_event
         cert,key=self.identities["server"]
         return dispatch_event(event,REPOSITORY,"refs/heads/main",issue,self.ledger,
-                              self.provider,cert,key,cert,key,now=NOW)
+                              self.provider,cert,key,cert,key,now=NOW,
+                              approval_lookup=approval_lookup if approval_lookup is not None else self.approval(event))
 
     def decode(self,body,req,key=None):
         from protocol import open_receipt
@@ -945,6 +959,53 @@ class DispatchTests(unittest.TestCase):
         q["jobId"]=str(uuid.uuid4())
         with self.assertRaises(InvalidJob): self.dispatch(self.event(q,3))
 
+    def test_forged_forwarded_event_denied_before_claim(self):
+        from unittest.mock import patch
+        req=self.request()
+        event=self.event(req,1)
+        item,comment=self.approval(event)(123,1)
+        for changed in (dict(comment,body="different"),dict(comment,user=dict(comment["user"],id=1)),
+                        dict(comment,issue_url=comment["issue_url"]+"4"),
+                        dict(comment,updated_at="2027-01-16T00:00:01Z"),
+                        dict(comment,author_association="NONE")):
+            with patch.object(self.ledger,"claim_request") as claim:
+                with self.assertRaises(InvalidJob):
+                    self.dispatch(event,approval_lookup=lambda *_:(item,changed))
+                claim.assert_not_called()
+        with patch.object(self.ledger,"claim_request") as claim:
+            with self.assertRaises(InvalidJob):
+                self.dispatch(event,approval_lookup=lambda *_:(dict(item,state="closed"),comment))
+            claim.assert_not_called()
+
+    def test_approval_digest_binds_every_request_field(self):
+        from unittest.mock import patch
+        req=self.request()
+        event=self.event(req,1)
+        command,jid,md,cipher=event["comment"]["body"].split(" ")
+        event["comment"]["body"]=" ".join([command,jid,"0"*64,cipher])
+        with patch.object(self.ledger,"claim_request") as claim:
+            with self.assertRaises(InvalidJob):
+                self.dispatch(event)
+            claim.assert_not_called()
+
+    def test_lookup_is_required_and_rechecks_expiry(self):
+        from unittest.mock import patch
+        from bridge import authenticate_owner_approval,dispatch_event
+        req=self.request()
+        event=self.event(req,1)
+        cert,key=self.identities["server"]
+        with patch.object(self.ledger,"claim_request") as claim:
+            with self.assertRaises(InvalidJob):
+                dispatch_event(event,REPOSITORY,"refs/heads/main",123,self.ledger,
+                               self.provider,cert,key,cert,key,now=NOW)
+            claim.assert_not_called()
+        lookup=self.approval(event)
+        with patch("bridge.time.time",return_value=req["expiresAt"]):
+            with self.assertRaises(InvalidJob):
+                authenticate_owner_approval(event,123,req,lookup)
+        with self.assertRaises(InvalidJob):
+            self.dispatch(event,approval_lookup=lambda *_: (_ for _ in ()).throw(InvalidJob("unavailable")))
+
     def test_query_does_not_claim_or_transfer(self):
         from unittest.mock import patch
         req=self.request()
@@ -958,12 +1019,33 @@ class DispatchTests(unittest.TestCase):
         self.assertIsNone(result["result"])
 
 
+class ApprovalAPITests(unittest.TestCase):
+    def test_fixed_public_routes_and_no_credentials(self):
+        from unittest.mock import patch
+        from bridge import fetch_owner_approval
+        with patch("bridge._approval_metadata",side_effect=[{"issue":1},{"comment":1}]) as metadata:
+            self.assertEqual(fetch_owner_approval(123,456),({"issue":1},{"comment":1}))
+            self.assertEqual([x.args[0] for x in metadata.call_args_list],["/issues/123","/issues/comments/456"])
+        with patch("bridge.http.client.HTTPSConnection") as connect:
+            from bridge import _approval_metadata
+            response=connect.return_value.getresponse.return_value
+            response.status=302
+            with self.assertRaises(InvalidJob):
+                _approval_metadata("/issues/123")
+            self.assertEqual(connect.call_args.args[0],"api.github.com")
+            args=connect.return_value.request.call_args
+            self.assertEqual(args.args,("GET","/repos/"+REPOSITORY+"/issues/123"))
+            self.assertNotIn("Authorization",args.kwargs["headers"])
+            with self.assertRaises(InvalidJob):
+                _approval_metadata("/issues/123/../../other")
+
 class RelayTests(unittest.TestCase):
     setUpClass=classmethod(CryptoTests.setUpClass.__func__)
     request=CryptoTests.request
     event=DispatchTests.event
     decode=DispatchTests.decode
     query=DispatchTests.query
+    approval=DispatchTests.approval
     setUp=DispatchTests.setUp
 
     def exchange(self,req,comment_id,provider,allowed=frozenset()):
@@ -978,7 +1060,8 @@ class RelayTests(unittest.TestCase):
         def receive():
             with server,server.makefile("rb",buffering=0) as incoming,server.makefile("wb",buffering=0) as outgoing:
                 relay_receiver(incoming,outgoing,issue=123,ledger=self.ledger,
-                               recipient_cert=cert,recipient_key=key,signer_cert=cert,signer_key=key,now=NOW)
+                               recipient_cert=cert,recipient_key=key,signer_cert=cert,signer_key=key,now=NOW,
+                               approval_lookup=self.approval(event))
                 server.shutdown(socket.SHUT_WR)
         with ThreadPoolExecutor(max_workers=1) as pool:
             pending=pool.submit(receive)
@@ -1045,7 +1128,8 @@ class RelayTests(unittest.TestCase):
              patch.object(self.ledger,"snapshot",wraps=self.ledger.snapshot) as snapshot:
             with self.assertRaises(InvalidJob):
                 relay_receiver(Delayed(stream.getvalue()),out,issue=123,ledger=self.ledger,
-                               recipient_cert=cert,recipient_key=key,signer_cert=cert,signer_key=key)
+                               recipient_cert=cert,recipient_key=key,signer_cert=cert,signer_key=key,
+                               approval_lookup=self.approval(event))
             snapshot.assert_not_called()
         self.assertEqual(out.getvalue(),b"")
 
@@ -1059,7 +1143,8 @@ class RelayTests(unittest.TestCase):
         query=self.query(req,"result")
         query["expiresAt"]=NOW+1
         stream=io.BytesIO()
-        write_control(stream,{"event":self.event(query,2)})
+        event=self.event(query,2)
+        write_control(stream,{"event":event})
         write_control(stream,{"done":True,"jobId":jid,"manifestSha256":md})
         stream.seek(0)
         clock=[NOW]
@@ -1074,7 +1159,8 @@ class RelayTests(unittest.TestCase):
              patch.object(self.ledger,"snapshot",wraps=self.ledger.snapshot) as snapshot:
             with self.assertRaises(InvalidJob):
                 relay_receiver(stream,out,issue=123,ledger=self.ledger,
-                               recipient_cert=cert,recipient_key=key,signer_cert=cert,signer_key=key)
+                               recipient_cert=cert,recipient_key=key,signer_cert=cert,signer_key=key,
+                               approval_lookup=self.approval(event))
             snapshot.assert_not_called()
         out.seek(0)
         self.assertEqual(read_control(out)["plan"]["files"],[])
