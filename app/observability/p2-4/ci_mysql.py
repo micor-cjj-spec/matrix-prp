@@ -127,27 +127,17 @@ def main():
                        "mysql", "--protocol=socket", "-uroot", "-N", "-B", "-e", sql,
                        timeout=15, check=check_rc)
 
-        eventually(lambda: root("SELECT 1") == "1", "mysql ready", 150)
+        eventually(lambda: root("SELECT @@GLOBAL.skip_networking") == "0", "mysql ready", 150)
         version = root("SELECT VERSION()")
         check(version.startswith("8.4."), "mysql-8.4")
         subnet = ipaddress.ip_network(inspect(dbnet)["IPAM"]["Config"][0]["Subnet"])
-        exporter_ip = str(subnet.broadcast_address - 2)
-        check(exporter_ip != dbip, "dedicated-exporter-address")
-        # Only a new, empty, synthetic denial-test table; never read a business record.
-        root(f"CREATE DATABASE {schema}; CREATE TABLE {schema}.{table} (id INT PRIMARY KEY); "
-             f"CREATE USER 'p24_monitor'@'{exporter_ip}' IDENTIFIED BY '{monitorpass}' "
-             "WITH MAX_USER_CONNECTIONS 2;")
-        grants = root(f"SHOW GRANTS FOR 'p24_monitor'@'{exporter_ip}'").splitlines()
-        check(len(grants) == 1 and grants[0].startswith("GRANT USAGE ON *.* TO ")
-              and "MAX_USER_CONNECTIONS 2" in grants[0] and "GRANT OPTION" not in grants[0],
-              "usage-only-grant")
         with tempfile.TemporaryDirectory(prefix="p24-config-") as td:
             config = Path(td) / "client.cnf"
             config.write_text("[client]\nuser=p24_monitor\npassword=" + monitorpass +
                               "\nhost=mysql\nport=3306\n")
             # Parent directory is private; container-mounted file must be readable by nobody.
             config.chmod(0o444)
-            exip = run("exporter", dbnet, ["--ip", exporter_ip, "--network-alias", "exporter",
+            exip = run("exporter", dbnet, ["--network-alias", "exporter",
                         "--user", "65534:65534", "--read-only", "--memory", "128m",
                         "--memory-swap", "128m", "--cpus", "0.5", *mount(config, "/client.cnf")],
                         ["--config.my-cnf=/client.cnf", "--mysqld.address=mysql:3306",
@@ -156,7 +146,19 @@ def main():
                          "--no-collect.info_schema.innodb_cmpmem",
                          "--no-collect.info_schema.query_response_time",
                          "--web.listen-address=:9104", "--exporter.lock_wait_timeout=2"])
-            check(exip == exporter_ip, "exporter-exact-ip")
+            exporter_ip = str(ipaddress.ip_address(exip))
+            check(ipaddress.ip_address(exporter_ip) in subnet and exporter_ip != dbip,
+                  "dedicated-exporter-address")
+            # Account creation follows actual IP allocation; no broad host wildcard or static-IP assumption.
+            root(f"CREATE DATABASE {schema}; CREATE TABLE {schema}.{table} (id INT PRIMARY KEY); "
+                 f"CREATE USER 'p24_monitor'@'{exporter_ip}' IDENTIFIED BY '{monitorpass}' "
+                 "WITH MAX_USER_CONNECTIONS 2;")
+            grants = root(f"SHOW GRANTS FOR 'p24_monitor'@'{exporter_ip}'").splitlines()
+            check(len(grants) == 1 and grants[0].startswith("GRANT USAGE ON *.* TO ")
+                  and "GRANT OPTION" not in grants[0], "usage-only-grant")
+            check(root("SELECT max_user_connections FROM mysql.user "
+                       f"WHERE User='p24_monitor' AND Host='{exporter_ip}'") == "2",
+                  "account-connection-limit-configured")
 
             # Disposable client shares only the exporter's network namespace for same account-host test.
             def monitor_args(sql):
@@ -240,6 +242,9 @@ def main():
                         "labels": {"environment": "synthetic", "instance": "fixture-mysql"}}],
                     "metric_relabel_configs": [
                         {"source_labels": ["__name__"], "regex": "|".join(METRICS), "action": "keep"},
+                        {"source_labels": ["__name__", "command"],
+                         "regex": "mysql_global_status_commands_total;(select|insert|update|delete|commit|rollback|replace)|[^;]+;",
+                         "action": "keep"},
                         {"regex": "__name__|job|instance|environment|command|collector|state",
                          "action": "labelkeep"},
                     ]}]}))
