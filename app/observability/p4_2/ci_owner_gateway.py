@@ -300,12 +300,17 @@ def main():
                 "upstream-prometheus-readonly-toolset",
             )
 
+            p41.eventually(lambda: bool(p41.api(
+                prom, "/api/v1/query?query=" + urllib.parse.quote(
+                    'rate(node_cpu_seconds_total{mode="idle",environment="synthetic"}[2m])'
+                ))["data"]["result"]), "cpu-rate-ready")
             # Ensure the last aligned 30-second point follows a real scrape.
-            p41.eventually(lambda: int(time.time()) % 30 >= 5 and int(time.time()) % 30 <= 10, "aligned-fixture-clock", seconds=40)
+            p41.eventually(lambda: int(time.time()) % 30 >= 10 and int(time.time()) % 30 <= 15, "aligned-fixture-clock", seconds=40)
             now = int(time.time())
             revoked = {"value": False}
             revoke_after_query = {"value": False}
             fail_audit = {"value": False}
+            revoke_on_audit = {"value": False}
             grant_id = str(uuid.uuid4())
 
             def grant():
@@ -367,7 +372,11 @@ def main():
                 def __call__(self, event):
                     if fail_audit["value"]:
                         return False
-                    return durable_audit(event)
+                    ok = durable_audit(event)
+                    if revoke_on_audit["value"] and event["outcome"] == "handled":
+                        revoke_on_audit["value"] = False
+                        revoked["value"] = True
+                    return ok
 
             audit = SwitchAudit()
             server = {
@@ -561,6 +570,10 @@ def main():
                         "audit-failure-denies-disclosure",
                     )
 
+                    revoke_on_audit["value"] = True
+                    raced = post("tools/call", {"name": TOOL_NAME, "arguments": {"metric": "memory_available_bytes", "window": "5m"}})
+                    check(raced.status_code == 200 and raced.json()["result"]["isError"] is True and "samples" not in raced.text, "owner-revocation-during-audit-denies-result")
+                    revoked["value"] = False  # reset only the independent synthetic fixture
                     revoke_after_query["value"] = True
                     request_id += 1
                     revoked_during_query = post(
