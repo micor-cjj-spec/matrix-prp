@@ -1,4 +1,4 @@
-"""P3 offline transport adapter. No network requests, SSH, secrets or entrypoint.
+"""P3 transport candidate. No live entrypoint or configured credentials.
 
 A trusted default-branch workflow will supply authenticated metadata and streams
 using fixed GitHub API routes. A manifest is not proof of artifact provenance.
@@ -8,6 +8,10 @@ import base64
 import binascii
 import hashlib
 import hmac
+import http.client
+import ssl
+import time
+from urllib.parse import quote, urlsplit
 import re
 import stat
 import struct
@@ -17,7 +21,7 @@ import zipfile
 
 from protocol import (REPOSITORY, MAX_ARTIFACT, MAX_FILES, InvalidJob,
                       require, relative_path, validate_job, inline_bytes, canonical, parse,
-                      exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER)
+                      exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER, commit)
 from executor import CHUNK
 
 OWNER = "micor-cjj-spec"
@@ -262,3 +266,185 @@ def file_frame_chunks(stream, job_id, manifest_digest, item):
         if header["final"]:
             require(stream.read(1) == b"", "trailing frame data")
             return
+
+
+# The provider is constructed only by trusted orchestration, never by a job.
+# Use fixed GitHub API routes and TLS; do not inherit proxy configuration.
+# Archive redirects are accepted exactly once to an administrator-pinned
+# storage hostname, without forwarding the GitHub Authorization header.
+API_HOST = "api.github.com"
+API_PREFIX = "/repos/" + REPOSITORY
+MAX_METADATA = 256 * 1024
+MAX_IO_SECONDS = 300
+SOCKET_TIMEOUT = 15
+HOST = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?")
+
+class _DeadlineStream:
+    def __init__(self, response, deadline, limit):
+        self.response = response
+        self.deadline = deadline
+        self.remaining = limit
+
+    def read(self, n):
+        integer(n, 1, CHUNK)
+        require(time.monotonic() < self.deadline, "transfer deadline exceeded")
+        # Read an extra byte at the limit so oversize data cannot be mistaken
+        # for EOF; never hand out an over-limit chunk.
+        data = self.response.read(min(n, self.remaining + 1))
+        require(type(data) is bytes and len(data) <= self.remaining, "response oversized")
+        require(time.monotonic() < self.deadline, "transfer deadline exceeded")
+        self.remaining -= len(data)
+        return data
+
+def _redirect_target(location, allowed_hosts):
+    require(type(location) is str and 0 < len(location) <= 8192
+            and all(33 <= ord(c) < 127 for c in location)
+            and "\\" not in location, "invalid archive redirect")
+    try:
+        url = urlsplit(location)
+        require(url.scheme == "https" and url.hostname in allowed_hosts
+                and url.netloc == url.hostname and not url.fragment
+                and url.path.startswith("/") and not url.path.startswith("//"),
+                "archive redirect not allowed")
+    except ValueError as exc:
+        raise InvalidJob("invalid archive redirect") from exc
+    return url.hostname, url.path + ("?" + url.query if url.query else "")
+
+class GitHubProvider:
+    """Fixed read-only API provider. Live use requires separate authorization.
+
+    Exact redirect hosts are operator-supplied trusted config (not a wildcard
+    or manifest field). Without them artifact download fails closed.
+    """
+    def __init__(self, token, redirect_hosts=()):
+        require(type(token) is str and 16 <= len(token) <= 4096
+                and re.fullmatch(r"[A-Za-z0-9_.-]+", token) is not None, "invalid token")
+        hosts = frozenset(redirect_hosts)
+        require(len(hosts) <= 16 and all(type(h) is str and HOST.fullmatch(h)
+                and h != API_HOST and "." in h and not h.endswith(".")
+                and not all(c.isdigit() or c == "." for c in h) for h in hosts),
+                "invalid trusted storage hosts")
+        self._token = token
+        self._hosts = hosts
+
+    @contextmanager
+    def _response(self, host, path, accept, *, auth):
+        require(path.startswith("/") and not path.startswith("//")
+                and all(33 <= ord(c) < 127 for c in path), "invalid request target")
+        require((auth and host == API_HOST) or (not auth and host in self._hosts),
+                "unexpected request destination")
+        headers = {"Accept":accept, "User-Agent":"prp-remote-executor-v11",
+                   "Accept-Encoding":"identity"}
+        if auth:
+            headers.update({"Authorization":"Bearer "+self._token,
+                            "X-GitHub-Api-Version":"2022-11-28"})
+        connection = http.client.HTTPSConnection(host, timeout=SOCKET_TIMEOUT,
+                                                 context=ssl.create_default_context())
+        response = None
+        try:
+            connection.request("GET", path, headers=headers)
+            response = connection.getresponse()
+            yield response
+        except (OSError, http.client.HTTPException, ValueError) as exc:
+            # Do not propagate URLs, headers, signed redirect or raw errors.
+            raise InvalidJob("GitHub response unavailable") from None
+        finally:
+            if response is not None:
+                response.close()
+            connection.close()
+
+    @staticmethod
+    def _stream(response, limit, deadline):
+        require(response.status == 200, "unexpected response status")
+        require(response.getheader("Content-Encoding") in (None, "identity"),
+                "unsupported content encoding")
+        size = response.getheader("Content-Length")
+        if size is not None:
+            require(size.isascii() and size.isdecimal() and len(size) <= 12
+                    and int(size) <= limit, "response oversized")
+        return _DeadlineStream(response, deadline, limit)
+
+    def _metadata(self, suffix):
+        deadline = time.monotonic() + MAX_IO_SECONDS
+        with self._response(API_HOST, API_PREFIX+suffix, "application/vnd.github+json", auth=True) as response:
+            stream = self._stream(response, MAX_METADATA, deadline)
+            data = bytearray()
+            for block in chunks(stream):
+                data.extend(block)
+            value = parse(bytes(data), limit=MAX_METADATA)
+            require(type(value) is dict, "invalid API metadata")
+            return value
+
+    def run_metadata(self, run_id):
+        integer(run_id, 1, 2**63-1)
+        return self._metadata("/actions/runs/"+str(run_id))
+
+    def artifact_metadata(self, artifact_id):
+        integer(artifact_id, 1, 2**63-1)
+        return self._metadata("/actions/artifacts/"+str(artifact_id))
+
+    @contextmanager
+    def repository_file(self, sha, path):
+        commit(sha)
+        relative_path(path)
+        deadline = time.monotonic() + MAX_IO_SECONDS
+        route = API_PREFIX+"/contents/"+quote(path,safe="/")+"?ref="+sha
+        with self._response(API_HOST, route, "application/vnd.github.raw+json", auth=True) as response:
+            yield self._stream(response, MAX_ARTIFACT, deadline)
+
+    @contextmanager
+    def artifact_zip(self, artifact_id):
+        integer(artifact_id, 1, 2**63-1)
+        deadline = time.monotonic() + MAX_IO_SECONDS
+        route = API_PREFIX+"/actions/artifacts/"+str(artifact_id)+"/zip"
+        with self._response(API_HOST, route, "application/octet-stream", auth=True) as response:
+            require(response.status == 302, "expected artifact redirect")
+            host, path = _redirect_target(response.getheader("Location"), self._hosts)
+        with self._response(host, path, "application/octet-stream", auth=False) as response:
+            yield self._stream(response, MAX_ARTIFACT, deadline)
+
+def encode_file_stream(stream, job_id, manifest_digest, item):
+    """Generate bounded frames from verified source; retain only one block.
+
+    A receiver must still verify the full file against its immutable manifest.
+    No automatic retry; caller handles uncertain transfer outcome.
+    """
+    offset = 0
+    hasher = hashlib.sha256()
+    for block in chunks(stream):
+        end = offset + len(block)
+        require(end <= item["size"], "source oversized")
+        hasher.update(block)
+        if end == item["size"]:
+            require(stream.read(1) == b"" and
+                    hmac.compare_digest(hasher.hexdigest(), item["sha256"]),
+                    "source digest mismatch")
+            yield pack_frame(job_id, manifest_digest, item["path"], offset, block, True)
+            return
+        yield pack_frame(job_id, manifest_digest, item["path"], offset, block, False)
+        offset = end
+    require(item["size"] == 0 and hmac.compare_digest(hasher.hexdigest(), item["sha256"]),
+            "source incomplete")
+    yield pack_frame(job_id, manifest_digest, item["path"], 0, b"", True)
+
+def ssh_receive_argv(host, key_file, known_hosts_file):
+    """Pure argv builder, no process launch. Host and files from trusted config.
+
+    A future fixed forced-command gateway authenticates and binds the control
+    request before accepting frames. No remote command string from jobs.
+    """
+    from pathlib import Path
+    require(type(host) is str and HOST.fullmatch(host) is not None
+            and "." in host and not host.endswith("."), "invalid staging host")
+    for path in (key_file, known_hosts_file):
+        require(type(path) is str and Path(path).is_absolute()
+                and all(33 <= ord(c) < 127 for c in path)
+                and "%" not in path, "invalid credential path")
+    return ["/usr/bin/ssh", "-F", "/dev/null", "-T", "-p", "22",
+            "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+            "-o", "PasswordAuthentication=no", "-o", "KbdInteractiveAuthentication=no",
+            "-o", "StrictHostKeyChecking=yes", "-o", "GlobalKnownHostsFile=/dev/null",
+            "-o", "UserKnownHostsFile="+known_hosts_file,
+            "-o", "ClearAllForwardings=yes", "-o", "ForwardAgent=no",
+            "-o", "ConnectTimeout=15", "-o", "ConnectionAttempts=1",
+            "-i", key_file, "prp-remote-v11@"+host, "receive-v11"]
