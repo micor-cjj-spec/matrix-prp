@@ -8,6 +8,11 @@ import base64
 import binascii
 import hashlib
 import hmac
+import os
+import select
+import signal
+import subprocess
+from pathlib import Path
 import http.client
 import ssl
 import time
@@ -663,3 +668,94 @@ def relay_sender(event, repository, ref, issue, incoming, outgoing, *,
     uuid4_text(match.group(1))
     require(incoming.read(1)==b"", "trailing relay response")
     return result
+
+
+# Candidate SSH process adapter; never activated from the draft workflow.
+# The trusted caller must supply staging-only credentials and authorize the
+# transport. A separate supervised workflow deadline bounds artifact fetching.
+class _Pipe:
+    def __init__(self, file, deadline):
+        self.file = file
+        self.fd = file.fileno()
+        self.deadline = deadline
+        os.set_blocking(self.fd, False)
+
+    def _remaining(self):
+        value = self.deadline - time.monotonic()
+        require(value > 0, "SSH deadline exceeded")
+        return value
+
+    def read(self, n):
+        while True:
+            ready, _, _ = select.select([self.fd], [], [], self._remaining())
+            require(bool(ready), "SSH read deadline exceeded")
+            try:
+                return os.read(self.fd, n)
+            except BlockingIOError:
+                continue
+
+    def write(self, data):
+        while True:
+            _, ready, _ = select.select([], [self.fd], [], self._remaining())
+            require(bool(ready), "SSH write deadline exceeded")
+            try:
+                return os.write(self.fd, data)
+            except BlockingIOError:
+                continue
+
+    def flush(self):
+        # os.write bypasses Python buffered file objects.
+        pass
+
+def _credential(path, value):
+    require(type(value) is str and 0 < len(value.encode("utf-8")) <= 16384
+            and "\x00" not in value and bool(value.strip()), "missing SSH identity")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as out:
+        out.write((value if value.endswith("\n") else value+"\n").encode("utf-8"))
+
+def relay_over_ssh(event, repository, ref, issue, *, enabled=False, host=None,
+                   private_key=None, known_hosts=None, provider=None,
+                   approved_producers=frozenset(), scratch=None, timeout=240):
+    """Trusted runner only. No live configuration or general SSH access.
+
+    Pipe IO and SSH wait share one monotonic deadline. Provider network
+    operations have their own limits; the outer workflow must independently
+    enforce a hard overall deadline. No automatic replay after any failure.
+    """
+    require(enabled is True, "SSH relay disabled")
+    verify_event(event,repository,ref,issue)
+    require(issue != 277, "dedicated issue required")
+    integer(timeout,1,300)
+    deadline = time.monotonic()+timeout
+    with tempfile.TemporaryDirectory(dir=scratch) as directory:
+        key = Path(directory)/"key"
+        hosts = Path(directory)/"known_hosts"
+        _credential(key,private_key)
+        _credential(hosts,known_hosts)
+        argv = ssh_receive_argv(host,str(key),str(hosts))
+        proc = None
+        try:
+            proc = subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,bufsize=0,close_fds=True,start_new_session=True,
+                cwd="/",env={"PATH":"/usr/bin:/bin","LANG":"C.UTF-8"})
+            incoming = _Pipe(proc.stdout,deadline)
+            outgoing = _Pipe(proc.stdin,deadline)
+            reply = relay_sender(event,repository,ref,issue,incoming,outgoing,
+                                  close_input=proc.stdin.close,provider=provider,
+                                  approved_producers=approved_producers,scratch=directory)
+            require(proc.wait(timeout=incoming._remaining()) == 0, "SSH result uncertain")
+            return reply
+        except (OSError, subprocess.TimeoutExpired, InvalidJob) as exc:
+            raise InvalidJob("SSH relay failed or uncertain") from None
+        finally:
+            if proc is not None:
+                if proc.poll() is None:
+                    try:
+                        os.killpg(proc.pid,signal.SIGKILL)
+                        proc.wait(timeout=5)
+                    except (OSError,subprocess.TimeoutExpired):
+                        pass
+                for f in (proc.stdin,proc.stdout):
+                    if f is not None:
+                        f.close()
