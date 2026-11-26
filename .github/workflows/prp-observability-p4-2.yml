@@ -44,7 +44,7 @@ jobs:
 
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
-          git archive "$AUTH" app/ops | tar -x -C "$work"
+          git archive "$AUTH" app/ops app/deploy/systemd | tar -x -C "$work"
           git show "$SDK:app/ops/sdk_spike_ci.py" > "$work/app/ops/sdk_spike_ci.py"
           git show "$P4:app/observability/p4/ci_grafana_mcp.py" > "$work/p4_1_ci.py"
 
@@ -53,7 +53,5 @@ jobs:
           python -m venv "$work/venv"
           "$work/venv/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1'
           "$work/venv/bin/python" -m pip check
-          GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
-            "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
-          GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
-            "$work/venv/bin/python" app/observability/p4_2/ci_owner_gateway.py "$work" "$work/p4_1_ci.py"
+          "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
+          "$work/venv/bin/python" app/observability/p4_2/ci_owner_gateway.py "$work" "$work/p4_1_ci.py"
