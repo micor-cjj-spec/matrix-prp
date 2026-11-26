@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {applyAuthenticatedIssue,redactedReceipt,verifyTaskIssue,requireMigratedLiveState} from './issue-transaction.mjs'
 import {validateIssueEvent} from './issue-ingress.mjs'
+import {historicalNote} from './ruleset-415-attestation.mjs'
 const sha='a'.repeat(40),req='REQ-20261031-001'
 const uuid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const snap=()=>({schema_version:1,requirement_id:req,issue_number:132,
@@ -311,4 +312,67 @@ test('replayed takeover still validates owner and exact request fingerprint',()=
  assert.throws(()=>applyAuthenticatedIssue(accepted.snapshot,
   {...cmd,command:{...cmd.command,new_worker_id:'chat-D'}},
   '2026-11-01T03:41:00Z',()=>false),e=>e.code==='REQUEST_ID_COLLISION')
+})
+
+test('owner accept is denied without independently verified merged-PR evidence',()=>{
+ const s=migrated()
+ s.tasks[0]={...s.tasks[0],status:'IN_REVIEW',
+  claim:{claim_id:'11111111-1111-4111-8111-111111111111',
+    worker_id:'chat-A',actor:'micor-cjj-spec'},
+  pr_number:511,head_sha:'b'.repeat(40)}
+ const cmd=v('accept',{claim_id:s.tasks[0].claim.claim_id,
+  pr_number:511,head_sha:'b'.repeat(40)},s.version)
+ assert.throws(()=>applyAuthenticatedIssue(s,cmd,'2026-11-23T00:00:00Z'),
+  e=>e.code==='ISSUE_ACCEPT_TRUSTED_REVIEW_REQUIRED')
+ assert.equal(s.tasks[0].status,'IN_REVIEW')
+ const forged={...cmd,reviewerAuthorized:true,ciVerified:true,
+  mergedIntoIntegration:true}
+ assert.throws(()=>applyAuthenticatedIssue(s,forged,'2026-11-23T00:00:00Z'),
+  e=>e.code==='ISSUE_ACCEPT_TRUSTED_REVIEW_REQUIRED')
+ const noChecks={reviewerAuthorized:true,ciVerified:false,mergedIntoIntegration:true}
+ assert.throws(()=>applyAuthenticatedIssue(s,cmd,'2026-11-23T00:00:00Z',
+  ()=>false,noChecks),e=>e.code==='ISSUE_ACCEPT_TRUSTED_REVIEW_REQUIRED')
+ const approved={reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true}
+ const wrongClaim={...cmd,command:{...cmd.command,claim_id:'22222222-2222-4222-8222-222222222222'}}
+ assert.throws(()=>applyAuthenticatedIssue(s,wrongClaim,'2026-11-23T00:00:00Z',
+  ()=>false,approved),e=>e.code==='ISSUE_ACCEPT_CLAIM_MISMATCH')
+ const wrongSha={...cmd,command:{...cmd.command,head_sha:'c'.repeat(40)}}
+ assert.throws(()=>applyAuthenticatedIssue(s,wrongSha,'2026-11-23T00:00:00Z',
+  ()=>false,approved),e=>e.code==='ISSUE_ACCEPT_SUBMISSION_MISMATCH')
+ const done=applyAuthenticatedIssue(s,cmd,'2026-11-23T00:00:00Z',
+  ()=>false,approved)
+ assert.equal(done.snapshot.tasks[0].status,'DONE')
+ assert.equal(done.snapshot.tasks[0].claim,null)
+ assert.equal(done.snapshot.version,s.version+1)
+ assert.equal(s.tasks[0].status,'IN_REVIEW')
+ const replay=applyAuthenticatedIssue(done.snapshot,cmd,'2026-11-23T00:01:00Z')
+ assert.strictEqual(replay.snapshot,done.snapshot)
+ assert.equal(replay.receipt.replayed,true)
+ const modified={...cmd,command:{...cmd.command,head_sha:'d'.repeat(40)}}
+ assert.throws(()=>applyAuthenticatedIssue(done.snapshot,modified,'2026-11-23T00:02:00Z'),
+  e=>e.code==='REQUEST_ID_COLLISION')
+})
+test('owner-accept workflow remains protected-main-only and grants no checks or actions write',()=>{
+ const yaml=readFileSync(new URL('../../../.github/workflows/prp-collab-issue-ingress.yml',import.meta.url),'utf8')
+ assert.match(yaml,/checks: read/)
+ assert.match(yaml,/actions: read/)
+ assert.doesNotMatch(yaml,/checks: write|actions: write|pull-requests: write/)
+ assert.match(yaml,/environment: prp-collab-automation/)
+ assert.match(yaml,/github\.event\.issue\.author_association == 'OWNER'/)
+ assert.match(yaml,/github\.ref == 'refs\/heads\/main'/)
+ const source=readFileSync(new URL('./issue-transaction.mjs',import.meta.url),'utf8')
+ assert.match(source,/trustedReviewContext\(before,validated.command,env,route=>gh\(route\)\)/)
+ assert.match(source,/if\(validated.command.type==='accept'\)/)
+ assert.match(source,/ISSUE_ACCEPT_CLAIM_MISMATCH/)
+ assert.match(source,/const fresh=loadReview\(\)/)
+ assert.match(source,/ISSUE_RACE_BEFORE_PUSH/)
+})
+
+test('historical action requires independently verified historical proof',()=>{
+ const s=migrated();s.tasks[0]={...s.tasks[0],status:'IN_REVIEW',claim:{claim_id:'11111111-1111-4111-8111-111111111111',worker_id:'chat-A',actor:'micor-cjj-spec'},pr_number:415,head_sha:'ba05b6ebe5e435d7cd474bade5accb6fc0c71b65'}
+ const policyAttestation={synthetic:true},v0=v('accept',{claim_id:s.tasks[0].claim.claim_id,pr_number:415,head_sha:'ba05b6ebe5e435d7cd474bade5accb6fc0c71b65',note:historicalNote(policyAttestation)},s.version)
+ const flags={reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true}
+ assert.throws(()=>applyAuthenticatedIssue(s,{...v0,historical415:true,policyAttestation},'2026-11-25T07:00:00Z',()=>false,flags),/ISSUE_HISTORICAL_PROOF_REQUIRED/)
+ assert.throws(()=>applyAuthenticatedIssue(s,v0,'2026-11-25T07:00:00Z',()=>false,flags),/ISSUE_HISTORICAL_ACTION_REQUIRED/)
+ assert.equal(applyAuthenticatedIssue(s,{...v0,historical415:true,policyAttestation},'2026-11-25T07:00:00Z',()=>false,{...flags,historical415Verified:true}).snapshot.tasks[0].status,'DONE')
 })
