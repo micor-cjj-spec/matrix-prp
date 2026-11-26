@@ -147,11 +147,11 @@ onMounted(refresh)
 .video-folder-scroll { white-space: nowrap; }
 .video-folder-row { display: flex; gap: 8px; padding: 4px 0; }
 .video-folder-button { flex: 0 0 auto; min-height: 36px; padding: 0 12px;
-  background: #fff; border-radius: 8px; font-size: 13px; color: #475569; }
-.video-folder-button.selected { background: #1d4ed8; color: #fff; }
-.video-player-mobile { width: 100%; height: 220px; background: #000; border-radius: 9px; }
+  background: #fff; border: 1px solid #dfe9de; border-radius: 11px; font-size: 13px; color: #526b57; }
+.video-folder-button.selected { background: #416d51; border-color: #416d51; color: #fff; }
+.video-player-mobile { width: 100%; height: 220px; background: #17241a; border-radius: 15px; overflow: hidden; }
 .video-speed-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
 .video-speed-button { flex: 0 0 auto; padding: 0 9px; min-height: 33px; font-size: 12px;
-  background: #eef2ff; color: #1d4ed8; }
-.video-speed-button.selected { background: #1d4ed8; color: #fff; }
+  background: #eef5eb; color: #416d51; border-radius: 9px; }
+.video-speed-button.selected { background: #416d51; color: #fff; }
 </style>
