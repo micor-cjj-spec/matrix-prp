@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { Bell, ChatDotRound, DataAnalysis, Grid, User } from '@element-plus/icons-vue'
+import { ArrowLeft, Bell, ChatDotRound, DataAnalysis, Grid, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { isMobileKeyboardVisible } from '@/utils/mobileViewport'
 import { domains, features } from '@/generated/features'
 
 const route = useRoute()
@@ -14,7 +15,7 @@ const keyboardVisible = ref(false)
 const chatViewportHeight = ref('100dvh')
 function updateKeyboardVisibility() {
   const viewport = window.visualViewport
-  keyboardVisible.value = Boolean(viewport && window.innerHeight - viewport.height - viewport.offsetTop > 150)
+  keyboardVisible.value = isMobileKeyboardVisible(window.innerHeight, viewport)
   // When the keyboard is open, constrain the fixed chat shell to the visible
   // viewport. When it closes, restore CSS dvh to avoid stale iOS dimensions.
   chatViewportHeight.value = keyboardVisible.value && viewport
@@ -88,7 +89,13 @@ const currentTitle = computed(() => {
 
     <div class="workspace prp-workspace" :class="{ 'prp-workspace-chat': activeMain === 'chat' }">
       <div v-if="activeMain !== 'chat'" class="prp-topbar">
-        <div class="prp-topbar-title"><span class="prp-mobile-mark">M</span><span>{{ currentTitle }}</span></div>
+        <div class="prp-topbar-title">
+          <RouterLink v-if="activeMain === 'apps' && route.path !== '/apps'" to="/apps"
+            class="prp-back-to-apps" aria-label="返回应用中心" title="返回应用中心">
+            <el-icon><ArrowLeft /></el-icon><span>应用</span>
+          </RouterLink>
+          <span class="prp-mobile-mark">M</span><span class="prp-current-page-title">{{ currentTitle }}</span>
+        </div>
         <div class="prp-topbar-actions">
           <RouterLink to="/notifications" class="prp-icon-link" aria-label="消息与提醒">
             <el-icon><Bell /></el-icon>

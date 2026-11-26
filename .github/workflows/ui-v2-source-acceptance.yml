@@ -1,0 +1,166 @@
+name: UI V2 source acceptance (isolated draft checks)
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - ".github/workflows/ui-v2-source-acceptance.yml"
+      - "app/web/**"
+      - "app/mobile/**"
+      - "app/scripts/**"
+      - "app/docs/PRP-UI-V2-QUIET-INTELLIGENCE.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-v2-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui-source-web:
+    name: UI source Web build, typecheck and preservation tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: Install locked Web dependencies
+        working-directory: app/web
+        run: npm ci
+      - name: Execute Web build including navigation, UI-preservation and auth tests
+        working-directory: app/web
+        run: npm run build
+      - name: Verify UI source encoding
+        run: node app/scripts/check-text-encoding.mjs
+      - name: Verify /prp/ base path and authenticated callback binding (build only)
+        working-directory: app/web
+        env:
+          VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT: https://auth.micor.top/realms/prp-mcp-prod/protocol/openid-connect/auth
+        run: |
+          VITE_APP_BASE=/prp/ npm run build
+          node scripts/verify-deploy-base.mjs /prp/
+          node scripts/verify-production-mcp-binding.mjs
+
+  ui-source-mobile:
+    name: UI source Mobile H5 typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/mobile/package-lock.json
+      - name: Install locked Mobile dependencies
+        working-directory: app/mobile
+        run: npm ci
+      - name: Typecheck and compile Mobile H5
+        working-directory: app/mobile
+        run: |
+          npm run type-check
+          npm run build:h5
+
+  ui-source-impact:
+    name: UI source Feature Impact and MCP API contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate mapping and API contract
+        run: |
+          node --test app/scripts/feature-impact.test.mjs
+          node --test app/scripts/mcp-api-contract.test.mjs
+      - name: Analyze actual UI source diff against PR base or dev
+        env:
+          IMPACT_BASE_REF: ${{ github.base_ref || 'dev' }}
+        run: |
+          git rev-parse --verify "origin/${IMPACT_BASE_REF}^{commit}" > /dev/null
+          node app/scripts/feature-impact.mjs --base "origin/${IMPACT_BASE_REF}" --head HEAD --out impact-report.md --json impact-report.json
+      - name: Upload synthetic-only impact evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-v2-source-impact-report
+          path: |
+            impact-report.md
+            impact-report.json
+          retention-days: 14
+
+  ui-source-browser:
+    name: UI source browser zoom and keyboard on ${{ matrix.browser }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked UI and isolated browser dependencies
+        run: |
+          npm ci --prefix app/web
+          python3 -m pip install --no-cache-dir playwright==1.55.0
+          python3 -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Build actual Vue UI without real API access
+        env:
+          VITE_APP_BASE: /prp/
+          VITE_API_BASE: /api
+        run: npm run build --prefix app/web
+      - name: Test viewport zoom versus keyboard against local Vue preview
+        working-directory: app/web
+        env:
+          VITE_APP_BASE: /prp/
+          VITE_API_BASE: /api
+          PRP_UI_SMOKE_URL: http://127.0.0.1:4173/prp/
+          PRP_UI_SMOKE_DIR: ${{ runner.temp }}/prp-zoom
+          PRP_UI_BROWSER: ${{ matrix.browser }}
+        run: |
+          set -Eeuo pipefail
+          ./node_modules/.bin/vite preview --host 127.0.0.1 --port 4173 --strictPort > "$RUNNER_TEMP/ui-zoom-preview.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in {1..30}; do
+            if curl --silent --fail --output /dev/null "$PRP_UI_SMOKE_URL"; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "Local Vue preview did not become healthy at $PRP_UI_SMOKE_URL" >&2
+            cat "$RUNNER_TEMP/ui-zoom-preview.log" >&2 || true
+            exit 1
+          fi
+          python3 ../scripts/ui_v2_zoom_keyboard_browser.py
+      - name: Upload synthetic viewport screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-source-zoom-${{ matrix.browser }}
+          path: ${{ runner.temp }}/prp-zoom/
+          if-no-files-found: ignore
+          retention-days: 7
