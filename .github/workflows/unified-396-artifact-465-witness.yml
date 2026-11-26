@@ -1,0 +1,83 @@
+name: Unified Staging #465 exact-source artifact witness (CI only)
+
+on:
+  pull_request:
+    branches: [dev]
+    paths: ['.github/workflows/unified-396-artifact-465-witness.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unified-396-artifact-465-witness-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-disposable:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'review/unified-396-artifact-465'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout independently reviewed #465 head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: b9b5afbbb2b31695fb71cc85643995bf3ebe9888
+          persist-credentials: false
+      - name: Record exact reviewed tree
+        id: reviewed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_EVENT_NAME" = pull_request
+          test "$GITHUB_BASE_REF" = dev
+          test "$GITHUB_REPOSITORY" = micor-cjj-spec/matrix-prp
+          test "$(git rev-parse HEAD)" = b9b5afbbb2b31695fb71cc85643995bf3ebe9888
+          printf 'tree=%s\n' "$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
+      - name: Checkout exact merged staging source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: c99a7e52c5e8957877435bb3ca07eb7a9365cac1
+          persist-credentials: false
+      - name: Verify exact source and existing disposable runner boundary
+        shell: bash
+        env:
+          REVIEWED_TREE: ${{ steps.reviewed.outputs.tree }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_EVENT_NAME" = pull_request
+          test "$GITHUB_BASE_REF" = dev
+          test "$GITHUB_REPOSITORY" = micor-cjj-spec/matrix-prp
+          test "$(git rev-parse HEAD)" = c99a7e52c5e8957877435bb3ca07eb7a9365cac1
+          [[ "$REVIEWED_TREE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD^{tree})" = "$REVIEWED_TREE"
+          test "$REVIEWED_TREE" = 6b08c7180e90f3e4231ea056773955382502e231
+          test -z "$(git status --porcelain)"
+          bash -n app/deploy/unified-staging/smoke_disposable.sh
+      - name: Reuse existing disposable full-app smoke and image export
+        shell: bash
+        env:
+          PRP_EXPORT_TESTED_IMAGES: 'true'
+        run: bash app/deploy/unified-staging/smoke_disposable.sh
+      - name: Verify source receipt and exported archive checksums
+        shell: bash
+        env:
+          REVIEWED_TREE: ${{ steps.reviewed.outputs.tree }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/prp-unified-staging-images"
+          test "$(sed -n '1p' SOURCE)" = c99a7e52c5e8957877435bb3ca07eb7a9365cac1
+          test "$(sed -n '2p' SOURCE)" = "$REVIEWED_TREE"
+          sha256sum --check SHA256SUMS
+          test "$(wc -l < IMAGE-IDS)" -eq 3
+          cat SOURCE IMAGE-IDS
+          echo 'CI_ONLY_NO_HOST_INSTALL_AUTHORITY'
+      - name: Upload exact-source tested images for separate staging review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prp-unified-staging-tested-images-465
+          path: ${{ runner.temp }}/prp-unified-staging-images/
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
