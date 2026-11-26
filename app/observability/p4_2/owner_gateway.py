@@ -97,7 +97,7 @@ class FixedGrafanaQueryAdapter:
         self._datasource_uid = datasource_uid
         self._lock = threading.Lock()
 
-    def query(self, metric, window):
+    def query(self, metric, window, revalidate):
         if type(metric) is not str or metric not in QUERIES:
             raise GatewayDenied("query denied")
         if type(window) is not str or window not in WINDOWS:
@@ -118,6 +118,7 @@ class FixedGrafanaQueryAdapter:
         # The upstream MCP session is shared by this adapter. Serialize calls;
         # the outer owner boundary still applies the existing #424 rate budget.
         with self._lock:
+            revalidate()
             response = self._rpc(
                 "tools/call",
                 {"name": "query_prometheus", "arguments": arguments},
@@ -203,10 +204,10 @@ class OwnerBoundGrafanaGateway:
         self._budget = budget
         self._disclosure = disclosure_check
 
-    def _audit_event(self, status, outcome):
+    def _audit_event(self, status, outcome, trace=None):
         event = {
             "version": 1,
-            "traceId": str(uuid.uuid4()),
+            "traceId": trace or str(uuid.uuid4()),
             "route": "mcp",
             "candidateStatus": status,
             "outcome": outcome,
@@ -245,6 +246,7 @@ class OwnerBoundGrafanaGateway:
             raise GatewayDenied("query denied") from None
         if acquired is not True:
             raise GatewayDenied("query denied")
+        trace = str(uuid.uuid4())
         status, outcome = 503, "unavailable"
         candidate = None
         final_check = None
@@ -264,7 +266,7 @@ class OwnerBoundGrafanaGateway:
                     status, outcome = 401, "denied"
                     raise GatewayDenied("query denied")
                 final_check = receipts[0]
-                candidate = self._query.query(metric, window)
+                candidate = self._query.query(metric, window, final_check)
                 # Re-read the authoritative grant after the downstream call.
                 # The callback repeats OAuth introspection and exact identity,
                 # grant generation, expiry and active-state checks from #424.
@@ -289,7 +291,7 @@ class OwnerBoundGrafanaGateway:
             # Persist a minimal receipt before disclosing any metric result.
             # No caller token, subject, grant ID, metric, PromQL, window or
             # returned data is included in the audit event.
-            if not self._audit_event(status, outcome):
+            if not self._audit_event(status, outcome, trace):
                 raise GatewayDenied("query denied")
             if status != 200 or candidate is None:
                 raise GatewayDenied("query denied")
@@ -302,7 +304,7 @@ class OwnerBoundGrafanaGateway:
             except Exception:
                 # Preserve a second denial receipt if revocation races the
                 # audit append. Audit failure remains fail-closed.
-                self._audit_event(401, "denied")
+                self._audit_event(401, "denied", trace)
                 raise GatewayDenied("query denied") from None
             return candidate
         finally:
@@ -324,7 +326,14 @@ def build_app(gateway, server):
 
     class Verifier(TokenVerifier):
         async def verify_token(self, token):
+            return await asyncio.to_thread(self._verify, token)
+
+        def _verify(self, token):
+            admitted = False
             try:
+                admitted = gateway._budget.acquire()
+                if not admitted:
+                    return None
                 context = authorize_request("Bearer " + token, **server)
                 identity = context.identity_provider()
                 return AccessToken(
@@ -337,8 +346,12 @@ def build_app(gateway, server):
                     claims={"iss": identity.issuer},
                 )
             except Exception:
-                gateway.record_auth_denial()
+                if admitted:
+                    gateway._audit_event(401, "denied")
                 return None
+            finally:
+                if admitted:
+                    gateway._budget.release()
 
     descriptor = json.loads(json.dumps(TOOL_DESCRIPTOR))
 
