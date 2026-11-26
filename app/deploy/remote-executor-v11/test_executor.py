@@ -1,0 +1,133 @@
+"""Offline P1 contract tests; no real transport or execution."""
+import base64
+import copy
+import hashlib
+import unittest
+import uuid
+
+from protocol import (InvalidJob, REPOSITORY, MAX_INLINE, MAX_ARTIFACT,
+                      parse, canonical, manifest_sha256, validate_job,
+                      validate_manifest, verify_bytes)
+
+NOW = 1800000000
+
+def inline(path="run.py", data=b"print('hello')"):
+    return {"path": path, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+            "source": {"kind": "inline", "data": base64.b64encode(data).decode()}}
+
+def artifact(path="image.tar", size=203*1024*1024):
+    return {"path": path, "size": size, "sha256": "a"*64,
+            "source": {"kind":"ci_artifact", "repository":REPOSITORY,
+                       "commit":"b"*40, "workflow":"build.yml", "runId":1,
+                       "artifactId":2, "name":"image", "archiveSize":size,
+                       "archiveSha256":"c"*64, "member":"image.tar"}}
+
+def manifest():
+    return {"target":"prp-staging", "operation":"sandbox.python", "files":[inline()],
+            "entrypoint":"run.py", "args":[], "timeoutSeconds":30}
+
+def job():
+    m = manifest()
+    return {"version":11, "jobId":str(uuid.uuid4()), "nonce":"a"*32,
+            "issuedAt":NOW, "expiresAt":NOW+180, "manifest":m,
+            "manifestSha256":manifest_sha256(m)}
+
+class ContractTests(unittest.TestCase):
+    def test_round_trip_and_binding(self):
+        j = job()
+        self.assertEqual(validate_job(parse(canonical(j)), NOW), j)
+        self.assertEqual(manifest_sha256(j["manifest"]), manifest_sha256(dict(reversed(list(j["manifest"].items())))))
+        for key, value in (("args",["changed"]), ("timeoutSeconds",31)):
+            changed = copy.deepcopy(j)
+            changed["manifest"][key] = value
+            with self.assertRaises(InvalidJob): validate_job(changed,NOW)
+
+    def test_multifile(self):
+        m=manifest()
+        m["files"].append(inline("inputs/config.json",b"{}"))
+        self.assertEqual(validate_manifest(m),m)
+
+    def test_large_ci_artifact_metadata_only(self):
+        m=manifest()
+        m.update(operation="artifact.inspect",entrypoint=None,files=[artifact()])
+        self.assertEqual(validate_manifest(m),m)
+
+    def test_repository_exact_commit(self):
+        m=manifest()
+        m["files"][0]["source"]={"kind":"repository","repository":REPOSITORY,
+                                   "commit":"b"*40,"path":"scripts/run.py"}
+        validate_manifest(m)
+        m["files"][0]["source"]["commit"]="dev"
+        with self.assertRaises(InvalidJob): validate_manifest(m)
+
+    def test_bad_digest_and_size(self):
+        for key,value in (("sha256","a"*64),("size",999),("size",True)):
+            m=manifest()
+            m["files"][0][key]=value
+            with self.assertRaises(InvalidJob): validate_manifest(m)
+        with self.assertRaises(InvalidJob): verify_bytes(inline(),b"wrong")
+
+    def test_traversal_and_collisions(self):
+        for path in ("../x","/x","a/../b","a\\b","a//b","a/.",".hidden","run.py","RUN.PY","run.py/x"):
+            with self.subTest(path=path):
+                m=manifest()
+                m["files"].append(inline(path))
+                with self.assertRaises(InvalidJob): validate_manifest(m)
+
+    def test_inline_and_aggregate_bounds(self):
+        m=manifest()
+        m["files"]=[inline("run.py",b"x"*MAX_INLINE),inline("extra",b"x")]
+        with self.assertRaises(InvalidJob): validate_manifest(m)
+        m=manifest()
+        m.update(operation="artifact.inspect",entrypoint=None,files=[artifact("a",MAX_ARTIFACT),artifact("b",1)])
+        m["files"][1]["source"]["artifactId"]=3
+        with self.assertRaises(InvalidJob): validate_manifest(m)
+
+    def test_no_arbitrary_url_or_external_repo(self):
+        m=manifest()
+        m["files"][0]["source"]={"kind":"url","url":"https://example.invalid/x"}
+        with self.assertRaises(InvalidJob): validate_manifest(m)
+        m["files"][0]["source"]={"kind":"repository","repository":"other/repo","commit":"a"*40,"path":"run.py"}
+        with self.assertRaises(InvalidJob): validate_manifest(m)
+
+    def test_inconsistent_archive(self):
+        m=manifest()
+        m.update(operation="artifact.inspect",entrypoint=None,files=[artifact("a"),artifact("b")])
+        m["files"][1]["source"]["archiveSha256"]="d"*64
+        with self.assertRaises(InvalidJob): validate_manifest(m)
+
+    def test_fixed_operations_fail_closed(self):
+        for op in ("production.deploy","stage.restart","shell","stage.health"):
+            m=manifest()
+            m["operation"]=op
+            with self.assertRaises(InvalidJob): validate_manifest(m)
+        m=manifest()
+        m.update(operation="stage.health",entrypoint=None,files=[])
+        validate_manifest(m)
+        m["args"]=["--target=production"]
+        with self.assertRaises(InvalidJob): validate_manifest(m)
+
+    def test_target_interpreter_and_entrypoint(self):
+        for k,v in (("target","prp-production"),("entrypoint","missing.py"),("operation","sandbox.bash"),("timeoutSeconds",121)):
+            m=manifest()
+            m[k]=v
+            with self.assertRaises(InvalidJob): validate_manifest(m)
+
+    def test_expiry_nonce_version(self):
+        for k,v in (("expiresAt",NOW),("issuedAt",NOW+60),("expiresAt",NOW+301),
+                    ("nonce","bad"),("jobId","bad"),("version",1),("version",True)):
+            j=job()
+            j[k]=v
+            with self.assertRaises(InvalidJob): validate_job(j,NOW)
+
+    def test_strict_json(self):
+        for raw in (b'{"a":1,"a":2}',b'{"a":NaN}',b'\xff',b' '*32769):
+            with self.assertRaises(InvalidJob): parse(raw)
+
+    def test_noncanonical_inline(self):
+        m=manifest()
+        m["files"][0]["source"]["data"] += "="
+        with self.assertRaises(InvalidJob): validate_manifest(m)
+
+if __name__ == "__main__":
+    unittest.main()
