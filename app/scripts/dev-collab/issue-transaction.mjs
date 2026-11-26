@@ -71,6 +71,8 @@ export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>
    else check(!isHistoricalNote(command.note),'ISSUE_HISTORICAL_ACTION_REQUIRED')
    const marked446=typeof command.note==='string'&&command.note.startsWith('PRP_HISTORICAL_446_V1:')
    check(marked446===(validated.historical446===true)&&(!marked446||(validated.ownerPolicy===true&&reviewedEvidence.historical446Verified===true)),'ISSUE_HISTORICAL_446_PROOF_REQUIRED')
+   const marked271=typeof command.note==='string'&&command.note.startsWith('PRP_HISTORICAL_271_V1:')
+   check(marked271===(validated.historical271===true)&&(!marked271||(validated.ownerPolicy===true&&reviewedEvidence.historical271Verified===true)),'ISSUE_HISTORICAL_271_PROOF_REQUIRED')
    const receiptMarked=typeof command.note==='string'&&command.note.startsWith('PRP_PREMERGE_RECEIPT_V1:')
    check(receiptMarked===(validated.receiptAccept===true)&&(!receiptMarked||(validated.ownerPolicy===true&&reviewedEvidence.receiptEvidenceVerified===true)),'ISSUE_RECEIPT_PROOF_REQUIRED')
    if(validated.ownerPolicy===true)check(reviewedEvidence.ownerRulesetAttested===true,'ISSUE_OWNER_POLICY_PROOF_REQUIRED')
@@ -315,10 +317,11 @@ async function main(){
        'ISSUE_OWNER_POLICY_STATE_MISMATCH')
      const proof=Object.freeze({actorId:validated.actorId,sourceIssue:validated.source_issue,
        issueCreatedAt:validated.issueCreatedAt,stateSha:head,expectedStateSha:validated.expectedStateSha,
-       expectedVersion:validated.expected_version,note:validated.command.note,...(validated.historical446===true?{historical446:true}:{}),...(validated.receiptAccept===true?{receiptAccept:true}:{})})
+       expectedVersion:validated.expected_version,note:validated.command.note,...(validated.historical446===true?{historical446:true}:{}),...(validated.historical271===true?{historical271:true}:{}),...(validated.receiptAccept===true?{receiptAccept:true}:{})})
      const receiptRuntime=validated.receiptAccept===true?await import('./review-receipt-runtime.mjs'):undefined
-     loadReview=validated.historical446===true||validated.receiptAccept===true
-       ?()=>trustedReviewContext(before,validated.command,env,ghApi,proof,receiptRuntime)
+     const historical271Runtime=validated.historical271===true?await import('./review-historical-271.mjs'):undefined
+     loadReview=validated.historical446===true||validated.receiptAccept===true||validated.historical271===true
+       ?()=>trustedReviewContext(before,validated.command,env,ghApi,proof,receiptRuntime,historical271Runtime)
        :()=>trustedReviewContext(before,validated.command,env,route=>gh(route),proof)
    }else loadReview=()=>trustedReviewContext(before,validated.command,env,route=>gh(route))
    verifiedReview=loadReview()
@@ -351,8 +354,8 @@ async function main(){
      const fresh=loadReview()
      check(fresh.reviewerAuthorized===true&&fresh.ciVerified===true&&
        fresh.mergedIntoIntegration===true&&(validated.historical415!==true||fresh.historical415Verified===true)&&
-       (validated.ownerPolicy!==true||fresh.ownerRulesetAttested===true)&&(validated.historical446!==true||fresh.historical446Verified===true)&&(validated.receiptAccept!==true||fresh.receiptEvidenceVerified===true),'ISSUE_ACCEPT_EVIDENCE_REVOKED')
-     if(validated.receiptAccept===true)verifyBranchAndRunner(env)
+       (validated.ownerPolicy!==true||fresh.ownerRulesetAttested===true)&&(validated.historical446!==true||fresh.historical446Verified===true)&&(validated.receiptAccept!==true||fresh.receiptEvidenceVerified===true)&&(validated.historical271!==true||fresh.historical271Verified===true),'ISSUE_ACCEPT_EVIDENCE_REVOKED')
+     if(validated.receiptAccept===true||validated.historical271===true)verifyBranchAndRunner(env)
      check(git('ls-remote','--exit-code','--refs','origin','refs/heads/main')===env.GITHUB_SHA+'\trefs/heads/main','ISSUE_MAIN_CHANGED_BEFORE_PUSH')
      check(git('ls-remote','--exit-code','--refs','origin',stateRef)===base,'ISSUE_RACE_BEFORE_PUSH')
      validateIssueEvent(env,event,gh('repos/'+REPO+'/issues/'+validated.source_issue))

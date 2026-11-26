@@ -361,3 +361,14 @@ test('explicit receipt mode cannot be selected through ordinary accept or manual
  assert.throws(()=>trustedReviewContext(state(),marked,ctx,api,{...proof,receiptAccept:true,note:marked.note}),/RECEIPT_EXPLICIT_ISSUE_REQUIRED/)
  assert.throws(()=>trustedReviewContext(state(),{...cmd,type:'capture_receipt'},issueEnv,api,proof),/RECEIPT_EXPLICIT_ISSUE_REQUIRED/)
 })
+
+test('historical #271 cannot be selected by manual or ordinary accept or bypass runtime verifier',()=>{
+ const {cmd,proof,api}=makeIssueProof(),marked={...cmd,note:'PRP_HISTORICAL_271_V1:'+cmd.note}
+ const hp={...proof,historical271:true,note:marked.note}
+ assert.throws(()=>trustedReviewContext(state(),marked,ctx,api,hp),/HISTORICAL_271_EXPLICIT_ISSUE_REQUIRED/)
+ assert.throws(()=>trustedReviewContext(state(),marked,issueEnv,api,{...proof,note:marked.note}),/HISTORICAL_271_EXPLICIT_ISSUE_REQUIRED/)
+ assert.throws(()=>trustedReviewContext(state(),cmd,issueEnv,api,{...proof,historical271:true}),/HISTORICAL_271_EXPLICIT_ISSUE_REQUIRED/)
+ assert.throws(()=>trustedReviewContext(state(),marked,issueEnv,api,hp),/HISTORICAL_271_RUNTIME_REQUIRED/)
+ const runtime={verifyHistorical271:()=>({historical271Verified:false})}
+ assert.throws(()=>trustedReviewContext(state(),marked,issueEnv,api,hp,undefined,runtime),/HISTORICAL_271_EVIDENCE_REQUIRED/)
+})
