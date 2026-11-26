@@ -16,7 +16,7 @@ const REQ=/^REQ-[0-9]{8}-[0-9]{3}$/
 const TASK=/^T-[0-9]{3}$/
 const WORKER=/^[a-zA-Z0-9_-]{3,64}$/
 const ACTIONS=new Set(['claim','start','progress','pause','block','resume','release',
- 'checkpoint','handoff','takeover','submit','accept','capture_receipt','accept_receipt','accept_historical_415','accept_historical_446','rework','register_task','migrate_v1'])
+ 'checkpoint','handoff','takeover','submit','accept','capture_receipt','accept_receipt','accept_historical_415','accept_historical_446','accept_historical_271','rework','register_task','migrate_v1'])
 const FIELDS=new Set(['schema_version','action','request_id','requirement_id',
  'task_id','worker_id','claim_id','note','pr_number','head_sha','checkpoint',
  'new_worker_id','expected_claim_id','expected_head_sha','expected_version',
@@ -41,6 +41,7 @@ const ACTION_FIELDS={
  capture_receipt:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
  accept_receipt:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
  accept_historical_446:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
+ accept_historical_271:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
  accept_historical_415:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
  register_task:['issue_number','title','depends_on','allowed_paths']
 }
@@ -113,9 +114,9 @@ function payload(body){
      'INGRESS_TAKEOVER_EXPECTED_CLAIM')
  }
  if(['progress','block','rework'].includes(data.action))check(line(data.note,500),'INGRESS_NOTE_REQUIRED')
- if(['submit','accept','capture_receipt','accept_receipt','accept_historical_415','accept_historical_446'].includes(data.action))check(data.pr_number>0&&SHA.test(data.head_sha),
+ if(['submit','accept','capture_receipt','accept_receipt','accept_historical_415','accept_historical_446','accept_historical_271'].includes(data.action))check(data.pr_number>0&&SHA.test(data.head_sha),
    'INGRESS_SUBMIT_EVIDENCE')
- if(['accept_historical_446','capture_receipt','accept_receipt'].includes(data.action)||(data.action==='accept'&&(data.policy_attestation!==undefined||data.expected_state_sha!==undefined))){
+ if(['accept_historical_446','accept_historical_271','capture_receipt','accept_receipt'].includes(data.action)||(data.action==='accept'&&(data.policy_attestation!==undefined||data.expected_state_sha!==undefined))){
    check(SHA.test(data.expected_state_sha||'')&&typeof data.policy_attestation==='string'&&
      line(data.policy_attestation,2048)&&data.policy_attestation.startsWith('PRP_RULESET_ATTESTATION_V1:'),
      'INGRESS_OWNER_POLICY_FIELDS')
@@ -124,6 +125,7 @@ function payload(body){
    catch{throw new CollabError('INGRESS_OWNER_POLICY_FIELDS')}
    check(plain(note)&&note.expected_state_sha===data.expected_state_sha,'INGRESS_OWNER_POLICY_STATE')
  }
+ if(data.action==='accept_historical_271')check(data.requirement_id==='REQ-20261031-001'&&['T-002','T-003'].includes(data.task_id)&&data.pr_number===271&&data.head_sha==='48b3a69232690e7e2fb54a2d92efac02cc512c0e'&&data.expected_version>=25,'INGRESS_HISTORICAL_271_PIN')
  if(data.action==='accept_historical_446')check(data.requirement_id==='REQ-20261031-001'&&data.task_id==='T-007'&&data.pr_number===446&&data.head_sha==='216b280386120f932eee28f22448d41bcaf82dec'&&data.worker_id==='chat_t007_security_20261125'&&data.expected_version>=20,'INGRESS_HISTORICAL_446_PIN')
  if(data.action==='accept_historical_415')check(data.requirement_id==='REQ-20261031-001'&&data.task_id==='T-001'&&data.pr_number===415&&data.head_sha==='ba05b6ebe5e435d7cd474bade5accb6fc0c71b65'&&data.worker_id==='chat_t001_delivery_20261125'&&data.expected_version>=13&&SHA.test(data.expected_state_sha),'INGRESS_HISTORICAL_415_PIN')
  if(data.action==='register_task'){
@@ -185,10 +187,10 @@ export function validateIssueEvent(env,event,currentIssue=null,now=Date.now()){
  }
  // Only the event-authorized GitHub actor becomes the state-transaction actor.
  const historical=data.action==='accept_historical_415'
- const historical446=data.action==='accept_historical_446'
+ const historical446=data.action==='accept_historical_446',historical271=data.action==='accept_historical_271'
  const captureReceipt=data.action==='capture_receipt',receiptAccept=data.action==='accept_receipt'
- const ownerPolicy=(data.action==='accept'||historical446||captureReceipt||receiptAccept)&&data.policy_attestation!==undefined
- const command={type:(historical||historical446||receiptAccept)?'accept':data.action,requirement_id:data.requirement_id,
+ const ownerPolicy=(data.action==='accept'||historical446||historical271||captureReceipt||receiptAccept)&&data.policy_attestation!==undefined
+ const command={type:(historical||historical446||historical271||receiptAccept)?'accept':data.action,requirement_id:data.requirement_id,
    task_id:data.task_id,request_id:data.request_id,worker_id:data.worker_id}
  for(const key of ['claim_id','note','pr_number','head_sha','checkpoint',
    'new_worker_id','expected_claim_id','expected_head_sha','issue_number',
@@ -205,7 +207,7 @@ export function validateIssueEvent(env,event,currentIssue=null,now=Date.now()){
      'INGRESS_OWNER_POLICY_ISSUE_TIME')
    // Exact canonical note is included in the existing command fingerprint.
    // All binding, freshness, live policy and CI checks occur in trusted review.
-   command.note=(historical446?'PRP_HISTORICAL_446_V1:':receiptAccept?'PRP_PREMERGE_RECEIPT_V1:':'')+data.policy_attestation
+   command.note=(historical446?'PRP_HISTORICAL_446_V1:':historical271?'PRP_HISTORICAL_271_V1:':receiptAccept?'PRP_PREMERGE_RECEIPT_V1:':'')+data.policy_attestation
  }
  if(['handoff','takeover'].includes(data.action))
    command.expected_version=data.expected_version
@@ -215,7 +217,7 @@ export function validateIssueEvent(env,event,currentIssue=null,now=Date.now()){
    source_issue:event.issue.number,actor:event.sender.login,actorId:event.sender.id,
    recoveryAuthorized:data.action==='takeover',
    ...(historical?{historical415:true,expectedStateSha:data.expected_state_sha,policyAttestation:data.policy_attestation,issueCreatedAt:event.issue.created_at}:{}),
-   ...(ownerPolicy?{ownerPolicy:true,...(historical446?{historical446:true}:{}),...(captureReceipt?{captureReceipt:true}:{}),...(receiptAccept?{receiptAccept:true}:{}),expectedStateSha:data.expected_state_sha,issueCreatedAt:event.issue.created_at}:{})}
+   ...(ownerPolicy?{ownerPolicy:true,...(historical446?{historical446:true}:{}),...(historical271?{historical271:true}:{}),...(captureReceipt?{captureReceipt:true}:{}),...(receiptAccept?{receiptAccept:true}:{}),expectedStateSha:data.expected_state_sha,issueCreatedAt:event.issue.created_at}:{})}
 }
 if(process.argv[1] && fileURLToPath(import.meta.url)===resolve(process.argv[1])){
  try{

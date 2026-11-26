@@ -7,6 +7,7 @@ import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.
 import {HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446} from './review-provenance.mjs'
 
 const RECEIPT_ACCEPT_PREFIX='PRP_PREMERGE_RECEIPT_V1:'
+const HISTORICAL_271_PREFIX='PRP_HISTORICAL_271_V1:'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/
@@ -23,7 +24,7 @@ export function ghApi(route){
 }
 
 /** The only trust boundary: called exclusively from the owner-initiated reviewed workflow. */
-export function trustedReviewContext(snapshot,command,env,api,issueProof,receiptRuntime){
+export function trustedReviewContext(snapshot,command,env,api,issueProof,receiptRuntime,historical271Runtime){
   check(env.GITHUB_ACTIONS==='true' && env.GITHUB_REF==='refs/heads/main' &&
     env.GITHUB_REPOSITORY===REPO && env.GITHUB_ACTOR==='micor-cjj-spec' &&
     env.GITHUB_REPOSITORY_OWNER==='micor-cjj-spec' && typeof env.GH_TOKEN==='string' &&
@@ -40,7 +41,10 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof,receipt
   const receiptMarked=typeof command.note==='string'&&command.note.startsWith(RECEIPT_ACCEPT_PREFIX)
   check(receiptMarked===receiptAccept&&capture===(issueProof?.captureReceipt===true)&&
     (!capture&&!receiptAccept||issue&&!historical446&&(!receiptAccept||command.type==='accept')),'RECEIPT_EXPLICIT_ISSUE_REQUIRED')
-  const ownerNote=historical446?command.note.slice(HISTORICAL_446_PREFIX.length):
+  const historical271=issueProof?.historical271===true
+  const marked271=typeof command.note==='string'&&command.note.startsWith(HISTORICAL_271_PREFIX)
+  check(marked271===historical271&&(!historical271||issue&&command.type==='accept'&&!historical446&&!capture&&!receiptAccept),'HISTORICAL_271_EXPLICIT_ISSUE_REQUIRED')
+  const ownerNote=historical271?command.note.slice(HISTORICAL_271_PREFIX.length):historical446?command.note.slice(HISTORICAL_446_PREFIX.length):
     receiptAccept?command.note.slice(RECEIPT_ACCEPT_PREFIX.length):command.note
   const requirePolicy=()=>{
     const rule=api(root+'/rulesets/28050327')
@@ -76,6 +80,16 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof,receipt
   const requireMain=main=>check(main?.name==='main' && main.protected===true && main.commit?.sha===env.GITHUB_SHA,'REVIEW_MAIN_REVISION_MISMATCH')
   const loadJobs=id=>api(root+'/actions/runs/'+id+'/jobs?per_page=100&filter=latest')
   const integrationRef='integrate/'+snapshot.requirement_id
+  if(historical271){
+    check(typeof historical271Runtime?.verifyHistorical271==='function','HISTORICAL_271_RUNTIME_REQUIRED')
+    requireMain(api(root+'/branches/main'))
+    check(requirePolicy().ownerAttested===true,'HISTORICAL_271_OWNER_POLICY')
+    const result=historical271Runtime.verifyHistorical271(snapshot,command,issueProof,env.GITHUB_SHA,api)
+    check(result?.historical271Verified===true&&result.checks===7&&result.pr===271&&result.task===command.task_id,'HISTORICAL_271_EVIDENCE_REQUIRED')
+    requireMain(api(root+'/branches/main'))
+    check(requirePolicy().ownerAttested===true,'HISTORICAL_271_OWNER_POLICY')
+    return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,ownerRulesetAttested:true,historical271Verified:true}
+  }
   if(capture||receiptAccept){
     check(receiptRuntime&&typeof receiptRuntime.verifyReceiptCommand==='function'&&typeof receiptRuntime.collectReceiptEvidence==='function'&&typeof receiptRuntime.verifyReceiptAccept==='function','RECEIPT_RUNTIME_REQUIRED')
     receiptRuntime.verifyReceiptCommand(snapshot,command,issueProof)
