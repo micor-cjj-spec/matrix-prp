@@ -979,5 +979,35 @@ class RelayTests(unittest.TestCase):
               "files":[inline()]}
         with self.assertRaises(InvalidJob): _validate_plan(plan,j["jobId"])
 
+
+    def test_ssh_default_denial_and_pipe_deadline(self):
+        import os
+        import time
+        from unittest.mock import patch
+        from bridge import relay_over_ssh,_Pipe
+        req=self.request()
+        with patch("bridge.subprocess.Popen") as launch:
+            with self.assertRaises(InvalidJob):
+                relay_over_ssh(self.event(req,1),REPOSITORY,"refs/heads/main",123)
+            launch.assert_not_called()
+        read_fd,write_fd=os.pipe()
+        with os.fdopen(read_fd,"rb",buffering=0) as source,os.fdopen(write_fd,"wb",buffering=0) as sink:
+            incoming=_Pipe(source,time.monotonic()+1)
+            outgoing=_Pipe(sink,time.monotonic()+1)
+            self.assertEqual(outgoing.write(b"abc"),3)
+            self.assertEqual(incoming.read(3),b"abc")
+            incoming.deadline=time.monotonic()-1
+            with self.assertRaises(InvalidJob): incoming.read(1)
+
+    def test_credential_mode_and_final_lf(self):
+        import stat
+        from bridge import _credential
+        path=self.ledger.root/"synthetic-identity"
+        _credential(path,"synthetic")
+        self.assertEqual(path.read_bytes(),b"synthetic\n")
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode),0o600)
+        with self.assertRaises(OSError): _credential(path,"do not overwrite")
+        with self.assertRaises(InvalidJob): _credential(self.ledger.root/"bad","")
+
 if __name__ == "__main__":
     unittest.main()
