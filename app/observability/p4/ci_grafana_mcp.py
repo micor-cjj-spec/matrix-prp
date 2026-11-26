@@ -129,7 +129,7 @@ def main():
     if os.getenv("GITHUB_ACTIONS")!="true" or os.getenv("RUNNER_ENVIRONMENT")!="github-hosted":
         raise SystemExit("disposable hosted CI only")
     prefix="p41-"+uuid.uuid4().hex[:10]
-    names={key:prefix+"-"+key for key in ("prom","p2","p3","grafana","mcp")}
+    names={key:prefix+"-"+key for key in ("prom","p2","p3","grafana","mcp","trap")}
     password=secrets.token_urlsafe(32)
     caller=secrets.token_urlsafe(32)
     admin={"Authorization":"Basic "+base64.b64encode(("admin:"+password).encode()).decode()}
@@ -180,6 +180,7 @@ def main():
                     "--security-opt","no-new-privileges",*options,refs[image],*args)
             def mount(path,dest):
                 return ("--mount","type=bind,src="+str(path)+",dst="+dest+",readonly")
+            start("trap","python","64m",args=("python","-u","-m","http.server","8080","--bind","0.0.0.0"))
             start("p2","python","128m",mount(folder/"p2.py","/fixture/p2.py"),("python","/fixture/p2.py","app"),"app")
             start("p3","python","128m",mount(folder,"/control"),("python","/control/p3.py","metrics"))
             start("prom","prom","384m",mount(folder,"/fixture"),
@@ -248,9 +249,23 @@ def main():
             check(failed(client.call("node_memory_MemAvailable_bytes[2h]")),"lookback-budget")
             check(failed(client.call("node_memory_MemAvailable_bytes",queryType="range",startTime="now-1h",endTime="now",stepSeconds=1)),"points-budget")
             check(failed(client.rpc("tools/call",{"name":"update_dashboard","arguments":{}})),"write-tool-not-callable")
+            # Independent destination observation: a downstream API failure alone is not a denial.
+            # The disposable HTTP trap logs request method/path, never request headers.
+            trap=address("trap",8080)
+            eventually(lambda:request(trap,"/p4-positive-control")[0]==404,"trap-reachable")
+            run("docker","exec",names["p3"],"python","-c",
+                "import urllib.request,urllib.error;\ntry: urllib.request.urlopen('http://trap:8080/p4-network-control',timeout=5)\nexcept urllib.error.HTTPError as e: assert e.code==404")
+            def trap_logs():
+                p=subprocess.run(["docker","logs",names["trap"]],capture_output=True,text=True,timeout=15)
+                if p.returncode:
+                    raise AssertionError("trap observation unavailable")
+                return p.stdout+p.stderr
+            eventually(lambda:"/p4-positive-control" in trap_logs() and "/p4-network-control" in trap_logs(),"trap-log-positive-control")
+            before=trap_logs()
             override=client.rpc("tools/call",{"name":"query_prometheus","arguments":{"datasourceUid":UID,"expr":"node_memory_MemAvailable_bytes","startTime":"now","queryType":"instant"}},
-                                extra={"X-Grafana-URL":"http://p3:8080"})
+                                extra={"X-Grafana-URL":"http://trap:8080"})
             check(failed(override) or ("fixture-node" in serialized(override) and "foreign-marker" not in serialized(override)),"url-override-denied-or-ignored")
+            check(trap_logs()==before,"url-override-zero-destination-requests")
             invalid=client.rpc("tools/call",{"name":"query_prometheus","arguments":{"datasourceUid":UID,"expr":"node_memory_MemAvailable_bytes","startTime":"now","queryType":"instant"}},
                                extra={"X-Grafana-Service-Account-Token":"synthetic-invalid"})
             check(failed(invalid),"invalid-viewer-denied")
