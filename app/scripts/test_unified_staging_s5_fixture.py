@@ -258,6 +258,16 @@ class IntegratedFakeHelper(FakeHelper):
                 token="fake." + who + ".jwt")
             if status == 200:
                 summaries[who] = body["data"]
+        if self.fault in ("journal_missing_ids", "journal_duplicate_ids"):
+            # Mutate only the final report-side fixture, not the historical
+            # source or the interrupted-run reconciliation policy.
+            journal = json.loads(json.dumps(journal))
+            if self.fault == "journal_missing_ids":
+                for entry in journal["attempted"]:
+                    entry["id"] = None
+            else:
+                task = [entry for entry in journal["attempted"] if entry["kind"] == "task"]
+                task[1]["id"] = task[0]["id"]
         return build_offline_receipt(report, journal, baseline, self.context, snapshots, summaries)
 
 
@@ -619,6 +629,23 @@ class S5IntegratedRehearsalTests(unittest.TestCase):
         code, _, _, _, receipt = self.run_integrated("corrupt_sidecar")
         self.assertEqual(code, 0)
         self.assertEqual(receipt["baselineState"], "INVALID_BASELINE_OBSERVATION")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+
+    def test_success_receipt_requires_confirmed_ids(self):
+        code, report, _, _, receipt = self.run_integrated("journal_missing_ids")
+        self.assertEqual(code, 0)
+        self.assertEqual(report["state"], "CROSS_MODULE_UAT_PASS")
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(receipt["recoveryState"], "NO_MARKERS_OBSERVED")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_success_receipt_rejects_same_kind_duplicate_ids(self):
+        code, report, _, _, receipt = self.run_integrated("journal_duplicate_ids")
+        self.assertEqual(code, 0)
+        self.assertEqual(report["state"], "CROSS_MODULE_UAT_PASS")
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(receipt["recoveryState"], "NO_MARKERS_OBSERVED")
         self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
 
 

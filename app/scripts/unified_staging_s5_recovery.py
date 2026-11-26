@@ -311,6 +311,33 @@ FALSE_REPORT_FLAGS = ("createdAccounts", "healthTestsExecuted", "aiProviderCalle
                       "productionAuthorized", "liveVerified")
 
 
+def _confirmed_success_attempts(journal):
+    """A successful run must retain a positive confirmed ID for every attempt.
+
+    Interrupted-run review still accepts nullable IDs; this stricter predicate
+    is solely for successful rehearsal receipts. IDs need only be distinct
+    within a kind, since unrelated API entities may have independent sequences.
+    """
+    if not isinstance(journal, dict) or not isinstance(journal.get("attempted"), list):
+        return False
+    attempts = journal["attempted"]
+    if len(attempts) != len(BASELINE_KEYS):
+        return False
+    pairs = {}
+    for entry in attempts:
+        if not isinstance(entry, dict):
+            return False
+        owner, kind, rid = (entry.get(k) for k in ("owner", "kind", "id"))
+        if owner not in OWNERS or kind not in KINDS or not _positive_id(rid):
+            return False
+        key = owner + "_" + kind
+        if key in pairs:
+            return False
+        pairs[key] = rid
+    return (set(pairs) == BASELINE_KEYS
+            and all(pairs["A_" + kind] != pairs["B_" + kind] for kind in KINDS))
+
+
 def build_offline_receipt(report, journal, baseline, context, snapshots, summaries):
     """Compose diagnostic rehearsal evidence, never live or release authority."""
     diff = compare_baseline(baseline, context, snapshots, summaries)
@@ -334,6 +361,7 @@ def build_offline_receipt(report, journal, baseline, context, snapshots, summari
         and isinstance(journal, dict) and isinstance(context, dict)
         and journal.get("run") == context.get("run")
         and journal.get("phase") == "FINISHED"
+        and _confirmed_success_attempts(journal)
         and journal.get("results") == modules and journal.get("cleanup") == cleanup
         and recovery["state"] == "NO_MARKERS_OBSERVED"
         and set(recovery["entries"]) == BASELINE_KEYS
