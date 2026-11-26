@@ -1,0 +1,149 @@
+{
+  "global": {
+    "scrape_interval": "5s",
+    "scrape_timeout": "4s"
+  },
+  "scrape_configs": [
+    {
+      "job_name": "http_health",
+      "metrics_path": "/probe",
+      "params": {
+        "module": [
+          "http_health"
+        ]
+      },
+      "sample_limit": 250,
+      "static_configs": [
+        {
+          "targets": [
+            "http://health-fixture:8080/api/health"
+          ],
+          "labels": {
+            "instance": "healthy",
+            "environment": "synthetic"
+          }
+        }
+      ],
+      "relabel_configs": [
+        {
+          "source_labels": [
+            "__address__"
+          ],
+          "target_label": "__param_target"
+        },
+        {
+          "target_label": "__address__",
+          "replacement": "blackbox:9115"
+        }
+      ]
+    },
+    {
+      "job_name": "p2-app",
+      "sample_limit": 1000,
+      "label_limit": 12,
+      "honor_timestamps": true,
+      "track_timestamps_staleness": true,
+      "static_configs": [
+        {
+          "targets": [
+            "app:8080"
+          ],
+          "labels": {
+            "instance": "fixture-app",
+            "environment": "synthetic"
+          }
+        }
+      ]
+    },
+    {
+      "job_name": "p2-cgroup",
+      "sample_limit": 500,
+      "label_limit": 12,
+      "honor_timestamps": true,
+      "track_timestamps_staleness": true,
+      "static_configs": [
+        {
+          "targets": [
+            "cgroup:8080"
+          ],
+          "labels": {
+            "instance": "fixture-cgroup",
+            "environment": "synthetic"
+          }
+        }
+      ]
+    },
+    {
+      "job_name": "p2-mysql",
+      "sample_limit": 200,
+      "label_limit": 12,
+      "honor_timestamps": true,
+      "track_timestamps_staleness": true,
+      "static_configs": [
+        {
+          "targets": [
+            "mysql:8080"
+          ],
+          "labels": {
+            "instance": "fixture-mysql",
+            "environment": "synthetic"
+          }
+        }
+      ]
+    },
+    {
+      "job_name": "p2-nginx",
+      "sample_limit": 200,
+      "label_limit": 12,
+      "honor_timestamps": true,
+      "track_timestamps_staleness": true,
+      "static_configs": [
+        {
+          "targets": [
+            "nginx:8080"
+          ],
+          "labels": {
+            "instance": "fixture-nginx",
+            "environment": "synthetic"
+          }
+        }
+      ]
+    },
+    {
+      "job_name": "p2-keycloak",
+      "sample_limit": 200,
+      "label_limit": 12,
+      "honor_timestamps": true,
+      "track_timestamps_staleness": true,
+      "static_configs": [
+        {
+          "targets": [
+            "keycloak:8080"
+          ],
+          "labels": {
+            "instance": "fixture-keycloak",
+            "environment": "synthetic"
+          }
+        }
+      ]
+    },
+    {
+      "job_name": "p2-ci",
+      "sample_limit": 100,
+      "label_limit": 12,
+      "honor_timestamps": true,
+      "track_timestamps_staleness": true,
+      "static_configs": [
+        {
+          "targets": [
+            "ci:8080"
+          ],
+          "labels": {
+            "instance": "fixture-ci",
+            "environment": "synthetic"
+          }
+        }
+      ]
+    }
+  ]
+}

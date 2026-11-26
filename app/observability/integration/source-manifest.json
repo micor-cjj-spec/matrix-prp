@@ -1,0 +1,85 @@
+{
+  "base": "353b939e41f21a98d2101fcb5e9796cbb34888bc",
+  "source_prs": [
+    {
+      "pr": 463,
+      "head": "bc071e67cb230ba82b63b22999f28eed4ed63448",
+      "files": {
+        ".github/workflows/prp-observability-p2-1.yml": "feb8faeb400a7205a489d69ed525cc13a6d3cb14",
+        "app/observability/p2-1/README.md": "9c2da85b9d52c1b88a9124273292483feae2f97d",
+        "app/observability/p2-1/blackbox.yml": "982cd546846134be271043ee78e95d6b169c5093",
+        "app/observability/p2-1/ci_availability.py": "d1cafa264f3bceed42d66be7ffab2ca218f715d9",
+        "app/observability/p2-1/fixture.py": "5db4d3967d0c48192e854952cf5c5fec3e6b7481",
+        "app/observability/p2-1/prometheus.yml": "5fed854d13c15e7996a055d473284bcbf083d460"
+      }
+    },
+    {
+      "pr": 467,
+      "head": "55ab511042d5a0b1920c262b013c23113a135ba4",
+      "files": {
+        ".github/workflows/prp-observability-p2-2.yml": "83f2b8343da5b33a5e19fa58828f2e9338a7224e",
+        "app/backend/pom.xml": "424219167598250c7a80c7b2d91e199d56d5e7ae",
+        "app/backend/src/main/java/com/matrix/prp/config/ObservabilityConfig.java": "3cea8f16114f31e399f6a94f06727558b7967f78",
+        "app/backend/src/main/resources/application-observability.yml": "626cf68b69161fc59733ce994ea7b0cb7046c61d",
+        "app/backend/src/main/resources/application.yml": "b0171f191d46ac790fa87ea1c195ce0d8ebfdcdc",
+        "app/backend/src/test/java/com/matrix/prp/config/ObservabilityDisabledTests.java": "3f1e0a41860d438786470570c57a88403558949d",
+        "app/backend/src/test/java/com/matrix/prp/config/ObservabilityMetricsTests.java": "5b52f2b0574b5c41a35c7559116ce07c84c55590",
+        "app/backend/src/test/java/com/matrix/prp/config/ObservabilityPoolIT.java": "63d0a39a9eb0424e022b103ca57631a0c4bcc44d",
+        "app/observability/p2-2/README.md": "6058c4c3c47c439d27c48a259094b1c7388d79d3"
+      }
+    },
+    {
+      "pr": 469,
+      "head": "c3329d945ebac6f5c99f9a43cf6addfd84442bb3",
+      "files": {
+        ".github/workflows/prp-observability-p2-3.yml": "e31bb261d5183d90def80120389bfb112ef5f940",
+        "app/observability/p2-3/README.md": "586c435fcf3b985008dcdf613c8fb41f9d71305b",
+        "app/observability/p2-3/ci_cgroups.py": "4bc8cf97ff39ae289c66a5ab9c3d266593553997",
+        "app/observability/p2-3/dashboard.json": "53ae01ad0e5d24d7b937a845cedb2fb714e56e41",
+        "app/observability/p2-3/fixture.py": "0030d757bc21d98c2e7132310d93555cc3e08fce"
+      }
+    },
+    {
+      "pr": 472,
+      "head": "b6ee5888a717df49f937a9e7e210af283fe23e65",
+      "files": {
+        ".github/workflows/prp-observability-p2-4.yml": "cfbe20618e2bb7435d16f91d1be57fd97448df68",
+        "app/observability/p2-4/README.md": "85a95c949452c56653a7702a1d160172f45a8bb9",
+        "app/observability/p2-4/ci_mysql.py": "d2c8bd8081e088dddc6c876c7b061e3e7302a059",
+        "app/observability/p2-4/dashboard.json": "7dde32df5b5ffb599726b8017e9fbdbc27bc09c4",
+        "app/observability/p2-4/fixed_proxy.py": "7de7b43ec3ea474d0508b90b4021c009fb417601"
+      }
+    },
+    {
+      "pr": 473,
+      "head": "5a6e9ae028ed13f963c6f7aee2f69e6cd4e57ccd",
+      "files": {
+        ".github/workflows/prp-observability-p2-5.yml": "94126e9b2a222945e143337c19b04abb81135632",
+        "app/observability/p2-5/README.md": "bb778cf7943a9d2954d4cb139bfabfe01198355b",
+        "app/observability/p2-5/ci_gateway.py": "64ad79d21031ec128956e62e83d8a489ad7787fc",
+        "app/observability/p2-5/dashboard.json": "13353a781d2c1a01c5f3e6484dff73a18bdabf13",
+        "app/observability/p2-5/fixed_proxy.py": "d62c81e13319e13989a2d50764c679607172f39a",
+        "app/observability/p2-5/nginx.conf.template": "09535ec2fca7c0ef349928ed7ed4690b4f6bc607"
+      }
+    },
+    {
+      "pr": 475,
+      "head": "10152593068c09a0f8f7f6a1b7e34bc0375c9140",
+      "files": {
+        ".github/workflows/prp-observability-p2-6.yml": "b3a5e08560794c5ae80b7646e7c4dab0092e1755",
+        "app/observability/p2-6/README.md": "29d6157177ccdad6549ff8713654f496f46db464",
+        "app/observability/p2-6/dashboard.json": "7417d91637d6e5721a3055487c9823f06bf50f6f",
+        "app/observability/p2-6/projection.py": "c65402f4e71ab1b7728fd516ba4860db59fef8a2",
+        "app/observability/p2-6/test_projection.py": "5ee73ebe6b50043e6a18d86e356905d589b6428b"
+      }
+    }
+  ],
+  "integration_paths": [
+    ".github/workflows/prp-observability-p2-integration.yml",
+    "app/observability/integration/source-manifest.json",
+    "app/observability/integration/prometheus.yml",
+    "app/observability/integration/fixture.py",
+    "app/observability/integration/ci_integration.py",
+    "app/observability/integration/README.md"
+  ]
+}
