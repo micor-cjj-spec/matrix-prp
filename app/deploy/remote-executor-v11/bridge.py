@@ -21,7 +21,7 @@ import zipfile
 
 from protocol import (REPOSITORY, MAX_ARTIFACT, MAX_FILES, InvalidJob,
                       require, relative_path, validate_job, inline_bytes, canonical, parse,
-                      exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER, commit, seal_receipt)
+                      exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER, commit, seal_receipt, validate_file, MAX_INLINE)
 from executor import CHUNK
 
 OWNER = "micor-cjj-spec"
@@ -246,7 +246,7 @@ def read_frame(stream):
     _validate_frame(header, data)
     return header, data
 
-def file_frame_chunks(stream, job_id, manifest_digest, item):
+def file_frame_chunks(stream, job_id, manifest_digest, item, *, require_eof=True):
     """Sequential, exact file framing; one complete file per bounded stream.
 
     Future transport must independently authenticate, impose IO deadlines,
@@ -264,7 +264,8 @@ def file_frame_chunks(stream, job_id, manifest_digest, item):
         if data:
             yield data
         if header["final"]:
-            require(stream.read(1) == b"", "trailing frame data")
+            if require_eof:
+                require(stream.read(1) == b"", "trailing frame data")
             return
 
 
@@ -478,3 +479,187 @@ def dispatch_event(event, repository, ref, issue, ledger, provider,
     encoded = base64.urlsafe_b64encode(encrypted).decode("ascii").rstrip("=")
     require(len(encoded) <= 60000, "encrypted response too large")
     return "/prp-remote-result-v11 " + req["requestId"] + " " + encoded
+
+
+# Duplex relay: the GitHub-hosted runner has only the dedicated SSH credential
+# and read-only artifact access. CMS private keys stay on the staging receiver.
+# Only the authenticated SSH channel carries a plaintext external file plan.
+CONTROL_MAGIC = b"PRP11C\x00"
+MAX_CONTROL = 128 * 1024
+
+def _write_all(stream, data):
+    while data:
+        count = stream.write(data)
+        require(type(count) is int and 0 < count <= len(data), "short relay write")
+        data = data[count:]
+
+def write_control(stream, value):
+    raw = canonical(value)
+    require(0 < len(raw) <= MAX_CONTROL, "oversized relay control")
+    _write_all(stream, CONTROL_MAGIC + struct.pack(">I", len(raw)) + raw)
+    stream.flush()
+
+def read_control(stream):
+    require(_read_exact(stream, len(CONTROL_MAGIC)) == CONTROL_MAGIC, "wrong relay magic")
+    size, = struct.unpack(">I", _read_exact(stream, 4))
+    require(0 < size <= MAX_CONTROL, "oversized relay control")
+    raw = _read_exact(stream, size)
+    value = parse(raw, limit=MAX_CONTROL)
+    require(type(value) is dict and canonical(value) == raw, "invalid relay control")
+    return value
+
+def external_files(manifest):
+    # Group artifact members so the runner downloads each archive only once.
+    files = []
+    groups = {}
+    for item in manifest["files"]:
+        src = item["source"]
+        if src["kind"] == "repository":
+            files.append(item)
+        elif src["kind"] == "ci_artifact":
+            groups.setdefault((src["runId"], src["artifactId"]), []).append(item)
+    for members in groups.values():
+        files.extend(members)
+    return files
+
+def _validate_plan(plan, public_job):
+    exact(plan, "version jobId manifestSha256 files")
+    require(type(plan["version"]) is int and plan["version"] == 11
+            and plan["jobId"] == public_job, "relay plan job mismatch")
+    uuid4_text(plan["jobId"])
+    digest(plan["manifestSha256"])
+    files = plan["files"]
+    require(type(files) is list and len(files) <= MAX_FILES, "invalid relay files")
+    total = archive_total = 0
+    seen = set()
+    groups = {}
+    for item in files:
+        validate_file(item)
+        src = item["source"]
+        require(src["kind"] in ("repository", "ci_artifact"), "unexpected inline relay")
+        key = item["path"].lower()
+        require(not any(key == p or key.startswith(p+"/") or p.startswith(key+"/") for p in seen),
+                "conflicting relay path")
+        seen.add(key)
+        total += item["size"]
+        if src["kind"] == "ci_artifact":
+            identity = (src["runId"], src["artifactId"])
+            metadata = {k:v for k,v in src.items() if k != "member"}
+            if identity in groups:
+                require(groups[identity] == metadata, "conflicting relay artifact")
+            else:
+                groups[identity] = metadata
+                archive_total += src["archiveSize"]
+    require(total <= MAX_ARTIFACT and archive_total <= MAX_ARTIFACT, "relay quota exceeded")
+    return files
+
+def _send_external(plan, provider, approved_producers, scratch, output):
+    jid, md = plan["jobId"], plan["manifestSha256"]
+    files = _validate_plan(plan, jid)
+    i = 0
+    while i < len(files):
+        item = files[i]
+        src = item["source"]
+        if src["kind"] == "repository":
+            with provider.repository_file(src["commit"], src["path"]) as stream:
+                for frame in encode_file_stream(stream, jid, md, item):
+                    _write_all(output, frame)
+            i += 1
+            continue
+        identity = (src["runId"], src["artifactId"])
+        verify_producer(src, provider.run_metadata(src["runId"]),
+                        provider.artifact_metadata(src["artifactId"]), approved_producers)
+        with provider.artifact_zip(src["artifactId"]) as stream:
+            with verified_archive(src, stream, scratch) as archive:
+                while i < len(files):
+                    member_item = files[i]
+                    member_src = member_item["source"]
+                    if member_src["kind"] != "ci_artifact" or (member_src["runId"], member_src["artifactId"]) != identity:
+                        break
+                    try:
+                        member = archive.getinfo(member_src["member"])
+                    except KeyError as exc:
+                        raise InvalidJob("missing archive member") from exc
+                    require(not member.is_dir() and member.file_size == member_item["size"],
+                            "member size mismatch")
+                    with archive.open(member, "r") as data:
+                        for frame in encode_file_stream(data, jid, md, member_item):
+                            _write_all(output, frame)
+                    i += 1
+    write_control(output, {"done":True, "jobId":jid, "manifestSha256":md})
+
+def relay_receiver(incoming, outgoing, *, issue, ledger, recipient_cert,
+                   recipient_key, signer_cert, signer_key, now=None):
+    """Server-side session core. Must be invoked ONLY by a trusted restricted
+    SSH service after host-local gate and identity checks. Does not launch jobs.
+    No GitHub token or artifact downloader is needed on the server.
+    """
+    t = int(time.time() if now is None else now)
+    require(type(issue) is int and issue > 0 and issue != 277, "dedicated issue required")
+    control = read_control(incoming)
+    exact(control, "event")
+    event = control["event"]
+    req = decode_comment_request(event, REPOSITORY, "refs/heads/main", issue,
+                                 recipient_cert, recipient_key, t)
+    ledger.claim_request(req, event["comment"]["id"], t)
+    jid, md = req["jobId"], req["manifestSha256"]
+    if req["action"] == "submit":
+        j = req["job"]
+        ledger.accept(j,t)
+        for item in j["manifest"]["files"]:
+            if item["source"]["kind"] == "inline":
+                data = inline_bytes(item["source"])
+                ledger.receive_file(jid,md,item["path"],[data] if data else [],t)
+        plan = {"version":11,"jobId":jid,"manifestSha256":md,
+                "files":external_files(j["manifest"])}
+        write_control(outgoing,{"plan":plan})
+        for item in plan["files"]:
+            ledger.receive_file(jid,md,item["path"],
+                                file_frame_chunks(incoming,jid,md,item,require_eof=False),
+                                int(time.time() if now is None else now))
+        require(read_control(incoming) == {"done":True,"jobId":jid,"manifestSha256":md},
+                "relay completion mismatch")
+        require(incoming.read(1) == b"", "trailing relay input")
+        ledger.verify(jid,md,int(time.time() if now is None else now))
+    else:
+        # Query sends an empty plan so the runner can terminate input cleanly.
+        write_control(outgoing,{"plan":{"version":11,"jobId":jid,
+                      "manifestSha256":md,"files":[]}})
+        require(read_control(incoming) == {"done":True,"jobId":jid,"manifestSha256":md},
+                "relay completion mismatch")
+        require(incoming.read(1) == b"", "trailing relay input")
+    snapshot = ledger.snapshot(jid,md,include_result=req["action"]=="result")
+    receipt = {k:req[k] for k in ("version","target","action","requestId",
+                                 "jobId","manifestSha256","nonce")}
+    receipt.update(snapshot)
+    receipt["issuedAt"] = int(time.time() if now is None else now)
+    ciphertext = seal_receipt(receipt,req,signer_cert,signer_key,receipt["issuedAt"])
+    encoded = base64.urlsafe_b64encode(ciphertext).decode("ascii").rstrip("=")
+    require(len(encoded) <= 60000, "oversized response")
+    write_control(outgoing,{"result":"/prp-remote-result-v11 "+req["requestId"]+" "+encoded})
+
+def relay_sender(event, repository, ref, issue, incoming, outgoing, *,
+                 close_input, provider, approved_producers, scratch):
+    """Runner session core on an authenticated, pinned SSH channel.
+
+    close_input must half-close the transport write side, not close output.
+    No automatic retries or plaintext public comments.
+    """
+    public_job,_ = verify_event(event,repository,ref,issue)
+    require(issue != 277, "dedicated issue required")
+    write_control(outgoing,{"event":event})
+    plan_message = read_control(incoming)
+    exact(plan_message,"plan")
+    plan = plan_message["plan"]
+    _validate_plan(plan,public_job)
+    _send_external(plan,provider,approved_producers,scratch,outgoing)
+    close_input()
+    reply = read_control(incoming)
+    exact(reply,"result")
+    result = reply["result"]
+    require(type(result) is str and len(result) <= MAX_COMMENT, "invalid relay result")
+    match = re.fullmatch(r"/prp-remote-result-v11 ([0-9a-f-]{36}) ([A-Za-z0-9_-]{8,60000})",result)
+    require(match is not None, "invalid relay result")
+    uuid4_text(match.group(1))
+    require(incoming.read(1)==b"", "trailing relay response")
+    return result
