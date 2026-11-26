@@ -289,3 +289,34 @@ test('historical owner action binds fresh attestation to original owner Issue an
  e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue,now))
  }
 })
+
+test('ordinary accept transports owner note only in an authenticated original Issue with exact state SHA',()=>{
+ const e=event(),stateSha='c'.repeat(40),note='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:stateSha})
+ const p={...request(),action:'accept',claim_id:'11111111-1111-4111-8111-111111111111',
+  pr_number:511,head_sha:'b'.repeat(40),expected_state_sha:stateSha,policy_attestation:note}
+ e.issue.created_at='2026-11-25T07:40:20Z';e.issue.body=JSON.stringify(p)
+ const validated=validateIssueEvent(env(),e,e.issue)
+ assert.equal(validated.ownerPolicy,true);assert.equal(validated.command.note,note)
+ assert.equal(validated.expectedStateSha,stateSha);assert.equal(validated.issueCreatedAt,e.issue.created_at)
+ assert.equal(validated.historical415,undefined)
+ assert.throws(()=>validateIssueEvent(env(),e),x=>x.code==='INGRESS_OWNER_POLICY_ISSUE_TIME')
+ assert.throws(()=>validateIssueEvent(env(),e,{...e.issue,created_at:'2026-11-25T07:40:21Z'}),x=>x.code==='INGRESS_OWNER_POLICY_ISSUE_TIME')
+ for(const bad of [{...p,expected_state_sha:undefined},{...p,policy_attestation:undefined},
+  {...p,expected_state_sha:'d'.repeat(40)},{...p,policy_attestation:{}},{...p,policy_attestation:'PRP_RULESET_ATTESTATION_V1:not-json'},
+  {...p,reviewerAuthorized:true},{...p,action:'start'}]){
+  e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+ }
+})
+
+test('historical 446 requires explicit pinned owner Issue and distinct command fingerprint note',()=>{
+ const e=event(),stateSha='c'.repeat(40),note='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:stateSha})
+ const p={...request(),action:'accept_historical_446',task_id:'T-007',worker_id:'chat_t007_security_20261125',expected_version:20,claim_id:'11111111-1111-4111-8111-111111111111',pr_number:446,head_sha:'216b280386120f932eee28f22448d41bcaf82dec',expected_state_sha:stateSha,policy_attestation:note}
+ e.issue.created_at='2026-11-26T03:00:00Z';e.issue.body=JSON.stringify(p)
+ const out=validateIssueEvent(env(),e,e.issue)
+ assert.equal(out.historical446,true);assert.equal(out.ownerPolicy,true);assert.equal(out.command.note,'PRP_HISTORICAL_446_V1:'+note)
+ for(const bad of [{...p,task_id:'T-001'},{...p,pr_number:415},{...p,head_sha:sha},{...p,expected_version:19},{...p,policy_attestation:undefined},{...p,reviewerAuthorized:true}]){
+   e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+ }
+ e.issue.body=JSON.stringify({...p,action:'accept'})
+ const ordinary=validateIssueEvent(env(),e,e.issue);assert.equal(ordinary.historical446,undefined);assert.equal(ordinary.command.note,note)
+})

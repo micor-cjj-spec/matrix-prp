@@ -5,6 +5,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,cpSync,rmSync} from 'no
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
+import {buildOwnerRulesetAttestation,REQUIRED_CHECKS} from './review-gate.mjs'
 const OWNER='micor-cjj-spec',REPO=OWNER+'/matrix-prp'
 const REF='refs/heads/prp-collab-state',REQ='requirements/REQ-20261031-001.json'
 const location=fileURLToPath(new URL('.',import.meta.url))
@@ -30,7 +31,89 @@ const reviewedV1=()=>{
  }
  return snapshot
 }
-function setup({v1=false}={}){
+const policy=()=>({
+  "id": 28050327,
+  "name": "protect-collab-integration",
+  "target": "branch",
+  "source_type": "Repository",
+  "source": "micor-cjj-spec/matrix-prp",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "refs/heads/integrate/REQ-20261031-001"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "require_extra_approval_for_unattributed_changes": false,
+        "allowed_merge_methods": [
+          "merge"
+        ]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {
+            "context": "backend-tests",
+            "integration_id": 15368
+          },
+          {
+            "context": "web-build",
+            "integration_id": 15368
+          },
+          {
+            "context": "mobile-build",
+            "integration_id": 15368
+          },
+          {
+            "context": "db-migration-integration",
+            "integration_id": 15368
+          },
+          {
+            "context": "video-db-integration",
+            "integration_id": 15368
+          },
+          {
+            "context": "impact-report",
+            "integration_id": 15368
+          },
+          {
+            "context": "dev-collab-contract",
+            "integration_id": 15368
+          }
+        ]
+      }
+    }
+  ],
+  "node_id": "RRS_lACqUmVwb3NpdG9yec5LNo7jzgGsA5c",
+  "created_at": "2026-11-25T05:47:06.929Z",
+  "updated_at": "2026-11-25T05:47:07.076Z",
+  "bypass_actors": [],
+  "current_user_can_bypass": "never"
+})
+const reviewHead='a'.repeat(40),reviewMerge='b'.repeat(40),reviewClaim='11111111-1111-4111-8111-111111111111'
+function setup({v1=false,review=false}={}){
  const root=mkdtempSync(join(tmpdir(),'prp-issue-local-'))
  const origin=join(root,'origin.git'),seed=join(root,'seed'),runner=join(root,'runner')
  mkdirSync(seed)
@@ -43,7 +126,8 @@ function setup({v1=false}={}){
  mkdirSync(dest,{recursive:true})
  for(const filename of [
   'core.mjs','issue-ingress.mjs','issue-transaction.mjs','issue-migrate.mjs',
-  'migration-guard.mjs','bootstrap-audit.mjs','state-rule-policy.mjs','task-scope-policy.mjs','ruleset-415-attestation.mjs'])
+  'migration-guard.mjs','bootstrap-audit.mjs','state-rule-policy.mjs','task-scope-policy.mjs','ruleset-415-attestation.mjs',
+  ...(review?['review-context.mjs','review-gate.mjs','review-provenance.mjs']:[])])
   cpSync(join(location,filename),join(dest,filename))
  mkdirSync(join(seed,'app/deploy'),{recursive:true})
  writeFileSync(join(seed,'app/deploy/publication-hold.json'),
@@ -54,7 +138,10 @@ function setup({v1=false}={}){
  const main=git(seed,'rev-parse','HEAD')
  git(seed,'checkout','-b','prp-collab-state')
  mkdirSync(join(seed,'requirements'))
- writeFileSync(join(seed,REQ),JSON.stringify(v1?reviewedV1():initial(),null,2)+'\n')
+ const seedSnapshot=(v1||review)?reviewedV1():initial()
+ if(review)Object.assign(seedSnapshot.tasks[0],{status:'IN_REVIEW',
+   claim:{claim_id:reviewClaim,worker_id:'chat-A',actor:OWNER},pr_number:138,head_sha:reviewHead})
+ writeFileSync(join(seed,REQ),JSON.stringify(seedSnapshot,null,2)+'\n')
  git(seed,'add',REQ);git(seed,'commit','-m','initial state')
  git(seed,'push','origin','prp-collab-state')
  const first=git(root,'--git-dir',origin,'rev-parse',REF)
@@ -70,6 +157,7 @@ function setup({v1=false}={}){
  const mock=[
   '#!/usr/bin/env bash','set -euo pipefail',
   '[[ "$1" == api ]] || exit 3',
+  'if [[ -n "${PRP_MOCK_REVIEW_ROUTES:-}" && "$2" != */issues/* && "$2" != */rulesets/26294671 && "$2" != installation/repositories && "$2" != */branches/prp-collab-state ]]; then [[ "$GH_TOKEN" == not-a-real-token ]] || exit 4; node "$PRP_MOCK_REVIEW_READER" "$2"; exit $?; fi',
   'case "$2" in',
   ' */issues/999) if [[ "${PRP_MOCK_REVOKE_ON_RECHECK:-}" == "1" ]]; then n=$(cat "$PRP_MOCK_ISSUE_READ_COUNT" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$PRP_MOCK_ISSUE_READ_COUNT"; if (( n >= 2 )); then cat "$PRP_MOCK_ISSUE_REVOKED"; else cat "$PRP_MOCK_ISSUE"; fi; else cat "$PRP_MOCK_ISSUE"; fi ;;',
   ' */issues/1000) cat "$PRP_MOCK_TASK_ISSUE" ;;',
@@ -93,7 +181,7 @@ function setup({v1=false}={}){
   current_user_can_bypass:'always'
  }))
  const prepare=(payload,author=OWNER)=>{
-  const issue={number:999,title:'[PRP-COLLAB-REQUEST]',state:'open',
+  const issue={number:999,title:'[PRP-COLLAB-REQUEST]',state:'open',created_at:new Date().toISOString(),
    user:{login:author,id:123868412},author_association:'OWNER',body:JSON.stringify(payload)}
   const evt={action:'opened',sender:{login:author,id:123868412,type:'User'},
    repository:{full_name:REPO,default_branch:'main',owner:{login:OWNER,id:123868412}},
@@ -121,11 +209,58 @@ function setup({v1=false}={}){
   PRP_MOCK_ISSUE:issuePath,PRP_MOCK_TASK_ISSUE:taskIssuePath,
   PRP_MOCK_ISSUE_REVOKED:revokedIssuePath,PRP_MOCK_ISSUE_READ_COUNT:join(root,'issue-read-count'),
   PRP_MOCK_RULESET:rulePath,PRP_MOCK_APP_REPOS:appReposPath,PRP_MOCK_SEED:seed}
+ const routesPath=join(root,'review-routes.json'),readerPath=join(root,'review-reader.mjs'),ruleReadsPath=join(root,'integration-rule-reads')
+ writeFileSync(readerPath,`import {readFileSync,writeFileSync,existsSync} from 'node:fs'
+ const key=process.argv[2],routes=JSON.parse(readFileSync(process.env.PRP_MOCK_REVIEW_ROUTES,'utf8'))
+ if(!Object.hasOwn(routes,key))process.exit(3)
+ const value=routes[key]
+ if(key.endsWith('/rulesets/28050327')){
+   const f=process.env.PRP_MOCK_RULE_READS
+   const n=(existsSync(f)?Number(readFileSync(f,'utf8')):0)+1
+   writeFileSync(f,String(n))
+   if(process.env.PRP_MOCK_POLICY_DRIFT==='1'&&n>=2)value.updated_at='2026-11-26T00:00:00Z'
+ }
+ console.log(JSON.stringify(value))`)
+ const prepareReview=({missingAssociation=false}={})=>{
+  assert.equal(review,true)
+  const req='REQ-20261031-001',requestId='22222222-2222-4222-8222-222222222222',integration='integrate/'+req
+  const note=buildOwnerRulesetAttestation(policy(),{requestId,action:'accept',requirementId:req,taskId:'T-001',
+   prNumber:138,headSha:reviewHead,stateVersion:1,mainSha:main,stateSha:first,observedAt:new Date(Date.now()-1000).toISOString()})
+  prepare({schema_version:1,action:'accept',request_id:requestId,requirement_id:req,task_id:'T-001',
+   worker_id:'chat-A',claim_id:reviewClaim,expected_version:1,expected_state_sha:first,
+   pr_number:138,head_sha:reviewHead,policy_attestation:note})
+  const root='repos/'+REPO,headRef='feat/synthetic',repo={full_name:REPO,id:1261866723}
+  const rule=policy();delete rule.bypass_actors
+  const checkRuns=REQUIRED_CHECKS.map((name,i)=>({name,id:i+1,head_sha:reviewHead,status:'completed',conclusion:'success',app:{slug:'github-actions',id:15368},
+   details_url:'https://github.com/'+REPO+'/actions/runs/'+(name==='impact-report'?102:name==='dev-collab-contract'?103:101)+'/job/'+(i+1)}))
+  const routes={
+   [root+'/branches/main']:{name:'main',protected:true,commit:{sha:main}},
+   [root+'/branches/'+encodeURIComponent(integration)]:{name:integration,protected:true,commit:{sha:reviewMerge}},
+   [root+'/rulesets/28050327']:rule,
+   [root+'/pulls/138']:{number:138,changed_files:1,head:{sha:reviewHead,ref:headRef,repo},
+    base:{ref:integration,repo},merged:true,merged_at:'2026-10-31T18:00:00Z',merge_commit_sha:reviewMerge},
+   [root+'/pulls/138/files?per_page=100']:[{filename:'app/scripts/dev-collab/core.mjs',status:'modified'}],
+   [root+'/compare/'+reviewMerge+'...'+reviewMerge]:{status:'identical',behind_by:0,base_commit:{sha:reviewMerge},merge_base_commit:{sha:reviewMerge},commits:[]},
+   [root+'/commits/'+reviewHead+'/check-runs?per_page=100']:{total_count:checkRuns.length,check_runs:checkRuns},
+   [root+'/actions/runs/9001']:{id:9001,event:'issues',path:'.github/workflows/prp-collab-issue-ingress.yml',
+    status:'in_progress',head_branch:'main',head_sha:main,run_attempt:1,created_at:new Date().toISOString(),
+    actor:{login:OWNER,id:123868412},repository:repo}
+  }
+  for(const [id,name,path] of [[101,'CI','.github/workflows/ci.yml'],[102,'Feature Impact Report','.github/workflows/feature-impact.yml'],[103,'PRP Dev Collaboration Contract','.github/workflows/prp-dev-collab-contract.yml']]){
+   const jobs=checkRuns.filter(c=>c.details_url.includes('/runs/'+id+'/')).map(c=>({name:c.name,id:c.id,run_id:id,run_attempt:1,head_sha:reviewHead,head_branch:headRef,workflow_name:name,status:'completed',conclusion:'success',started_at:'2026-10-31T17:01:00Z',completed_at:'2026-10-31T17:59:00Z'}))
+   routes[root+'/actions/runs/'+id]={id,name,path,run_attempt:1,created_at:'2026-10-31T17:00:00Z',event:'pull_request',
+    status:'completed',conclusion:'success',head_sha:reviewHead,head_branch:headRef,repository:repo,head_repository:repo,
+    pull_requests:missingAssociation?[]:[{number:138,head:{sha:reviewHead},base:{ref:integration}}]}
+   routes[root+'/actions/runs/'+id+'/jobs?per_page=100&filter=latest']={total_count:jobs.length,jobs}
+  }
+  writeFileSync(routesPath,JSON.stringify(routes))
+  return {GITHUB_RUN_ID:'9001',GITHUB_RUN_ATTEMPT:'1',PRP_MOCK_REVIEW_ROUTES:routesPath,PRP_MOCK_REVIEW_READER:readerPath,PRP_MOCK_RULE_READS:ruleReadsPath}
+ }
  const execute=(extra={})=>spawnSync(process.execPath,['app/scripts/dev-collab/issue-transaction.mjs'],
   {cwd:runner,env:{...env,...extra},encoding:'utf8',timeout:15000})
  const head=()=>git(root,'--git-dir',origin,'rev-parse',REF)
  const snapshot=()=>JSON.parse(git(root,'--git-dir',origin,'show',REF+':'+REQ))
- return {root,prepare,prepareTaskIssue,execute,head,snapshot,initialHead:first,initialMain:main,origin,checkpointSha,appReposPath,
+ return {root,prepare,prepareTaskIssue,prepareReview,execute,head,snapshot,initialHead:first,initialMain:main,origin,checkpointSha,appReposPath,ruleReadsPath,
   dispose:()=>rmSync(root,{recursive:true,force:true})}
 }
 test('isolated Git: owner probe verifies App scope without mutating protected state',
@@ -390,5 +525,41 @@ test('isolated Git refuses a state push if trusted main changes after initial va
   assert.equal(f.snapshot().version,1)
   assert.equal(f.snapshot().tasks[0].claim,null)
   assert.notEqual(git(f.root,'--git-dir',f.origin,'rev-parse','refs/heads/main'),f.initialMain)
+ }finally{f.dispose()}
+})
+
+test('isolated bare Git: ordinary owner Issue attestation rechecks live policy before non-force CAS', {timeout:30000},()=>{
+ const f=setup({review:true})
+ try{
+  const before=f.snapshot(),initial=f.head()
+  const res=f.execute(f.prepareReview())
+  assert.equal(res.status,0,res.stderr)
+  assert.match(res.stdout,/PRP_COLLAB_ISSUE_SUCCESS=999/)
+  assert.notEqual(f.head(),initial)
+  assert.equal(f.snapshot().version,2);assert.equal(f.snapshot().tasks[0].status,'DONE')
+  assert.deepEqual(f.snapshot().tasks.slice(1),before.tasks.slice(1))
+  assert.equal(Number(readFileSync(f.ruleReadsPath,'utf8')),2)
+  assert.equal(git(f.root,'--git-dir',f.origin,'rev-parse',f.head()+'^'),initial)
+ }finally{f.dispose()}
+})
+test('isolated bare Git: changed integration Ruleset at final recheck refuses CAS', {timeout:30000},()=>{
+ const f=setup({review:true})
+ try{
+  const before=f.snapshot(),initial=f.head()
+  const res=f.execute({...f.prepareReview(),PRP_MOCK_POLICY_DRIFT:'1'})
+  assert.notEqual(res.status,0)
+  assert.match(res.stderr,/OWNER_RULESET_ATTESTATION_POLICY|INTEGRATION_POLICY_DRIFT/)
+  assert.equal(Number(readFileSync(f.ruleReadsPath,'utf8')),2)
+  assert.equal(f.head(),initial);assert.deepEqual(f.snapshot(),before)
+ }finally{f.dispose()}
+})
+test('isolated bare Git: missing PR association remains fail closed even with valid owner policy proof', {timeout:30000},()=>{
+ const f=setup({review:true})
+ try{
+  const before=f.snapshot(),initial=f.head()
+  const res=f.execute(f.prepareReview({missingAssociation:true}))
+  assert.notEqual(res.status,0)
+  assert.match(res.stderr,/WORKFLOW_PR_MISMATCH_/)
+  assert.equal(f.head(),initial);assert.deepEqual(f.snapshot(),before)
  }finally{f.dispose()}
 })
