@@ -6,6 +6,8 @@ import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.
 
 import {HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446} from './review-provenance.mjs'
 
+import {RECEIPT_ACCEPT_PREFIX,verifyReceiptCommand,collectReceiptEvidence,verifyReceiptAccept} from './review-receipt-runtime.mjs'
+
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/
 const OWNER_ID=123868412
@@ -26,15 +28,20 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
     env.GITHUB_REPOSITORY===REPO && env.GITHUB_ACTOR==='micor-cjj-spec' &&
     env.GITHUB_REPOSITORY_OWNER==='micor-cjj-spec' && typeof env.GH_TOKEN==='string' &&
     env.GH_TOKEN.length>0,'UNTRUSTED_REVIEW_CONTEXT')
-  check(command.type==='accept'||command.type==='close','INVALID_REVIEW_ACTION')
+  check(command.type==='accept'||command.type==='close'||command.type==='capture_receipt','INVALID_REVIEW_ACTION')
   const manual=env.GITHUB_EVENT_NAME==='workflow_dispatch' && env.GITHUB_WORKFLOW_REF===REPO+'/.github/workflows/prp-collab-coordinator.yml@refs/heads/main'
   const issue=env.GITHUB_EVENT_NAME==='issues' && env.GITHUB_EVENT_ACTION==='opened' && env.GITHUB_WORKFLOW_REF===REPO+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'
-  check(SHA.test(env.GITHUB_SHA||'') && (manual || (issue && command.type==='accept')),'UNTRUSTED_REVIEW_ENTRYPOINT')
+  check(SHA.test(env.GITHUB_SHA||'') && (manual || (issue && ['accept','capture_receipt'].includes(command.type))),'UNTRUSTED_REVIEW_ENTRYPOINT')
   const root='repos/'+REPO
   const historical446=issueProof?.historical446===true
   const marked=typeof command.note==='string'&&command.note.startsWith(HISTORICAL_446_PREFIX)
   check(marked===historical446&&(!historical446||issue),'HISTORICAL_446_EXPLICIT_ISSUE_REQUIRED')
-  const ownerNote=historical446?command.note.slice(HISTORICAL_446_PREFIX.length):command.note
+  const capture=command.type==='capture_receipt',receiptAccept=issueProof?.receiptAccept===true
+  const receiptMarked=typeof command.note==='string'&&command.note.startsWith(RECEIPT_ACCEPT_PREFIX)
+  check(receiptMarked===receiptAccept&&capture===(issueProof?.captureReceipt===true)&&
+    (!capture&&!receiptAccept||issue&&!historical446&&(!receiptAccept||command.type==='accept')),'RECEIPT_EXPLICIT_ISSUE_REQUIRED')
+  const ownerNote=historical446?command.note.slice(HISTORICAL_446_PREFIX.length):
+    receiptAccept?command.note.slice(RECEIPT_ACCEPT_PREFIX.length):command.note
   const requirePolicy=()=>{
     const rule=api(root+'/rulesets/28050327')
     const noteIsOwner=typeof ownerNote==='string'&&ownerNote.startsWith(OWNER_NOTE)
@@ -42,7 +49,7 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
     // Redacted evidence is supported only by the existing authenticated Issue
     // transaction, which revalidates the original event and evidence before CAS.
     // The manual coordinator lacks that final review boundary; no fallback there.
-    check(issue&&command.type==='accept'&&noteIsOwner&&issueProof?.actorId===OWNER_ID&&
+    check(issue&&['accept','capture_receipt'].includes(command.type)&&noteIsOwner&&issueProof?.actorId===OWNER_ID&&
       Number.isSafeInteger(issueProof.sourceIssue)&&issueProof.sourceIssue>0&&
       SHA.test(issueProof.stateSha||'')&&issueProof.stateSha===issueProof.expectedStateSha&&
       issueProof.expectedVersion===snapshot.version&&issueProof.note===command.note,
@@ -69,6 +76,25 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
   const requireMain=main=>check(main?.name==='main' && main.protected===true && main.commit?.sha===env.GITHUB_SHA,'REVIEW_MAIN_REVISION_MISMATCH')
   const loadJobs=id=>api(root+'/actions/runs/'+id+'/jobs?per_page=100&filter=latest')
   const integrationRef='integrate/'+snapshot.requirement_id
+  if(capture||receiptAccept){
+    verifyReceiptCommand(snapshot,command,issueProof)
+    requireMain(api(root+'/branches/main'))
+    const policy=requirePolicy()
+    check(policy.ownerAttested===true,'RECEIPT_OWNER_POLICY')
+    if(capture){
+      const evidence=collectReceiptEvidence(snapshot,command.task_id,api)
+      evidence.captureOrigin={request_id:command.request_id,source_issue:issueProof.sourceIssue,
+        issue_created_at:issueProof.issueCreatedAt,run_id:Number(env.GITHUB_RUN_ID),main_sha:env.GITHUB_SHA}
+      requireMain(api(root+'/branches/main'))
+      requirePolicy()
+      return {captureEvidenceVerified:true,evidence}
+    }
+    const result=verifyReceiptAccept(snapshot,command,issueProof,env.GITHUB_SHA,api)
+    check(result.receiptEvidenceVerified===true&&result.checks===7,'RECEIPT_EVIDENCE_REQUIRED')
+    requireMain(api(root+'/branches/main'))
+    requirePolicy()
+    return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,ownerRulesetAttested:true,receiptEvidenceVerified:true}
+  }
   if(command.type==='accept'){
     const task=snapshot.tasks.find(t=>t.task_id===command.task_id)
     check(task && task.status==='IN_REVIEW','TASK_NOT_IN_REVIEW')

@@ -353,3 +353,11 @@ test('manual coordinator cannot substitute owner note for missing bypass list be
  const close={type:'close',pr_number:139,head_sha:sha,note:cmd.note}
  assert.throws(()=>trustedReviewContext(s,close,ctx,r=>{if(r.endsWith('/rulesets/28050327')){const x=policy();delete x.bypass_actors;return x}return validDevCloseApi(r)}),e=>e.code==='OWNER_RULESET_ISSUE_CONTEXT_REQUIRED')
 })
+
+test('explicit receipt mode cannot be selected through ordinary accept or manual workflow',()=>{
+ const {cmd,proof,api}=makeIssueProof(),marked={...cmd,note:'PRP_PREMERGE_RECEIPT_V1:'+cmd.note}
+ assert.throws(()=>trustedReviewContext(state(),marked,issueEnv,api,{...proof,note:marked.note}),/RECEIPT_EXPLICIT_ISSUE_REQUIRED/)
+ assert.throws(()=>trustedReviewContext(state(),cmd,issueEnv,api,{...proof,receiptAccept:true}),/RECEIPT_EXPLICIT_ISSUE_REQUIRED/)
+ assert.throws(()=>trustedReviewContext(state(),marked,ctx,api,{...proof,receiptAccept:true,note:marked.note}),/RECEIPT_EXPLICIT_ISSUE_REQUIRED/)
+ assert.throws(()=>trustedReviewContext(state(),{...cmd,type:'capture_receipt'},issueEnv,api,proof),/RECEIPT_EXPLICIT_ISSUE_REQUIRED/)
+})

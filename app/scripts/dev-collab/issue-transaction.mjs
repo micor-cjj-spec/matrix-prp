@@ -1,4 +1,4 @@
-import {readFileSync,writeFileSync,mkdtempSync} from 'node:fs'
+import {readFileSync,writeFileSync,mkdtempSync,mkdirSync,lstatSync} from 'node:fs'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {execFileSync} from 'node:child_process'
@@ -71,6 +71,8 @@ export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>
    else check(!isHistoricalNote(command.note),'ISSUE_HISTORICAL_ACTION_REQUIRED')
    const marked446=typeof command.note==='string'&&command.note.startsWith('PRP_HISTORICAL_446_V1:')
    check(marked446===(validated.historical446===true)&&(!marked446||(validated.ownerPolicy===true&&reviewedEvidence.historical446Verified===true)),'ISSUE_HISTORICAL_446_PROOF_REQUIRED')
+   const receiptMarked=typeof command.note==='string'&&command.note.startsWith('PRP_PREMERGE_RECEIPT_V1:')
+   check(receiptMarked===(validated.receiptAccept===true)&&(!receiptMarked||(validated.ownerPolicy===true&&reviewedEvidence.receiptEvidenceVerified===true)),'ISSUE_RECEIPT_PROOF_REQUIRED')
    if(validated.ownerPolicy===true)check(reviewedEvidence.ownerRulesetAttested===true,'ISSUE_OWNER_POLICY_PROOF_REQUIRED')
    else check(!(typeof command.note==='string'&&command.note.startsWith('PRP_RULESET_ATTESTATION_V1:')),'ISSUE_OWNER_POLICY_ACTION_REQUIRED')
    context.reviewerAuthorized=true
@@ -136,6 +138,99 @@ function receiptMarkdown(info){
   '','Result was committed using a non-force Git push.',
   'Public receipt excludes claim credentials.'].join('\n')+'\n'
 }
+// Resolve only an internally derived receipt path in the isolated state worktree.
+function receiptLocalPath(tmp,path,create=false){
+ const parts=path.split('/')
+ let here=tmp
+ for(const part of parts.slice(0,-1)){
+   here=join(here,part)
+   let stat
+   try{stat=lstatSync(here)}catch(e){if(e.code!=='ENOENT')throw e}
+   if(!stat){if(!create)return null;mkdirSync(here,{mode:0o700});stat=lstatSync(here)}
+   check(stat.isDirectory()&&!stat.isSymbolicLink(),'ISSUE_RECEIPT_DIRECTORY')
+ }
+ const file=join(tmp,path)
+ try{const stat=lstatSync(file);check(stat.isFile()&&!stat.isSymbolicLink(),'ISSUE_RECEIPT_FILE')}
+ catch(e){if(e.code!=='ENOENT')throw e}
+ return file
+}
+function existingReceiptBytes(tmp,path){
+ const file=receiptLocalPath(tmp,path)
+ if(!file)return null
+ try{return readFileSync(file,'utf8')}catch(e){if(e.code==='ENOENT')return null;throw e}
+}
+async function captureReceiptTransaction({before,validated,env,event,head,base,stateRef,tmp}){
+ const {trustedReviewContext,ghApi}=await import('./review-context.mjs')
+ const {submittedReceiptPath,verifyReceiptOrigin,receiptAppendMarker}=await import('./review-receipt-runtime.mjs')
+ const {planReceiptAppend,parseStoredReceipt,verifyReceiptAppendCommit}=await import('./review-receipt-store.mjs')
+ const command=validated.command
+ check(validated.captureReceipt===true&&validated.ownerPolicy===true&&validated.expectedStateSha===head&&
+   validated.expected_version===before.version&&!before.processed_requests.some(x=>x.request_id===command.request_id),'ISSUE_RECEIPT_STATE')
+ const proof=Object.freeze({actorId:validated.actorId,sourceIssue:validated.source_issue,
+   issueCreatedAt:validated.issueCreatedAt,stateSha:head,expectedStateSha:validated.expectedStateSha,
+   expectedVersion:validated.expected_version,note:command.note,captureReceipt:true})
+ const path=submittedReceiptPath(before,command.task_id)
+ const existingBytes=existingReceiptBytes(tmp,path)
+ const original=existingBytes===null?null:parseStoredReceipt(existingBytes)
+ const capturedAt=new Date().toISOString()
+ const collect=()=>{
+   const x=trustedReviewContext(before,command,env,ghApi,proof)
+   check(x.captureEvidenceVerified===true,'ISSUE_RECEIPT_CAPTURE_REQUIRED')
+   if(original){
+     verifyReceiptOrigin(before,command.task_id,head,env.GITHUB_SHA,original,ghApi,new Date().toISOString())
+     x.evidence.captureOrigin=original.body.capture_origin
+   }
+   const plan=planReceiptAppend({snapshot:before,taskId:command.task_id,evidence:x.evidence,capturedAt,
+     expectedStateSha:head,observedStateSha:head,existingBytes})
+   check(plan.path===path,'ISSUE_RECEIPT_PATH')
+   return plan
+ }
+ const plan=collect()
+ const recheck=()=>{
+   verifyBranchAndRunner(env)
+   check(git('ls-remote','--exit-code','--refs','origin',stateRef)===base,'ISSUE_RACE_BEFORE_PUSH')
+   validateIssueEvent(env,event,gh('repos/'+REPO+'/issues/'+validated.source_issue))
+ }
+ let expected=head
+ if(plan.action==='append'){
+   const file=receiptLocalPath(tmp,path,true)
+   writeFileSync(file,plan.bytes,{mode:0o600,flag:'wx'})
+   git('-C',tmp,'add','--',path)
+   check(git('-C',tmp,'diff','--cached','--name-status')==='A\t'+path,'ISSUE_RECEIPT_WRITE_SCOPE')
+   git('-C',tmp,'diff','--cached','--check')
+   git('-C',tmp,'config','user.name','prp-collab-writer[bot]')
+   git('-C',tmp,'config','user.email','41898282+github-actions[bot]@users.noreply.github.com')
+   git('-C',tmp,'commit','-m','chore(collab): capture receipt '+command.requirement_id+'/'+command.task_id,
+     '-m','Request-issue: '+validated.source_issue,'-m','Request-id: '+command.request_id)
+   expected=git('-C',tmp,'rev-parse','HEAD')
+   const parents=git('-C',tmp,'show','-s','--format=%P',expected).split(' ').map(sha=>({sha}))
+   const diff=git('-C',tmp,'diff-tree','--no-commit-id','--name-status','-r',expected)
+   check(diff==='A\t'+path,'ISSUE_RECEIPT_WRITE_SCOPE')
+   verifyReceiptAppendCommit(plan,{commit:{sha:expected,parents},parent:head,files:[{filename:path,status:'added'}],
+     committedBytes:execFileSync('git',['-C',tmp,'show',expected+':'+path],{encoding:'utf8',timeout:15000,maxBuffer:65536}),remoteBefore:head})
+   recheck()
+   const fresh=collect()
+   check(fresh.action==='append'&&fresh.path===plan.path&&fresh.bytes===plan.bytes&&fresh.digest===plan.digest,'ISSUE_RECEIPT_EVIDENCE_REVOKED')
+   recheck()
+   git('-C',tmp,'push','origin','HEAD:'+stateRef)
+ }else{
+   check(plan.action==='replay','ISSUE_RECEIPT_PLAN')
+   recheck()
+ }
+ const remote=git('ls-remote','--exit-code','--refs','origin',stateRef)
+ check(remote===expected+'\t'+stateRef,'ISSUE_REMOTE_POST_PUSH_MISMATCH')
+ git('fetch','--no-tags','origin',stateRef)
+ check(git('rev-parse','FETCH_HEAD')===expected,'ISSUE_RECEIPT_POST_PUSH_REF')
+ const bytes=execFileSync('git',['show',expected+':'+path],{encoding:'utf8',timeout:15000,maxBuffer:65536})
+ check(bytes===plan.bytes,'ISSUE_RECEIPT_POST_PUSH_BYTES')
+ writeFileSync(join(env.RUNNER_TEMP,'prp-issue-receipt.md'),[
+   '### PRP collaboration pre-merge receipt '+(plan.action==='append'?'committed':'replayed'),
+   '', 'Request ID: '+command.request_id,'Task: '+command.requirement_id+'/'+command.task_id,
+   'State version (unchanged): '+before.version,'Remote state SHA: '+expected,'Receipt digest: '+plan.digest,
+   'No task status changed. No PR was merged. No acceptance was executed.'
+ ].join('\n')+'\n',{mode:0o600,flag:'wx'})
+ if(plan.action==='append')console.log(receiptAppendMarker(validated.source_issue,expected,plan.digest))
+}
 async function main(){
  const env=process.env
  const event=JSON.parse(readFileSync(env.GITHUB_EVENT_PATH,'utf8'))
@@ -186,6 +281,10 @@ async function main(){
  const file=join(tmp,path)
  const before=JSON.parse(readFileSync(file,'utf8'))
  requireMigratedLiveState(before)
+ if(validated.captureReceipt===true){
+   await captureReceiptTransaction({before,validated,env,event,head,base,stateRef,tmp})
+   return
+ }
  // A successfully recorded registration is immutable in the state ledger.
  // Replays must not depend on the mutable Task Issue body still being present.
  if(validated.command.type==='register_task' &&
@@ -215,8 +314,8 @@ async function main(){
        'ISSUE_OWNER_POLICY_STATE_MISMATCH')
      const proof=Object.freeze({actorId:validated.actorId,sourceIssue:validated.source_issue,
        issueCreatedAt:validated.issueCreatedAt,stateSha:head,expectedStateSha:validated.expectedStateSha,
-       expectedVersion:validated.expected_version,note:validated.command.note,...(validated.historical446===true?{historical446:true}:{})})
-     loadReview=validated.historical446===true
+       expectedVersion:validated.expected_version,note:validated.command.note,...(validated.historical446===true?{historical446:true}:{}),...(validated.receiptAccept===true?{receiptAccept:true}:{})})
+     loadReview=validated.historical446===true||validated.receiptAccept===true
        ?()=>trustedReviewContext(before,validated.command,env,ghApi,proof)
        :()=>trustedReviewContext(before,validated.command,env,route=>gh(route),proof)
    }else loadReview=()=>trustedReviewContext(before,validated.command,env,route=>gh(route))
@@ -250,7 +349,8 @@ async function main(){
      const fresh=loadReview()
      check(fresh.reviewerAuthorized===true&&fresh.ciVerified===true&&
        fresh.mergedIntoIntegration===true&&(validated.historical415!==true||fresh.historical415Verified===true)&&
-       (validated.ownerPolicy!==true||fresh.ownerRulesetAttested===true)&&(validated.historical446!==true||fresh.historical446Verified===true),'ISSUE_ACCEPT_EVIDENCE_REVOKED')
+       (validated.ownerPolicy!==true||fresh.ownerRulesetAttested===true)&&(validated.historical446!==true||fresh.historical446Verified===true)&&(validated.receiptAccept!==true||fresh.receiptEvidenceVerified===true),'ISSUE_ACCEPT_EVIDENCE_REVOKED')
+     if(validated.receiptAccept===true)verifyBranchAndRunner(env)
      check(git('ls-remote','--exit-code','--refs','origin','refs/heads/main')===env.GITHUB_SHA+'\trefs/heads/main','ISSUE_MAIN_CHANGED_BEFORE_PUSH')
      check(git('ls-remote','--exit-code','--refs','origin',stateRef)===base,'ISSUE_RACE_BEFORE_PUSH')
      validateIssueEvent(env,event,gh('repos/'+REPO+'/issues/'+validated.source_issue))
