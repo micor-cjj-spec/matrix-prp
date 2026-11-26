@@ -161,7 +161,8 @@ function existingReceiptBytes(tmp,path){
 }
 async function captureReceiptTransaction({before,validated,env,event,head,base,stateRef,tmp}){
  const {trustedReviewContext,ghApi}=await import('./review-context.mjs')
- const {submittedReceiptPath,verifyReceiptOrigin,receiptAppendMarker}=await import('./review-receipt-runtime.mjs')
+ const receiptRuntime=await import('./review-receipt-runtime.mjs')
+ const {submittedReceiptPath,verifyReceiptOrigin,receiptAppendMarker}=receiptRuntime
  const {planReceiptAppend,parseStoredReceipt,verifyReceiptAppendCommit}=await import('./review-receipt-store.mjs')
  const command=validated.command
  check(validated.captureReceipt===true&&validated.ownerPolicy===true&&validated.expectedStateSha===head&&
@@ -174,7 +175,7 @@ async function captureReceiptTransaction({before,validated,env,event,head,base,s
  const original=existingBytes===null?null:parseStoredReceipt(existingBytes)
  const capturedAt=new Date().toISOString()
  const collect=()=>{
-   const x=trustedReviewContext(before,command,env,ghApi,proof)
+   const x=trustedReviewContext(before,command,env,ghApi,proof,receiptRuntime)
    check(x.captureEvidenceVerified===true,'ISSUE_RECEIPT_CAPTURE_REQUIRED')
    if(original){
      verifyReceiptOrigin(before,command.task_id,head,env.GITHUB_SHA,original,ghApi,new Date().toISOString())
@@ -315,8 +316,9 @@ async function main(){
      const proof=Object.freeze({actorId:validated.actorId,sourceIssue:validated.source_issue,
        issueCreatedAt:validated.issueCreatedAt,stateSha:head,expectedStateSha:validated.expectedStateSha,
        expectedVersion:validated.expected_version,note:validated.command.note,...(validated.historical446===true?{historical446:true}:{}),...(validated.receiptAccept===true?{receiptAccept:true}:{})})
+     const receiptRuntime=validated.receiptAccept===true?await import('./review-receipt-runtime.mjs'):undefined
      loadReview=validated.historical446===true||validated.receiptAccept===true
-       ?()=>trustedReviewContext(before,validated.command,env,ghApi,proof)
+       ?()=>trustedReviewContext(before,validated.command,env,ghApi,proof,receiptRuntime)
        :()=>trustedReviewContext(before,validated.command,env,route=>gh(route),proof)
    }else loadReview=()=>trustedReviewContext(before,validated.command,env,route=>gh(route))
    verifiedReview=loadReview()

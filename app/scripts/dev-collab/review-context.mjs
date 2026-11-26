@@ -6,7 +6,7 @@ import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.
 
 import {HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446} from './review-provenance.mjs'
 
-import {RECEIPT_ACCEPT_PREFIX,verifyReceiptCommand,collectReceiptEvidence,verifyReceiptAccept} from './review-receipt-runtime.mjs'
+const RECEIPT_ACCEPT_PREFIX='PRP_PREMERGE_RECEIPT_V1:'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/
@@ -23,7 +23,7 @@ export function ghApi(route){
 }
 
 /** The only trust boundary: called exclusively from the owner-initiated reviewed workflow. */
-export function trustedReviewContext(snapshot,command,env,api,issueProof){
+export function trustedReviewContext(snapshot,command,env,api,issueProof,receiptRuntime){
   check(env.GITHUB_ACTIONS==='true' && env.GITHUB_REF==='refs/heads/main' &&
     env.GITHUB_REPOSITORY===REPO && env.GITHUB_ACTOR==='micor-cjj-spec' &&
     env.GITHUB_REPOSITORY_OWNER==='micor-cjj-spec' && typeof env.GH_TOKEN==='string' &&
@@ -77,19 +77,20 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
   const loadJobs=id=>api(root+'/actions/runs/'+id+'/jobs?per_page=100&filter=latest')
   const integrationRef='integrate/'+snapshot.requirement_id
   if(capture||receiptAccept){
-    verifyReceiptCommand(snapshot,command,issueProof)
+    check(receiptRuntime&&typeof receiptRuntime.verifyReceiptCommand==='function'&&typeof receiptRuntime.collectReceiptEvidence==='function'&&typeof receiptRuntime.verifyReceiptAccept==='function','RECEIPT_RUNTIME_REQUIRED')
+    receiptRuntime.verifyReceiptCommand(snapshot,command,issueProof)
     requireMain(api(root+'/branches/main'))
     const policy=requirePolicy()
     check(policy.ownerAttested===true,'RECEIPT_OWNER_POLICY')
     if(capture){
-      const evidence=collectReceiptEvidence(snapshot,command.task_id,api)
+      const evidence=receiptRuntime.collectReceiptEvidence(snapshot,command.task_id,api)
       evidence.captureOrigin={request_id:command.request_id,source_issue:issueProof.sourceIssue,
         issue_created_at:issueProof.issueCreatedAt,run_id:Number(env.GITHUB_RUN_ID),main_sha:env.GITHUB_SHA}
       requireMain(api(root+'/branches/main'))
       requirePolicy()
       return {captureEvidenceVerified:true,evidence}
     }
-    const result=verifyReceiptAccept(snapshot,command,issueProof,env.GITHUB_SHA,api)
+    const result=receiptRuntime.verifyReceiptAccept(snapshot,command,issueProof,env.GITHUB_SHA,api)
     check(result.receiptEvidenceVerified===true&&result.checks===7,'RECEIPT_EVIDENCE_REQUIRED')
     requireMain(api(root+'/branches/main'))
     requirePolicy()
