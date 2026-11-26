@@ -1,0 +1,18 @@
+name: Remote Executor V1.1 (activation blocked)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  blocked:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Report inactive candidate
+        run: |
+          echo 'REMOTE_EXECUTOR_V11_ACTIVATION_BLOCKED'
+          echo 'No SSH, artifact download, issue comment posting or server execution.'
+# No issue_comment trigger, environment, credentials or execution step.
+# Activation requires independently reviewed receiver installation, exact
+# staging authorization and separate approval. Do not remove this boundary
+# as part of offline CI.
