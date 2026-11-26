@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 import uuid
+import urllib.parse
 from unittest.mock import patch
 
 
@@ -200,7 +201,7 @@ def main():
                 lambda: bool(p41.api(
                     prom,
                     "/api/v1/query?query="
-                    + __import__("urllib.parse").parse.quote(
+                    + urllib.parse.quote(
                         'node_memory_MemAvailable_bytes{environment="synthetic",instance="fixture-node"}'
                     ),
                 )["data"]["result"]),
@@ -282,7 +283,7 @@ def main():
             )
             upstream = p41.Client(mcp_url, upstream_caller, viewer_token)
             upstream.init()
-            tools = upstream.rpc("tools/list")["result"]["tools"]
+            tools = upstream.rpc("tools/list", {})["result"]["tools"]
             names_found = {tool["name"] for tool in tools}
             check(
                 "query_prometheus" in names_found
