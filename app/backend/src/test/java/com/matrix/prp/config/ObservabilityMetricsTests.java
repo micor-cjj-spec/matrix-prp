@@ -94,7 +94,8 @@ class ObservabilityMetricsTests {
     @Test
     void boundsDistinctUriMethodAndPoolLabels() {
         var config = new ObservabilityConfig();
-        try (var meters = new SimpleMeterRegistry()) {
+        var meters = new SimpleMeterRegistry();
+        try {
             meters.config().meterFilter(config.observabilityMetricAllowlist())
                     .meterFilter(config.observabilityUriBound()).meterFilter(config.observabilityMethodBound())
                     .meterFilter(config.observabilityPoolBound());
@@ -112,6 +113,8 @@ class ObservabilityMetricsTests {
             assertThat(meters.find("http.server.requests").timers().stream()
                     .map(t -> t.getId().getTag("method")).distinct().count()).isEqualTo(16);
             assertThat(meters.find("hikaricp.connections").gauges()).hasSize(8);
+        } finally {
+            meters.close();
         }
     }
 }
