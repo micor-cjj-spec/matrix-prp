@@ -439,3 +439,58 @@ def run_sandbox(ledger, job_id, digest):
         if ledger.status(job_id, digest)["state"] == "RUNNING":
             ledger.mark_uncertain(job_id, digest)
         raise InvalidJob("sandbox result uncertain") from None
+
+
+# P4: a first fixed, local read-only operation. No subprocess, network,
+# credentials, image import, Docker, filesystem mutation outside the ledger,
+# or access to other jobs. The existing #396 hosted API smoke remains separate.
+FIXED_LOCAL_OPS = frozenset({"artifact.inspect"})
+
+def inspect_artifact(ledger, job_id, digest, *, enabled=False, now=None):
+    """Return a bounded integrity receipt for already verified job inputs.
+
+    This is metadata/hash inspection only, not Docker image validation,
+    deployment, provenance acceptance or authorization for later mutation.
+    A trusted worker must independently authorize invocation. Default off.
+    """
+    require(enabled is True, "fixed operations disabled")
+    manifest = ledger.claim(job_id, digest, now, allowed_operations=FIXED_LOCAL_OPS)
+    try:
+        # claim already checked actual bytes before transitioning to RUNNING;
+        # check again while preparing the receipt. No archive extraction.
+        ledger._verify_manifest_files(job_id, manifest)
+        files = [{"path": item["path"], "size": item["size"],
+                  "sha256": item["sha256"]} for item in manifest["files"]]
+        summary = canonical({"operation": "artifact.inspect",
+                             "integrity": "MATCH",
+                             "fileCount": len(files),
+                             "bytes": sum(item["size"] for item in files),
+                             "files": files}).decode("ascii")
+        # If the manifest was accepted, the bounded receipt normally fits;
+        # fail closed on unusual escaped summary overhead.
+        ledger.finish(job_id, digest, "SUCCEEDED",
+                      {"exitCode": 0, "summary": summary}, now)
+        return ledger.snapshot(job_id, digest, include_result=True)
+    except Exception:
+        if ledger.status(job_id, digest)["state"] == "RUNNING":
+            ledger.mark_uncertain(job_id, digest, now)
+        raise InvalidJob("artifact inspection uncertain") from None
+
+def dispatch_verified_job(ledger, job_id, digest, *, enabled=False, now=None):
+    """Fixed worker routing, not an ingress or scheduler.
+
+    Only an independently authorized trusted local worker calls this.
+    Do not pass a shell string, operation name or filesystem path from
+    the caller; route from the exact stored manifest. #396 stage.health
+    remains blocked here: its independent hosted workflow owns credentials.
+    """
+    require(enabled is True, "worker disabled")
+    with ledger._connect() as con:
+        row = ledger._get(con, job_id, digest)
+        require(row["state"] == "VERIFIED", "job not verified")
+        operation = parse(row["manifest"].encode("ascii"))["operation"]
+    if operation in FIXED_LOCAL_OPS:
+        return inspect_artifact(ledger, job_id, digest, enabled=True, now=now)
+    if operation in SANDBOX_OPS:
+        return run_sandbox(ledger, job_id, digest)
+    raise InvalidJob("operation unavailable; use existing authorized staging runner")
