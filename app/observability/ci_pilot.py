@@ -1,5 +1,6 @@
 """Exercise the exact P1.3 compose candidate on a disposable Linux hosted runner."""
 import base64
+import hashlib
 import ipaddress
 import json
 import os
@@ -49,6 +50,7 @@ def main():
             binary = Path(tmp) / "node_exporter"
             cmd("docker", "cp", extract + ":/bin/node_exporter", str(binary))
             cmd("docker", "rm", extract)
+            print("OBS_PILOT_NODE_BINARY_SHA256=" + hashlib.sha256(binary.read_bytes()).hexdigest(), flush=True)
             binary.chmod(0o700)
             proc = subprocess.Popen([str(binary), "--web.listen-address=" + gateway + ":9100",
                 "--collector.disable-defaults", "--collector.cpu", "--collector.meminfo",
@@ -91,7 +93,7 @@ def main():
             require(bool(default_devices) and default_devices.issubset(observed) and "lo" in observed,
                     "pilot-host-network")
             eventually(lambda: api(graf, "/api/health").get("database") == "ok", "grafana health")
-            require(api(graf, "/api/health").get("version") == "13.3.0", "pilot-graf-version")
+            require(api(graf, "/api/health").get("version") == "13.3.2", "pilot-graf-version")
             try:
                 api(graf, "/api/search")
             except urllib.error.HTTPError as e:
