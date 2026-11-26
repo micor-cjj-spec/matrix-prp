@@ -19,7 +19,8 @@ AUTH="329ca6eb024ca3486e711fabc0ad2c428cde6221"
 SDK="3e7e3afcc8fd2ee5750a76bf3ff579c9f9fe6393"
 IMAGES={"prom":"quay.io/prometheus/prometheus@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9",
         "python":"python@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89",
-        "grafana":"grafana/grafana:13.3.2","mcp":"grafana/mcp-grafana:2.4.0"}
+        "grafana":"grafana/grafana@sha256:81556409ba48b2b922e0adb69a2511337d8ba7578f11962eefa6149a2d815101",
+        "mcp":"grafana/mcp-grafana@sha256:63d4501d3166c2b9242d8a2b5b7df8892c59c6c477be3a2a61bcf8a252671f31"}
 OPENER=urllib.request.build_opener(urllib.request.ProxyHandler({}))
 UID="prp-synthetic"
 CASES=[]
@@ -208,6 +209,8 @@ def main():
             viewer_header={"Authorization":"Bearer "+viewer}
             check(len(api(graf,"/api/datasources",headers=viewer_header))==1,"one-datasource")
             check(request(graf,"/api/datasources","POST",{"name":"denied","type":"prometheus","url":"http://prom:9090"},viewer_header)[0] in (401,403),"viewer-write-denied")
+            direct=api(graf,"/api/datasources/proxy/uid/"+UID+"/api/v1/query?query="+urllib.parse.quote('node_memory_MemAvailable_bytes{environment="synthetic"}'),headers=viewer_header)
+            check(direct.get("status")=="success" and any(x.get("metric",{}).get("instance")=="fixture-node" for x in direct["data"]["result"]),"viewer-direct-query-positive")
             start("mcp","mcp","256m",("-e","GRAFANA_URL=http://grafana:3000",
                   "-e","MCP_GRAFANA_SERVER_TOKEN="+caller,"-e","GRAFANA_USAGE_STATS=disabled"),
                   ("-t","streamable-http","--address","0.0.0.0:8000","--allowed-hosts","mcp:8000",
@@ -231,6 +234,12 @@ def main():
             print("OBS_P4_TOOLS="+",".join(sorted(tools)),flush=True)
             response=client.call("node_memory_MemAvailable_bytes")
             value=serialized(response)
+            if failed(response) or "fixture-node" not in value or "foreign-marker" in value:
+                # Only this disposable synthetic response, with all generated credentials removed.
+                diagnostic=value
+                for secret in (viewer,caller,password,admin["Authorization"],viewer_header["Authorization"]):
+                    diagnostic=diagnostic.replace(secret,"[redacted]")
+                print("OBS_P4_SYNTHETIC_FIRST_QUERY_DIAG="+diagnostic[:1200],flush=True)
             check(not failed(response) and "fixture-node" in value and "foreign-marker" not in value,"enforced-label-scope")
             check(not failed(client.call('jvm_threads_live_threads{job="p2-app"}')),"p2-query")
             denied=client.call('node_memory_MemAvailable_bytes{environment="foreign"}')
