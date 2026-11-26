@@ -2,6 +2,7 @@
 from collections import Counter
 from datetime import datetime, timezone
 import json
+import hashlib
 from pathlib import Path
 import re
 import sys
@@ -136,12 +137,19 @@ def regression_claim(receipt, commit, now):
             and now - ordered[-1] < 900 and ordered[-1] - ordered[0] <= 900)
     modules, cleanup = receipt.get("module_results"), receipt.get("cleanup_results")
     exact(modules, MODULES)
-    exact(cleanup, {owner + "_" + m for owner in ("A", "B") for m in MODULES})
+    exact(cleanup, {owner + "_" + m for owner in ("A", "B") for m in MODULES | {"account", "category"}})
     require(all(x in ("pass", "pending") for x in [*modules.values(), *cleanup.values()]))
     claim = receipt.get("regression_complete_claimed")
     require(type(claim) is bool)
-    complete = all(x == "pass" for x in [*modules.values(), *cleanup.values()])
+    complete = (all(x == "pass" for x in [*modules.values(), *cleanup.values()])
+                and receipt.get("api_visible_baseline_matched_claimed") is True
+                and receipt.get("journal_recorded_mutation_outcomes") ==
+                {"recorded": 58, "http_200": 38, "http_denied": 20, "unknown_or_pending": 0, "other": 0})
     require(not claim or complete)
+    unsigned = {k: v for k, v in receipt.items() if k != "binding_digest"}
+    encoded = json.dumps({"domain": "PRP_S63_S5_ADVISORY_V1", "evidence": unsigned},
+                         sort_keys=True, separators=(",", ":"), allow_nan=False).encode() + b"\n"
+    require(receipt.get("binding_digest") == "sha256:" + hashlib.sha256(encoded).hexdigest())
     return "offline_claim_complete" if claim else "offline_claim_incomplete"
 
 
@@ -213,7 +221,7 @@ def project(raw, now):
             require(sha(release["commit"]) == commit)
             exact(release["checks"], CHECKS)
             # A synthetic run assertion cannot override failures or imply deployment.
-            expected_ci = ("pass" if run_state == "success" else "fail" if run_state in
+            expected_ci = ("pass" if run_state == "success" and counts["all"]["success"] == len(rows) else "fail" if run_state in
                            ("failure", "timed_out", "startup_failure") else "pending")
             require(release["checks"]["ci"] == expected_ci)
             result = evaluate(release)
