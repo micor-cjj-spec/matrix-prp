@@ -4,6 +4,7 @@ No SSH listener, credentials, process launcher, or deployment entrypoint.
 A future trusted transport must authenticate owner and bind approval before
 calling this internal API. The test runner is injected; it is NOT a sandbox.
 """
+from contextlib import contextmanager
 import hashlib
 import hmac
 import os
@@ -55,14 +56,19 @@ class Ledger:
                 state TEXT NOT NULL, expires INTEGER NOT NULL,
                 updated INTEGER NOT NULL, result TEXT)""")
 
+    @contextmanager
     def _connect(self):
         _private_dir(self.root)
         _private_file(self.db)
         con = sqlite3.connect(self.db, timeout=10)
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA busy_timeout=10000")
-        con.execute("PRAGMA synchronous=FULL")
-        return con
+        try:
+            con.row_factory = sqlite3.Row
+            con.execute("PRAGMA busy_timeout=10000")
+            con.execute("PRAGMA synchronous=FULL")
+            with con:
+                yield con
+        finally:
+            con.close()
 
     def accept(self, job, now=None):
         now = int(time.time() if now is None else now)
@@ -181,15 +187,20 @@ class Ledger:
             row = self._get(con, job_id, digest)
             require(row["state"] in ("RECEIVED", "TRANSFERRING") and row["expires"] > now,
                     "verification not allowed")
-            folder = self._directory(job_id)
-            manifest = parse(row["manifest"].encode("ascii"))
-            for item in manifest["files"]:
-                dest = folder
+            self._verify_manifest_files(job_id, parse(row["manifest"].encode("ascii")))
+            con.execute("UPDATE jobs SET state='VERIFIED',updated=? WHERE id=?", (now, job_id))
+
+    def _verify_manifest_files(self, job_id, manifest):
+        folder = self._directory(job_id)
+        for item in manifest["files"]:
+            dest = folder
+            try:
                 for part in item["path"].split("/")[:-1]:
                     dest = dest / part
                     _private_dir(dest)
                 self._verify_file(dest / item["path"].split("/")[-1], item)
-            con.execute("UPDATE jobs SET state='VERIFIED',updated=? WHERE id=?", (now, job_id))
+            except OSError as exc:
+                raise InvalidJob("missing or inaccessible file") from exc
 
     def claim(self, job_id, digest, now=None):
         """Durably claim once before side effects. No implicit retry.
@@ -204,8 +215,10 @@ class Ledger:
             require(row["state"] == "VERIFIED" and row["expires"] > now, "claim not allowed")
             require(con.execute("SELECT 1 FROM jobs WHERE state IN ('RUNNING','RECONCILE_REQUIRED') LIMIT 1").fetchone() is None,
                     "another job active or uncertain")
+            manifest = parse(row["manifest"].encode("ascii"))
+            self._verify_manifest_files(job_id, manifest)
             con.execute("UPDATE jobs SET state='RUNNING',updated=? WHERE id=?", (now, job_id))
-            return parse(row["manifest"].encode("ascii"))
+            return manifest
 
     def finish(self, job_id, digest, state, result, now=None):
         require(state in ("SUCCEEDED", "FAILED", "TIMED_OUT"), "invalid completion state")
