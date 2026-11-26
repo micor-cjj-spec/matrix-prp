@@ -11,6 +11,7 @@ on:
       - 'app/scripts/unified_staging_task_receipt*'
       - 'app/scripts/provision_unified_staging_uat*'
       - 'app/scripts/test_unified_staging_s5_fixture.py'
+      - 'app/scripts/unified_staging_s5_recovery.py'
       - 'app/scripts/fixtures/unified_396_s5_operator.py.txt'
       - '.github/workflows/unified-staging-read-smoke.yml'
 

@@ -8,3 +8,7 @@
 - Coverage stays task, finance, record, empty video folder, empty practice subject. No media upload, question writes, AI, health or Personal OS tests. Leave #323 responsible for trusted evidence intake.
 - Run: `python3 -m unittest discover -s app/scripts -p test_unified_staging_s5_fixture.py -v`.
 - No live workflow, credentials, permission, governance, or publication hold changes. Draft review and CI only.
+
+## Interrupted journal review (offline only)
+
+The pure `unified_staging_s5_recovery.py` consumes the old journal plus both owners' complete read-only list snapshots for attempted kinds. It emits redacted labels for known/unconfirmed residuals, duplicate markers, mismatched IDs, cross-owner conflicts, invalid/missing inputs and absent markers. It never executes cleanup or authenticates the supplied snapshots. No ID or marker is exported. Even an absent result cannot establish original baseline restoration. The next real execution design needs an authenticated stage/account binding, durable run/attempt provenance, retained baseline evidence, lock/recovery coordination and explicit authorization before cleanup; do not widen runtime permissions for this offline review.

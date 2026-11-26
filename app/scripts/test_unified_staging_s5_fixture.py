@@ -15,6 +15,8 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
+from unified_staging_s5_recovery import assess_interrupted_journal
+
 SOURCE = Path(__file__).with_name("fixtures") / "unified_396_s5_operator.py.txt"
 DIGEST = "2c199c8b0fae7bdaaae2a10cc3d06f2bfd8fd33ee8c096b9399d4ccb1eb0d04c"
 IMAGES = {
@@ -274,6 +276,88 @@ class S5OfflineReuseTests(unittest.TestCase):
         report, _, _ = self.assert_review("cleanup")
         self.assertIn("REVIEW_REQUIRED", report["cleanup"].values())
         self.assertFalse(report["visibleBaselineRestored"])
+
+
+class S5RecoveryReviewTests(unittest.TestCase):
+    def setUp(self):
+        self.run = "UAT396-0123456789abcdef"
+        self.marker = self.run + "-A"
+        self.journal = {
+            "run": self.run, "phase": "task",
+            "attempted": [{"owner": "A", "kind": "task", "marker": self.marker, "id": 101}],
+            "results": {}, "cleanup": {},
+        }
+        self.snapshots = {"A_task": [], "B_task": []}
+
+    def assess(self):
+        result = assess_interrupted_journal(self.journal, self.snapshots)
+        for k in ("baselineRestored", "liveVerified", "cleanupAuthorized", "productionAuthorized"):
+            self.assertIs(result[k], False)
+        self.assertNotIn(self.marker, json.dumps(result))
+        return result
+
+    def test_known_id_residual(self):
+        self.snapshots["A_task"] = [{"id": 101, "title": self.marker}]
+        self.assertEqual(self.assess()["entries"], {"A_task": "KNOWN_ID_REMAINS"})
+
+    def test_unconfirmed_create_residual(self):
+        self.journal["attempted"][0]["id"] = None
+        self.snapshots["A_task"] = [{"id": 101, "title": self.marker}]
+        self.assertEqual(self.assess()["entries"], {"A_task": "UNCONFIRMED_CREATE_REMAINS"})
+
+    def test_id_and_marker_conflicts(self):
+        for row in ({"id": 101, "title": "unrelated"}, {"id": 102, "title": self.marker}):
+            with self.subTest(row=row):
+                self.snapshots["A_task"] = [row]
+                self.assertEqual(self.assess()["entries"], {"A_task": "ID_MARKER_CONFLICT"})
+
+    def test_ambiguous_marker(self):
+        self.snapshots["A_task"] = [{"id": i, "title": self.marker} for i in (101, 102)]
+        self.assertEqual(self.assess()["entries"], {"A_task": "AMBIGUOUS_MARKER"})
+
+    def test_cross_owner_conflict(self):
+        for row in ({"id": 101, "title": "unrelated"}, {"id": 102, "title": self.marker}):
+            with self.subTest(row=row):
+                self.snapshots["B_task"] = [row]
+                self.assertEqual(self.assess()["entries"], {"A_task": "CROSS_OWNER_CONFLICT"})
+
+    def test_missing_snapshot_or_duplicate_id(self):
+        del self.snapshots["B_task"]
+        self.assertEqual(self.assess()["state"], "INCOMPLETE_SNAPSHOTS")
+        self.snapshots["B_task"] = [{"id": 2}, {"id": 2}]
+        self.assertEqual(self.assess()["state"], "INVALID_SNAPSHOT")
+
+    def test_invalid_journal(self):
+        self.journal["attempted"][0]["marker"] = "wrong"
+        self.assertEqual(self.assess()["state"], "INVALID_JOURNAL")
+        self.journal["attempted"][0]["marker"] = self.marker
+        self.journal["attempted"].append(dict(self.journal["attempted"][0]))
+        self.assertEqual(self.assess()["state"], "INVALID_JOURNAL")
+
+    def test_absent_is_not_baseline_restoration(self):
+        self.snapshots["A_task"] = [{"id": 90, "title": "unrelated"}]
+        self.assertEqual(self.assess()["state"], "NO_MARKERS_OBSERVED")
+
+    def test_historical_failed_cleanup_journal(self):
+        code, report, helper, journal = run_fixture("cleanup")
+        self.assertEqual(code, 1)
+        result = assess_interrupted_journal(journal, {
+            w + "_" + k: list(rows.values()) for (w, k), rows in helper.rows.items()
+        })
+        self.assertEqual(result["state"], "RECOVERY_REVIEW_REQUIRED")
+        self.assertEqual(set(result["entries"]), set(report["cleanup"]))
+        self.assertIn("KNOWN_ID_REMAINS", result["entries"].values())
+        self.assertFalse(result["cleanupAuthorized"])
+
+    def test_historical_cleaned_journal(self):
+        code, _, helper, journal = run_fixture()
+        self.assertEqual(code, 0)
+        result = assess_interrupted_journal(journal, {
+            w + "_" + k: list(rows.values()) for (w, k), rows in helper.rows.items()
+        })
+        self.assertEqual(result["state"], "NO_MARKERS_OBSERVED")
+        self.assertEqual(set(result["entries"]), CLEANUP_KEYS)
+        self.assertFalse(result["baselineRestored"])
 
 
 if __name__ == "__main__":
