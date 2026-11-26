@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 27,
-  "updated_at": "2026-11-26T09:29:15.346Z",
+  "version": 28,
+  "updated_at": "2026-11-26T09:30:28.851Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -361,6 +361,19 @@
         "status": "IN_PROGRESS",
         "replayed": false
       }
+    },
+    {
+      "request_id": "ac022026-1126-4a02-8503-116130cfa098",
+      "fingerprint": "543d2ba6a68751b213fa7081efc647dddde18cf372641182432c365c946af804",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "submit",
+        "task_id": "T-002",
+        "request_id": "ac022026-1126-4a02-8503-116130cfa098",
+        "version": 28,
+        "status": "IN_REVIEW",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -406,7 +419,7 @@
       "task_id": "T-002",
       "issue_number": 134,
       "title": "GitHub 需求与任务模板、PR 规范",
-      "status": "IN_PROGRESS",
+      "status": "IN_REVIEW",
       "depends_on": [],
       "allowed_paths": [
         ".github/ISSUE_TEMPLATE/",
@@ -442,7 +455,9 @@
           "previous_generation": 1,
           "generation": 2
         }
-      ]
+      ],
+      "pr_number": 271,
+      "head_sha": "48b3a69232690e7e2fb54a2d92efac02cc512c0e"
     },
     {
       "task_id": "T-003",
