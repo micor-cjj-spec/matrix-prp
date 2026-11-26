@@ -23,7 +23,10 @@ jobs:
   disposable-isolation:
     # Only a fresh GitHub-hosted VM, never a self-hosted or project server.
     # No repository/environment secrets, SSH, production credentials or writes.
-    runs-on: ubuntu-24.04
+    # 24.04 pilot 45782958042 failed at network namespace setup.
+    # Test another supported image with its unmodified default security policy.
+    # Keep the same noble rootfs and all original isolation assertions.
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -63,6 +66,10 @@ jobs:
           printf '%s\n' PRP_STAGING_SANDBOX_V11 | sudo tee /etc/matrix-prp-remote-executor-v11/sandbox.enabled >/dev/null
           sudo chmod 0444 /etc/matrix-prp-remote-executor-v11/sandbox.enabled
           /usr/bin/bwrap --version
+          uname -r
+          dpkg-query -W bubblewrap apparmor || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns kernel.unprivileged_userns_clone 2>/dev/null || true
+          sudo aa-status 2>/dev/null | grep -E 'bwrap|bubblewrap|unprivileged_userns' || true
       - name: Real Bubblewrap and cgroup isolation tests
         shell: bash
         run: |
