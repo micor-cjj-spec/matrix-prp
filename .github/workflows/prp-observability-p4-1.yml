@@ -1,0 +1,53 @@
+name: PRP observability P4.1 official Grafana MCP offline
+on:
+  pull_request:
+    paths:
+      - 'app/observability/p4/**'
+      - '.github/workflows/prp-observability-p4-1.yml'
+permissions:
+  contents: read
+jobs:
+  grafana-product:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run isolated native product probe
+        run: python3 app/observability/p4/ci_grafana_mcp.py
+  existing-security-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13.5'
+          architecture: x64
+          check-latest: false
+      - name: Exact existing authorization audit and SDK regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTH=329ca6eb024ca3486e711fabc0ad2c428cde6221
+          SDK=3e7e3afcc8fd2ee5750a76bf3ff579c9f9fe6393
+          test "$(git rev-parse "$AUTH:app/ops/query_contract.py")" = f415a83479c1fa266d89651555ec6eaafed275c1
+          test "$(git rev-parse "$AUTH:app/ops/audit_store.py")" = 6fe11792639624a4b17314c592881d1e54954ebd
+          test "$(git rev-parse "$SDK:app/ops/sdk_spike_ci.py")" = aabfd47a36d5aab1de3af92225f70c4c05f89829
+          test "$(git rev-parse "$AUTH:app/ops/query_contract.py")" = "$(git rev-parse "$SDK:app/ops/query_contract.py")"
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          git archive "$AUTH" app/ops app/deploy/systemd | tar -x -C "$work"
+          python -m unittest discover -s "$work/app/ops" -p 'test_*.py' -v
+          git show "$SDK:app/ops/sdk_spike_ci.py" > "$work/app/ops/sdk_spike_ci.py"
+          python -m venv "$work/venv"
+          "$work/venv/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1'
+          "$work/venv/bin/python" -m pip check
+          "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
