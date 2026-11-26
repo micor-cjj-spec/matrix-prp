@@ -19,7 +19,7 @@ AUTH="329ca6eb024ca3486e711fabc0ad2c428cde6221"
 SDK="3e7e3afcc8fd2ee5750a76bf3ff579c9f9fe6393"
 IMAGES={"prom":"quay.io/prometheus/prometheus@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9",
         "python":"python@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89",
-        "grafana":"grafana/grafana:13.3.2","mcp":"grafana/mcp-grafana:v2.4.0"}
+        "grafana":"grafana/grafana:13.3.2","mcp":"grafana/mcp-grafana:2.4.0"}
 OPENER=urllib.request.build_opener(urllib.request.ProxyHandler({}))
 UID="prp-synthetic"
 CASES=[]
@@ -27,6 +27,8 @@ CASES=[]
 def run(*args, timeout=120):
     p=subprocess.run(args,capture_output=True,text=True,timeout=timeout)
     if p.returncode:
+        if args[:2]==("docker","pull"):
+            print("OBS_P4_IMAGE_PULL_FAILED="+args[-1]+"|"+p.stderr[-500:],flush=True)
         raise RuntimeError("command failed: "+args[0]+" "+args[1])
     return p.stdout.strip()
 
