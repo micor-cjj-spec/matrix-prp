@@ -1,6 +1,7 @@
 """Disposable GitHub-hosted observability experiment; never run on a PRP host."""
 import base64
 import json
+import ipaddress
 import os
 import re
 import secrets
@@ -67,11 +68,23 @@ def up(base):
     rows = query(base, 'up{job="node"}')
     return float(rows[0]["value"][1]) if len(rows) == 1 else None
 
-def port(name, container_port):
-    address = cmd("docker", "port", name, str(container_port) + "/tcp")
-    if not re.fullmatch(r"127\.0\.0\.1:\d+", address):
-        raise AssertionError("expected exclusive IPv4 loopback mapping")
-    return "http://" + address
+def internal_url(name, network, container_port):
+    networks = json.loads(cmd("docker", "inspect", "--format",
+                              "{{json .NetworkSettings.Networks}}", name))
+    if set(networks) != {network}:
+        raise AssertionError("unexpected container network")
+    address = ipaddress.IPv4Address(networks[network]["IPAddress"])
+    if not address.is_private or address.is_loopback or address.is_unspecified:
+        raise AssertionError("unexpected internal bridge address")
+    return "http://" + str(address) + ":" + str(container_port)
+
+def require_no_published_ports(names):
+    for name in names:
+        bindings = json.loads(cmd("docker", "inspect", "--format",
+                                  "{{json .HostConfig.PortBindings}}", name))
+        if bindings:
+            raise AssertionError("unexpected host port bindings")
+    require(True, "all-containers-no-published-ports")
 
 def sample(names, stage):
     raw = cmd("docker", "stats", "--no-stream", "--format",
@@ -118,23 +131,25 @@ def main():
             start("node", "128m", tail=("--collector.disable-defaults", "--collector.cpu",
                   "--collector.meminfo", "--collector.filesystem", "--collector.netdev",
                   "--collector.filesystem.fs-types-exclude=^$"))
-            start("prom", "512m", "-p", "127.0.0.1::9090",
+            start("prom", "512m",
                   "--mount", "type=bind,src=" + str(config) + ",dst=/etc/prometheus/prometheus.yml,readonly",
                   "--mount", "type=volume,src=" + prom_data + ",dst=/prometheus",
                   tail=("--config.file=/etc/prometheus/prometheus.yml",
                         "--storage.tsdb.path=/prometheus",
                         "--storage.tsdb.retention.time=7d",
                         "--storage.tsdb.retention.size=512MB"))
-            start("grafana", "384m", "-p", "127.0.0.1::3000",
+            start("grafana", "384m",
                   "--mount", "type=volume,src=" + graf_data + ",dst=/var/lib/grafana",
                   "-e", "GF_SECURITY_ADMIN_PASSWORD=" + password,
                   "-e", "GF_AUTH_ANONYMOUS_ENABLED=false",
                   "-e", "GF_ANALYTICS_REPORTING_ENABLED=false",
                   "-e", "GF_ANALYTICS_CHECK_FOR_UPDATES=false",
                   "-e", "GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false")
-            require(not cmd("docker", "port", names["node"]), "exporter-no-published-port")
-            prom, graf = port(names["prom"], 9090), port(names["grafana"], 3000)
-            require(True, "loopback-only-published-ports")
+            require_no_published_ports(names.values())
+            require(cmd("docker", "network", "inspect", "--format", "{{.Internal}}", network) == "true",
+                    "internal-network")
+            prom = internal_url(names["prom"], network, 9090)
+            graf = internal_url(names["grafana"], network, 3000)
             eventually(lambda: up(prom) == 1, "first scrape")
             require(api(prom, "/api/v1/status/buildinfo")["data"]["version"] == "3.13.5",
                     "prometheus-version")
@@ -200,6 +215,8 @@ def main():
             eventually(lambda: up(prom) == 1, "target recovered")
             require(True, "target-recovered")
             cmd("docker", "restart", names["prom"], names["grafana"])
+            prom = internal_url(names["prom"], network, 9090)
+            graf = internal_url(names["grafana"], network, 3000)
             eventually(lambda: up(prom) == 1, "prom restarted")
             require(float(query(prom, 'up{job="node"}', timestamp=t_before)[0]["value"][1]) == 1,
                     "prometheus-history-after-restart")
@@ -208,6 +225,14 @@ def main():
                     "grafana-dashboard-after-restart")
             sample(list(names.values()), "restart")
             print("OBS_P1_SMOKE=PASS", flush=True)
+        except Exception:
+            for key, name in names.items():
+                state = cmd("docker", "inspect", "--format",
+                            "{{.State.Status}}|{{.State.ExitCode}}|{{.State.OOMKilled}}",
+                            name, allow_failure=True)
+                if re.fullmatch(r"[a-z]+\|\d+\|(true|false)", state):
+                    print("OBS_CONTAINER_STATE=" + key + "|" + state, flush=True)
+            raise
         finally:
             for name in names.values():
                 cmd("docker", "rm", "-f", name, allow_failure=True)
