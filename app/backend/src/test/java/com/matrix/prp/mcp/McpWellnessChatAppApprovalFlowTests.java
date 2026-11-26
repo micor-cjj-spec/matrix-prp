@@ -62,29 +62,28 @@ class McpWellnessChatAppApprovalFlowTests {
 
     @SuppressWarnings("unchecked")
     private void stubPendingApprovalQuery(String kind, String status, boolean expired, String entity) throws Exception {
-        when(db.query(startsWith("SELECT kind,status,expires_at,payload_json FROM prp_mcp_write_drafts"),
+        when(db.queryForObject("SELECT UNIX_TIMESTAMP()", Long.class)).thenReturn(1790000000L);
+        when(db.query(startsWith("SELECT kind,status,LEAST("),
                 any(RowMapper.class), eq(ID), eq(2L))).thenAnswer(call -> {
             RowMapper<?> mapper = call.getArgument(1);
             ResultSet rs = mock(ResultSet.class);
             when(rs.getString("kind")).thenReturn(kind);
             when(rs.getString("status")).thenReturn(status);
             when(rs.getString("payload_json")).thenReturn("{\"entity\":\"" + entity + "\"}");
-            when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(
-                expired ? LocalDateTime.now().minusMinutes(1) : LocalDateTime.now().plusMinutes(10)));
+            when(rs.getLong("effective_expires_epoch")).thenReturn(expired ? 1790000000L : 1790000900L);
             return List.of(mapper.mapRow(rs, 0));
         });
     }
 
     @SuppressWarnings("unchecked")
     private void stubPendingConfirmQuery(String kind) throws Exception {
-        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,expires_at FROM"),
+        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,LEAST("),
                 any(RowMapper.class), eq(ID), eq(2L))).thenAnswer(call -> {
             RowMapper<?> mapper = call.getArgument(1);
             ResultSet rs = mock(ResultSet.class);
             when(rs.getString("kind")).thenReturn(kind);
             when(rs.getString("status")).thenReturn("PENDING");
-            when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(
-                LocalDateTime.now().plusMinutes(10)));
+            when(rs.getLong("effective_expires_epoch")).thenReturn(1790000900L);
             return List.of(mapper.mapRow(rs, 0));
         });
     }
