@@ -6,14 +6,17 @@ commit by the dedicated CI workflow. Grafana credentials and datasource UID
 are trusted server configuration; none are accepted from MCP arguments.
 """
 import json
+import math
+import asyncio
 import re
 import threading
 import uuid
 
 from auth_adapter import authorize_request, GrantFile
-from http_boundary import Budget
+from http_boundary import Budget, parse_headers
 from query_contract import FIXTURE_PROFILE, SCOPE, Policy, QueryDenied
 from rpc_adapter import dispatch_fixture
+from snapshot_contract import utc, strict_json
 
 TOOL_NAME = "prp_observability_query"
 AUTH_PROBE = b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
@@ -22,7 +25,7 @@ MAX_OUTPUT_BYTES = 32768
 # PromQL is server-owned. Every selector is pinned to the synthetic PRP scope.
 QUERIES = {
     "cpu_busy_percent": (
-        '100 * (1 - avg by (instance) (rate('
+        '100 * (1 - avg by (instance, environment) (rate('
         'node_cpu_seconds_total{mode="idle",environment="synthetic",'
         'instance="fixture-node"}[2m])))'
     ),
@@ -42,9 +45,9 @@ QUERIES = {
 # 61 evaluation points or fewer; never accepts absolute timestamps or free-form
 # durations from the caller. The upstream MCP is independently capped at 1h/120.
 WINDOWS = {
-    "5m": ("now-5m", "now", 5),
-    "15m": ("now-15m", "now", 15),
-    "1h": ("now-1h", "now", 60),
+    "5m": (300, 5),
+    "15m": (900, 15),
+    "30m": (1800, 30),
 }
 
 TOOL_DESCRIPTOR = {
@@ -82,14 +85,15 @@ class InvalidArguments(ValueError):
 class FixedGrafanaQueryAdapter:
     """Call only the upstream official Grafana MCP query_prometheus tool."""
 
-    def __init__(self, rpc, *, datasource_uid):
-        if not callable(rpc):
+    def __init__(self, rpc, *, datasource_uid, clock):
+        if not callable(rpc) or not callable(clock):
             raise ValueError("invalid upstream")
         if type(datasource_uid) is not str or not re.fullmatch(
             r"[A-Za-z0-9_-]{1,40}", datasource_uid
         ):
             raise ValueError("invalid datasource")
         self._rpc = rpc
+        self._clock = clock
         self._datasource_uid = datasource_uid
         self._lock = threading.Lock()
 
@@ -98,13 +102,17 @@ class FixedGrafanaQueryAdapter:
             raise GatewayDenied("query denied")
         if type(window) is not str or window not in WINDOWS:
             raise GatewayDenied("query denied")
-        start, end, step = WINDOWS[window]
+        duration, step = WINDOWS[window]
+        now = self._clock()
+        utc(now)
+        end = now - now % step
+        start = end - duration
         arguments = {
             "datasourceUid": self._datasource_uid,
             "expr": QUERIES[metric],
             "queryType": "range",
-            "startTime": start,
-            "endTime": end,
+            "startTime": utc(start),
+            "endTime": utc(end),
             "stepSeconds": step,
         }
         # The upstream MCP session is shared by this adapter. Serialize calls;
@@ -126,11 +134,48 @@ class FixedGrafanaQueryAdapter:
                              separators=(",", ":"), allow_nan=False).encode("utf-8")
         if not 0 < len(encoded) <= MAX_OUTPUT_BYTES:
             raise GatewayDenied("query denied")
-        # Defense in depth: upstream synthetic matcher must not disclose the
-        # foreign positive-control series even if a product regression occurs.
-        if b"foreign-marker" in encoded or b'"environment":"foreign"' in encoded:
+        # v2.4.0 QueryPrometheusResult: structuredContent contains a matrix
+        # in data; the text fallback contains the same JSON. Never relay
+        # upstream warnings, Explore URL, hints, labels or arbitrary text.
+        result = response["result"]
+        payload = result.get("structuredContent")
+        if type(payload) is not dict:
+            blocks = result.get("content")
+            if type(blocks) is not list or len(blocks) != 1 or blocks[0].get("type") != "text":
+                raise GatewayDenied("query denied")
+            payload = strict_json(blocks[0]["text"].encode("utf-8"), MAX_OUTPUT_BYTES)
+        if type(payload) is not dict or payload.get("warnings"):
             raise GatewayDenied("query denied")
-        return {"metric": metric, "window": window, "data": response["result"]}
+        matrix = payload.get("data")
+        if type(matrix) is not list or len(matrix) > 1:
+            raise GatewayDenied("query denied")
+        samples = []
+        if matrix:
+            row = matrix[0]
+            labels = row.get("metric", {})
+            if (type(labels) is not dict or labels.get("instance") != "fixture-node"
+                    or labels.get("environment") != "synthetic"):
+                raise GatewayDenied("query denied")
+            values = row.get("values")
+            if type(values) is not list or not 0 < len(values) <= duration // step + 1:
+                raise GatewayDenied("query denied")
+            for pair in values:
+                if (type(pair) is not list or len(pair) != 2
+                        or type(pair[0]) not in (int, float)
+                        or not math.isfinite(pair[0]) or not start <= pair[0] <= end
+                        or pair[0] != int(pair[0]) or (pair[0] - start) % step != 0
+                        or (samples and pair[0] <= samples[-1][0])
+                        or type(pair[1]) is not str or len(pair[1]) > 32):
+                    raise GatewayDenied("query denied")
+                number = float(pair[1])
+                if (not math.isfinite(number) or number < 0
+                        or (metric == "cpu_busy_percent" and number > 100)
+                        or (metric == "node_scrape_up" and number not in (0, 1))):
+                    raise GatewayDenied("query denied")
+                samples.append([int(pair[0]), number])
+        return {"metric": metric, "window": window, "startAt": utc(start),
+                "endAt": utc(end), "stepSeconds": step,
+                "status": "available" if samples else "no_data", "samples": samples}
 
 
 class OwnerBoundGrafanaGateway:
@@ -307,7 +352,7 @@ def build_app(gateway, server):
             access = get_access_token()
             if access is None or params.name != TOOL_NAME:
                 raise GatewayDenied("query denied")
-            result = gateway.call(access.token, params.arguments)
+            result = await asyncio.to_thread(gateway.call, access.token, params.arguments)
             payload = json.dumps(result, sort_keys=True, separators=(",", ":"),
                                  allow_nan=False)
             return types.CallToolResult.model_validate({
@@ -331,7 +376,7 @@ def build_app(gateway, server):
             descriptor["inputSchema"] if name == TOOL_NAME else None
         ),
     )
-    return mcp_server.streamable_http_app(
+    sdk_app = mcp_server.streamable_http_app(
         stateless_http=True,
         json_response=True,
         max_request_body_size=4096,
@@ -348,3 +393,19 @@ def build_app(gateway, server):
             allowed_origins=["https://chatgpt.com"],
         ),
     )
+
+    # #443 recorded a duplicate Authorization header gap in the SDK. Preserve
+    # the raw header multiplicity and reuse #424's exact header parser.
+    async def app(scope, receive, send):
+        if scope.get("type") == "http":
+            try:
+                parse_headers([(k.decode("ascii"), v.decode("ascii"))
+                               for k, v in scope.get("headers", [])])
+            except Exception:
+                gateway.record_auth_denial()
+                await send({"type": "http.response.start", "status": 400,
+                            "headers": [(b"cache-control", b"no-store")]})
+                await send({"type": "http.response.body", "body": b""})
+                return
+        await sdk_app(scope, receive, send)
+    return app
