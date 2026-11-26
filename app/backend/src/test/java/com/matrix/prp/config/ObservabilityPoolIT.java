@@ -23,7 +23,8 @@ class ObservabilityPoolIT {
         hikari.setMaximumPoolSize(2);
         hikari.setConnectionTimeout(5000);
         var config = new ObservabilityConfig();
-        try (var registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT)) {
+        var registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+        try {
             registry.config().meterFilter(config.observabilityMetricAllowlist())
                     .meterFilter(config.observabilityPoolBound());
             hikari.setMetricsTrackerFactory(new MicrometerMetricsTrackerFactory(registry));
@@ -40,6 +41,8 @@ class ObservabilityPoolIT {
                 assertThat(registry.scrape()).contains("hikaricp_connections_active", "hikaricp_connections_pending")
                         .doesNotContain("ci-only-pool-password", "jdbc:mysql:");
             }
+        } finally {
+            registry.close();
         }
     }
 }
