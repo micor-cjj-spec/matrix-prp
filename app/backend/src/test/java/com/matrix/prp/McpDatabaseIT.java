@@ -107,6 +107,76 @@ class McpDatabaseIT {
         assertThat(drafts.confirm(deletion.draftId()).alreadySaved()).isFalse();
     }
 
+    @org.springframework.beans.factory.annotation.Value("${spring.datasource.url}") String databaseUrl;
+    @org.springframework.beans.factory.annotation.Value("${spring.datasource.username}") String databaseUser;
+    @org.springframework.beans.factory.annotation.Value("${spring.datasource.password}") String databasePassword;
+
+    @Test
+    void draftTtlUsesDatabaseEpochEvenWithMismatchedJdbcZoneAndCapsLegacyRows() throws Exception {
+        var owner = createUser("synthetic-mcp-clock-password");
+        as(owner);
+        // A separate disposable connection reproduces staging: server UTC, JDBC Shanghai.
+        // Do not alter the global JVM zone or the shared Spring datasource.
+        String url = databaseUrl.replaceAll("(?i)([?&])(serverTimezone|connectionTimeZone|forceConnectionTimeZoneToSession|preserveInstants)=[^&]*", "$1")
+            .replace("?&", "?").replaceAll("&+", "&");
+        if (!url.contains("?")) url += "?";
+        if (!url.endsWith("?") && !url.endsWith("&")) url += "&";
+        url += "connectionTimeZone=Asia%2FShanghai&preserveInstants=true&forceConnectionTimeZoneToSession=false";
+        try (var connection = java.sql.DriverManager.getConnection(url, databaseUser, databasePassword)) {
+            try (var stmt = connection.createStatement()) { stmt.execute("SET SESSION time_zone='+00:00'"); }
+            connection.setAutoCommit(false);
+            try {
+                var mixedDb = new JdbcTemplate(new org.springframework.jdbc.datasource.SingleConnectionDataSource(connection, true));
+                var taskSink = org.mockito.Mockito.mock(com.matrix.prp.tasks.service.TaskService.class);
+                var mixed = new McpDraftService(mixedDb, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules(),
+                    jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator(), taskSink,
+                    org.mockito.Mockito.mock(com.matrix.prp.finance.service.FinanceService.class),
+                    org.mockito.Mockito.mock(com.matrix.prp.records.service.RecordService.class),
+                    users, encoder, true, "");
+                var request = new CreateTaskRequest("work", "Synthetic clock regression", null, "low", null);
+                var draft = mixed.prepare(McpDraftService.Kind.TASK, request);
+                long ttl = mixedDb.queryForObject("SELECT UNIX_TIMESTAMP(expires_at)-UNIX_TIMESTAMP(created_at) " +
+                    "FROM prp_mcp_write_drafts WHERE id=? AND user_id=?", Long.class, draft.draftId(), owner.id());
+                assertThat(ttl).isEqualTo(900L);
+                long epoch = mixedDb.queryForObject("SELECT UNIX_TIMESTAMP(expires_at) FROM prp_mcp_write_drafts WHERE id=?",
+                    Long.class, draft.draftId());
+                assertThat(java.time.Instant.parse(draft.expiresAt()).getEpochSecond()).isEqualTo(epoch);
+                assertThat(mixed.review(draft.draftId()).expiresAt()).isEqualTo(draft.expiresAt());
+
+                // Reproduce the old Timestamp binding in the deliberately mismatched connection.
+                mixedDb.update("UPDATE prp_mcp_write_drafts SET expires_at=? WHERE id=?",
+                    java.sql.Timestamp.from(java.time.Instant.now().plusSeconds(900)), draft.draftId());
+                assertThat(mixedDb.queryForObject("SELECT UNIX_TIMESTAMP(expires_at)-UNIX_TIMESTAMP(created_at) " +
+                    "FROM prp_mcp_write_drafts WHERE id=?", Long.class, draft.draftId())).isBetween(29690L, 29730L);
+                // Exact boundary: created + 900s is already due, despite the stored future expiry.
+                mixedDb.update("UPDATE prp_mcp_write_drafts SET created_at=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 15 MINUTE) WHERE id=?",
+                    draft.draftId());
+                long capped = mixedDb.queryForObject("SELECT UNIX_TIMESTAMP(created_at)+900 FROM prp_mcp_write_drafts WHERE id=?",
+                    Long.class, draft.draftId());
+                assertThat(java.time.Instant.parse(mixed.review(draft.draftId()).expiresAt()).getEpochSecond()).isEqualTo(capped);
+                assertThatThrownBy(() -> mixed.approve(draft.draftId(), "synthetic-mcp-clock-password"))
+                    .isInstanceOfSatisfying(ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+                assertThat(mixed.review(draft.draftId()).status()).isEqualTo("PENDING");
+                for (int i=0; i<49; i++) {
+                    mixedDb.update("INSERT INTO prp_mcp_write_drafts (id,user_id,kind,payload_json,created_at,expires_at) " +
+                        "SELECT ?,user_id,kind,payload_json,created_at,expires_at FROM prp_mcp_write_drafts WHERE id=?",
+                        UUID.randomUUID().toString(), draft.draftId());
+                }
+                // The 50 expired legacy PENDING rows must not consume the live draft quota.
+                var fresh = mixed.prepare(McpDraftService.Kind.TASK, request);
+                assertThat(mixed.approve(fresh.draftId(), "synthetic-mcp-clock-password").status()).isEqualTo("APPROVED");
+                mixedDb.update("UPDATE prp_mcp_write_drafts SET created_at=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 16 MINUTE), " +
+                    "expires_at=DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 8 HOUR) WHERE id=?", fresh.draftId());
+                assertThatThrownBy(() -> mixed.confirm(fresh.draftId())).isInstanceOfSatisfying(ResponseStatusException.class,
+                    e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+                assertThat(mixed.review(fresh.draftId()).status()).isEqualTo("APPROVED");
+                org.mockito.Mockito.verifyNoInteractions(taskSink);
+                System.out.println("CI_MCP_DRAFT_TTL_MIXED_ZONE=PASS");
+            } finally { connection.rollback(); }
+        }
+    }
+
     @AfterEach
     void cleanupIdentity() { SecurityContextHolder.clearContext(); }
 

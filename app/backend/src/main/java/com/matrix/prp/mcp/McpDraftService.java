@@ -13,8 +13,7 @@ import com.matrix.prp.records.service.RecordService;
 import com.matrix.prp.tasks.model.CreateTaskRequest;
 import com.matrix.prp.tasks.service.TaskService;
 import jakarta.validation.Validator;
-import java.sql.Timestamp;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,7 +42,19 @@ public class McpDraftService {
     public record Review(String draftId, String kind, JsonNode values, String status, String expiresAt) {}
     public record Approval(String status, int remainingAttempts) {}
     private record Stored(String kind, String payload, String result, String status,
-                          LocalDateTime expiresAt) {}
+                          long expiresEpoch) {}
+
+    // TIMESTAMP is an instant; never bind/read a JDBC Timestamp for this TTL.
+    // The created_at cap also makes legacy overlong rows expire without rewriting them.
+    private static final String EFFECTIVE_EXPIRY =
+        "LEAST(UNIX_TIMESTAMP(expires_at),UNIX_TIMESTAMP(created_at)+900)";
+    private static final String LIVE_EXPIRY = EFFECTIVE_EXPIRY + " > UNIX_TIMESTAMP()";
+
+    private boolean unexpired(long expiresEpoch) {
+        // Called after the owner-scoped FOR UPDATE lock, not before waiting on it.
+        Long now = db.queryForObject("SELECT UNIX_TIMESTAMP()", Long.class);
+        return now != null && now > 0 && expiresEpoch > now;
+    }
 
     private McpWellnessSupport wellnessSupport;
     @org.springframework.beans.factory.annotation.Autowired
@@ -189,19 +200,26 @@ public class McpDraftService {
         validate(request);
         long owner = CurrentUser.id();
         Integer pending = db.queryForObject(
-            "SELECT COUNT(*) FROM prp_mcp_write_drafts WHERE user_id=? AND status='PENDING' AND expires_at > CURRENT_TIMESTAMP",
+            "SELECT COUNT(*) FROM prp_mcp_write_drafts WHERE user_id=? AND status='PENDING' AND " + LIVE_EXPIRY,
             Integer.class, owner);
         if (pending != null && pending >= 50) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many pending MCP drafts");
         }
         String id = UUID.randomUUID().toString();
-        LocalDateTime expiry = LocalDateTime.now().plusMinutes(15);
         try {
-            db.update("INSERT INTO prp_mcp_write_drafts (id,user_id,kind,payload_json,expires_at) VALUES (?,?,?,?,?)",
-                id, owner, kind.name(), json.writeValueAsString(request), Timestamp.valueOf(expiry));
+            // Both timestamps use the same database statement clock. No driver-zone conversion.
+            db.update("INSERT INTO prp_mcp_write_drafts (id,user_id,kind,payload_json,expires_at) " +
+                "VALUES (?,?,?,?,FROM_UNIXTIME(UNIX_TIMESTAMP()+900))",
+                id, owner, kind.name(), json.writeValueAsString(request));
         } catch (JsonProcessingException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid draft");
         }
+        // Read the persisted instant, and fail closed if the session cannot store exactly 900s.
+        Long expiry = db.queryForObject("SELECT UNIX_TIMESTAMP(expires_at) FROM prp_mcp_write_drafts " +
+            "WHERE id=? AND user_id=? AND UNIX_TIMESTAMP(expires_at)-UNIX_TIMESTAMP(created_at)=900",
+            Long.class, id, owner);
+        if (expiry == null || expiry <= 0)
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Invalid draft expiry");
         String instruction;
         if (request instanceof McpWellnessSupport.Change change
                 && "meal".equals(change.entity())
@@ -216,7 +234,7 @@ public class McpDraftService {
                 + "Only then may the MCP client call "
                 + (kind.name().startsWith("WELLNESS_") ? "prp_confirm_wellness_draft" : "prp_confirm_draft") + ".";
         }
-        return new Preview(id, kind.name(), json.valueToTree(request), expiry.toString(), instruction);
+        return new Preview(id, kind.name(), json.valueToTree(request), Instant.ofEpochSecond(expiry).toString(), instruction);
     }
 
     /** The human reviews the exact owner-bound data through PRP, never through a model-controlled approval flag. */
@@ -224,9 +242,10 @@ public class McpDraftService {
         requireWrite();
         validId(draftId);
         List<Review> rows = db.query(
-            "SELECT kind,payload_json,status,expires_at FROM prp_mcp_write_drafts WHERE id=? AND user_id=?",
+            "SELECT kind,payload_json,status," + EFFECTIVE_EXPIRY + " AS effective_expires_epoch " +
+                "FROM prp_mcp_write_drafts WHERE id=? AND user_id=?",
             (rs, n) -> new Review(draftId, rs.getString("kind"), readJson(rs.getString("payload_json")),
-                rs.getString("status"), rs.getTimestamp("expires_at").toLocalDateTime().toString()),
+                rs.getString("status"), Instant.ofEpochSecond(rs.getLong("effective_expires_epoch")).toString()),
             draftId, CurrentUser.id());
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "MCP draft not found");
         return rows.getFirst();
@@ -243,14 +262,15 @@ public class McpDraftService {
         if (password == null || password.isBlank() || password.length() > 256)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password required");
         long owner = CurrentUser.id();
-        record Pending(String status, int attempts, LocalDateTime expiresAt) {}
+        record Pending(String status, int attempts, long expiresEpoch) {}
         List<Pending> rows = db.query(
-            "SELECT status,approval_failures,expires_at FROM prp_mcp_write_drafts WHERE id=? AND user_id=? FOR UPDATE",
+            "SELECT status,approval_failures," + EFFECTIVE_EXPIRY + " AS effective_expires_epoch " +
+                "FROM prp_mcp_write_drafts WHERE id=? AND user_id=? FOR UPDATE",
             (rs, n) -> new Pending(rs.getString("status"), rs.getInt("approval_failures"),
-                rs.getTimestamp("expires_at").toLocalDateTime()), draftId, owner);
+                rs.getLong("effective_expires_epoch")), draftId, owner);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "MCP draft not found");
         Pending row = rows.getFirst();
-        if (!"PENDING".equals(row.status()) || !row.expiresAt().isAfter(LocalDateTime.now()))
+        if (!"PENDING".equals(row.status()) || !unexpired(row.expiresEpoch()))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "MCP draft not pending");
         if (row.attempts() >= 5) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Approval locked");
         UserAccount account = users.findById(owner).orElse(null);
@@ -260,8 +280,9 @@ public class McpDraftService {
                 attempts, attempts >= 5 ? "REJECTED" : "PENDING", draftId, owner);
             return new Approval(attempts >= 5 ? "LOCKED" : "INVALID_PASSWORD", Math.max(0, 5 - attempts));
         }
-        db.update("UPDATE prp_mcp_write_drafts SET status='APPROVED',approved_at=CURRENT_TIMESTAMP " +
-            "WHERE id=? AND user_id=? AND status='PENDING'", draftId, owner);
+        if (db.update("UPDATE prp_mcp_write_drafts SET status='APPROVED',approved_at=CURRENT_TIMESTAMP " +
+            "WHERE id=? AND user_id=? AND status='PENDING' AND " + LIVE_EXPIRY, draftId, owner) != 1)
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "MCP draft expired or invalid");
         return new Approval("APPROVED", 0);
     }
 
@@ -314,17 +335,18 @@ public class McpDraftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid approval decision");
         var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         long owner = CurrentUser.id();
-        record Pending(String kind, String status, LocalDateTime expiresAt, String payload) {}
+        record Pending(String kind, String status, long expiresEpoch, String payload) {}
         var rows = db.query(
-            "SELECT kind,status,expires_at,payload_json FROM prp_mcp_write_drafts WHERE id=? AND user_id=? FOR UPDATE",
+            "SELECT kind,status," + EFFECTIVE_EXPIRY + " AS effective_expires_epoch,payload_json " +
+                "FROM prp_mcp_write_drafts WHERE id=? AND user_id=? FOR UPDATE",
             (rs,n) -> new Pending(rs.getString("kind"), rs.getString("status"),
-                rs.getTimestamp("expires_at").toLocalDateTime(), rs.getString("payload_json")),
+                rs.getLong("effective_expires_epoch"), rs.getString("payload_json")),
             draftId, owner);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "MCP draft not found");
         var row = rows.getFirst();
         if (!chatApprovalEligible(chatgptApprovalUiEnabled, row.kind(), row.status(), auth)
                 || !"meal".equals(readJson(row.payload()).path("entity").asText())
-                || !row.expiresAt().isAfter(LocalDateTime.now()))
+                || !unexpired(row.expiresEpoch()))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ChatGPT UI approval not permitted");
         boolean approved = "approve".equals(decision);
         String status = approved ? "APPROVED" : "REJECTED";
@@ -333,7 +355,7 @@ public class McpDraftService {
                 "WHERE id=? AND user_id=? AND status='PENDING'"
             : "UPDATE prp_mcp_write_drafts SET status='REJECTED' " +
                 "WHERE id=? AND user_id=? AND status='PENDING'";
-        if (db.update(sql, draftId, owner) != 1)
+        if (db.update(sql + " AND " + LIVE_EXPIRY, draftId, owner) != 1)
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Draft approval raced");
         return new Approval(status, 0);
     }
@@ -344,11 +366,11 @@ public class McpDraftService {
         validId(draftId);
         long owner = CurrentUser.id();
         List<Stored> rows = db.query(
-            "SELECT kind,payload_json,result_json,status,expires_at FROM prp_mcp_write_drafts " +
+            "SELECT kind,payload_json,result_json,status," + EFFECTIVE_EXPIRY + " AS effective_expires_epoch FROM prp_mcp_write_drafts " +
                 "WHERE id=? AND user_id=? FOR UPDATE",
             (rs, n) -> new Stored(rs.getString("kind"), rs.getString("payload_json"),
                 rs.getString("result_json"), rs.getString("status"),
-                rs.getTimestamp("expires_at").toLocalDateTime()),
+                rs.getLong("effective_expires_epoch")),
             draftId, owner);
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "MCP draft not found");
@@ -357,7 +379,7 @@ public class McpDraftService {
         if ("CONSUMED".equals(row.status())) {
             return new Result(draftId, row.kind(), readJson(row.result()), true);
         }
-        if (!"APPROVED".equals(row.status()) || !row.expiresAt().isAfter(LocalDateTime.now())) {
+        if (!"APPROVED".equals(row.status()) || !unexpired(row.expiresEpoch())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "MCP draft expired or invalid");
         }
         JsonNode saved;
@@ -383,7 +405,7 @@ public class McpDraftService {
             // Normalize persisted and first-response decimal nodes through the same codec.
             saved = json.readTree(json.writeValueAsString(result));
             if (db.update("UPDATE prp_mcp_write_drafts SET status='CONSUMED', result_json=?, consumed_at=CURRENT_TIMESTAMP " +
-                    "WHERE id=? AND user_id=? AND status='APPROVED'",
+                    "WHERE id=? AND user_id=? AND status='APPROVED' AND " + LIVE_EXPIRY,
                     json.writeValueAsString(saved), draftId, owner) != 1) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "MCP draft already consumed");
             }
