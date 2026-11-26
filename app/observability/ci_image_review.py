@@ -42,10 +42,19 @@ def main():
             if not isinstance(results, list) or not results:
                 raise RuntimeError("no scanned targets: " + key)
             seen = set()
+            locations = set()
             for target in results:
                 for v in target.get("Vulnerabilities") or []:
-                    seen.add(tuple(str(v.get(k) or "") for k in
-                                   ("Severity", "VulnerabilityID", "PkgName", "InstalledVersion", "FixedVersion")))
+                    finding = tuple(str(v.get(k) or "") for k in
+                                    ("Severity", "VulnerabilityID", "PkgName", "InstalledVersion", "FixedVersion"))
+                    seen.add(finding)
+                    locations.add((str(target.get("Target") or ""),
+                                   str(target.get("Class") or ""),
+                                   str(target.get("Type") or ""), *finding))
+            # Preserve the per-binary target, not just deduplicated package totals.
+            # Public image paths only; no live host data or report environment fields.
+            for location in sorted(locations):
+                print("OBS_SCAN_LOCATION=" + key + "|" + json.dumps(location), flush=True)
             print("OBS_SCAN_TARGETS=" + key + "|" + str(len(results)), flush=True)
             print("OBS_SCAN_COUNTS=" + key + "|" + json.dumps({
                 "critical": sum(v[0] == "CRITICAL" for v in seen),
