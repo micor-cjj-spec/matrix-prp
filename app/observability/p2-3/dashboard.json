@@ -1,0 +1,94 @@
+{
+  "uid": "prp-container-candidate",
+  "title": "PRP container resource candidate (offline)",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Container CPU cores",
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(container_cpu_usage_seconds_total{job=\"p2-cgroup\"}[2m])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory usage and limit",
+      "id": 2,
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "container_memory_usage_bytes{job=\"p2-cgroup\"}"
+        },
+        {
+          "refId": "B",
+          "expr": "container_spec_memory_limit_bytes{job=\"p2-cgroup\"}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Collector scrape reachability (not container state)",
+      "id": 3,
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"p2-cgroup\"}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory pressure events (not OOM kills)",
+      "id": 4,
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(container_memory_events_max_total{job=\"p2-cgroup\"}[2m])"
+        }
+      ]
+    }
+  ]
+}

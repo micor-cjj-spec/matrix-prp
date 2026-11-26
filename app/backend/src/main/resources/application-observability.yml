@@ -1,0 +1,32 @@
+# Explicit opt-in: never activate this profile on a real host without separate approval.
+management:
+  server:
+    port: ${MATRIX_PRP_OBSERVABILITY_PORT:19091}
+    address: 127.0.0.1
+  endpoints:
+    access:
+      default: none
+      max-permitted: read-only
+    web:
+      exposure:
+        include: prometheus
+        exclude: ""
+  endpoint:
+    prometheus:
+      access: read-only
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    enable:
+      all: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: false
+      slo:
+        http.server.requests: 100ms,500ms,1s,3s
+matrix-prp:
+  observability:
+    # bcrypt hash only, no default credential. Never use a business account.
+    password-hash: ${MATRIX_PRP_OBSERVABILITY_PASSWORD_HASH:}

@@ -1,0 +1,18 @@
+name: PRP observability P2.5 disposable gateway and identity
+on:
+  pull_request:
+    paths:
+      - 'app/observability/p2-5/**'
+      - '.github/workflows/prp-observability-p2-5.yml'
+permissions:
+  contents: read
+jobs:
+  gateway-identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Synthetic NGINX and Keycloak metrics only
+        run: python3 app/observability/p2-5/ci_gateway.py

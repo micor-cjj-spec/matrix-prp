@@ -1,0 +1,82 @@
+# CI-only fixed synthetic targets. Never use on the live P1 instance.
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+scrape_configs:
+  - job_name: http_health
+    metrics_path: /probe
+    params:
+      module: [http_health]
+    sample_limit: 250
+    static_configs:
+      - targets: ["http://health-fixture:8080/api/health"]
+        labels:
+          instance: healthy
+          environment: synthetic
+      - targets: ["http://health-fixture:8080/421"]
+        labels:
+          instance: misdirected
+          environment: synthetic
+      - targets: ["http://health-fixture:8080/503"]
+        labels:
+          instance: unavailable
+          environment: synthetic
+      - targets: ["http://health-fixture:8080/slow"]
+        labels:
+          instance: timeout
+          environment: synthetic
+      - targets: ["http://health-fixture:8080/redirect"]
+        labels:
+          instance: redirect
+          environment: synthetic
+      - targets: ["http://health-fixture:8080/recover"]
+        labels:
+          instance: recovery
+          environment: synthetic
+      - targets: ["http://health-fixture:8080/degraded"]
+        labels:
+          instance: http_only
+          environment: synthetic
+      - targets: ["http://health-fixture:8080/204"]
+        labels:
+          instance: no_content
+          environment: synthetic
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox:9115
+  - job_name: https_health
+    metrics_path: /probe
+    params:
+      module: [https_health]
+    sample_limit: 250
+    static_configs:
+      - targets: ["https://health-fixture:8443/api/health"]
+        labels:
+          instance: tls_valid
+          environment: synthetic
+      - targets: ["https://wrong-fixture:8443/api/health"]
+        labels:
+          instance: tls_wrong_name
+          environment: synthetic
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox:9115
+  - job_name: https_untrusted
+    metrics_path: /probe
+    params:
+      module: [https_untrusted]
+    sample_limit: 250
+    static_configs:
+      - targets: ["https://health-fixture:8443/api/health"]
+        labels:
+          instance: tls_untrusted
+          environment: synthetic
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox:9115

@@ -145,3 +145,29 @@ matrix-prp:
   wellness:
     # Optional USDA FoodData Central (CC0) server-only key; never exposed to browsers.
     usda-api-key: ${MATRIX_PRP_USDA_API_KEY:}
+
+# Management is opt-in; existing business routes and auth remain unchanged.
+management:
+  server:
+    port: -1
+  endpoints:
+    access:
+      default: none
+      max-permitted: none
+    web:
+      exposure:
+        exclude: "*"
+    jmx:
+      exposure:
+        exclude: "*"
+  defaults:
+    metrics:
+      export:
+        enabled: false
+  prometheus:
+    metrics:
+      export:
+        enabled: false
+  metrics:
+    enable:
+      all: false

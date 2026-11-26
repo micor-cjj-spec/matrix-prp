@@ -46,6 +46,15 @@
         </dependencies>
     </dependencyManagement>
 	<dependencies>
+        <!-- Optional observability profile; management endpoints/export disabled by default. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
         <!-- Only the Spring AI DeepSeek model library, NEVER the auto-config starter. -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
