@@ -127,7 +127,7 @@
         },
         {
           "alert": "CIEvidenceUnavailable",
-          "expr": "(prp_ci_projection_fresh{environment=\"synthetic\",job=\"p2-ci\"} == 0) or absent(prp_ci_projection_fresh{environment=\"synthetic\",job=\"p2-ci\",instance=\"fixture-ci\"})",
+          "expr": "((prp_ci_projection_fresh{environment=\"synthetic\",job=\"p2-ci\"} == 0) or absent(prp_ci_projection_fresh{environment=\"synthetic\",job=\"p2-ci\",instance=\"fixture-ci\"})) and on(environment,job,instance) (up{environment=\"synthetic\",job=\"p2-ci\",instance=\"fixture-ci\"} == 1)",
           "for": "30s",
           "labels": {
             "severity": "warning"

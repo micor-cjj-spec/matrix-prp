@@ -83,4 +83,6 @@ def tests(rules):
         case(absent,{"CIEvidenceUnavailable":[tag("p2-ci","fixture-ci")]},"absent-ci"),
         case(sparse,{},"low-request-volume"),
         case(positive,{},"hold-duration","0m"),
+        case([],{},"before-first-scrape"),
+        case([row("up",ci,"0x16")],{"TargetScrapeDown":[tag("p2-ci","fixture-ci")]},"ci-scrape-down-not-evidence-missing"),
     ]}

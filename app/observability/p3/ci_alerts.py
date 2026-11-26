@@ -105,7 +105,7 @@ def main():
             print(validate_tool("prom","/bin/promtool",["check","rules","/fixture/rules.yml"],folder),flush=True)
             check(True,"promtool-rule-syntax")
             print(validate_tool("prom","/bin/promtool",["test","rules","/fixture/tests.yml"],folder),flush=True)
-            check(True,"promtool-78-rule-assertions")
+            check(True,"promtool-104-rule-assertions")
             print(validate_tool("am","/bin/amtool",["check-config","/fixture/alertmanager.yml"],folder),flush=True)
             check(True,"amtool-config")
             fast=copy.deepcopy(rules)
@@ -170,6 +170,7 @@ def main():
                         (0 if x["metric"]["job"]==except_job else 1) for x in rr))
             eventually(all_up,"all-nine-jobs")
             time.sleep(8)
+            print("OBS_P3_STARTUP_DIAGNOSTIC="+json.dumps({"firing":sorted(firing()),"notifications":events()}),flush=True)
             check(not firing() and not events(),"healthy-no-notification")
             write("state.json",{"node":True,"probe":True,"mysql":True,"stale":True,"ci_failure":True})
             want={"HostMemoryCritical","HostMemoryLow","HostRootDiskLow","ProbeTargetDown",
