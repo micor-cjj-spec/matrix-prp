@@ -125,7 +125,7 @@ function payload(body){
    catch{throw new CollabError('INGRESS_OWNER_POLICY_FIELDS')}
    check(plain(note)&&note.expected_state_sha===data.expected_state_sha,'INGRESS_OWNER_POLICY_STATE')
  }
- if(data.action==='accept_historical_271')check(data.requirement_id==='REQ-20261031-001'&&['T-002','T-003'].includes(data.task_id)&&data.pr_number===271&&data.head_sha==='48b3a69232690e7e2fb54a2d92efac02cc512c0e'&&data.expected_version>=25,'INGRESS_HISTORICAL_271_PIN')
+ if(data.action==='accept_historical_271')check(data.requirement_id==='REQ-20261031-001'&&['T-002','T-003','T-006'].includes(data.task_id)&&data.pr_number===271&&data.head_sha==='48b3a69232690e7e2fb54a2d92efac02cc512c0e'&&data.expected_version>=(data.task_id==='T-006'?33:25),'INGRESS_HISTORICAL_271_PIN')
  if(data.action==='accept_historical_446')check(data.requirement_id==='REQ-20261031-001'&&data.task_id==='T-007'&&data.pr_number===446&&data.head_sha==='216b280386120f932eee28f22448d41bcaf82dec'&&data.worker_id==='chat_t007_security_20261125'&&data.expected_version>=20,'INGRESS_HISTORICAL_446_PIN')
  if(data.action==='accept_historical_415')check(data.requirement_id==='REQ-20261031-001'&&data.task_id==='T-001'&&data.pr_number===415&&data.head_sha==='ba05b6ebe5e435d7cd474bade5accb6fc0c71b65'&&data.worker_id==='chat_t001_delivery_20261125'&&data.expected_version>=13&&SHA.test(data.expected_state_sha),'INGRESS_HISTORICAL_415_PIN')
  if(data.action==='register_task'){
