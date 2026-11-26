@@ -19,3 +19,53 @@ jobs:
         run: |
           python3 -m py_compile app/deploy/remote-executor-v11/protocol.py app/deploy/remote-executor-v11/executor.py app/deploy/remote-executor-v11/bridge.py
           python3 -m unittest discover -s app/deploy/remote-executor-v11 -p 'test_*.py' -v
+
+  disposable-isolation:
+    # Only a fresh GitHub-hosted VM, never a self-hosted or project server.
+    # No repository/environment secrets, SSH, production credentials or writes.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Prepare isolated synthetic runtime on disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_EVENT_NAME" = pull_request
+          test "$GITHUB_REPOSITORY" = micor-cjj-spec/matrix-prp
+          for p in /opt/matrix-prp-remote-executor-v11 /etc/matrix-prp-remote-executor-v11 /var/lib/matrix-prp-remote-executor-v11; do
+            test ! -e "$p"
+          done
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap debootstrap
+          sudo install -d -m 0755 /opt/matrix-prp-remote-executor-v11/src /etc/matrix-prp-remote-executor-v11
+          sudo debootstrap --variant=minbase --include=bash,python3 noble /opt/matrix-prp-remote-executor-v11/rootfs https://archive.ubuntu.com/ubuntu/
+          sudo install -d -m 0755 /opt/matrix-prp-remote-executor-v11/rootfs/input
+          sudo chmod 0755 /opt/matrix-prp-remote-executor-v11/rootfs/tmp
+          sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin prp-remote-v11
+          sudo install -d -m 0700 -o prp-remote-v11 -g prp-remote-v11 /var/lib/matrix-prp-remote-executor-v11
+          sudo install -m 0444 app/deploy/remote-executor-v11/{protocol,executor,bridge,test_executor}.py /opt/matrix-prp-remote-executor-v11/src/
+          printf '%s\n' PRP_STAGING_SANDBOX_V11 | sudo tee /etc/matrix-prp-remote-executor-v11/sandbox.enabled >/dev/null
+          sudo chmod 0444 /etc/matrix-prp-remote-executor-v11/sandbox.enabled
+          /usr/bin/bwrap --version
+      - name: Real Bubblewrap and cgroup isolation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          # Never disable AppArmor, user namespace protections or capabilities
+          # to make this pilot pass. Unsupported isolation is a failed test.
+          sudo systemd-run --wait --pipe --collect --unit=prp-remote-executor-v11.service \
+            --property=Type=exec \
+            --property=User=prp-remote-v11 --property=Group=prp-remote-v11 \
+            --property=NoNewPrivileges=yes --property=CapabilityBoundingSet= \
+            --property=MemoryMax=512M --property=MemorySwapMax=0 \
+            --property=TasksMax=64 --property=CPUQuota=100% \
+            --property=RuntimeMaxSec=100 --property=TimeoutStopSec=5 \
+            --property=KillMode=control-group \
+            --property=WorkingDirectory=/opt/matrix-prp-remote-executor-v11/src \
+            --setenv=PRP_REX_DISPOSABLE_CI=1 --setenv=PRP_REX_PILOT_SCOPE=GITHUB_HOSTED_EPHEMERAL \
+            /usr/bin/python3 -E -s -m unittest -v test_executor.DisposableIsolationPilot
