@@ -1,0 +1,18 @@
+name: PRP observability P2.3 disposable cgroup v2
+on:
+  pull_request:
+    paths:
+      - 'app/observability/p2-3/**'
+      - '.github/workflows/prp-observability-p2-3.yml'
+permissions:
+  contents: read
+jobs:
+  restricted-cadvisor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Restricted cAdvisor against synthetic cgroup v2 fixture only
+        run: python3 app/observability/p2-3/ci_cgroups.py
