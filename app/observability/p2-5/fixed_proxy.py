@@ -14,7 +14,6 @@ NGINX = {
 }
 KC = {
     "jvm_memory_used_bytes", "jvm_memory_committed_bytes", "jvm_threads_live_threads",
-    "jvm_gc_pause_seconds_count", "jvm_gc_pause_seconds_sum",
     "agroal_active_count", "agroal_available_count", "agroal_awaiting_count",
     "http_server_requests_seconds_count", "http_server_requests_seconds_sum",
 }
@@ -22,10 +21,35 @@ KC = {
 URI = re.compile(r"/?realms/(?:master|\{[A-Za-z][A-Za-z0-9_]*\})/\.well-known/(?:openid-configuration|\{[A-Za-z][A-Za-z0-9_]*\})")
 LABEL = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="((?:[^"\\]|\\.)*)"')
 LINE = re.compile(r'([A-Za-z_:][A-Za-z0-9_:]*)(?:\{(.*)\})?\s+([-+0-9.eE]+|NaN|[+-]?Inf)(?:\s+[-+0-9.eE]+)?')
-ALLOWED_LABELS = {"area", "id", "pool", "name", "gc", "action", "cause",
-                  "datasource", "method", "status", "outcome", "uri"}
-SAFE_JVM = re.compile(r"[A-Za-z0-9 _().,/-]{1,80}")
-OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+POOLS = {"G1 Eden Space", "G1 Survivor Space", "G1 Old Gen", "Metaspace",
+         "Compressed Class Space", "Code Cache", "CodeHeap 'non-nmethods'",
+         "CodeHeap 'profiled nmethods'", "CodeHeap 'non-profiled nmethods'",
+         "Eden Space", "Survivor Space", "Tenured Gen", "PS Eden Space",
+         "PS Survivor Space", "PS Old Gen"}
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+
+def safe_labels(family, labels):
+    if family in NGINX or family == "jvm_threads_live_threads":
+        return not labels
+    if family.startswith("jvm_memory_"):
+        return set(labels) == {"area", "id"} and labels["area"] in {"heap", "nonheap", "non-heap"} and labels["id"] in POOLS
+    if family.startswith("agroal_"):
+        return labels == {"datasource": "default"}
+    if family.startswith("http_"):
+        return (set(labels) == {"method", "status", "outcome", "uri"}
+                and labels["method"] in {"GET", "POST", "HEAD", "OPTIONS"}
+                and labels["outcome"] in {"INFORMATIONAL", "SUCCESS", "REDIRECTION", "CLIENT_ERROR", "SERVER_ERROR", "UNKNOWN"}
+                and re.fullmatch(r"[1-5][0-9][0-9]", labels["status"])
+                and URI.fullmatch(labels["uri"]))
+    return False
 
 
 def project(body, target):
@@ -39,17 +63,7 @@ def project(body, target):
         # Require exact grammar for any labels; do not silently strip unsupported tags.
         if m[2] and ",".join(k + '="' + v + '"' for k, v in labels.items()) != m[2].rstrip(","):
             continue
-        if set(labels) - ALLOWED_LABELS or (target == "/nginx/metrics" and labels):
-            continue
-        if "uri" in labels and not URI.fullmatch(labels["uri"]):
-            continue
-        if m[1].startswith("http_") and ("uri" not in labels or
-             labels.get("method") not in {"GET", "POST", "HEAD", "OPTIONS"} or
-             not re.fullmatch(r"[1-5][0-9][0-9]", labels.get("status", ""))):
-            continue
-        if not all(SAFE_JVM.fullmatch(v) for k, v in labels.items() if k != "uri"):
-            continue
-        if "datasource" in labels and labels["datasource"] != "default":
+        if not safe_labels(m[1], labels):
             continue
         output.append(line)
     if not output or len(output) > 200:
