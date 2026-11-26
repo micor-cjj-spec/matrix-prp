@@ -69,6 +69,8 @@ export function applyAuthenticatedIssue(snapshot,validated,now,verifyRemote=()=>
      'ISSUE_ACCEPT_TRUSTED_REVIEW_REQUIRED')
    if(validated.historical415===true)check(validated.policyAttestation&&command.note===historicalNote(validated.policyAttestation)&&reviewedEvidence.historical415Verified===true,'ISSUE_HISTORICAL_PROOF_REQUIRED')
    else check(!isHistoricalNote(command.note),'ISSUE_HISTORICAL_ACTION_REQUIRED')
+   if(validated.ownerPolicy===true)check(reviewedEvidence.ownerRulesetAttested===true,'ISSUE_OWNER_POLICY_PROOF_REQUIRED')
+   else check(!(typeof command.note==='string'&&command.note.startsWith('PRP_RULESET_ATTESTATION_V1:')),'ISSUE_OWNER_POLICY_ACTION_REQUIRED')
    context.reviewerAuthorized=true
    context.ciVerified=true
    context.mergedIntoIntegration=true
@@ -206,6 +208,13 @@ async function main(){
    if(validated.historical415===true){
      const {trustedHistorical415Context}=await import('./review-historical-owner-415.mjs')
      loadReview=()=>trustedHistorical415Context(before,validated,head,env,route=>gh(route))
+   }else if(validated.ownerPolicy===true){
+     check(validated.expectedStateSha===head&&validated.expected_version===before.version,
+       'ISSUE_OWNER_POLICY_STATE_MISMATCH')
+     const proof=Object.freeze({actorId:validated.actorId,sourceIssue:validated.source_issue,
+       issueCreatedAt:validated.issueCreatedAt,stateSha:head,expectedStateSha:validated.expectedStateSha,
+       expectedVersion:validated.expected_version,note:validated.command.note})
+     loadReview=()=>trustedReviewContext(before,validated.command,env,route=>gh(route),proof)
    }else loadReview=()=>trustedReviewContext(before,validated.command,env,route=>gh(route))
    verifiedReview=loadReview()
  }
@@ -236,7 +245,8 @@ async function main(){
    if(validated.command.type==='accept'){
      const fresh=loadReview()
      check(fresh.reviewerAuthorized===true&&fresh.ciVerified===true&&
-       fresh.mergedIntoIntegration===true&&(validated.historical415!==true||fresh.historical415Verified===true),'ISSUE_ACCEPT_EVIDENCE_REVOKED')
+       fresh.mergedIntoIntegration===true&&(validated.historical415!==true||fresh.historical415Verified===true)&&
+       (validated.ownerPolicy!==true||fresh.ownerRulesetAttested===true),'ISSUE_ACCEPT_EVIDENCE_REVOKED')
      check(git('ls-remote','--exit-code','--refs','origin','refs/heads/main')===env.GITHUB_SHA+'\trefs/heads/main','ISSUE_MAIN_CHANGED_BEFORE_PUSH')
      check(git('ls-remote','--exit-code','--refs','origin',stateRef)===base,'ISSUE_RACE_BEFORE_PUSH')
      validateIssueEvent(env,event,gh('repos/'+REPO+'/issues/'+validated.source_issue))

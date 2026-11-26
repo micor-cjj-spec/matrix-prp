@@ -376,3 +376,28 @@ test('historical action requires independently verified historical proof',()=>{
  assert.throws(()=>applyAuthenticatedIssue(s,v0,'2026-11-25T07:00:00Z',()=>false,flags),/ISSUE_HISTORICAL_ACTION_REQUIRED/)
  assert.equal(applyAuthenticatedIssue(s,{...v0,historical415:true,policyAttestation},'2026-11-25T07:00:00Z',()=>false,{...flags,historical415Verified:true}).snapshot.tasks[0].status,'DONE')
 })
+
+test('ordinary owner policy note requires verified review flag and cannot impersonate historical action',()=>{
+ const s=migrated();s.tasks[0]={...s.tasks[0],status:'IN_REVIEW',
+  claim:{claim_id:'11111111-1111-4111-8111-111111111111',worker_id:'chat-A',actor:'micor-cjj-spec'},
+  pr_number:511,head_sha:'b'.repeat(40)}
+ const cmd=v('accept',{claim_id:s.tasks[0].claim.claim_id,pr_number:511,head_sha:'b'.repeat(40),
+  note:'PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:'c'.repeat(40)})},s.version)
+ const flags={reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true}
+ assert.throws(()=>applyAuthenticatedIssue(s,{...cmd,ownerPolicy:true},'2026-11-25T07:00:00Z',()=>false,flags),/ISSUE_OWNER_POLICY_PROOF_REQUIRED/)
+ assert.throws(()=>applyAuthenticatedIssue(s,cmd,'2026-11-25T07:00:00Z',()=>false,{...flags,ownerRulesetAttested:true}),/ISSUE_OWNER_POLICY_ACTION_REQUIRED/)
+ const verified={...flags,ownerRulesetAttested:true}
+ const done=applyAuthenticatedIssue(s,{...cmd,ownerPolicy:true},'2026-11-25T07:00:00Z',()=>false,verified)
+ assert.equal(done.snapshot.tasks[0].status,'DONE')
+ assert.equal(s.tasks[0].status,'IN_REVIEW')
+ const replay=applyAuthenticatedIssue(done.snapshot,{...cmd,ownerPolicy:true},'2026-11-25T07:01:00Z')
+ assert.equal(replay.receipt.replayed,true)
+ assert.throws(()=>applyAuthenticatedIssue(done.snapshot,{...cmd,ownerPolicy:true,command:{...cmd.command,note:cmd.command.note+'x'}},'2026-11-25T07:01:00Z'),/REQUEST_ID_COLLISION/)
+})
+test('owner policy path retains exact state SHA and final evidence recheck',()=>{
+ const source=readFileSync(new URL('./issue-transaction.mjs',import.meta.url),'utf8')
+ assert.match(source,/validated.expectedStateSha===head&&validated.expected_version===before.version/)
+ assert.match(source,/trustedReviewContext\(before,validated.command,env,route=>gh\(route\),proof\)/)
+ assert.match(source,/validated.ownerPolicy!==true\|\|fresh.ownerRulesetAttested===true/)
+ assert.ok(source.indexOf('const fresh=loadReview()')<source.indexOf("git('-C',tmp,'push','origin','HEAD:'+stateRef)"))
+})

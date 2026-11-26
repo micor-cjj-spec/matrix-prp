@@ -37,7 +37,7 @@ const ACTION_FIELDS={
  handoff:['claim_id','new_worker_id','expected_head_sha','note'],
  takeover:['claim_id','new_worker_id','expected_claim_id','expected_head_sha','note','checkpoint'],
  submit:['claim_id','pr_number','head_sha'],
- accept:['claim_id','pr_number','head_sha'],
+ accept:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
  accept_historical_415:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
  register_task:['issue_number','title','depends_on','allowed_paths']
 }
@@ -112,6 +112,15 @@ function payload(body){
  if(['progress','block','rework'].includes(data.action))check(line(data.note,500),'INGRESS_NOTE_REQUIRED')
  if(['submit','accept','accept_historical_415'].includes(data.action))check(data.pr_number>0&&SHA.test(data.head_sha),
    'INGRESS_SUBMIT_EVIDENCE')
+ if(data.action==='accept'&&(data.policy_attestation!==undefined||data.expected_state_sha!==undefined)){
+   check(SHA.test(data.expected_state_sha||'')&&typeof data.policy_attestation==='string'&&
+     line(data.policy_attestation,2048)&&data.policy_attestation.startsWith('PRP_RULESET_ATTESTATION_V1:'),
+     'INGRESS_OWNER_POLICY_FIELDS')
+   let note
+   try{note=JSON.parse(data.policy_attestation.slice('PRP_RULESET_ATTESTATION_V1:'.length))}
+   catch{throw new CollabError('INGRESS_OWNER_POLICY_FIELDS')}
+   check(plain(note)&&note.expected_state_sha===data.expected_state_sha,'INGRESS_OWNER_POLICY_STATE')
+ }
  if(data.action==='accept_historical_415')check(data.requirement_id==='REQ-20261031-001'&&data.task_id==='T-001'&&data.pr_number===415&&data.head_sha==='ba05b6ebe5e435d7cd474bade5accb6fc0c71b65'&&data.worker_id==='chat_t001_delivery_20261125'&&data.expected_version>=13&&SHA.test(data.expected_state_sha),'INGRESS_HISTORICAL_415_PIN')
  if(data.action==='register_task'){
    check(Number.isSafeInteger(data.issue_number)&&data.issue_number>0,'INGRESS_TASK_ISSUE')
@@ -172,6 +181,7 @@ export function validateIssueEvent(env,event,currentIssue=null,now=Date.now()){
  }
  // Only the event-authorized GitHub actor becomes the state-transaction actor.
  const historical=data.action==='accept_historical_415'
+ const ownerPolicy=data.action==='accept'&&data.policy_attestation!==undefined
  const command={type:historical?'accept':data.action,requirement_id:data.requirement_id,
    task_id:data.task_id,request_id:data.request_id,worker_id:data.worker_id}
  for(const key of ['claim_id','note','pr_number','head_sha','checkpoint',
@@ -183,6 +193,14 @@ export function validateIssueEvent(env,event,currentIssue=null,now=Date.now()){
    validateOwnerAttestation(data.policy_attestation,{requestId:data.request_id,mainSha:env.GITHUB_SHA,issueCreatedAt:event.issue.created_at,now})
    command.note=historicalNote(data.policy_attestation)
  }
+ if(ownerPolicy){
+   check(currentIssue&&currentIssue.created_at===event.issue.created_at&&
+     typeof event.issue.created_at==='string'&&Number.isFinite(Date.parse(event.issue.created_at)),
+     'INGRESS_OWNER_POLICY_ISSUE_TIME')
+   // Exact canonical note is included in the existing command fingerprint.
+   // All binding, freshness, live policy and CI checks occur in trusted review.
+   command.note=data.policy_attestation
+ }
  if(['handoff','takeover'].includes(data.action))
    command.expected_version=data.expected_version
  if(data.action==='takeover'&&command.claim_id===undefined)
@@ -190,7 +208,8 @@ export function validateIssueEvent(env,event,currentIssue=null,now=Date.now()){
  return {command,expected_version:data.expected_version,
    source_issue:event.issue.number,actor:event.sender.login,actorId:event.sender.id,
    recoveryAuthorized:data.action==='takeover',
-   ...(historical?{historical415:true,expectedStateSha:data.expected_state_sha,policyAttestation:data.policy_attestation,issueCreatedAt:event.issue.created_at}:{})}
+   ...(historical?{historical415:true,expectedStateSha:data.expected_state_sha,policyAttestation:data.policy_attestation,issueCreatedAt:event.issue.created_at}:{}),
+   ...(ownerPolicy?{ownerPolicy:true,expectedStateSha:data.expected_state_sha,issueCreatedAt:event.issue.created_at}:{})}
 }
 if(process.argv[1] && fileURLToPath(import.meta.url)===resolve(process.argv[1])){
  try{
