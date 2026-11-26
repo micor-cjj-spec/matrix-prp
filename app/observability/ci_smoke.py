@@ -16,7 +16,7 @@ from pathlib import Path
 IMAGES = {
     "node": "quay.io/prometheus/node-exporter:v1.13.1",
     "prom": "quay.io/prometheus/prometheus:v3.13.5",
-    "grafana": "grafana/grafana:13.3.0",
+    "grafana": "grafana/grafana:13.3.2",
 }
 
 def cmd(*args, allow_failure=False):
@@ -156,7 +156,7 @@ def main():
             require(bool(query(prom, 'node_exporter_build_info{version="1.13.1"}')),
                     "exporter-version")
             eventually(lambda: api(graf, "/api/health").get("database") == "ok", "grafana health")
-            require(api(graf, "/api/health").get("version") == "13.3.0", "grafana-version")
+            require(api(graf, "/api/health").get("version") == "13.3.2", "grafana-version")
             expressions = {
                 "cpu": "node_cpu_seconds_total",
                 "memory": "node_memory_MemAvailable_bytes",
