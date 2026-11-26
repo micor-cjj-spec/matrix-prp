@@ -137,8 +137,9 @@ def main():
                   "-e", "GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false")
             prom = internal_url(names["prom"], network, 9090)
             graf = internal_url(names["grafana"], network, 3000)
-            eventually(lambda: healthy(prom) == 1 and fixture_count(prom) == SERIES,
-                       "one fixture")
+            eventually(lambda: healthy(prom) == 1 and fixture_count(prom) == SERIES
+                       and scalar(prom, 'sum(up{job="node"})') == 1,
+                       "one fixture and ordinary node ready")
             require(True, "cap-one-target-2500-series")
             sample([names[k] for k in ("prom", "grafana", "node", "fixture1")], "cap-one")
             for i in range(2, TARGETS+1):
@@ -146,10 +147,11 @@ def main():
             require_no_published_ports(names.values())
             require(cmd("docker", "network", "inspect", "--format", "{{.Internal}}", network) == "true",
                     "cap-internal-network")
-            eventually(lambda: healthy(prom) == TARGETS and fixture_count(prom) == TARGETS * SERIES,
-                       "all fixture targets")
+            eventually(lambda: healthy(prom) == TARGETS and fixture_count(prom) == TARGETS * SERIES
+                       and scalar(prom, 'sum(up{job="node"})') == 1,
+                       "all fixture targets and ordinary node ready")
             require(True, "cap-four-targets-10000-series")
-            require(scalar(prom, 'sum(up{job="node"})') == 1, "cap-node-up")
+            require(True, "cap-node-up")
             eventually(lambda: api(graf, "/api/health").get("database") == "ok", "grafana health")
             api(graf, "/api/datasources", auth, {"name": "CI capacity", "uid": "obs450-cap",
                 "type": "prometheus", "url": "http://prom:9090", "access": "proxy"})
@@ -164,6 +166,8 @@ def main():
                 while time.monotonic() - started < DURATION:
                     write_fixture(fixtures, tick)
                     latencies.extend(pool.map(lambda task: timed_query(prom, graf, auth, task), range(4)))
+                    if scalar(prom, 'sum(up{job="node"})') != 1:
+                        raise AssertionError("ordinary node lost during sustained load")
                     sizes.append(disk_size(names["prom"]))
                     head = api(prom, "/api/v1/status/tsdb")["data"]["headStats"]["numSeries"]
                     head_series.append(int(head))
