@@ -21,7 +21,7 @@ import zipfile
 
 from protocol import (REPOSITORY, MAX_ARTIFACT, MAX_FILES, InvalidJob,
                       require, relative_path, validate_job, inline_bytes, canonical, parse,
-                      exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER, commit)
+                      exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER, commit, seal_receipt)
 from executor import CHUNK
 
 OWNER = "micor-cjj-spec"
@@ -448,3 +448,33 @@ def ssh_receive_argv(host, key_file, known_hosts_file):
             "-o", "ClearAllForwardings=yes", "-o", "ForwardAgent=no",
             "-o", "ConnectTimeout=15", "-o", "ConnectionAttempts=1",
             "-i", key_file, "prp-remote-v11@"+host, "receive-v11"]
+
+
+def dispatch_event(event, repository, ref, issue, ledger, provider,
+                   recipient_cert, recipient_key, signer_cert, signer_key,
+                   approved_producers=frozenset(), now=None):
+    """Internal integration adapter, NOT a network service or live entrypoint.
+
+    Only a trusted event source may call this function. Caller must establish
+    actual event provenance and independent approval; JSON fields alone are
+    not an authentication mechanism. No script launch or stage mutation here.
+    """
+    t = int(time.time() if now is None else now)
+    require(type(issue) is int and issue > 0 and issue != 277,
+            "dedicated V1.1 issue required")
+    req = decode_comment_request(event, repository, ref, issue,
+                                 recipient_cert, recipient_key, t)
+    # Claim before any file transfer, query result access or response signing.
+    ledger.claim_request(req, event["comment"]["id"], t)
+    jid, md = req["jobId"], req["manifestSha256"]
+    if req["action"] == "submit":
+        transfer_job(req["job"], ledger, provider, approved_producers, t)
+    snapshot = ledger.snapshot(jid, md, include_result=req["action"] == "result")
+    receipt = {k: req[k] for k in ("version", "target", "action", "requestId",
+                                   "jobId", "manifestSha256", "nonce")}
+    receipt.update(snapshot)
+    receipt["issuedAt"] = int(time.time() if now is None else now)
+    encrypted = seal_receipt(receipt, req, signer_cert, signer_key, receipt["issuedAt"])
+    encoded = base64.urlsafe_b64encode(encrypted).decode("ascii").rstrip("=")
+    require(len(encoded) <= 60000, "encrypted response too large")
+    return "/prp-remote-result-v11 " + req["requestId"] + " " + encoded
