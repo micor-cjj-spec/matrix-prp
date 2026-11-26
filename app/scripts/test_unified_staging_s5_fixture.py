@@ -821,5 +821,201 @@ class S5LocalPreflightTests(unittest.TestCase):
                 load_helper(helper)
 
 
+
+
+from unified_staging_s5_regression import OfflineSimulation
+
+
+class RegressionSimulation(FakeHelper, OfflineSimulation):
+    def __init__(self, work, fault=None):
+        super().__init__(work, fault)
+        self.lock = self.CREDENTIAL_DIR / ".s5-cross-module.lock"
+        self.lock.touch(mode=0o600)
+        self.evidence = work / "evidence"
+        self.evidence.mkdir(mode=0o700)
+        self.mutation_requests = []
+
+    def _run(self, command, input_text=None):
+        from unified_staging_s5_local_preflight import IMAGES as CURRENT
+        if command[:4] == ["docker", "inspect", "--format",
+                           "{{.Id}} {{.Image}} {{.State.StartedAt}} {{.RestartCount}}"]:
+            kind = command[4]
+            image = IMAGES[kind] if self.fault == "old_image" else CURRENT[kind]
+            identity = {"backend": "a", "gateway": "b", "mysql": "c"}[kind] * 64
+            if self.fault == "runtime_after_write" and self.mutations:
+                identity = "d" * 64
+            return identity + " " + image + " 2026-11-26T06:00:00Z 0"
+        return super()._run(command, input_text)
+
+    def http_json(self, path, *, method="GET", payload=None, token=None):
+        # Preflight adapter cannot issue any business mutations.
+        if method != "GET" and not (method == "POST" and path == "/api/auth/login"):
+            raise AssertionError("preflight attempted business write")
+        result = super().http_json(path, method=method, payload=payload, token=token)
+        if path == "/api/auth/login":
+            result[2]["data"]["expiresInSeconds"] = 3600
+        return result
+
+    def simulate(self, path, *, method, payload, token):
+        if method != "GET":
+            from unified_staging_s5_regression import JOURNAL
+            baseline = read_baseline(self.evidence)
+            journal = json.loads((self.evidence / JOURNAL).read_bytes())
+            if journal["baselineDigest"] != baseline["contentDigest"]:
+                raise AssertionError("mutation without durable evidence")
+            if method == "POST":
+                kind = PATHS[path]
+                owner = {"fake.A.jwt": "A", "fake.B.jwt": "B"}[token]
+                if not any(e["kind"] == kind and e["owner"] == owner and e["id"] is None
+                           for e in journal["attempted"]):
+                    raise AssertionError("missing durable create attempt")
+            self.mutation_requests.append((method, path, token))
+        result = super().http_json(path, method=method, payload=payload, token=token)
+        if self.fault == "journal_tamper" and method == "POST" and len(self.mutations) == 1:
+            (self.evidence / "local-private-journal.json").write_text("{}")
+        if self.fault == "post_drift" and method == "DELETE" and len(self.mutations) == 38:
+            self.rows["A", "task"][90]["title"] = "changed"
+        return result
+
+
+class S5RegressionOrchestrationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+        def forbid(*args, **kwargs):
+            raise AssertionError("real network or process forbidden")
+
+        for target in ("socket.socket", "socket.create_connection", "subprocess.Popen", "subprocess.run"):
+            guard = patch(target, side_effect=forbid)
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def run_regression(self, fault=None, before=None):
+        from unified_staging_s5_regression import rehearse
+        sim = RegressionSimulation(self.root, fault)
+        if before:
+            before(sim)
+        result = rehearse(sim, sim.evidence, sim.CREDENTIAL_DIR / "b.json")
+        self.assertEqual(result["businessWrites"], 0)
+        self.assertFalse(result["liveVerified"])
+        self.assertFalse(result["productionAuthorized"])
+        self.assertFalse(result["cleanupAuthorized"])
+        for secret in ("fake.A.jwt", "fake.B.jwt", "fixture-password", "fixture_A", "fixture_B"):
+            self.assertNotIn(secret, json.dumps(result))
+        return sim, result
+
+    def test_integrated_current_preflight_and_crud(self):
+        sim, result = self.run_regression()
+        self.assertEqual(result["state"], "OFFLINE_REHEARSAL_PASS")
+        self.assertEqual(result["modulesPassed"], 5)
+        self.assertEqual(result["cleanupObservedAbsent"], 14)
+        self.assertEqual(result["baselineState"], "BASELINE_DIGESTS_MATCH")
+        journal = json.loads((sim.evidence / "local-private-journal.json").read_bytes())
+        self.assertEqual(journal["phase"], "FINISHED")
+        self.assertEqual(len(journal["attempted"]), 14)
+        self.assertTrue(all(type(a["id"]) is int for a in journal["attempted"]))
+        self.assertEqual((sim.evidence / "local-private-journal.json").stat().st_mode & 0o777, 0o600)
+        self.assertEqual(len(sim.mutations), 38)
+        self.assertEqual(sim.rows["A", "task"], {90: {"id": 90, "title": "unrelated"}})
+        self.assertFalse(any(rows for key, rows in sim.rows.items() if key != ("A", "task")))
+
+    def test_old_pin_blocks_before_mutation(self):
+        sim, result = self.run_regression("old_image")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+        self.assertEqual(list(sim.evidence.iterdir()), [])
+
+    def test_baseline_failure_blocks_first_mutation(self):
+        with patch("unified_staging_s5_regression.persist_baseline_once", side_effect=OSError):
+            sim, result = self.run_regression()
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+
+    def test_journal_failure_blocks_first_mutation(self):
+        with patch("unified_staging_s5_regression.Journal.save", side_effect=OSError):
+            sim, result = self.run_regression()
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+
+    def test_runtime_change_blocks_all_further_mutations(self):
+        sim, result = self.run_regression("runtime_after_write")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(len(sim.mutation_requests), 1)
+        self.assertEqual(len(sim.mutations), 1)
+
+    def test_journal_tamper_blocks_all_further_mutations(self):
+        sim, result = self.run_regression("journal_tamper")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(len(sim.mutation_requests), 1)
+        self.assertEqual(len(sim.mutations), 1)
+
+    def test_lost_create_unique_marker_cleanup_is_not_pass(self):
+        sim, result = self.run_regression("lost_create")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(result["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(result["cleanupObservedAbsent"], 1)
+        self.assertEqual([m[2] for m in sim.mutations], ["POST", "DELETE"])
+
+    def test_ambiguous_create_never_deletes(self):
+        sim, result = self.run_regression("ambiguous")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(result["cleanupObservedAbsent"], 0)
+        self.assertEqual([m[2] for m in sim.mutations], ["POST"])
+
+    def test_cross_owner_leak_blocks_delete(self):
+        sim, result = self.run_regression("leak")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertFalse(any(m[2] == "DELETE" for m in sim.mutations))
+
+    def test_cross_owner_acceptance_never_passes(self):
+        sim, result = self.run_regression("cross_owner")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_cleanup_failure_never_passes(self):
+        sim, result = self.run_regression("cleanup")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(result["cleanupObservedAbsent"], 0)
+
+    def test_final_drift_never_passes(self):
+        sim, result = self.run_regression("post_drift")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(result["baselineState"], "BASELINE_DIFFERENCE_OBSERVED")
+
+    def test_nonempty_evidence_dir_not_overwritten(self):
+        def prepare(sim):
+            (sim.evidence / "local-private-journal.json").write_text("old")
+        sim, result = self.run_regression(before=prepare)
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+        self.assertEqual((sim.evidence / "local-private-journal.json").read_text(), "old")
+
+    def test_busy_existing_lock_blocks(self):
+        import fcntl
+        def prepare(sim):
+            f = sim.lock.open("rb")
+            self.addCleanup(f.close)
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        sim, result = self.run_regression(before=prepare)
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+
+    def test_source_tamper_never_executes(self):
+        altered = self.root / "altered.txt"
+        altered.write_text("raise AssertionError('must never execute')\n")
+        with patch("unified_staging_s5_regression.SOURCE", altered):
+            sim, result = self.run_regression()
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+
+    def test_unadapted_helper_rejected(self):
+        from unified_staging_s5_regression import rehearse
+        sim = FakeHelper(self.root, None)
+        with self.assertRaisesRegex(RuntimeError, "OFFLINE_SIMULATION_REQUIRED"):
+            rehearse(sim, self.root, sim.CREDENTIAL_DIR / "b.json")
+        self.assertEqual(sim.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

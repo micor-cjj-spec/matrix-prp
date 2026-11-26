@@ -13,6 +13,7 @@ on:
       - 'app/scripts/test_unified_staging_s5_fixture.py'
       - 'app/scripts/unified_staging_s5_recovery.py'
       - 'app/scripts/unified_staging_s5_local_preflight.py'
+      - 'app/scripts/unified_staging_s5_regression.py'
       - 'app/scripts/fixtures/unified_396_s5_operator.py.txt'
       - '.github/workflows/unified-staging-read-smoke.yml'
 
