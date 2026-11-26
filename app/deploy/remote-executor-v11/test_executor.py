@@ -500,5 +500,34 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaises(InvalidJob): transfer_job(j,self.ledger,p,{("build.yml","b"*40)},NOW)
         self.assertFalse((self.root/"jobs"/j["jobId"]/"image.tar").exists())
 
+    def test_203_mib_local_stream_without_whole_file_buffer(self):
+        from bridge import transfer_job
+        from unittest.mock import Mock
+        import zipfile
+        size=203*1024*1024
+        block=b"Z"*(1024*1024)
+        h=hashlib.sha256()
+        archive=self.root/"synthetic.zip"
+        with zipfile.ZipFile(archive,"w",compression=zipfile.ZIP_STORED) as z:
+            with z.open("image.tar","w") as out:
+                for _ in range(203):
+                    h.update(block)
+                    out.write(block)
+        outer=hashlib.sha256()
+        with archive.open("rb") as stream:
+            while chunk:=stream.read(1024*1024):
+                outer.update(chunk)
+        j=job()
+        a=artifact("image.tar",size)
+        a["sha256"]=h.hexdigest()
+        a["source"]["archiveSize"]=archive.stat().st_size
+        a["source"]["archiveSha256"]=outer.hexdigest()
+        j["manifest"].update(operation="artifact.inspect",entrypoint=None,files=[a])
+        j["manifestSha256"]=manifest_sha256(j["manifest"])
+        p=self.provider(j,b"")
+        p.artifact_zip.side_effect=lambda _:archive.open("rb")
+        self.assertEqual(transfer_job(j,self.ledger,p,{("build.yml","b"*40)},NOW)["state"],"VERIFIED")
+        self.assertEqual((self.root/"jobs"/j["jobId"]/"image.tar").stat().st_size,size)
+
 if __name__ == "__main__":
     unittest.main()
