@@ -1054,5 +1054,87 @@ class FixedOperationTests(unittest.TestCase):
         with self.assertRaises(InvalidJob): dispatch_verified_job(self.ledger,jid,md,enabled=True,now=NOW)
         self.assertEqual(self.ledger.status(jid,md)["state"],"VERIFIED")
 
+
+class WorkerReadinessTests(unittest.TestCase):
+    setUpClass=classmethod(CryptoTests.setUpClass.__func__)
+    request=CryptoTests.request
+    setUp=DispatchTests.setUp
+
+    def prepared(self, *, bind=True):
+        req=self.request()
+        j=req["job"]
+        m=j["manifest"]
+        m.update(operation="artifact.inspect",entrypoint=None,
+                 files=[inline("artifact.txt",b"fixture")])
+        j["manifestSha256"]=manifest_sha256(m)
+        req["manifestSha256"]=j["manifestSha256"]
+        if bind:
+            self.ledger.claim_request(req,1,NOW)
+        jid,md=j["jobId"],j["manifestSha256"]
+        self.ledger.accept(j,NOW)
+        self.ledger.receive_file(jid,md,"artifact.txt",[b"fixture"],NOW)
+        self.ledger.verify(jid,md,NOW)
+        return jid,md
+
+    def test_worker_selects_bound_job_once(self):
+        from executor import next_verified,worker_once,Ledger
+        jid,md=self.prepared()
+        self.assertEqual(next_verified(self.ledger,NOW),(jid,md))
+        with self.assertRaises(InvalidJob): worker_once(self.ledger,now=NOW)
+        receipt=worker_once(self.ledger,enabled=True,now=NOW)
+        self.assertEqual(receipt["state"],"SUCCEEDED")
+        self.assertIsNone(worker_once(Ledger(self.ledger.root),enabled=True,now=NOW))
+
+    def test_unbound_or_expired_job_not_scheduled(self):
+        from executor import next_verified,worker_once
+        jid,md=self.prepared(bind=False)
+        self.assertIsNone(next_verified(self.ledger,NOW))
+        self.assertIsNone(worker_once(self.ledger,enabled=True,now=NOW))
+        req=self.request()
+        j=req["job"]
+        j["nonce"]="f"*32
+        req["nonce"]=j["nonce"]
+        self.ledger.claim_request(req,2,NOW)
+        self.ledger.accept(j,NOW)
+        jid,md=j["jobId"],j["manifestSha256"]
+        item=j["manifest"]["files"][0]
+        self.ledger.receive_file(jid,md,item["path"],[b"print('hello')"],NOW)
+        self.ledger.verify(jid,md,NOW)
+        self.assertIsNone(next_verified(self.ledger,j["expiresAt"]))
+
+    def test_retained_job_and_byte_reservation(self):
+        from unittest.mock import patch
+        req=self.request()
+        j=req["job"]
+        with patch("executor.MAX_RESERVED_BYTES",1):
+            with self.assertRaises(InvalidJob): self.ledger.accept(j,NOW)
+        self.ledger.accept(j,NOW)
+        other=self.request()["job"]
+        with patch("executor.MAX_RETAINED_JOBS",1):
+            with self.assertRaises(InvalidJob): self.ledger.accept(other,NOW)
+
+    def test_request_retention_limit(self):
+        from unittest.mock import patch
+        with patch("executor.MAX_RETAINED_REQUESTS",0):
+            with self.assertRaises(InvalidJob): self.ledger.claim_request(self.request(),1,NOW)
+
+    def test_entrypoints_fail_closed_without_gate(self):
+        from unittest.mock import patch
+        from executor import worker_main
+        from bridge import receiver_main
+        with patch("executor.sys.argv",["executor.py","worker-once"]), \
+             patch("executor.service_identity"), \
+             patch("executor.host_gate",side_effect=InvalidJob("disabled")), \
+             patch("executor.Ledger") as ledger:
+            with self.assertRaises(InvalidJob): worker_main()
+            ledger.assert_not_called()
+        with patch("bridge.sys.argv",["bridge.py","receive-v11"]), \
+             patch.dict("bridge.os.environ",{"SSH_ORIGINAL_COMMAND":"receive-v11"}), \
+             patch("executor.service_identity"), \
+             patch("executor.host_gate",side_effect=InvalidJob("disabled")), \
+             patch("bridge.relay_receiver") as relay:
+            with self.assertRaises(InvalidJob): receiver_main()
+            relay.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()
