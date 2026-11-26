@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from unified_staging_s5_recovery import (assess_interrupted_journal, capture_baseline,
-    persist_baseline_once, read_baseline, compare_baseline, BASELINE_FILE)
+    persist_baseline_once, read_baseline, compare_baseline, BASELINE_FILE, build_offline_receipt)
 
 SOURCE = Path(__file__).with_name("fixtures") / "unified_396_s5_operator.py.txt"
 DIGEST = "2c199c8b0fae7bdaaae2a10cc3d06f2bfd8fd33ee8c096b9399d4ccb1eb0d04c"
@@ -169,13 +169,105 @@ class FakeHelper:
         raise AssertionError("unexpected method")
 
 
-def run_fixture(fault=None):
+
+
+class IntegratedFakeHelper(FakeHelper):
+    """Capture the actual simulated preflight observations before first mutation.
+
+    This class is deliberately test-only. It never imports the real transport.
+    """
+    def __init__(self, work, fault):
+        super().__init__(work, fault)
+        self.work = work
+        self.actual_uid = os.geteuid()
+        self.observed = {}
+        self.observed_summaries = {}
+        self.months = set()
+        self.context = None
+        self.sidecar_ready = False
+        self.sidecar_failed = False
+
+    def http_json(self, path, *, method="GET", payload=None, token=None):
+        who = {"fake.A.jwt": "A", "fake.B.jwt": "B"}.get(token)
+        if path != "/api/auth/login" and method in ("POST", "PUT", "DELETE"):
+            if not self.sidecar_ready:
+                if self.sidecar_failed:
+                    raise RuntimeError("BASELINE_NOT_DURABLE")
+                try:
+                    journal = json.loads((self.work / "local-private-journal.json").read_text())
+                    attempts = journal["attempted"]
+                    if (method != "POST" or len(attempts) != 1
+                            or attempts[0]["owner"] != who
+                            or attempts[0]["kind"] != PATHS.get(path)
+                            or attempts[0]["id"] is not None
+                            or len(self.months) != 1 or self.mutations):
+                        raise RuntimeError("BASELINE_ORDER_MISMATCH")
+                    self.context = {
+                        "run": journal["run"], "month": next(iter(self.months)),
+                        "target": "https://prp-test.micor.top", "schema": 31,
+                        "images": dict(IMAGES),
+                        "owners": {w: self.credentials[w]["user_id"] for w in ("A", "B")},
+                        "sourceSha256": DIGEST,
+                    }
+                    baseline = capture_baseline(self.context, self.observed, self.observed_summaries)
+                    # Historical script mocks geteuid to 0; the sidecar must
+                    # check the actual temporary directory owner instead.
+                    with patch.object(os, "geteuid", return_value=self.actual_uid):
+                        if self.fault == "baseline_io":
+                            raise OSError("simulated persistence failure")
+                        persist_baseline_once(self.work, baseline)
+                        if read_baseline(self.work) != baseline:
+                            raise RuntimeError("BASELINE_READBACK_MISMATCH")
+                    self.sidecar_ready = True
+                except Exception:
+                    self.sidecar_failed = True
+                    raise RuntimeError("BASELINE_NOT_DURABLE")
+            if not self.sidecar_ready:
+                raise RuntimeError("BASELINE_NOT_DURABLE")
+        result = super().http_json(path, method=method, payload=payload, token=token)
+        if not self.sidecar_ready and not self.sidecar_failed and method == "GET" and who:
+            status, ctype, body = result
+            if status == 200 and ctype == "application/json":
+                if path in PATHS:
+                    self.observed[who + "_" + PATHS[path]] = body["data"]
+                elif path.startswith("/api/finance/summary/monthly?month="):
+                    self.months.add(path.rsplit("=", 1)[1])
+                    self.observed_summaries[who] = body["data"]
+        return result
+
+    def finish_receipt(self, report, journal):
+        if not self.sidecar_ready:
+            # No baseline means no eligible pass, even for an empty journal.
+            return build_offline_receipt(report, journal, None, self.context, {}, {})
+        if self.fault == "post_baseline_drift":
+            self.rows["A", "task"][90]["title"] = "simulated drift after cleanup"
+        if self.fault == "corrupt_sidecar":
+            (self.work / BASELINE_FILE).write_text("{}")
+        try:
+            baseline = read_baseline(self.work)
+        except (OSError, ValueError):
+            baseline = None
+        snapshots, summaries = {}, {}
+        for who in ("A", "B"):
+            for path, kind in PATHS.items():
+                status, _, body = self.http_json(path, token="fake." + who + ".jwt")
+                if status == 200:
+                    snapshots[who + "_" + kind] = body["data"]
+            status, _, body = self.http_json(
+                "/api/finance/summary/monthly?month=" + self.context["month"],
+                token="fake." + who + ".jwt")
+            if status == 200:
+                summaries[who] = body["data"]
+        return build_offline_receipt(report, journal, baseline, self.context, snapshots, summaries)
+
+
+def run_fixture(fault=None, *, integrated=False):
     raw = SOURCE.read_bytes()
     if hashlib.sha256(raw).hexdigest() != DIGEST:
         raise AssertionError("historical source digest changed")
     with tempfile.TemporaryDirectory(prefix="prp-s62-fixture-") as tmp:
         work = Path(tmp)
-        helper = FakeHelper(work, fault)
+        helper = (IntegratedFakeHelper if integrated else FakeHelper)(work, fault)
         output = io.StringIO()
         # Loader interception injects the fake helper instead of loading p420.py.
         fake_spec = types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=lambda _: None))
@@ -202,6 +294,8 @@ def run_fixture(fault=None):
         for text in (output.getvalue(), json.dumps(journal)):
             if "fixture-password" in text or "fake.A.jwt" in text or "fake.B.jwt" in text:
                 raise AssertionError("credential leak")
+        if integrated:
+            helper.receipt = helper.finish_receipt(report, journal)
         return exit_code, report, helper, journal
 
 
@@ -455,6 +549,77 @@ class S5BaselineTests(unittest.TestCase):
     def test_invalid_summary(self):
         self.summaries["B"]["expense"] = "NaN"
         self.assertEqual(self.compare()["state"], "INVALID_BASELINE_OBSERVATION")
+
+
+class S5IntegratedRehearsalTests(unittest.TestCase):
+    def run_integrated(self, fault=None):
+        code, report, helper, journal = run_fixture(fault, integrated=True)
+        receipt = helper.receipt
+        self.assertEqual(receipt["kind"], "S5_OFFLINE_REHEARSAL")
+        for key in ("liveVerified", "baselineRestored", "cleanupAuthorized",
+                    "automatedRunnerEnabled", "productionAuthorized", "deploymentAuthorized"):
+            self.assertIs(receipt[key], False)
+        serialized = json.dumps(receipt)
+        for private in ("UAT396-", "fixture-password", "fake.A.jwt", "unrelated"):
+            self.assertNotIn(private, serialized)
+        return code, report, helper, journal, receipt
+
+    def test_integrated_pass(self):
+        code, _, helper, _, receipt = self.run_integrated()
+        self.assertEqual(code, 0)
+        self.assertTrue(helper.sidecar_ready)
+        self.assertEqual(receipt["state"], "OFFLINE_REHEARSAL_PASS")
+        self.assertEqual(receipt["modulesPassed"], 5)
+        self.assertEqual(receipt["cleanupObservedAbsent"], 14)
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+
+    def test_persistence_failure_blocks_first_business_write(self):
+        code, _, helper, _, receipt = self.run_integrated("baseline_io")
+        self.assertEqual(code, 1)
+        self.assertEqual(helper.mutations, [])
+        self.assertFalse(helper.sidecar_ready)
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_preflight_failure_has_no_baseline_or_writes(self):
+        code, _, helper, _, receipt = self.run_integrated("schema")
+        self.assertEqual(code, 1)
+        self.assertFalse(helper.sidecar_ready)
+        self.assertEqual(helper.mutations, [])
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_lost_create_restored_but_run_not_passed(self):
+        code, _, _, _, receipt = self.run_integrated("lost_create")
+        self.assertEqual(code, 1)
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(receipt["recoveryState"], "NO_MARKERS_OBSERVED")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_failed_cleanup_and_ambiguous_create(self):
+        for fault in ("cleanup", "ambiguous"):
+            with self.subTest(fault=fault):
+                code, _, _, _, receipt = self.run_integrated(fault)
+                self.assertEqual(code, 1)
+                self.assertEqual(receipt["baselineState"], "BASELINE_DIFFERENCE_OBSERVED")
+                self.assertEqual(receipt["recoveryState"], "RECOVERY_REVIEW_REQUIRED")
+                self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_cross_owner_failure_never_promoted(self):
+        code, _, _, _, receipt = self.run_integrated("cross_owner")
+        self.assertEqual(code, 1)
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_drift_after_historical_success(self):
+        code, _, _, _, receipt = self.run_integrated("post_baseline_drift")
+        self.assertEqual(code, 0)
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIFFERENCE_OBSERVED")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_corrupt_sidecar_after_historical_success(self):
+        code, _, _, _, receipt = self.run_integrated("corrupt_sidecar")
+        self.assertEqual(code, 0)
+        self.assertEqual(receipt["baselineState"], "INVALID_BASELINE_OBSERVATION")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
 
 
 if __name__ == "__main__":

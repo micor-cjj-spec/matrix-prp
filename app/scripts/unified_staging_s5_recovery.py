@@ -303,3 +303,48 @@ def compare_baseline(baseline, context, snapshots, summaries):
                     if baseline["finance"][w] != current["finance"][w]})
     return _result("BASELINE_DIFFERENCE_OBSERVED" if changes else
                    "BASELINE_DIGESTS_MATCH", changes)
+
+
+OFFLINE_MODULES = {"task", "finance", "record", "video", "practice"}
+FALSE_REPORT_FLAGS = ("createdAccounts", "healthTestsExecuted", "aiProviderCalled",
+                      "databaseWritesDirect", "automatedRunnerEnabled",
+                      "productionAuthorized", "liveVerified")
+
+
+def build_offline_receipt(report, journal, baseline, context, snapshots, summaries):
+    """Compose diagnostic rehearsal evidence, never live or release authority."""
+    diff = compare_baseline(baseline, context, snapshots, summaries)
+    recovery = assess_interrupted_journal(journal, snapshots)
+    modules = report.get("moduleResults") if isinstance(report, dict) else None
+    cleanup = report.get("cleanup") if isinstance(report, dict) else None
+    module_count = sum(modules.get(k) == "CRUD_AND_BIDIRECTIONAL_ISOLATION_PASS"
+                       for k in OFFLINE_MODULES) if isinstance(modules, dict) else 0
+    cleanup_count = sum(cleanup.get(k) == "API_ABSENT"
+                        for k in BASELINE_KEYS) if isinstance(cleanup, dict) else 0
+    complete = (
+        isinstance(report, dict)
+        and report.get("state") == "CROSS_MODULE_UAT_PASS"
+        and "failure" in report and report["failure"] is None
+        and report.get("visibleBaselineRestored") is True
+        and all(report.get(k) is False for k in FALSE_REPORT_FLAGS)
+        and isinstance(modules, dict) and set(modules) == OFFLINE_MODULES
+        and module_count == 5
+        and isinstance(cleanup, dict) and set(cleanup) == BASELINE_KEYS
+        and cleanup_count == 14
+        and isinstance(journal, dict) and isinstance(context, dict)
+        and journal.get("run") == context.get("run")
+        and journal.get("phase") == "FINISHED"
+        and journal.get("results") == modules and journal.get("cleanup") == cleanup
+        and recovery["state"] == "NO_MARKERS_OBSERVED"
+        and set(recovery["entries"]) == BASELINE_KEYS
+        and diff["state"] == "BASELINE_DIGESTS_MATCH"
+    )
+    return {
+        "schemaVersion": 1, "kind": "S5_OFFLINE_REHEARSAL",
+        "state": "OFFLINE_REHEARSAL_PASS" if complete else "OFFLINE_REVIEW_REQUIRED",
+        "modulesPassed": module_count, "cleanupObservedAbsent": cleanup_count,
+        "baselineState": diff["state"], "recoveryState": recovery["state"],
+        "liveVerified": False, "baselineRestored": False,
+        "cleanupAuthorized": False, "automatedRunnerEnabled": False,
+        "productionAuthorized": False, "deploymentAuthorized": False,
+    }
