@@ -1,0 +1,426 @@
+{
+  "schema_version": 1,
+  "classification": "review-only / not a shipping source tree",
+  "repo": "micor-cjj-spec/matrix-prp",
+  "dev_base_sha": "5834005c468a5e5178fd65278ad8de83426bb9c6",
+  "personal_os_feature_sha": "009b97af4dcab7938cb6e01bd6c95271d35aa7a6",
+  "compare_status": "diverged",
+  "source_ahead_by": 137,
+  "source_behind_by": 13,
+  "total_changed_paths": 99,
+  "labels": {
+    "source_new": "New Personal OS-specific files only; individually verify source blobs before copying",
+    "shared_manual_merge": "Existing shared runtime, frontend/registration and tests; manual 3-way merge preserving dev",
+    "health_v30_dependency": "Health V2-owned files; require separate owner review, V30 checksum and V31 sequencing",
+    "ci_and_migration_contract_review": "CI, Flyway policy and staging OAuth regression paths; do not replace dev with old source",
+    "unrelated_do_not_import": "Chat-shell/remote execution files from ancestry; explicitly exclude from Personal OS"
+  },
+  "groups": {
+    "source_new": [
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/ai/PersonalOsChatExtractionController.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/ai/PersonalOsChatExtractionService.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/ai/PersonalOsPlanningAdviceController.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/ai/PersonalOsPlanningAdviceService.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/ai/PersonalOsPlanningPreviewController.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/ai/PersonalOsPlanningPreviewService.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/goals/GoalController.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/goals/GoalService.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/memory/PersonalAiCandidateIntakeController.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/memory/PersonalAiCandidateIntakeService.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/memory/PersonalMemoryController.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/memory/PersonalMemoryService.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/ontology/PersonalOntology.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/ontology/PersonalOntologyAssertionGuard.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/ontology/PersonalOntologyReferenceGuard.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/resources/db/migration/V31__personal_os_goals_and_assertions.sql",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/PersonalOsAiConcurrencyDatabaseIT.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/PersonalOsServiceLifecycleChecks.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/PersonalOsV31Assertions.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/ai/PersonalOsChatExtractionServiceTest.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/ai/PersonalOsPlanningAdviceServiceTest.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/ai/PersonalOsPlanningPreviewServiceTest.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/goals/GoalServiceTests.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/mcp/PersonalOsMcpReadToolsTests.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/mcp/PersonalOsMcpScopeGuardTests.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/memory/PersonalAiCandidateIntakeTests.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/memory/PersonalKnowledgeEvolutionTests.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/memory/PersonalMemoryServiceTests.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/ontology/PersonalOntologyAssertionGuardTest.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/ontology/PersonalOntologyReferenceGuardTest.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/ontology/PersonalOntologyTest.java",
+        "status": "added"
+      },
+      {
+        "path": "app/docs/technical/personal-os-t005-evidence-preview.md",
+        "status": "added"
+      },
+      {
+        "path": "app/docs/technical/personal-os-t005-reviewed-model-advice.md",
+        "status": "added"
+      },
+      {
+        "path": "app/docs/technical/personal-os-t006-mcp-readonly-contract.md",
+        "status": "added"
+      },
+      {
+        "path": "app/docs/technical/personal-os-t008a-ai-candidate-intake.md",
+        "status": "added"
+      },
+      {
+        "path": "app/docs/technical/personal-os-t008b-chat-knowledge-extraction.md",
+        "status": "added"
+      },
+      {
+        "path": "app/docs/technical/personal-os-t008c-provenance-dedup.md",
+        "status": "added"
+      },
+      {
+        "path": "app/docs/technical/personal-os-v0.5-contract.md",
+        "status": "added"
+      },
+      {
+        "path": "app/web/src/api/personalOs.ts",
+        "status": "added"
+      },
+      {
+        "path": "app/web/src/views/PersonalOsView.vue",
+        "status": "added"
+      }
+    ],
+    "shared_manual_merge": [
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/mcp/McpOAuthMetadataController.java",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/mcp/McpToolConfiguration.java",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/mcp/PrpMcpTools.java",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/src/main/resources/feature-registry.json",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/ModuleRegistryTests.java",
+        "status": "modified"
+      },
+      {
+        "path": "app/config/feature-registry.json",
+        "status": "modified"
+      },
+      {
+        "path": "app/config/mcp-capabilities.json",
+        "status": "modified"
+      },
+      {
+        "path": "app/docs/features/FEATURES.md",
+        "status": "modified"
+      },
+      {
+        "path": "app/web/scripts/chat-session-layout.test.mjs",
+        "status": "modified"
+      },
+      {
+        "path": "app/web/scripts/task-planning.test.mjs",
+        "status": "modified"
+      },
+      {
+        "path": "app/web/src/api/ai.ts",
+        "status": "modified"
+      },
+      {
+        "path": "app/web/src/generated/features.ts",
+        "status": "modified"
+      },
+      {
+        "path": "app/web/src/router/index.ts",
+        "status": "modified"
+      },
+      {
+        "path": "app/web/src/utils/appCatalog.ts",
+        "status": "modified"
+      },
+      {
+        "path": "app/web/src/views/AppsView.vue",
+        "status": "modified"
+      },
+      {
+        "path": "app/web/src/views/ChatView.vue",
+        "status": "modified"
+      },
+      {
+        "path": "app/web/src/views/LifeView.vue",
+        "status": "modified"
+      }
+    ],
+    "health_v30_dependency": [
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/wellness/WellnessAiDraftService.java",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/wellness/WellnessNutritionDetailsController.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/wellness/WellnessNutritionDetailsService.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/java/com/matrix/prp/wellness/WellnessNutritionEvidence.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/main/resources/db/migration/V30__wellness_analysis_details.sql",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/wellness/WellnessNutritionDetailsServiceTests.java",
+        "status": "added"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/wellness/WellnessNutritionEvidenceTests.java",
+        "status": "added"
+      }
+    ],
+    "ci_and_migration_contract_review": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "status": "modified"
+      },
+      {
+        "path": ".github/workflows/mcp-first-party-chromium-e2e.yml",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/mvnw",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/FlywayMigrationIT.java",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/FlywayV28ToV29IT.java",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/IsolatedV28BackupRestoreMcpV29IT.java",
+        "status": "modified"
+      },
+      {
+        "path": "app/backend/src/test/java/com/matrix/prp/McpWellnessDatabaseIT.java",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-oauth/ci_browser_pairing_flow.py",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-oauth/ci_first_party_chromium_e2e.py",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-oauth/ci_personal_os_chromium.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/mcp-oauth/ci_personal_os_memory_acceptance.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/mcp-oauth/ci_pkce_browser.py",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-oauth/ci_signed_code_refresh.py",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-oauth/test_ci_loopback_https.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/mcp-oauth/test_full_e2e_ci.sh",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-production-health/ci_health_backend.py",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-staging/ci_verify_container_images.sh",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-staging/review_production_flyway_history.py",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-staging/test_review_production_flyway_history.py",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-staging/test_verify_oci_migration_jar.py",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/mcp-staging/verify_oci_migration_jar.py",
+        "status": "modified"
+      },
+      {
+        "path": "app/deploy/migration-policy.json",
+        "status": "modified"
+      }
+    ],
+    "unrelated_do_not_import": [
+      {
+        "path": ".github/workflows/chat-shell-contract.yml",
+        "status": "added"
+      },
+      {
+        "path": ".github/workflows/prp-chat-shell.yml",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/gateway.sh",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/github_bridge.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/protocol.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/prp_shell_executor.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/recipient.crt",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/test_bridge_transport.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/test_chat_shell.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/test_server_certificate.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/test_server_enable_gate.py",
+        "status": "added"
+      },
+      {
+        "path": "app/deploy/chat-shell/test_workflow_contract.py",
+        "status": "added"
+      },
+      {
+        "path": "app/docs/technical/chatgpt-approved-shell-v1.md",
+        "status": "added"
+      }
+    ]
+  }
+}
