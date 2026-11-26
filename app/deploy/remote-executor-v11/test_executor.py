@@ -1136,5 +1136,109 @@ class WorkerReadinessTests(unittest.TestCase):
             with self.assertRaises(InvalidJob): receiver_main()
             relay.assert_not_called()
 
+
+# Explicit disposable CI pilot only; not included in ordinary offline tests.
+# Never invoke this test against a shared or production host.
+import os
+if os.environ.get("PRP_REX_DISPOSABLE_CI") == "1":
+    class DisposableIsolationPilot(unittest.TestCase):
+        def setUp(self):
+            import tempfile
+            from pathlib import Path
+            from executor import Ledger, LEDGER_ROOT, service_identity, sandbox_preflight
+            self.assertEqual(os.environ.get("PRP_REX_PILOT_SCOPE"), "GITHUB_HOSTED_EPHEMERAL")
+            service_identity()
+            sandbox_preflight()
+            self.tmp = tempfile.TemporaryDirectory(dir=LEDGER_ROOT)
+            self.addCleanup(self.tmp.cleanup)
+            self.ledger = Ledger(Path(self.tmp.name))
+
+        def execute(self, path, script, args=(), timeout=20):
+            import time
+            from executor import run_sandbox
+            now = int(time.time())
+            j = job()
+            j.update(nonce=uuid.uuid4().hex, issuedAt=now, expiresAt=now+180)
+            j["manifest"].update(operation="sandbox.bash" if path.endswith(".sh") else "sandbox.python",
+                                 entrypoint=path, files=[inline(path,script)],
+                                 args=list(args), timeoutSeconds=timeout)
+            j["manifestSha256"] = manifest_sha256(j["manifest"])
+            jid,md=j["jobId"],j["manifestSha256"]
+            self.ledger.accept(j)
+            self.ledger.receive_file(jid,md,path,[script])
+            self.ledger.verify(jid,md)
+            return run_sandbox(self.ledger,jid,md),jid,md
+
+        def assert_success(self, status, jid, md, marker):
+            # Output is exclusively a fixed synthetic fixture. Do not print
+            # arbitrary real job output or secret-bearing diagnostics.
+            receipt=self.ledger.result(jid,md)
+            summary=parse(receipt["summary"].encode("ascii"))
+            self.assertEqual(status["state"],"SUCCEEDED",summary.get("stderr","")[:500])
+            self.assertEqual(receipt["exitCode"],0)
+            self.assertEqual(summary["stdout"].strip(),marker)
+
+        def test_real_bash(self):
+            script=b"set -eu\nread -r first < /input/probe.sh\n[ \"$first\" = 'set -eu' ]\nprintf '%s\\n' BASH_ISOLATED_OK\n"
+            self.assert_success(*self.execute("probe.sh",script), "BASH_ISOLATED_OK")
+
+        def test_real_python_mount_network_and_environment(self):
+            import socket
+            sentinel=self.ledger.root/"host-sentinel"
+            sentinel.write_bytes(b"synthetic-private-host")
+            host_net=os.readlink("/proc/self/ns/net")
+            host_pid=os.readlink("/proc/self/ns/pid")
+            with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as listener:
+                listener.bind(("127.0.0.1",0))
+                listener.listen(1)
+                script=b"""import os,sys,socket,pathlib
+host_file,host_net,host_pid,port=sys.argv[1:]
+assert not pathlib.Path(host_file).exists(), 'host sentinel visible'
+assert not pathlib.Path('/var/lib/matrix-prp-remote-executor-v11').exists(), 'ledger visible'
+assert not pathlib.Path('/etc/matrix-prp-remote-executor-v11').exists(), 'config visible'
+assert not pathlib.Path('/var/run/docker.sock').exists(), 'docker visible'
+assert os.readlink('/proc/self/ns/net') != host_net, 'host network namespace'
+assert os.readlink('/proc/self/ns/pid') != host_pid, 'host pid namespace'
+assert not os.environ.get('GITHUB_TOKEN'), 'token inherited'
+try:
+    pathlib.Path('/input/probe.py').write_bytes(b'changed')
+except OSError:
+    pass
+else:
+    raise AssertionError('input writable')
+pathlib.Path('/tmp/synthetic').write_bytes(b'ok')
+assert pathlib.Path('/tmp/synthetic').read_bytes() == b'ok'
+with socket.socket() as s:
+    s.settimeout(1)
+    try:
+        s.connect(('127.0.0.1',int(port)))
+    except OSError:
+        pass
+    else:
+        raise AssertionError('host listener reachable')
+print('PYTHON_ISOLATED_OK')
+"""
+                result=self.execute("probe.py",script,[str(sentinel),host_net,host_pid,str(listener.getsockname()[1])])
+            self.assert_success(*result,"PYTHON_ISOLATED_OK")
+            self.assertEqual(sentinel.read_bytes(),b"synthetic-private-host")
+
+        def test_real_timeout_and_cgroup_cleanup(self):
+            import time
+            from pathlib import Path
+            from executor import SANDBOX_CGROUP, next_verified
+            script=b"import os,time\nif os.fork() == 0:\n    time.sleep(60)\nelse:\n    time.sleep(60)\n"
+            status,jid,md=self.execute("timeout.py",script,timeout=2)
+            self.assertEqual(status["state"],"RECONCILE_REQUIRED")
+            self.assertIsNone(next_verified(self.ledger))
+            # The test process is the only expected process in this dedicated
+            # oneshot cgroup. Check after a bounded cleanup grace period.
+            cgroup=Path("/sys/fs/cgroup")/SANDBOX_CGROUP.lstrip("/")/"cgroup.procs"
+            deadline=time.monotonic()+3
+            while time.monotonic()<deadline:
+                if set(map(int,cgroup.read_text().split())) == {os.getpid()}:
+                    break
+                time.sleep(0.1)
+            self.assertEqual(set(map(int,cgroup.read_text().split())),{os.getpid()})
+
 if __name__ == "__main__":
     unittest.main()
