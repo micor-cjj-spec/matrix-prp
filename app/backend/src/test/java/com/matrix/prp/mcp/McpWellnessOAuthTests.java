@@ -85,10 +85,11 @@ class McpWellnessOAuthTests {
     }
     @Test void matchingWriteTokenCanOnlyPrepareAnOwnerBoundDraft() throws Exception {
         when(db.queryForObject(anyString(),eq(Integer.class),eq(2L))).thenReturn(0);
+        when(db.queryForObject(startsWith("SELECT UNIX_TIMESTAMP(expires_at)"), eq(Long.class), anyString(), eq(2L))).thenReturn(1790000900L);
         var r=rpc("tools/call","prp_prepare_wellness_create",exercise());
         assertThat(r.getResponse().getStatus()).isEqualTo(200);
         assertThat(r.getResponse().getContentAsString()).contains("draftId","WELLNESS_CREATE","prp_confirm_wellness_draft").doesNotContain("\"isError\":true");
-        verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),any(),eq(2L),eq("WELLNESS_CREATE"),any(),any());
+        verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),any(),eq(2L),eq("WELLNESS_CREATE"),any());
         verifyNoInteractions(wellness);
     }
     @Test void nestedMealInputSchemaNoLongerRequiresMutuallyExclusiveFields() throws Exception {
@@ -109,6 +110,7 @@ class McpWellnessOAuthTests {
 
     @Test void estimatedEggBreakfastPreparesWithoutFabricatedCatalogId() throws Exception {
         when(db.queryForObject(anyString(), eq(Integer.class), eq(2L))).thenReturn(0);
+        when(db.queryForObject(startsWith("SELECT UNIX_TIMESTAMP(expires_at)"), eq(Long.class), anyString(), eq(2L))).thenReturn(1790000900L);
         var breakfast = Map.<String,Object>of(
             "entity", "meal",
             "input", Map.of("meal", Map.of(
@@ -118,12 +120,13 @@ class McpWellnessOAuthTests {
         assertThat(result.getResponse().getContentAsString())
             .contains("draftId", "WELLNESS_CREATE", "\"isError\":false");
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
-            any(), eq(2L), eq("WELLNESS_CREATE"), any(), any());
+            any(), eq(2L), eq("WELLNESS_CREATE"), any());
         verifyNoInteractions(wellness);
     }
 
     @Test void catalogEggBreakfastPreparesWithOnlyFoodIdAndGrams() throws Exception {
         when(db.queryForObject(anyString(), eq(Integer.class), eq(2L))).thenReturn(0);
+        when(db.queryForObject(startsWith("SELECT UNIX_TIMESTAMP(expires_at)"), eq(Long.class), anyString(), eq(2L))).thenReturn(1790000900L);
         when(db.query(startsWith("SELECT id FROM prp_wellness_foods"),
             any(org.springframework.jdbc.core.RowMapper.class), eq(2L), eq(2L)))
             .thenReturn(List.of(2L));
@@ -140,7 +143,7 @@ class McpWellnessOAuthTests {
         assertThat(result.getResponse().getContentAsString())
             .contains("draftId", "WELLNESS_CREATE", "\"isError\":false");
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
-            any(), eq(2L), eq("WELLNESS_CREATE"), any(), any());
+            any(), eq(2L), eq("WELLNESS_CREATE"), any());
         verify(wellness).accessibleFood(2L);
     }
 

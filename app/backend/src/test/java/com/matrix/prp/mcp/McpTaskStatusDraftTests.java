@@ -47,6 +47,7 @@ class McpTaskStatusDraftTests {
             eq(42L), eq(2L))).thenReturn(List.of("2026-11-13 10:00:00"));
         when(db.queryForObject(startsWith("SELECT COUNT(*) FROM prp_mcp_write_drafts"),
             eq(Integer.class), eq(2L))).thenReturn(0);
+            when(db.queryForObject(startsWith("SELECT UNIX_TIMESTAMP(expires_at)"), eq(Long.class), anyString(), eq(2L))).thenReturn(1790000900L);
 
         var drafts = new McpDraftService(db, new ObjectMapper().findAndRegisterModules(),
             validator, tasks, mock(FinanceService.class), mock(RecordService.class),
@@ -60,7 +61,7 @@ class McpTaskStatusDraftTests {
         assertThat(preview.values().path("status").asText()).isEqualTo("in_progress");
         assertThat(preview.values().path("after").isNull()).isTrue();
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
-            any(), eq(2L), eq("TASK_UPDATE"), any(), any());
+            any(), eq(2L), eq("TASK_UPDATE"), any());
         verify(tasks, never()).updateStatus(anyLong(), anyString());
         verify(tasks, never()).update(anyLong(), any());
         verify(tasks, never()).create(any());

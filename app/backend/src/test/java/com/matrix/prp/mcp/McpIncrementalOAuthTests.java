@@ -58,10 +58,11 @@ class McpIncrementalOAuthTests extends McpExpandedCapabilitiesTests {
     }
     @Test void newWriteTokenCanPrepareOnlyAnOwnerBoundDraft() throws Exception {
         when(jdbc.queryForObject(anyString(),eq(Integer.class),eq(2L))).thenReturn(0);
+        when(jdbc.queryForObject(startsWith("SELECT UNIX_TIMESTAMP(expires_at)"), eq(Long.class), anyString(), eq(2L))).thenReturn(1790000900L);
         JsonNode r=result(prepare());assertThat(r.path("isError").asBoolean()).isFalse();
         assertThat(r.path("_meta").has("mcp/www_authenticate")).isFalse();
         assertThat(r.toString()).contains("draftId","Synthetic expanded draft");
-        verify(jdbc).update(startsWith("INSERT INTO prp_mcp_write_drafts"),any(),eq(2L),eq("TASK"),any(),any());
+        verify(jdbc).update(startsWith("INSERT INTO prp_mcp_write_drafts"),any(),eq(2L),eq("TASK"),any());
     }
     @Test void revokedOwnerGrantRejectsEvenAStillValidWriteToken() throws Exception {
         when(grants.grantedScopes(2,CLIENT)).thenReturn(Set.of());
@@ -89,12 +90,12 @@ class McpIncrementalOAuthTests extends McpExpandedCapabilitiesTests {
     void confirmChallengesForExactDraftOperationRatherThanAllWriteScopes() throws Exception {
         String id="41abc027-d67e-4bdf-8985-e3ec97d23204";
         identity(2,CLIENT,"prp.tasks.read prp.write.confirm");
-        when(jdbc.query(startsWith("SELECT kind,payload_json,status,expires_at"),any(RowMapper.class),eq(id),eq(2L)))
+        when(jdbc.query(startsWith("SELECT kind,payload_json,status,LEAST("),any(RowMapper.class),eq(id),eq(2L)))
             .thenAnswer(inv -> {
                 RowMapper<Object> mapper=inv.getArgument(1);ResultSet rs=mock(ResultSet.class);
                 when(rs.getString("kind")).thenReturn("TASK_DELETE");when(rs.getString("payload_json")).thenReturn("{}");
                 when(rs.getString("status")).thenReturn("APPROVED");
-                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                when(rs.getLong("effective_expires_epoch")).thenReturn(1790000900L);
                 return List.of(mapper.mapRow(rs,0));
             });
         JsonNode r=result("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"prp_confirm_draft\",\"arguments\":{\"draftId\":\""+id+"\"}}}");
