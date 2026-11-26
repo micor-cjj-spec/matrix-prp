@@ -115,7 +115,7 @@ class Client:
         self.headers["MCP-Protocol-Version"]=response["result"]["protocolVersion"]
         check(self.rpc("notifications/initialized",notify=True).get("http") in (200,202),"mcp-initialized")
     def call(self,expr,uid=UID,**kwargs):
-        args={"datasourceUid":uid,"expr":expr,"queryType":"instant","startTime":"now",**kwargs}
+        args={"datasourceUid":uid,"expr":expr,"queryType":"instant","startTime":"now","endTime":"now","stepSeconds":15,**kwargs}
         return self.rpc("tools/call",{"name":"query_prometheus","arguments":args})
 
 def failed(response):
@@ -262,11 +262,11 @@ def main():
                 return p.stdout+p.stderr
             eventually(lambda:"/p4-positive-control" in trap_logs() and "/p4-network-control" in trap_logs(),"trap-log-positive-control")
             before=trap_logs()
-            override=client.rpc("tools/call",{"name":"query_prometheus","arguments":{"datasourceUid":UID,"expr":"node_memory_MemAvailable_bytes","startTime":"now","queryType":"instant"}},
+            override=client.rpc("tools/call",{"name":"query_prometheus","arguments":{"datasourceUid":UID,"expr":"node_memory_MemAvailable_bytes","startTime":"now","endTime":"now","stepSeconds":15,"queryType":"instant"}},
                                 extra={"X-Grafana-URL":"http://trap:8080"})
             check(failed(override) or ("fixture-node" in serialized(override) and "foreign-marker" not in serialized(override)),"url-override-denied-or-ignored")
             check(trap_logs()==before,"url-override-zero-destination-requests")
-            invalid=client.rpc("tools/call",{"name":"query_prometheus","arguments":{"datasourceUid":UID,"expr":"node_memory_MemAvailable_bytes","startTime":"now","queryType":"instant"}},
+            invalid=client.rpc("tools/call",{"name":"query_prometheus","arguments":{"datasourceUid":UID,"expr":"node_memory_MemAvailable_bytes","startTime":"now","endTime":"now","stepSeconds":15,"queryType":"instant"}},
                                extra={"X-Grafana-Service-Account-Token":"synthetic-invalid"})
             check(failed(invalid),"invalid-viewer-denied")
             # Explicitly test the documented limitation; do not claim a strict query allowlist.
