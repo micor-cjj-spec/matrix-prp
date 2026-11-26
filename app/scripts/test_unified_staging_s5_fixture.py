@@ -8,6 +8,7 @@ import os
 import re
 import socket
 import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -1045,6 +1046,152 @@ class S5RegressionOrchestrationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "OFFLINE_SIMULATION_REQUIRED"):
             rehearse(sim, self.root, sim.CREDENTIAL_DIR / "b.json")
         self.assertEqual(sim.calls, [])
+
+
+
+
+class LocalAdapterHelper(RegressionSimulation):
+    """Mock exact helper boundary; no real transport even in operator mode."""
+    def http_json(self, path, *, method="GET", payload=None, token=None):
+        if method == "GET" or (method == "POST" and path == "/api/auth/login"):
+            return super().http_json(path, method=method, payload=payload, token=token)
+        return self.simulate(path, method=method, payload=payload, token=token)
+
+
+class S5LocalAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        def forbid(*args, **kwargs):
+            raise AssertionError("real network or process forbidden")
+        for target in ("socket.socket", "socket.create_connection", "subprocess.Popen", "subprocess.run"):
+            guard = patch(target, side_effect=forbid)
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def operator(self, fault=None, before=None):
+        from unified_staging_s5_regression import APPROVAL, run_operator_once
+        helper = LocalAdapterHelper(self.root, fault)
+        if before:
+            before(helper)
+        with patch("unified_staging_s5_regression.load_helper", return_value=helper) as loader:
+            result = run_operator_once(self.root / "p420.py", helper.evidence,
+                                       helper.CREDENTIAL_DIR / "b.json", confirmation=APPROVAL)
+            loader.assert_called_once_with(self.root / "p420.py")
+        self.assertFalse(result["liveVerified"])
+        self.assertFalse(result["productionAuthorized"])
+        self.assertFalse(result["deploymentAuthorized"])
+        self.assertFalse(result["cleanupAuthorized"])
+        self.assertEqual(result["businessMutationRequests"], len(helper.mutation_requests))
+        self.assertEqual(result["executionMode"], "OPERATOR_LIVE")
+        for secret in ("fake.A.jwt", "fake.B.jwt", "fixture-password", "fixture_A", "fixture_B"):
+            self.assertNotIn(secret, json.dumps(result))
+        return helper, result
+
+    def test_operator_mode_distinct_receipt_and_request_ledger(self):
+        helper, result = self.operator()
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_PASS")
+        self.assertEqual(result["businessMutationRequests"], 58)
+        self.assertEqual(result["mutationResponses200"], 38)
+        self.assertEqual(result["mutationResponsesDenied"], 20)
+        self.assertEqual(result["mutationOutcomesUnknown"], 0)
+        self.assertEqual(result["businessWrites"], "NOT_MEASURED")
+        self.assertTrue(result["apiVisibleBaselineMatched"])
+        self.assertTrue(result["liveExecutionPerformed"])
+        self.assertEqual(result["modulesPassed"], 5)
+        self.assertEqual(result["cleanupObservedAbsent"], 14)
+        journal = json.loads((helper.evidence / "local-private-journal.json").read_bytes())
+        self.assertEqual(journal["executionMode"], "OPERATOR_LIVE")
+        self.assertEqual(len(journal["mutationRequests"]), 58)
+        self.assertEqual([x["sequence"] for x in journal["mutationRequests"]], list(range(1, 59)))
+        self.assertTrue(all(x["outcome"] in ("HTTP_200", "HTTP_403", "HTTP_404")
+                            for x in journal["mutationRequests"]))
+        self.assertEqual(len(helper.mutations), 38)
+
+    def test_lost_response_is_not_zero_writes(self):
+        _, result = self.operator("lost_create")
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_REVIEW_REQUIRED")
+        self.assertEqual(result["businessMutationRequests"], 2)
+        self.assertEqual(result["mutationOutcomesUnknown"], 1)
+        self.assertEqual(result["businessWrites"], "NOT_MEASURED")
+
+    def test_changed_runtime_stops_real_adapter_mode(self):
+        _, result = self.operator("runtime_after_write")
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_REVIEW_REQUIRED")
+        self.assertEqual(result["businessMutationRequests"], 1)
+        self.assertFalse(result["apiVisibleBaselineMatched"])
+
+    def test_preflight_failure_reports_zero_requests_not_pass(self):
+        _, result = self.operator("old_image")
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_BLOCKED")
+        self.assertEqual(result["businessMutationRequests"], 0)
+        self.assertEqual(result["businessWrites"], 0)
+        self.assertFalse(result["liveExecutionPerformed"])
+
+    def test_approval_required_before_loading_helper(self):
+        from unified_staging_s5_regression import run_operator_once
+        with patch("unified_staging_s5_regression.load_helper") as loader:
+            with self.assertRaisesRegex(RuntimeError, "OPERATOR_CONFIRMATION_REQUIRED"):
+                run_operator_once(self.root / "p420.py", self.root,
+                                  self.root / "b.json", confirmation="no")
+            loader.assert_not_called()
+
+    def test_inactive_and_out_of_scope_adapter_routes_blocked(self):
+        from unified_staging_s5_regression import _LocalTransport
+        helper = LocalAdapterHelper(self.root)
+        adapter = _LocalTransport(helper)
+        with self.assertRaisesRegex(RuntimeError, "LOCAL_ROUTE_BLOCKED"):
+            adapter._dispatch("/api/tasks", method="POST", payload={}, token="fake.A.jwt")
+        adapter._active = True
+        for path, method, payload in (("/api/health/meals", "POST", {}),
+                                      ("/api/auth/register", "POST", {}),
+                                      ("/api/tasks/1/extra", "DELETE", None),
+                                      ("/api/tasks?x=1", "POST", {}),
+                                      ("/api/tasks/1", "PATCH", {})):
+            with self.subTest(path=path, method=method):
+                with self.assertRaisesRegex(RuntimeError, "LOCAL_ROUTE_BLOCKED"):
+                    adapter._dispatch(path, method=method, payload=payload, token="fake.A.jwt")
+        with self.assertRaisesRegex(RuntimeError, "PREFLIGHT_ROUTE_BLOCKED"):
+            adapter.http_json("/api/tasks", method="POST", payload={}, token="fake.A.jwt")
+        self.assertEqual(helper.calls, [])
+        self.assertEqual(adapter._outcomes, [])
+
+    def test_durable_pending_operation_precedes_dispatch(self):
+        def before(helper):
+            original = helper.simulate
+            def simulate(path, *, method, payload, token):
+                if method != "GET":
+                    data = json.loads((helper.evidence / "local-private-journal.json").read_bytes())
+                    last = data["mutationRequests"][-1]
+                    self.assertEqual(last["method"], method)
+                    self.assertEqual(last["outcome"], "PENDING")
+                    self.assertEqual(last["sequence"], len(helper.mutation_requests) + 1)
+                return original(path, method=method, payload=payload, token=token)
+            helper.simulate = simulate
+        _, result = self.operator(before=before)
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_PASS")
+
+    def test_no_default_cli_or_noninteractive_execution(self):
+        from unified_staging_s5_regression import main
+        with patch("unified_staging_s5_regression.load_helper") as loader:
+            for args in (["runner"], ["runner", "--execute-approved-once", "--helper", "/p420.py",
+                                     "--b-file", "/b.json", "--evidence-dir", "/evidence"]):
+                with patch.object(sys, "argv", args), patch("sys.stdin.isatty", return_value=False):
+                    with self.assertRaises(SystemExit) as exc:
+                        main()
+                    self.assertEqual(exc.exception.code, 2)
+            loader.assert_not_called()
+
+    def test_same_transport_cannot_run_twice(self):
+        from unified_staging_s5_regression import _LocalTransport, _run_once
+        helper = LocalAdapterHelper(self.root, "old_image")
+        adapter = _LocalTransport(helper)
+        result = _run_once(adapter, helper.evidence, helper.CREDENTIAL_DIR / "b.json", live=True)
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_BLOCKED")
+        self.assertFalse(adapter._active)
+        with self.assertRaisesRegex(RuntimeError, "OPERATOR_TRANSPORT_REQUIRED"):
+            _run_once(adapter, helper.evidence, helper.CREDENTIAL_DIR / "b.json", live=True)
 
 
 if __name__ == "__main__":

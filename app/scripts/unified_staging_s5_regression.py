@@ -1,4 +1,5 @@
-"""S6.2B offline-only S5 orchestration; no real transport, CLI or activation."""
+"""S6.2B S5 orchestration; offline default, explicit local operator entry."""
+import argparse
 import ast
 import copy
 import datetime as dt
@@ -9,11 +10,12 @@ import os
 import re
 import secrets
 import stat
+import sys
 from decimal import Decimal
 from pathlib import Path
 
 from unified_staging_s5_local_preflight import (
-    IMAGES, LOCK, PATHS, TARGET, credentials, lock_identity, login, observe,
+    IMAGES, LOCK, PATHS, TARGET, credentials, load_helper, lock_identity, login, observe,
     private_fd, private_parent, require_disjoint, same_user, success, verify_stage,
 )
 from unified_staging_s5_recovery import (
@@ -31,10 +33,119 @@ LIMIT = 65536
 
 
 class OfflineSimulation:
-    """Explicit test seam. No implementation or live p420 adapter is supplied."""
+    """Explicit test seam, never accepted by the real operator entry."""
 
     def simulate(self, path, *, method, payload, token):
         raise NotImplementedError
+
+
+APPROVAL = "EXECUTE S6.2B ONCE ON PRP-TEST"
+REQUEST_LIMIT = 58
+READ_ROUTES = frozenset((*PATHS.values(), "/api/users/me"))
+
+
+def read_route(path):
+    return (path in READ_ROUTES or
+            re.fullmatch(r"/api/finance/summary/monthly\?month=[0-9]{4}-(?:0[1-9]|1[0-2])", path) is not None)
+
+
+def business_route(path, method):
+    if method == "GET":
+        return (read_route(path) or
+                re.fullmatch(r"/api/video/items\?folderId=[1-9][0-9]*", path) is not None or
+                re.fullmatch(r"/api/practice/subjects/[1-9][0-9]*/banks", path) is not None)
+    if method == "POST":
+        return path in PATHS.values()
+    if method in ("PUT", "DELETE"):
+        return any(re.fullmatch(re.escape(base) + r"/[1-9][0-9]*", path) for base in PATHS.values())
+    return False
+
+
+class _LocalTransport:
+    """Narrow adapter for a byte-verified, existing p420 module.
+
+    No delegation of provisioning, arbitrary SQL, filesystem or deployment
+    APIs. The orchestration's same-run guards remain the write boundary.
+    """
+    def __init__(self, helper):
+        self._helper = helper
+        self.CREDENTIAL_DIR = helper.CREDENTIAL_DIR
+        self.CREDENTIAL_FILE = helper.CREDENTIAL_FILE
+        self.BACKEND, self.GATEWAY, self.MYSQL = helper.BACKEND, helper.GATEWAY, helper.MYSQL
+        self._active = False
+        self._used = False
+        self._outcomes = []
+
+    def inspect_target(self):
+        return self._helper.inspect_target()
+
+    def validate_target(self, meta):
+        return self._helper.validate_target(meta)
+
+    def _run(self, command, *, input_text=None):
+        # The only caller is the unchanged S6.2A fixed schema/image checker.
+        return self._helper._run(command, input_text=input_text)
+
+    def read_existing_credentials(self):
+        old = self._helper.CREDENTIAL_DIR, self._helper.CREDENTIAL_FILE
+        try:
+            self._helper.CREDENTIAL_DIR = self.CREDENTIAL_DIR
+            self._helper.CREDENTIAL_FILE = self.CREDENTIAL_FILE
+            return self._helper.read_existing_credentials()
+        finally:
+            self._helper.CREDENTIAL_DIR, self._helper.CREDENTIAL_FILE = old
+
+    def query_ordinary_identity_readonly(self, c):
+        return self._helper.query_ordinary_identity_readonly(c)
+
+    def valid_json_type(self, value):
+        return self._helper.valid_json_type(value)
+
+    def http_json(self, path, *, method="GET", payload=None, token=None):
+        check(self._active, "OPERATOR_RUN_INACTIVE")
+        check((method == "GET" and read_route(path) and payload is None and token)
+              or (method == "POST" and path == "/api/auth/login" and token is None
+                  and isinstance(payload, dict) and set(payload) == {"username", "password"}),
+              "PREFLIGHT_ROUTE_BLOCKED")
+        return self._helper.http_json(path, method=method, payload=payload, token=token)
+
+    def _dispatch(self, path, *, method, payload, token):
+        check(self._active and token and business_route(path, method), "LOCAL_ROUTE_BLOCKED")
+        if method == "GET":
+            check(payload is None, "GET_PAYLOAD_BLOCKED")
+            return self._helper.http_json(path, method=method, token=token)
+        check(len(self._outcomes) < REQUEST_LIMIT, "REQUEST_LIMIT")
+        check((method == "DELETE" and payload is None) or
+              (method in ("POST", "PUT") and isinstance(payload, dict)), "PAYLOAD_BLOCKED")
+        # Count attempts before transport: a lost response is not zero writes.
+        self._outcomes.append("UNKNOWN")
+        response = self._helper.http_json(path, method=method, payload=payload, token=token)
+        status = response[0]
+        if type(status) is int and 100 <= status <= 599:
+            self._outcomes[-1] = "HTTP_" + str(status)
+        return response
+
+    def _receipt(self, diagnostic):
+        requests = len(self._outcomes)
+        success_count = self._outcomes.count("HTTP_200")
+        denials = sum(x in ("HTTP_403", "HTTP_404") for x in self._outcomes)
+        unknown = self._outcomes.count("UNKNOWN")
+        matched = diagnostic["baselineState"] == "BASELINE_DIGESTS_MATCH"
+        passed = (diagnostic["state"] == "OFFLINE_REHEARSAL_PASS"
+                  and requests == REQUEST_LIMIT and success_count == 38 and denials == 20)
+        result = dict(diagnostic)
+        result.update(schemaVersion=1, kind="S5_LOCAL_OPERATOR_REGRESSION",
+                      state=("S5_LOCAL_REGRESSION_PASS" if passed else
+                             "S5_LOCAL_REGRESSION_REVIEW_REQUIRED" if requests else
+                             "S5_LOCAL_REGRESSION_BLOCKED"),
+                      executionMode="OPERATOR_LIVE", businessMutationRequests=requests,
+                      mutationResponses200=success_count, mutationResponsesDenied=denials,
+                      mutationOutcomesUnknown=unknown,
+                      mutationResponsesOther=requests-success_count-denials-unknown,
+                      businessWrites="NOT_MEASURED" if requests else 0,
+                      apiVisibleBaselineMatched=matched, liveExecutionPerformed=bool(requests),
+                      liveVerified=False, baselineRestored=False, cleanupAuthorized=False)
+        return result
 
 
 def check(ok, label):
@@ -146,7 +257,29 @@ def rehearse(sim, directory, b_file):
     execution requires a separately reviewed adapter and operator approval.
     """
     check(isinstance(sim, OfflineSimulation), "OFFLINE_SIMULATION_REQUIRED")
+    return _run_once(sim, directory, b_file, live=False)
+
+
+def run_operator_once(helper_path, directory, b_file, *, confirmation):
+    """Explicit local operator call, never invoked by CI with real transport.
+
+    The confirmation is an operator acknowledgement, not authenticated external
+    approval. The operator must already have separate owner authorization.
+    """
+    check(confirmation == APPROVAL, "OPERATOR_CONFIRMATION_REQUIRED")
+    helper = load_helper(Path(helper_path))
+    transport = _LocalTransport(helper)
+    return _run_once(transport, directory, b_file, live=True)
+
+
+def _run_once(sim, directory, b_file, *, live):
+    if live:
+        check(type(sim) is _LocalTransport and not sim._used, "OPERATOR_TRANSPORT_REQUIRED")
+        sim._used, sim._active = True, True
+    else:
+        check(isinstance(sim, OfflineSimulation), "OFFLINE_SIMULATION_REQUIRED")
     lock_fd = evidence_fd = None
+    diagnostic = blocked_receipt()
     try:
         lock_path = sim.CREDENTIAL_DIR / LOCK
         lock_fd = private_fd(lock_path)
@@ -158,17 +291,22 @@ def rehearse(sim, directory, b_file):
         journal = Journal(directory, evidence_fd)
         journal.verify_dir()
         check(not os.listdir(evidence_fd), "NEW_EMPTY_EVIDENCE_DIR_REQUIRED")
-        return _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal)
-    except Exception:
-        return blocked_receipt()
+        diagnostic = _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, live=live)
+    except (Exception, KeyboardInterrupt):
+        diagnostic = blocked_receipt()
     finally:
+        if live:
+            sim._active = False
         if evidence_fd is not None:
             os.close(evidence_fd)
         if lock_fd is not None:
             os.close(lock_fd)
+    return sim._receipt(diagnostic) if live else diagnostic
 
 
-def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal):
+def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal, *, live):
+    dispatch = sim._dispatch if live else sim.simulate
+    operations = []
     g = load_functions({"Decimal": Decimal, "m": sim})
     first = verify_stage(sim)
     accounts = credentials(sim, b_file)
@@ -206,7 +344,9 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal):
         return {"run": run, "phase": g["PHASE"], "attempted": list(g["ATTEMPTED"].values()),
                 "results": g["RESULT"], "cleanup": g["CLEANUP"],
                 "runtimeDigest": runtime_digest, "baselineDigest": baseline["contentDigest"],
-                "contextDigest": baseline["contextDigest"]}
+                "contextDigest": baseline["contextDigest"],
+                "executionMode": "OPERATOR_LIVE" if live else "OFFLINE_SIMULATION",
+                "mutationRequests": operations}
 
     def save():
         journal.save(payload())
@@ -260,7 +400,7 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal):
                   or re.fullmatch(r"/api/video/items\?folderId=[1-9][0-9]*", path)
                   or re.fullmatch(r"/api/practice/subjects/[1-9][0-9]*/banks", path)),
                   "GET_ROUTE_BLOCKED")
-            return sim.simulate(path, method=method, payload=payload, token=tokens[who])
+            return dispatch(path, method=method, payload=payload, token=tokens[who])
         check(method in ("POST", "PUT", "DELETE"), "METHOD_BLOCKED")
         durable()
         kind = next((k for k, p in PATHS.items() if path == p or
@@ -301,8 +441,23 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal):
                        and g["matches"](payload, owner, kind))
                       or (method == "DELETE" and who != owner and payload is None),
                       "TEST_MUTATION_BLOCKED")
+        check(len(operations) < REQUEST_LIMIT, "REQUEST_LIMIT")
+        operation = {"sequence": len(operations) + 1, "phase": phase, "method": method,
+                     "owner": who, "kind": kind,
+                     "id": None if method == "POST" else rid, "outcome": "PENDING"}
+        operations.append(operation)
+        save()
         durable()
-        result = sim.simulate(path, method=method, payload=payload, token=tokens[who])
+        try:
+            result = dispatch(path, method=method, payload=payload, token=tokens[who])
+            status = result[0]
+            operation["outcome"] = ("HTTP_" + str(status)
+                                    if type(status) is int and 100 <= status <= 599 else "UNKNOWN")
+        except Exception:
+            operation["outcome"] = "UNKNOWN"
+            save()
+            raise
+        save()
         if method == "POST" and result[0] == 200 and isinstance(result[2], dict):
             data = result[2].get("data")
             if isinstance(data, dict) and type(data.get("id")) is int:
@@ -322,8 +477,11 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal):
             save()
             g["exercise"](kind)
             save()
+    except KeyboardInterrupt:
+        halted = True
+        failure = "OPERATOR_INTERRUPTED"
     except Exception:
-        failure = "OFFLINE_EXERCISE_BLOCKED"
+        failure = "EXERCISE_BLOCKED"
     finally:
         # No automatic resume; only exact same-run attempts may be cleaned.
         # A failed journal or changed runtime blocks further mutations.
@@ -349,7 +507,10 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal):
         except Exception:
             failure = "OFFLINE_FINAL_REVIEW_REQUIRED"
     passed = (failure is None and len(g["RESULT"]) == 5 and baseline_ok
-              and len(g["CLEANUP"]) == 14 and all(x == "API_ABSENT" for x in g["CLEANUP"].values()))
+              and len(g["CLEANUP"]) == 14 and all(x == "API_ABSENT" for x in g["CLEANUP"].values())
+              and len(operations) == REQUEST_LIMIT
+              and sum(op["outcome"] == "HTTP_200" for op in operations) == 38
+              and sum(op["outcome"] in ("HTTP_403", "HTTP_404") for op in operations) == 20)
     report = {"state": "CROSS_MODULE_UAT_PASS" if passed else "CROSS_MODULE_UAT_REVIEW_REQUIRED",
               "failure": failure, "moduleResults": g["RESULT"], "cleanup": g["CLEANUP"],
               "visibleBaselineRestored": baseline_ok, "createdAccounts": False,
@@ -358,3 +519,34 @@ def _rehearse_locked(sim, directory, b_file, lock_fd, lock_path, journal):
     result = build_offline_receipt(report, final_journal, final_baseline, context,
                                    final_rows, final_summaries)
     return {**result, "businessWrites": 0}
+
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--execute-approved-once", action="store_true")
+    parser.add_argument("--helper", type=Path)
+    parser.add_argument("--b-file", type=Path)
+    parser.add_argument("--evidence-dir", type=Path)
+    args = parser.parse_args()
+    # No default live behavior, no non-interactive or environment bypass.
+    if not args.execute_approved_once or not all((args.helper, args.b_file, args.evidence_dir)):
+        parser.error("explicit operator flag and all three existing private paths required")
+    if not sys.stdin.isatty():
+        parser.error("interactive operator terminal required")
+    try:
+        confirmation = input("After separate owner approval and idle-window confirmation, type "
+                             + APPROVAL + ": ")
+        result = run_operator_once(args.helper, args.evidence_dir, args.b_file,
+                                   confirmation=confirmation)
+    except (Exception, KeyboardInterrupt):
+        # Loading/confirmation errors occur before the adapter can send writes.
+        result = {"kind": "S5_LOCAL_OPERATOR_REGRESSION", "state": "S5_LOCAL_REGRESSION_BLOCKED",
+                  "businessMutationRequests": 0, "businessWrites": 0, "liveVerified": False,
+                  "productionAuthorized": False, "deploymentAuthorized": False}
+    print(json.dumps(result, sort_keys=True))
+    return 0 if result["state"] == "S5_LOCAL_REGRESSION_PASS" else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
