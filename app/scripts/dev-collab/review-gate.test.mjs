@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { verifyTaskEvidence, verifyRequirementClose, REQUIRED_CHECKS } from './review-gate.mjs'
+import { verifyTaskEvidence, verifyRequirementClose, verifyIntegrationRelease, verifyIntegrationPolicy, buildOwnerRulesetAttestation, verifyOwnerAttestedIntegrationPolicy, REQUIRED_CHECKS } from './review-gate.mjs'
 const sha='a'.repeat(40),merge='b'.repeat(40),integration='c'.repeat(40)
 const make=()=>({schema_version:1,requirement_id:'REQ-20261031-001',issue_number:132,
   status:'ACTIVE',version:3,title:'MVP',processed_requests:[],
@@ -97,4 +97,286 @@ test('critical CI workflow rename cannot bypass changed-file allowlist',()=>{
   evidence.files=[{filename:'.github/workflows/ci-copy.yml',
     previous_filename:'.github/workflows/ci.yml',status:'renamed'}]
   refuses(()=>verifyTaskEvidence(s,'T-001',evidence),'CRITICAL_WORKFLOW_CHANGE_NOT_ALLOWED')
+})
+
+const validDevRelease=()=>{
+ const s=make()
+ s.tasks[0].status='DONE';s.tasks[0].claim=null
+ const command={type:'close',pr_number:139,head_sha:sha}
+ const proof={
+   pr:{number:139,head:{ref:'dev',sha,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+      base:{ref:'main',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+      merged:true,merged_at:'2026-11-23T00:00:00Z',merge_commit_sha:merge},
+   branch:{name:'main',protected:true,commit:{sha:integration}},
+   comparison:{status:'ahead',behind_by:0,
+     base_commit:{sha:merge},merge_base_commit:{sha:merge},commits:[]},
+   integrationBranch:{name:'integrate/REQ-20261031-001',protected:true,
+     commit:{sha:'d'.repeat(40)}},
+   integrationComparison:{status:'ahead',behind_by:0,
+     base_commit:{sha:'d'.repeat(40)},merge_base_commit:{sha:'d'.repeat(40)},commits:[]},
+   mainAncestryComparison:{status:'ahead',behind_by:0,
+     base_commit:{sha},merge_base_commit:{sha},commits:[]},
+   checks:pack().checks
+ }
+ return {s,command,proof}
+}
+test('final closure requires merged same-repo dev -> main and accepted integration ancestry',()=>{
+ const {s,command,proof}=validDevRelease()
+ const result=verifyIntegrationRelease(s,command,proof)
+ assert.equal(result.verified,true)
+ assert.equal(result.dev_head_sha,sha)
+ assert.equal(result.accepted_integration_sha,'d'.repeat(40))
+})
+test('direct integrate -> main, feature -> main and fork dev -> main are denied',()=>{
+ for(const ref of ['integrate/REQ-20261031-001','feature/unsafe']){
+  const {s,command,proof}=validDevRelease()
+  proof.pr.head.ref=ref
+  refuses(()=>verifyIntegrationRelease(s,command,proof),'WRONG_MAIN_RELEASE_TARGET')
+ }
+ const {s,command,proof}=validDevRelease()
+ proof.pr.head.repo.full_name='another/repository'
+ refuses(()=>verifyIntegrationRelease(s,command,proof),'WRONG_MAIN_RELEASE_TARGET')
+})
+test('missing or unprotected integration branch can never authorize dev-only closure',()=>{
+ for(const change of [
+  proof=>{proof.integrationBranch=null},
+  proof=>{proof.integrationBranch.protected=false},
+  proof=>{proof.integrationBranch.name='integrate/REQ-20261031-001-solo'}
+ ]){
+  const {s,command,proof}=validDevRelease()
+  change(proof)
+  refuses(()=>verifyIntegrationRelease(s,command,proof),'INTEGRATION_BRANCH_NOT_PROTECTED')
+ }
+})
+test('dev PR must contain accepted integration commit in true ancestry',()=>{
+ for(const change of [
+  proof=>{proof.integrationComparison=null},
+  proof=>{proof.integrationComparison.behind_by=1},
+  proof=>{proof.integrationComparison.base_commit.sha='e'.repeat(40)},
+  proof=>{proof.integrationComparison.merge_base_commit.sha='e'.repeat(40)},
+  proof=>{proof.integrationComparison.commits=undefined}
+ ]){
+  const {s,command,proof}=validDevRelease()
+  change(proof)
+  refuses(()=>verifyIntegrationRelease(s,command,proof),'INTEGRATION_NOT_IN_DEV_ANCESTRY')
+ }
+})
+test('no merge, unprotected main, wrong dev SHA or failing head checks prevent closure',()=>{
+ let p=validDevRelease()
+ p.proof.pr.merged=false
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'PR_NOT_MERGED')
+ p=validDevRelease();p.proof.branch.protected=false
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'MAIN_NOT_PROTECTED')
+ p=validDevRelease();p.proof.pr.head.sha='e'.repeat(40)
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'WRONG_PR_OR_HEAD')
+ p=validDevRelease();p.proof.checks.check_runs[0].conclusion='failure'
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'CHECK_NOT_GREEN_backend-tests')
+ p=validDevRelease();p.s.tasks[0].status='IN_REVIEW'
+ // A task IN_REVIEW must retain a valid claim; otherwise snapshot validation
+ // correctly fails first with ACTIVE_CLAIM instead of the intended close gate.
+ p.s.tasks[0].claim={claim_id:'11111111-1111-4111-8111-111111111111',
+   worker_id:'chat-A',actor:'micor-cjj-spec'}
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'INCOMPLETE_REQUIREMENT')
+})
+
+test('squash/rebase cannot fake the exact tested dev head as main ancestry',()=>{
+ for(const change of [
+  proof=>{proof.mainAncestryComparison=null},
+  proof=>{proof.mainAncestryComparison.behind_by=1},
+  proof=>{proof.mainAncestryComparison.base_commit.sha='f'.repeat(40)},
+  proof=>{proof.mainAncestryComparison.merge_base_commit.sha='f'.repeat(40)},
+  proof=>{proof.mainAncestryComparison.commits=undefined}
+ ]){
+  const {s,command,proof}=validDevRelease()
+  change(proof)
+  refuses(()=>verifyIntegrationRelease(s,command,proof),'DEV_HEAD_NOT_IN_MAIN_ANCESTRY')
+ }
+})
+
+
+const integrationPolicyFixture=()=>({
+  "id": 28050327,
+  "name": "protect-collab-integration",
+  "target": "branch",
+  "source_type": "Repository",
+  "source": "micor-cjj-spec/matrix-prp",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "refs/heads/integrate/REQ-20261031-001"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "require_extra_approval_for_unattributed_changes": false,
+        "allowed_merge_methods": [
+          "merge"
+        ]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {
+            "context": "backend-tests",
+            "integration_id": 15368
+          },
+          {
+            "context": "web-build",
+            "integration_id": 15368
+          },
+          {
+            "context": "mobile-build",
+            "integration_id": 15368
+          },
+          {
+            "context": "db-migration-integration",
+            "integration_id": 15368
+          },
+          {
+            "context": "video-db-integration",
+            "integration_id": 15368
+          },
+          {
+            "context": "impact-report",
+            "integration_id": 15368
+          },
+          {
+            "context": "dev-collab-contract",
+            "integration_id": 15368
+          }
+        ]
+      }
+    }
+  ],
+  "node_id": "RRS_lACqUmVwb3NpdG9yec5LNo7jzgGsA5c",
+  "created_at": "2026-11-25T05:47:06.929Z",
+  "updated_at": "2026-11-25T05:47:07.076Z",
+  "bypass_actors": [],
+  "current_user_can_bypass": "never"
+})
+test('integration policy requires full exact Ruleset and no bypass',()=>{
+ assert.equal(verifyIntegrationPolicy('REQ-20261031-001',integrationPolicyFixture()).verified,true)
+ for(const mutate of [
+   r=>{delete r.bypass_actors},r=>r.bypass_actors.push({actor_type:'Integration',actor_id:1,bypass_mode:'always'}),r=>r.current_user_can_bypass='always'
+ ]){const r=integrationPolicyFixture();mutate(r);refuses(()=>verifyIntegrationPolicy('REQ-20261031-001',r),'INTEGRATION_POLICY_BYPASS_UNVERIFIED')}
+ for(const mutate of [r=>r.id++,r=>r.enforcement='evaluate',r=>r.updated_at='2026-11-26T00:00:00Z',r=>r.rules.pop(),r=>r.rules[2].parameters.allowed_merge_methods=['squash'],r=>r.rules[3].parameters.required_status_checks.pop(),r=>r.conditions.ref_name.include=['~ALL']]){
+  const r=integrationPolicyFixture();mutate(r);refuses(()=>verifyIntegrationPolicy('REQ-20261031-001',r),'INTEGRATION_POLICY_DRIFT')
+ }
+ const r=integrationPolicyFixture();r.unexpected=true;refuses(()=>verifyIntegrationPolicy('REQ-20261031-001',r),'INTEGRATION_POLICY_UNKNOWN_FIELDS')
+ refuses(()=>verifyIntegrationPolicy('REQ-20261031-002',integrationPolicyFixture()),'INTEGRATION_POLICY_NOT_REGISTERED')
+})
+
+const squashFixture=()=>{
+ const x=validDevRelease(),base='e'.repeat(40),tested='f'.repeat(40),tree='1'.repeat(40)
+ x.proof.pr.base.sha=base;x.proof.pr.base.repo.id=1261866723;x.proof.pr.head.repo.id=1261866723
+ x.proof.mainAncestryComparison={status:'diverged',behind_by:1,base_commit:{sha},merge_base_commit:{sha:base},commits:[]}
+ x.proof.squashProof={
+  mergeCommit:{sha:merge,tree:{sha:tree},parents:[{sha:base}]},
+  testCommit:{sha:tested,tree:{sha:tree},parents:[{sha:base},{sha}]},
+  checkouts:REQUIRED_CHECKS.map((name,i)=>({name,jobId:i+1,sha:tested})),
+  workflowBlobs:Object.fromEntries(['ci.yml','feature-impact.yml','prp-dev-collab-contract.yml'].map(n=>['.github/workflows/'+n,[tree,tree,tree]]))
+ }
+ return x
+}
+test('verified squash closes only with exact tested merge tree and full job coverage',()=>{
+ const {s,command,proof}=squashFixture()
+ assert.equal(verifyIntegrationRelease(s,command,proof).verified,true)
+})
+test('squash proof rejects foreign repo, changed parents, wrong tree, omitted job and workflow drift',()=>{
+ for(const [mutate,code] of [
+  [p=>p.pr.base.repo.id=1,'SQUASH_PR_BINDING'],
+  [p=>p.squashProof.mergeCommit.parents.push({sha}),'SQUASH_COMMIT_BINDING'],
+  [p=>p.squashProof.mergeCommit.parents[0].sha=sha,'SQUASH_COMMIT_BINDING'],
+  [p=>p.squashProof.testCommit.parents.reverse(),'SQUASH_TEST_TREE_MISMATCH'],
+  [p=>p.squashProof.testCommit.tree.sha='2'.repeat(40),'SQUASH_TEST_TREE_MISMATCH'],
+  [p=>p.squashProof.checkouts.pop(),'SQUASH_CHECKOUT_SET_MISMATCH'],
+  [p=>p.squashProof.checkouts[1].jobId=p.squashProof.checkouts[0].jobId,'SQUASH_CHECKOUT_SET_MISMATCH'],
+  [p=>p.squashProof.workflowBlobs['.github/workflows/ci.yml'][2]='2'.repeat(40),'SQUASH_WORKFLOW_BLOB_MISMATCH'],
+  [p=>p.mainAncestryComparison=null,'SQUASH_ANCESTRY_EVIDENCE_INVALID'],
+ ]){const {s,command,proof}=squashFixture();mutate(proof);refuses(()=>verifyIntegrationRelease(s,command,proof),code)}
+})
+
+test('owner can build a compact attestation only from a full exact Ruleset snapshot',()=>{
+ const rule=integrationPolicyFixture(),observedAt=new Date(Date.now()-60000).toISOString()
+ const note=buildOwnerRulesetAttestation(rule,{requestId:'11111111-1111-4111-8111-111111111111',
+  action:'accept',requirementId:'REQ-20261031-001',taskId:'T-007',prNumber:446,
+  headSha:'a'.repeat(40),stateVersion:19,mainSha:'b'.repeat(40),observedAt})
+ assert.ok(note.startsWith('PRP_RULESET_ATTESTATION_V1:'))
+ assert.ok(note.length<2048)
+ assert.throws(()=>buildOwnerRulesetAttestation({...rule,bypass_actors:[{actor_type:'Team'}]},
+  {requestId:'11111111-1111-4111-8111-111111111111',action:'accept',requirementId:'REQ-20261031-001',
+   taskId:'T-007',prNumber:446,headSha:'a'.repeat(40),stateVersion:19,mainSha:'b'.repeat(40),observedAt}),
+  e=>e.code==='INTEGRATION_POLICY_BYPASS_UNVERIFIED')
+})
+test('redacted Ruleset requires fresh request-bound owner attestation and visible revision match',()=>{
+ const full=integrationPolicyFixture(),rule={...full};delete rule.bypass_actors
+ const observedAt=new Date(Date.now()-60000).toISOString()
+ const binding={requestId:'11111111-1111-4111-8111-111111111111',action:'accept',
+  requirementId:'REQ-20261031-001',taskId:'T-007',prNumber:446,
+  headSha:'a'.repeat(40),stateVersion:19,mainSha:'b'.repeat(40)}
+ const note=buildOwnerRulesetAttestation(full,{...binding,observedAt})
+ const workflowRun={created_at:new Date(Date.parse(observedAt)+30000).toISOString()}
+ const ok=verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,note,binding,workflowRun)
+ assert.equal(ok.ownerAttested,true)
+ for(const [change,code] of [
+  [a=>a.bypass_actors=[{actor_type:'Team',actor_id:1,bypass_mode:'always'}],'OWNER_RULESET_ATTESTATION_POLICY'],
+  [a=>a.rule_updated_at='2026-11-26T00:00:00.000Z','OWNER_RULESET_ATTESTATION_POLICY'],
+  [a=>a.request_id='22222222-2222-4222-8222-222222222222','OWNER_RULESET_ATTESTATION_BINDING'],
+  [a=>a.expected_main_sha='c'.repeat(40),'OWNER_RULESET_ATTESTATION_BINDING'],
+  [a=>a.policy_sha256='0'.repeat(64),'OWNER_RULESET_ATTESTATION_POLICY']
+ ]){
+  const raw=JSON.parse(note.slice('PRP_RULESET_ATTESTATION_V1:'.length));change(raw)
+  const bad='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify(raw)
+  assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,bad,binding,workflowRun),e=>e.code===code)
+ }
+ assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,note,binding,
+  {created_at:new Date(Date.parse(observedAt)+301000).toISOString()}),e=>e.code==='OWNER_RULESET_ATTESTATION_EXPIRED')
+ assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,note,binding,workflowRun,Date.parse(observedAt)+700000),
+  e=>e.code==='OWNER_RULESET_ATTESTATION_EXPIRED')
+})
+
+test('owner attestation task binding is action-specific: accept requires a task and close forbids one',()=>{
+ const rule=integrationPolicyFixture(),base={requestId:'11111111-1111-4111-8111-111111111111',
+  requirementId:'REQ-20261031-001',prNumber:446,headSha:'a'.repeat(40),
+  stateVersion:19,mainSha:'b'.repeat(40)}
+ assert.throws(()=>buildOwnerRulesetAttestation(rule,{...base,action:'accept',taskId:null}),
+  e=>e.code==='OWNER_RULESET_ATTESTATION_BINDING')
+ assert.throws(()=>buildOwnerRulesetAttestation(rule,{...base,action:'close',taskId:'T-007'}),
+  e=>e.code==='OWNER_RULESET_ATTESTATION_BINDING')
+})
+
+test('issue attestation binds exact state SHA and cannot ignore visible nonempty or null bypass list',()=>{
+ const full=integrationPolicyFixture(),redacted={...full};delete redacted.bypass_actors
+ const binding={requestId:'11111111-1111-4111-8111-111111111111',action:'accept',
+  requirementId:'REQ-20261031-001',taskId:'T-007',prNumber:446,headSha:'a'.repeat(40),
+  stateVersion:19,mainSha:'b'.repeat(40),stateSha:'c'.repeat(40)}
+ const observedAt=new Date(Date.now()-60000).toISOString(),note=buildOwnerRulesetAttestation(full,{...binding,observedAt})
+ const source={created_at:new Date(Date.parse(observedAt)+30000).toISOString()}
+ assert.equal(verifyOwnerAttestedIntegrationPolicy(binding.requirementId,redacted,note,binding,source).ownerAttested,true)
+ assert.equal(verifyOwnerAttestedIntegrationPolicy(binding.requirementId,full,note,binding,source).ownerAttested,true)
+ for(const list of [null,[{actor_type:'Team',actor_id:1}]]){
+  assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,{...full,bypass_actors:list},note,binding,source),e=>e.code==='INTEGRATION_POLICY_BYPASS_UNVERIFIED')
+ }
+ assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,redacted,note,{...binding,stateSha:'d'.repeat(40)},source),e=>e.code==='OWNER_RULESET_ATTESTATION_BINDING')
 })
