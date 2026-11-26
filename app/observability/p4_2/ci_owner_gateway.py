@@ -1,0 +1,630 @@
+"""Disposable end-to-end P4.2 test: Owner MCP -> fixed gateway -> official Grafana MCP.
+
+Only GitHub-hosted CI, synthetic Prometheus samples and ephemeral credentials.
+No listener is opened for the Owner gateway (Starlette TestClient is in-process).
+The official Grafana MCP runs only on an internal Docker network with no ports.
+"""
+import importlib.util
+import json
+import os
+from pathlib import Path
+import secrets
+import sys
+import tempfile
+import time
+import uuid
+from unittest.mock import patch
+
+
+P3 = "b0c0521bf345231ac1562db66ef92746828466e3"
+P4 = "c459ac4c56ebdd2be6808f9f7bac46995625714a"
+P3_FIXTURE_BLOB = "0384dee80ac635397b8dcc9170bfecce513773cf"
+UID = "prp-synthetic"
+OWNER_TOKEN = "synthetic-owner-token"
+
+
+def check(value, label):
+    if not value:
+        raise AssertionError(label)
+    print("OBS_P42_CASE=" + label + ":PASS", flush=True)
+
+
+def load_module(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def main():
+    if (
+        os.getenv("GITHUB_ACTIONS") != "true"
+        or os.getenv("RUNNER_ENVIRONMENT") != "github-hosted"
+        or len(sys.argv) != 3
+    ):
+        raise SystemExit("disposable hosted CI only")
+
+    work = Path(sys.argv[1]).resolve()
+    p41_path = Path(sys.argv[2]).resolve()
+    sys.path.insert(0, str(work / "app" / "ops"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+    p41 = load_module(p41_path, "p41_product")
+    from auth_adapter import GrantFile, parse_grant
+    from audit_store import AUDIT_NAME, AuditStoreFixture
+    from http_boundary import Budget
+    from query_contract import (
+        CLIENT, FIXTURE_PROFILE, ISSUER, RESOURCE, SCOPE, Policy,
+    )
+    from snapshot_contract import SnapshotStore
+    from owner_gateway import (
+        FixedGrafanaQueryAdapter,
+        OwnerBoundGrafanaGateway,
+        QUERIES,
+        TOOL_NAME,
+        WINDOWS,
+        build_app,
+    )
+    from starlette.testclient import TestClient
+
+    prefix = "p42-" + uuid.uuid4().hex[:10]
+    names = {key: prefix + "-" + key for key in ("p3", "prom", "grafana", "mcp")}
+    network = prefix
+    admin_password = secrets.token_urlsafe(32)
+    upstream_caller = secrets.token_urlsafe(32)
+    admin = {
+        "Authorization": "Basic "
+        + __import__("base64").b64encode(
+            ("admin:" + admin_password).encode()
+        ).decode()
+    }
+    created = []
+
+    with tempfile.TemporaryDirectory(prefix="p42-") as temp:
+        root = Path(temp)
+        root.chmod(0o700)
+        p3_path = root / "p3.py"
+        p3_path.write_bytes(
+            p41.exact(P3, "app/observability/p3/fixture.py", P3_FIXTURE_BLOB)
+        )
+        p3_path.chmod(0o644)
+        (root / "state.json").write_text(json.dumps({"node": True}))
+        (root / "state.json").chmod(0o644)
+        prom_config = root / "prometheus.yml"
+        prom_config.write_text(
+            "global:\n"
+            "  scrape_interval: 2s\n"
+            "  scrape_timeout: 1s\n"
+            "scrape_configs:\n"
+            "  - job_name: node\n"
+            "    metrics_path: /metrics/node\n"
+            "    sample_limit: 250\n"
+            "    static_configs:\n"
+            "      - targets: ['p3:8080']\n"
+            "        labels:\n"
+            "          environment: synthetic\n"
+            "          instance: fixture-node\n"
+        )
+        prom_config.chmod(0o644)
+
+        try:
+            images = {}
+            for key, tag in p41.IMAGES.items():
+                p41.run("docker", "pull", "--platform", "linux/amd64", tag, timeout=300)
+                image = json.loads(p41.run("docker", "image", "inspect", tag))[0]
+                check(
+                    image["Os"] == "linux"
+                    and image["Architecture"] == "amd64"
+                    and bool(image["RepoDigests"]),
+                    "pinned-image-" + key,
+                )
+                images[key] = image["Id"]
+                print(
+                    "OBS_P42_IMAGE=" + key + "|" + tag + "|"
+                    + image["RepoDigests"][0] + "|" + image["Id"],
+                    flush=True,
+                )
+
+            p41.run("docker", "network", "create", "--internal", network)
+
+            def start(key, image, memory, options=(), args=(), alias=None):
+                created.append(names[key])
+                p41.run(
+                    "docker", "run", "-d", "--pull", "never",
+                    "--name", names[key],
+                    "--network", network,
+                    "--network-alias", alias or key,
+                    "--memory", memory,
+                    "--memory-swap", memory,
+                    "--cpus", "0.75",
+                    "--pids-limit", "128",
+                    "--cap-drop", "ALL",
+                    "--security-opt", "no-new-privileges",
+                    *options, images[image], *args,
+                )
+
+            def mount(path, target):
+                return (
+                    "--mount",
+                    "type=bind,src=" + str(path) + ",dst=" + target + ",readonly",
+                )
+
+            start(
+                "p3", "python", "128m",
+                mount(root, "/control"),
+                ("python", "/control/p3.py", "metrics"),
+            )
+            start(
+                "prom", "prom", "384m",
+                mount(prom_config, "/fixture/prometheus.yml"),
+                (
+                    "--config.file=/fixture/prometheus.yml",
+                    "--storage.tsdb.retention.time=1h",
+                    "--storage.tsdb.retention.size=128MB",
+                    "--query.timeout=5s",
+                    "--query.max-concurrency=2",
+                    "--query.max-samples=10000",
+                ),
+            )
+            start(
+                "grafana", "grafana", "384m",
+                (
+                    "-e", "GF_SECURITY_ADMIN_PASSWORD=" + admin_password,
+                    "-e", "GF_AUTH_ANONYMOUS_ENABLED=false",
+                    "-e", "GF_ANALYTICS_REPORTING_ENABLED=false",
+                    "-e", "GF_ANALYTICS_CHECK_FOR_UPDATES=false",
+                    "-e", "GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false",
+                ),
+            )
+
+            def address(key, port):
+                item = json.loads(p41.run("docker", "inspect", names[key]))[0]
+                if (
+                    set(item["NetworkSettings"]["Networks"]) != {network}
+                    or item["HostConfig"]["PortBindings"]
+                ):
+                    raise AssertionError("container network boundary")
+                return (
+                    "http://"
+                    + item["NetworkSettings"]["Networks"][network]["IPAddress"]
+                    + ":" + str(port)
+                )
+
+            prom = address("prom", 9090)
+            grafana = address("grafana", 3000)
+            p41.eventually(
+                lambda: p41.api(grafana, "/api/health").get("database") == "ok",
+                "grafana-ready",
+            )
+            p41.eventually(
+                lambda: bool(p41.api(
+                    prom,
+                    "/api/v1/query?query="
+                    + __import__("urllib.parse").parse.quote(
+                        'node_memory_MemAvailable_bytes{environment="synthetic",instance="fixture-node"}'
+                    ),
+                )["data"]["result"]),
+                "synthetic-node-scrape",
+            )
+            p41.api(
+                grafana,
+                "/api/datasources",
+                "POST",
+                {
+                    "name": "PRP P4.2 synthetic only",
+                    "uid": UID,
+                    "type": "prometheus",
+                    "url": "http://prom:9090",
+                    "access": "proxy",
+                    "isDefault": True,
+                },
+                admin,
+            )
+            account = p41.api(
+                grafana,
+                "/api/serviceaccounts",
+                "POST",
+                {"name": "p42-owner-viewer", "role": "Viewer"},
+                admin,
+            )["id"]
+            viewer_record = p41.api(
+                grafana,
+                f"/api/serviceaccounts/{account}/tokens",
+                "POST",
+                {"name": "p42-ephemeral", "secondsToLive": 600},
+                admin,
+            )
+            viewer_token = viewer_record["key"]
+            viewer_header = {"Authorization": "Bearer " + viewer_token}
+            check(
+                len(p41.api(grafana, "/api/datasources", headers=viewer_header)) == 1,
+                "grafana-viewer-one-datasource",
+            )
+            write_status = p41.request(
+                grafana,
+                "/api/datasources",
+                "POST",
+                {"name": "forbidden", "type": "prometheus", "url": "http://prom:9090"},
+                viewer_header,
+            )[0]
+            check(write_status in (401, 403), "grafana-viewer-write-denied")
+
+            start(
+                "mcp", "mcp", "256m",
+                (
+                    "-e", "GRAFANA_URL=http://grafana:3000",
+                    "-e", "MCP_GRAFANA_SERVER_TOKEN=" + upstream_caller,
+                    "-e", "GRAFANA_USAGE_STATS=disabled",
+                ),
+                (
+                    "-t", "streamable-http",
+                    "--address", "0.0.0.0:8000",
+                    "--allowed-hosts", "mcp:8000",
+                    "--enabled-tools", "prometheus",
+                    "--disable-write",
+                    "--disable-api",
+                    "--disable-rendering",
+                    "--disable-assistant",
+                    "--require-user-credentials",
+                    "--log-tool-calls",
+                    "--prometheus-enforced-matchers", 'environment="synthetic"',
+                    "--prometheus-guardrail-mode", "enforce",
+                    "--prometheus-guardrail-max-range", "1h",
+                    "--prometheus-guardrail-max-points", "120",
+                ),
+            )
+            mcp_url = address("mcp", 8000)
+            p41.eventually(
+                lambda: p41.request(
+                    mcp_url, "/healthz", headers={"Host": "mcp:8000"}
+                )[0] in (200, 401),
+                "official-grafana-mcp-ready",
+            )
+            upstream = p41.Client(mcp_url, upstream_caller, viewer_token)
+            upstream.init()
+            tools = upstream.rpc("tools/list")["result"]["tools"]
+            names_found = {tool["name"] for tool in tools}
+            check(
+                "query_prometheus" in names_found
+                and names_found <= {
+                    "query_prometheus",
+                    "query_prometheus_histogram",
+                    "list_prometheus_metric_names",
+                    "list_prometheus_metric_metadata",
+                    "list_prometheus_label_names",
+                    "list_prometheus_label_values",
+                },
+                "upstream-prometheus-readonly-toolset",
+            )
+
+            now = int(time.time())
+            revoked = {"value": False}
+            revoke_after_query = {"value": False}
+            fail_audit = {"value": False}
+            grant_id = str(uuid.uuid4())
+
+            def grant():
+                return parse_grant(json.dumps({
+                    "version": 1,
+                    "grantId": grant_id,
+                    "issuer": ISSUER,
+                    "resource": RESOURCE,
+                    "client": CLIENT,
+                    "subject": FIXTURE_PROFILE.subject,
+                    "environment": "staging",
+                    "scope": SCOPE,
+                    "issuedAt": now - 20,
+                    "expiresAt": now + 600,
+                    "active": not revoked["value"],
+                }).encode())
+
+            def introspect(token):
+                claims = {
+                    "active": token == OWNER_TOKEN or token in (
+                        "wrong-scope", "wrong-subject", "wrong-audience", "expired"
+                    ),
+                    "iss": ISSUER,
+                    "sub": FIXTURE_PROFILE.subject,
+                    "aud": [RESOURCE],
+                    "client_id": CLIENT,
+                    "scope": SCOPE,
+                    "token_type": "Bearer",
+                    "iat": now - 10,
+                    "exp": now + 300,
+                }
+                if token == "wrong-scope":
+                    claims["scope"] = "prp.tasks.read"
+                elif token == "wrong-subject":
+                    claims["sub"] = "another-subject"
+                elif token == "wrong-audience":
+                    claims["aud"] = ["https://other.invalid/mcp"]
+                elif token == "expired":
+                    claims["exp"] = now
+                return json.dumps(claims).encode()
+
+            grants = GrantFile(
+                root / "grant-fixture",
+                reader_gid=os.getegid(),
+                owner_uid=os.geteuid(),
+            )
+            snapshot_dir = root / "snapshot"
+            snapshot_dir.mkdir(mode=0o700)
+            audit_dir = root / "audit"
+            audit_dir.mkdir(mode=0o700)
+            audit_file = audit_dir / AUDIT_NAME
+            audit_file.touch(mode=0o600)
+            audit_file.chmod(0o600)
+            durable_audit = AuditStoreFixture(
+                audit_dir, owner_uid=os.geteuid(), clock=lambda: now
+            )
+
+            class SwitchAudit:
+                def __call__(self, event):
+                    if fail_audit["value"]:
+                        return False
+                    return durable_audit(event)
+
+            audit = SwitchAudit()
+            server = {
+                "policy": Policy(True),
+                "introspect": introspect,
+                "grants": grants,
+                "trusted_clock": lambda: now,
+                "store": SnapshotStore(snapshot_dir),
+            }
+            upstream_calls = []
+
+            def upstream_rpc(method, params):
+                upstream_calls.append(json.loads(json.dumps({
+                    "method": method, "params": params,
+                })))
+                response = upstream.rpc(method, params)
+                if revoke_after_query["value"] and method == "tools/call":
+                    revoke_after_query["value"] = False
+                    revoked["value"] = True
+                return response
+
+            adapter = FixedGrafanaQueryAdapter(
+                upstream_rpc, datasource_uid=UID
+            )
+            gateway = OwnerBoundGrafanaGateway(
+                server=server,
+                query_adapter=adapter,
+                audit_sink=audit,
+                budget=Budget(),
+                disclosure_check=lambda: True,
+            )
+
+            with patch.object(grants, "current", side_effect=grant):
+                app = build_app(gateway, server)
+                with TestClient(app, base_url="https://ops.invalid") as client:
+                    def post(method, params=None, token=OWNER_TOKEN, request_id=1):
+                        message = {"jsonrpc": "2.0", "id": request_id, "method": method}
+                        if params is not None:
+                            message["params"] = params
+                        headers = {
+                            "Host": "ops.invalid",
+                            "Accept": "application/json, text/event-stream",
+                            "Content-Type": "application/json",
+                        }
+                        if token is not None:
+                            headers["Authorization"] = "Bearer " + token
+                        if method != "initialize":
+                            headers["MCP-Protocol-Version"] = "2025-06-18"
+                        return client.post("/mcp", json=message, headers=headers)
+
+                    missing = post("tools/list", {}, token=None)
+                    check(missing.status_code == 401, "missing-owner-bearer-denied")
+                    for token in ("wrong-scope", "wrong-subject", "wrong-audience", "expired"):
+                        denied = post("tools/list", {}, token=token)
+                        check(denied.status_code >= 400, "owner-identity-denied-" + token)
+
+                    initialized = post(
+                        "initialize",
+                        {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "p42-ci", "version": "1"},
+                        },
+                    )
+                    check(
+                        initialized.status_code == 200
+                        and initialized.json()["result"]["protocolVersion"] == "2025-06-18",
+                        "owner-gateway-sdk-initialize",
+                    )
+                    notify = client.post(
+                        "/mcp",
+                        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                        headers={
+                            "Host": "ops.invalid",
+                            "Accept": "application/json, text/event-stream",
+                            "Content-Type": "application/json",
+                            "Authorization": "Bearer " + OWNER_TOKEN,
+                            "MCP-Protocol-Version": "2025-06-18",
+                        },
+                    )
+                    check(notify.status_code in (200, 202), "owner-gateway-initialized")
+
+                    listed = post("tools/list", {}, request_id=2)
+                    exposed = listed.json()["result"]["tools"]
+                    check(len(exposed) == 1 and exposed[0]["name"] == TOOL_NAME,
+                          "single-fixed-owner-tool")
+                    schema = exposed[0]["inputSchema"]
+                    check(
+                        schema["additionalProperties"] is False
+                        and set(schema["properties"]) == {"metric", "window"}
+                        and set(schema["required"]) == {"metric", "window"},
+                        "strict-no-arbitrary-query-schema",
+                    )
+
+                    request_id = 3
+                    for metric in QUERIES:
+                        request_id += 1
+                        response = post(
+                            "tools/call",
+                            {"name": TOOL_NAME, "arguments": {"metric": metric, "window": "5m"}},
+                            request_id=request_id,
+                        )
+                        check(response.status_code == 200, "fixed-query-" + metric)
+                        result = response.json()["result"]
+                        payload = result["structuredContent"]
+                        check(
+                            result["isError"] is False
+                            and payload["metric"] == metric
+                            and payload["window"] == "5m"
+                            and "fixture-node" in json.dumps(payload)
+                            and "foreign-marker" not in json.dumps(payload),
+                            "bounded-result-" + metric,
+                        )
+                        args = upstream_calls[-1]["params"]["arguments"]
+                        check(
+                            upstream_calls[-1]["params"]["name"] == "query_prometheus"
+                            and args == {
+                                "datasourceUid": UID,
+                                "expr": QUERIES[metric],
+                                "queryType": "range",
+                                "startTime": "now-5m",
+                                "endTime": "now",
+                                "stepSeconds": 5,
+                            },
+                            "server-fixed-promql-and-window-" + metric,
+                        )
+
+                    for window, expected_step in (("15m", 15), ("1h", 60)):
+                        request_id += 1
+                        response = post(
+                            "tools/call",
+                            {"name": TOOL_NAME, "arguments": {
+                                "metric": "memory_available_bytes", "window": window,
+                            }},
+                            request_id=request_id,
+                        )
+                        check(
+                            response.status_code == 200
+                            and response.json()["result"]["isError"] is False,
+                            "bounded-window-" + window,
+                        )
+                        args = upstream_calls[-1]["params"]["arguments"]
+                        check(
+                            args["startTime"] == "now-" + window
+                            and args["endTime"] == "now"
+                            and args["stepSeconds"] == expected_step
+                            and args["datasourceUid"] == UID
+                            and args["expr"] == QUERIES["memory_available_bytes"],
+                            "fixed-time-range-" + window,
+                        )
+
+                    calls_before = len(upstream_calls)
+                    for bad_args in (
+                        {"metric": "memory_available_bytes", "window": "5m", "expr": "up"},
+                        {"metric": "memory_available_bytes", "window": "2h"},
+                        {"metric": "memory_available_bytes", "window": "5m", "datasourceUid": "other"},
+                        {"metric": "up", "window": "5m"},
+                        {"metric": "memory_available_bytes", "window": "now-1d"},
+                    ):
+                        request_id += 1
+                        denied = post(
+                            "tools/call",
+                            {"name": TOOL_NAME, "arguments": bad_args},
+                            request_id=request_id,
+                        )
+                        check(
+                            denied.status_code == 200
+                            and denied.json()["result"]["isError"] is True,
+                            "invalid-query-arguments-denied",
+                        )
+                    check(len(upstream_calls) == calls_before, "invalid-args-no-downstream-call")
+
+                    fail_audit["value"] = True
+                    request_id += 1
+                    audit_failed = post(
+                        "tools/call",
+                        {"name": TOOL_NAME, "arguments": {
+                            "metric": "memory_available_bytes", "window": "5m",
+                        }},
+                        request_id=request_id,
+                    )
+                    fail_audit["value"] = False
+                    check(
+                        audit_failed.status_code == 200
+                        and audit_failed.json()["result"]["isError"] is True,
+                        "audit-failure-denies-disclosure",
+                    )
+
+                    revoke_after_query["value"] = True
+                    request_id += 1
+                    revoked_during_query = post(
+                        "tools/call",
+                        {"name": TOOL_NAME, "arguments": {
+                            "metric": "memory_available_bytes", "window": "5m",
+                        }},
+                        request_id=request_id,
+                    )
+                    check(
+                        revoked_during_query.status_code == 200
+                        and revoked_during_query.json()["result"]["isError"] is True
+                        and "fixture-node" not in revoked_during_query.text,
+                        "owner-revocation-during-query-denies-result",
+                    )
+
+                    calls_before = len(upstream_calls)
+                    request_id += 1
+                    after_revoke = post(
+                        "tools/call",
+                        {"name": TOOL_NAME, "arguments": {
+                            "metric": "memory_available_bytes", "window": "5m",
+                        }},
+                        request_id=request_id,
+                    )
+                    check(
+                        after_revoke.status_code >= 400
+                        or after_revoke.json().get("result", {}).get("isError") is True,
+                        "owner-revocation-next-request-denied",
+                    )
+                    check(len(upstream_calls) == calls_before,
+                          "revoked-owner-no-downstream-call")
+
+            rows = [
+                json.loads(line)
+                for line in audit_file.read_text().splitlines()
+                if line.strip()
+            ]
+            audit_text = audit_file.read_text()
+            check(
+                any(row["outcome"] == "handled" for row in rows)
+                and any(row["outcome"] == "denied" for row in rows),
+                "durable-owner-audit-success-and-denial",
+            )
+            check(
+                all(set(row) == {
+                    "version", "traceId", "route", "candidateStatus", "outcome", "recordedAt"
+                } for row in rows),
+                "audit-minimal-schema",
+            )
+            check(
+                all(secret not in audit_text for secret in (
+                    OWNER_TOKEN, upstream_caller, viewer_token, admin_password,
+                    "node_memory_MemAvailable_bytes", "cpu_busy_percent", "now-5m",
+                    "fixture-node", "foreign-marker",
+                )),
+                "audit-no-identity-query-or-metric-data",
+            )
+            check(
+                p41.run("docker", "network", "inspect", "--format", "{{.Internal}}", network) == "true",
+                "internal-only-network",
+            )
+            for name in created:
+                item = json.loads(p41.run("docker", "inspect", name))[0]
+                check(not item["HostConfig"]["PortBindings"], "no-published-port-" + name)
+            print(
+                "OBS_P42_INTEGRATION=PASS; LIVE_OAUTH_TUNNEL_REAL_DATA=NOT_ENABLED",
+                flush=True,
+            )
+        finally:
+            for name in reversed(created):
+                p41.run("docker", "rm", "-f", "-v", name, allow_failure=True)
+            p41.run("docker", "network", "rm", network, allow_failure=True)
+
+
+if __name__ == "__main__":
+    main()
