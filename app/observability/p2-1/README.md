@@ -1,0 +1,14 @@
+# P2.1 availability monitoring — CI-only (#450)
+
+This independent spike does not change P1, PRP backend, Nginx, OAuth, deployment, live networks or credentials. The real running P1 pilot must remain untouched. No production or staging targets are in these files.
+
+## Scope
+- Blackbox Exporter v0.29.1 (official release https://github.com/prometheus/blackbox_exporter/releases/tag/v0.29.1); P1's Prometheus v3.13.5 candidate is reused only in disposable CI. Python fixture image is test-only. CI resolves and prints actual linux/amd64 registry digests and starts those refs; not a production image lock or vulnerability approval.
+- Static synthetic GET target list, HTTP 200 only, no redirect following, IPv4 only, 2s timeout, bounded body. HTTPS certificate verification with per-run synthetic CA, wrong-name and untrusted rejection; expiry timestamp for valid target. No credentials, content export, real health response, or arbitrary user-supplied URL in the Prometheus configuration.
+- A synthetic degraded JSON body with HTTP 200 intentionally succeeds as an HTTP reachability probe. Actual PRP /api/health is not a database health assertion. Do not collect /api/health/runtime response/path/profile data or claim HTTP reachability establishes DB health.
+- Fixed low-cardinality instance/environment labels; up distinguishes exporter scrape failure from probe_success target failure. Recovery requires a fresh sample. CI uses 5s scrape for bounded tests, not a proposed live interval.
+- Disposable internal bridge, no published ports, no Docker socket inside components; unrelated isolated bridge denied in CI. Blackbox /probe itself is a multi-target interface, NOT an intrinsic target allowlist. Production deployment must separately prove exclusive trusted scraper access, target/egress restrictions (including host gateway and metadata), authentication where applicable, and no unrestricted /probe route. Do not expose it publicly or to arbitrary clients.
+- Source: https://github.com/prometheus/blackbox_exporter/blob/v0.29.1/CONFIGURATION.md and https://prometheus.io/docs/guides/multi-target-exporter/ .
+
+## Validation
+Hosted CI only, fresh temporary certificates, fixture and private networks. Real exporter and Prometheus query 11 fixed synthetic targets (normal, 421, 503, timeout, redirect, recoverable, HTTP-only degraded, 204, TLS valid/wrong name/untrusted); validate duration, expiry, failure-to-recovery, exporter outage/recovery, resource snapshot and isolated cleanup. No PRP host connection, production data, deployment, or new governance. CI memory snapshots are not peak capacity or an actual deployment approval. P1 24h pilot completion, explicit real target/security/resource approval and separate image security review are required before considering any host integration.
