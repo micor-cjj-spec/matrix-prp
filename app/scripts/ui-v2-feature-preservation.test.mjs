@@ -179,5 +179,9 @@ test('mobile chat controls distinguish pinch zoom from keyboard occlusion', () =
     "import { isMobileKeyboardVisible } from '@/utils/mobileViewport'",
   ], 'visualViewport keyboard detector')
   const helper = source('web/src/utils/mobileViewport.ts')
-  assertEvery(helper, ['viewport.scale', 'viewport.offsetTop', 'viewport.height'], 'zoom-aware keyboard metric')
+  assertEvery(helper, ['viewport.scale', 'viewport.height'], 'zoom-aware keyboard metric')
+  assert.match(helper, /return\s+layoutHeight\s*-\s*scale\s*\*\s*viewport\.height\s*>\s*150/,
+    'keyboard occlusion must use zoom-normalized height loss')
+  assert.doesNotMatch(helper, /viewport\s*\.\s*offsetTop/,
+    'panning must not affect keyboard visibility')
 })
