@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { verifyTaskEvidence, verifyRequirementClose, REQUIRED_CHECKS } from './review-gate.mjs'
+import { verifyTaskEvidence, verifyRequirementClose, verifyIntegrationRelease, REQUIRED_CHECKS } from './review-gate.mjs'
 const sha='a'.repeat(40),merge='b'.repeat(40),integration='c'.repeat(40)
 const make=()=>({schema_version:1,requirement_id:'REQ-20261031-001',issue_number:132,
   status:'ACTIVE',version:3,title:'MVP',processed_requests:[],
@@ -97,4 +97,98 @@ test('critical CI workflow rename cannot bypass changed-file allowlist',()=>{
   evidence.files=[{filename:'.github/workflows/ci-copy.yml',
     previous_filename:'.github/workflows/ci.yml',status:'renamed'}]
   refuses(()=>verifyTaskEvidence(s,'T-001',evidence),'CRITICAL_WORKFLOW_CHANGE_NOT_ALLOWED')
+})
+
+const validDevRelease=()=>{
+ const s=make()
+ s.tasks[0].status='DONE';s.tasks[0].claim=null
+ const command={type:'close',pr_number:139,head_sha:sha}
+ const proof={
+   pr:{number:139,head:{ref:'dev',sha,repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+      base:{ref:'main',repo:{full_name:'micor-cjj-spec/matrix-prp'}},
+      merged:true,merged_at:'2026-11-23T00:00:00Z',merge_commit_sha:merge},
+   branch:{name:'main',protected:true,commit:{sha:integration}},
+   comparison:{status:'ahead',behind_by:0,
+     base_commit:{sha:merge},merge_base_commit:{sha:merge},commits:[]},
+   integrationBranch:{name:'integrate/REQ-20261031-001',protected:true,
+     commit:{sha:'d'.repeat(40)}},
+   integrationComparison:{status:'ahead',behind_by:0,
+     base_commit:{sha:'d'.repeat(40)},merge_base_commit:{sha:'d'.repeat(40)},commits:[]},
+   mainAncestryComparison:{status:'ahead',behind_by:0,
+     base_commit:{sha},merge_base_commit:{sha},commits:[]},
+   checks:pack().checks
+ }
+ return {s,command,proof}
+}
+test('final closure requires merged same-repo dev -> main and accepted integration ancestry',()=>{
+ const {s,command,proof}=validDevRelease()
+ const result=verifyIntegrationRelease(s,command,proof)
+ assert.equal(result.verified,true)
+ assert.equal(result.dev_head_sha,sha)
+ assert.equal(result.accepted_integration_sha,'d'.repeat(40))
+})
+test('direct integrate -> main, feature -> main and fork dev -> main are denied',()=>{
+ for(const ref of ['integrate/REQ-20261031-001','feature/unsafe']){
+  const {s,command,proof}=validDevRelease()
+  proof.pr.head.ref=ref
+  refuses(()=>verifyIntegrationRelease(s,command,proof),'WRONG_MAIN_RELEASE_TARGET')
+ }
+ const {s,command,proof}=validDevRelease()
+ proof.pr.head.repo.full_name='another/repository'
+ refuses(()=>verifyIntegrationRelease(s,command,proof),'WRONG_MAIN_RELEASE_TARGET')
+})
+test('missing or unprotected integration branch can never authorize dev-only closure',()=>{
+ for(const change of [
+  proof=>{proof.integrationBranch=null},
+  proof=>{proof.integrationBranch.protected=false},
+  proof=>{proof.integrationBranch.name='integrate/REQ-20261031-001-solo'}
+ ]){
+  const {s,command,proof}=validDevRelease()
+  change(proof)
+  refuses(()=>verifyIntegrationRelease(s,command,proof),'INTEGRATION_BRANCH_NOT_PROTECTED')
+ }
+})
+test('dev PR must contain accepted integration commit in true ancestry',()=>{
+ for(const change of [
+  proof=>{proof.integrationComparison=null},
+  proof=>{proof.integrationComparison.behind_by=1},
+  proof=>{proof.integrationComparison.base_commit.sha='e'.repeat(40)},
+  proof=>{proof.integrationComparison.merge_base_commit.sha='e'.repeat(40)},
+  proof=>{proof.integrationComparison.commits=undefined}
+ ]){
+  const {s,command,proof}=validDevRelease()
+  change(proof)
+  refuses(()=>verifyIntegrationRelease(s,command,proof),'INTEGRATION_NOT_IN_DEV_ANCESTRY')
+ }
+})
+test('no merge, unprotected main, wrong dev SHA or failing head checks prevent closure',()=>{
+ let p=validDevRelease()
+ p.proof.pr.merged=false
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'PR_NOT_MERGED')
+ p=validDevRelease();p.proof.branch.protected=false
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'MAIN_NOT_PROTECTED')
+ p=validDevRelease();p.proof.pr.head.sha='e'.repeat(40)
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'WRONG_PR_OR_HEAD')
+ p=validDevRelease();p.proof.checks.check_runs[0].conclusion='failure'
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'CHECK_NOT_GREEN_backend-tests')
+ p=validDevRelease();p.s.tasks[0].status='IN_REVIEW'
+ // A task IN_REVIEW must retain a valid claim; otherwise snapshot validation
+ // correctly fails first with ACTIVE_CLAIM instead of the intended close gate.
+ p.s.tasks[0].claim={claim_id:'11111111-1111-4111-8111-111111111111',
+   worker_id:'chat-A',actor:'micor-cjj-spec'}
+ refuses(()=>verifyIntegrationRelease(p.s,p.command,p.proof),'INCOMPLETE_REQUIREMENT')
+})
+
+test('squash/rebase cannot fake the exact tested dev head as main ancestry',()=>{
+ for(const change of [
+  proof=>{proof.mainAncestryComparison=null},
+  proof=>{proof.mainAncestryComparison.behind_by=1},
+  proof=>{proof.mainAncestryComparison.base_commit.sha='f'.repeat(40)},
+  proof=>{proof.mainAncestryComparison.merge_base_commit.sha='f'.repeat(40)},
+  proof=>{proof.mainAncestryComparison.commits=undefined}
+ ]){
+  const {s,command,proof}=validDevRelease()
+  change(proof)
+  refuses(()=>verifyIntegrationRelease(s,command,proof),'DEV_HEAD_NOT_IN_MAIN_ANCESTRY')
+ }
 })
