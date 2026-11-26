@@ -241,22 +241,29 @@ class LedgerTests(unittest.TestCase):
 
     def test_expiry_after_actual_sqlite_write_lock(self):
         from concurrent.futures import ThreadPoolExecutor
+        from contextlib import contextmanager
         from threading import Event
         from unittest.mock import patch
         self.ready()
         started, expired = Event(), Event()
-        def attempt():
-            started.set()
-            return self.ledger.claim(self.id, self.digest)
+        connect = self.ledger._connect
+        @contextmanager
+        def observed_connect():
+            with connect() as con:
+                # Old implementation would have read its stale clock already.
+                # The corrected implementation has not acquired the write lock.
+                started.set()
+                yield con
         # Hold a real SQLite writer lock; expire the synthetic clock before release.
         with patch("executor.time.time", side_effect=lambda: NOW+180 if expired.is_set() else NOW):
             with ThreadPoolExecutor(max_workers=1) as pool:
-                with self.ledger._connect() as con:
+                with connect() as con:
                     con.execute("BEGIN IMMEDIATE")
-                    future=pool.submit(attempt)
-                    self.assertTrue(started.wait(2))
-                    self.assertFalse(future.done())
-                    expired.set()
+                    with patch.object(self.ledger, "_connect", observed_connect):
+                        future=pool.submit(self.ledger.claim,self.id,self.digest)
+                        self.assertTrue(started.wait(2))
+                        self.assertFalse(future.done())
+                        expired.set()
                 with self.assertRaises(InvalidJob):
                     future.result(timeout=5)
         self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"VERIFIED")
