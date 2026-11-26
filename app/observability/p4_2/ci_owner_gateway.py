@@ -311,6 +311,8 @@ def main():
             revoke_after_query = {"value": False}
             fail_audit = {"value": False}
             revoke_on_audit = {"value": False}
+            injected_audit_events = []
+            injected_query_responses = []
             grant_id = str(uuid.uuid4())
 
             def grant():
@@ -370,10 +372,13 @@ def main():
 
             class SwitchAudit:
                 def __call__(self, event):
-                    if fail_audit["value"]:
+                    if fail_audit["value"] and event["outcome"] == "handled" and event["candidateStatus"] == 200:
+                        fail_audit["value"] = False
+                        injected_audit_events.append(dict(event))
                         return False
                     ok = durable_audit(event)
-                    if revoke_on_audit["value"] and event["outcome"] == "handled":
+                    if ok and revoke_on_audit["value"] and event["outcome"] == "handled" and event["candidateStatus"] == 200:
+                        injected_audit_events.append(dict(event))
                         revoke_on_audit["value"] = False
                         revoked["value"] = True
                     return ok
@@ -393,7 +398,8 @@ def main():
                     "method": method, "params": params,
                 })))
                 response = upstream.rpc(method, params)
-                if revoke_after_query["value"] and method == "tools/call":
+                if revoke_after_query["value"] and method == "tools/call" and not p41.failed(response):
+                    injected_query_responses.append(response)
                     revoke_after_query["value"] = False
                     revoked["value"] = True
                 return response
@@ -554,41 +560,67 @@ def main():
                         )
                     check(len(upstream_calls) == calls_before, "invalid-args-no-downstream-call")
 
+                    def receipts():
+                        return [json.loads(line) for line in audit_file.read_text().splitlines()]
+
+                    def denied_without_data(response):
+                        value = response.json().get("result", {})
+                        return (response.status_code == 200
+                                and value.get("isError") is True
+                                and "structuredContent" not in value
+                                and "samples" not in response.text)
+
+                    fixed = {"name": TOOL_NAME, "arguments": {
+                        "metric": "memory_available_bytes", "window": "5m",
+                    }}
+                    calls_before = len(upstream_calls)
+                    rows_before = len(receipts())
+                    hook_before = len(injected_audit_events)
                     fail_audit["value"] = True
                     request_id += 1
-                    audit_failed = post(
-                        "tools/call",
-                        {"name": TOOL_NAME, "arguments": {
-                            "metric": "memory_available_bytes", "window": "5m",
-                        }},
-                        request_id=request_id,
-                    )
-                    fail_audit["value"] = False
-                    check(
-                        audit_failed.status_code == 200
-                        and audit_failed.json()["result"]["isError"] is True,
-                        "audit-failure-denies-disclosure",
-                    )
+                    audit_failed = post("tools/call", fixed, request_id=request_id)
+                    check(denied_without_data(audit_failed), "audit-failure-denies-disclosure")
+                    check(not fail_audit["value"] and len(injected_audit_events) == hook_before + 1
+                          and injected_audit_events[-1]["candidateStatus"] == 200
+                          and injected_audit_events[-1]["outcome"] == "handled"
+                          and len(upstream_calls) == calls_before + 1
+                          and len(receipts()) == rows_before,
+                          "audit-failure-hook-consumed-after-successful-query")
 
+                    calls_before = len(upstream_calls)
+                    rows_before = len(receipts())
+                    hook_before = len(injected_audit_events)
                     revoke_on_audit["value"] = True
-                    raced = post("tools/call", {"name": TOOL_NAME, "arguments": {"metric": "memory_available_bytes", "window": "5m"}})
-                    check(raced.status_code == 200 and raced.json()["result"]["isError"] is True and "samples" not in raced.text, "owner-revocation-during-audit-denies-result")
+                    request_id += 1
+                    raced = post("tools/call", fixed, request_id=request_id)
+                    check(denied_without_data(raced), "owner-revocation-during-audit-denies-result")
+                    check(not revoke_on_audit["value"] and revoked["value"]
+                          and len(injected_audit_events) == hook_before + 1
+                          and len(upstream_calls) == calls_before + 1,
+                          "audit-race-hook-consumed-after-successful-query")
+                    pair = receipts()[rows_before:]
+                    check(len(pair) == 2
+                          and [row["outcome"] for row in pair] == ["handled", "denied"]
+                          and [row["candidateStatus"] for row in pair] == [200, 401]
+                          and pair[0]["traceId"] == pair[1]["traceId"] == injected_audit_events[-1]["traceId"],
+                          "audit-race-correlated-handled-denied-receipts")
+
                     revoked["value"] = False  # reset only the independent synthetic fixture
+                    calls_before = len(upstream_calls)
+                    rows_before = len(receipts())
+                    hook_before = len(injected_query_responses)
                     revoke_after_query["value"] = True
                     request_id += 1
-                    revoked_during_query = post(
-                        "tools/call",
-                        {"name": TOOL_NAME, "arguments": {
-                            "metric": "memory_available_bytes", "window": "5m",
-                        }},
-                        request_id=request_id,
-                    )
-                    check(
-                        revoked_during_query.status_code == 200
-                        and revoked_during_query.json()["result"]["isError"] is True
-                        and "samples" not in revoked_during_query.text,
-                        "owner-revocation-during-query-denies-result",
-                    )
+                    revoked_during_query = post("tools/call", fixed, request_id=request_id)
+                    check(denied_without_data(revoked_during_query), "owner-revocation-during-query-denies-result")
+                    check(not revoke_after_query["value"] and revoked["value"]
+                          and len(injected_query_responses) == hook_before + 1
+                          and len(upstream_calls) == calls_before + 1,
+                          "query-race-hook-consumed-after-upstream-success")
+                    new_rows = receipts()[rows_before:]
+                    check(len(new_rows) == 1 and new_rows[0]["candidateStatus"] == 401
+                          and new_rows[0]["outcome"] == "denied",
+                          "query-race-authoritative-grant-denial-receipt")
 
                     calls_before = len(upstream_calls)
                     request_id += 1
