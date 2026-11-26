@@ -94,6 +94,19 @@ def main():
                     "pilot-host-network")
             eventually(lambda: api(graf, "/api/health").get("database") == "ok", "grafana health")
             require(api(graf, "/api/health").get("version") == "13.3.2", "pilot-graf-version")
+            # Check actual plugin IDs from the reviewed image, not inferred folder names.
+            bundled = ("grafana-postgresql-datasource", "grafana-pyroscope-datasource",
+                       "jaeger", "loki", "mssql", "mysql", "opentsdb", "tempo")
+            disabled = set()
+            for directory in bundled:
+                metadata = json.loads(cmd("docker", "exec", names[1], "cat",
+                                          "/usr/share/grafana/data/plugins-bundled/" + directory + "/plugin.json"))
+                disabled.add(metadata["id"])
+            registered = api(graf, "/api/plugins", auth)
+            require(isinstance(registered, list), "pilot-plugin-inventory")
+            require(disabled.isdisjoint({plugin["id"] for plugin in registered}),
+                    "pilot-vulnerable-unused-plugins-not-registered")
+            print("OBS_PILOT_DISABLED_PLUGINS=" + ",".join(sorted(disabled)), flush=True)
             try:
                 api(graf, "/api/search")
             except urllib.error.HTTPError as e:
