@@ -295,6 +295,107 @@ class LedgerTests(unittest.TestCase):
             self.assertEqual(sorted(a.result(timeout=15) for a in attempts),[False,True])
 
 
+class StorageRecoveryTests(unittest.TestCase):
+    setUp = LedgerTests.setUp
+    transfer = LedgerTests.transfer
+    ready = LedgerTests.ready
+
+    def test_physical_spool_and_filesystem_reserves_fail_closed(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        with patch("executor.MAX_PHYSICAL_SPOOL_BYTES", 1):
+            with self.assertRaises(InvalidJob):
+                self.transfer()
+        self.assertFalse((self.root / "jobs" / self.id / "run.py").exists())
+        low_space = SimpleNamespace(f_bavail=1, f_frsize=4096, f_favail=100000)
+        with patch("executor.os.statvfs", return_value=low_space):
+            with self.assertRaises(InvalidJob):
+                self.ledger._assert_storage_capacity(0, 0)
+        low_inodes = SimpleNamespace(f_bavail=1000000, f_frsize=4096, f_favail=1)
+        with patch("executor.os.statvfs", return_value=low_inodes):
+            with self.assertRaises(InvalidJob):
+                self.ledger._assert_storage_capacity(0, 0)
+
+    def test_partial_recovery_preserves_durable_request_barrier(self):
+        from unittest.mock import patch
+        folder = self.ledger._directory(self.id)
+        partial = folder / ".run.py.partial"
+        partial.write_bytes(b"interrupted")
+        partial.chmod(0o600)
+        with self.ledger._connect() as con:
+            con.execute("INSERT INTO requests VALUES(?,?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), self.job["nonce"], 91, self.id,
+                         self.digest, "submit", NOW))
+        with patch("executor._worker_cgroup_active", return_value=False):
+            outcome = self.ledger.recover(NOW + 1)
+        self.assertEqual(outcome["partialsRemoved"], 1)
+        self.assertFalse(partial.exists())
+        self.assertEqual(self.ledger.status(self.id, self.digest)["state"], "RECEIVED")
+        with self.ledger._connect() as con:
+            self.assertEqual(con.execute("SELECT count(*) FROM requests").fetchone()[0], 1)
+        with self.assertRaises(InvalidJob):
+            self.ledger.accept(self.job, NOW)
+
+    def test_running_crash_is_quarantined_never_requeued(self):
+        from unittest.mock import patch
+        self.ready()
+        self.ledger.claim(self.id, self.digest, NOW)
+        with patch("executor._worker_cgroup_active", return_value=True):
+            self.ledger.recover(NOW + 181)
+        self.assertEqual(self.ledger.status(self.id, self.digest)["state"], "RUNNING")
+        with patch("executor._worker_cgroup_active", return_value=False):
+            outcome = self.ledger.recover(NOW + 182)
+        self.assertEqual(outcome["uncertain"], 1)
+        self.assertEqual(self.ledger.status(self.id, self.digest)["state"], "RECONCILE_REQUIRED")
+        with self.assertRaises(InvalidJob):
+            self.ledger.claim(self.id, self.digest, NOW + 182)
+
+    def test_terminal_cleanup_keeps_result_job_nonce_and_request_rows(self):
+        from executor import TERMINAL_RETENTION_SECONDS
+        from unittest.mock import patch
+        self.ready()
+        self.ledger.claim(self.id, self.digest, NOW)
+        self.ledger.finish(self.id, self.digest, "SUCCEEDED",
+                           {"exitCode": 0, "summary": "retained receipt"}, NOW)
+        with self.ledger._connect() as con:
+            con.execute("INSERT INTO requests VALUES(?,?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), self.job["nonce"], 92, self.id,
+                         self.digest, "submit", NOW))
+            con.execute("UPDATE jobs SET updated=? WHERE id=?",
+                        (NOW - TERMINAL_RETENTION_SECONDS - 1, self.id))
+        with patch("executor._worker_cgroup_active", return_value=False):
+            outcome = self.ledger.recover(NOW)
+        self.assertEqual(outcome["artifactsPurged"], 1)
+        self.assertFalse((self.root / "jobs" / self.id).exists())
+        self.assertEqual(self.ledger.status(self.id, self.digest)["state"], "SUCCEEDED")
+        self.assertEqual(self.ledger.result(self.id, self.digest)["summary"], "retained receipt")
+        with self.ledger._connect() as con:
+            row = con.execute("SELECT artifacts_purged FROM jobs WHERE id=?", (self.id,)).fetchone()
+            self.assertEqual(row["artifacts_purged"], 1)
+            self.assertEqual(con.execute("SELECT count(*) FROM requests").fetchone()[0], 1)
+        with self.assertRaises(InvalidJob):
+            self.ledger.accept(self.job, NOW)
+
+    def test_purged_job_releases_capacity_but_not_identity(self):
+        from executor import TERMINAL_RETENTION_SECONDS
+        from unittest.mock import patch
+        self.ready()
+        self.ledger.claim(self.id, self.digest, NOW)
+        self.ledger.finish(self.id, self.digest, "SUCCEEDED",
+                           {"exitCode": 0, "summary": "done"}, NOW)
+        with self.ledger._connect() as con:
+            con.execute("UPDATE jobs SET updated=? WHERE id=?",
+                        (NOW - TERMINAL_RETENTION_SECONDS - 1, self.id))
+        with patch("executor.MAX_RETAINED_JOBS", 1), \
+             patch("executor._worker_cgroup_active", return_value=False):
+            self.ledger.recover(NOW)
+            second = job()
+            second["nonce"] = "b" * 32
+            self.ledger.accept(second, NOW)
+        with self.assertRaises(InvalidJob):
+            self.ledger.accept(self.job, NOW)
+
+
 class SandboxTests(unittest.TestCase):
     """Synthetic launcher tests. No real process or host isolation claim."""
     setUp = LedgerTests.setUp
@@ -1641,6 +1742,50 @@ print('PYTHON_ISOLATED_OK')
             result=handoff_once(ledger,enabled=True)
             self.assertEqual(result["state"],"SUCCEEDED",result)
             self.assertEqual(parse(result["result"]["summary"].encode())["stdout"].strip(),"SEPARATE_UID_OK")
+
+        def test_real_storage_quota_and_recovery(self):
+            import tempfile
+            import time
+            from pathlib import Path
+            from unittest.mock import patch
+            from executor import Ledger, TERMINAL_RETENTION_SECONDS, service_identity
+            self.assertEqual(os.environ.get("PRP_REX_PILOT_SCOPE"), "GITHUB_HOSTED_EPHEMERAL")
+            service_identity()
+            with tempfile.TemporaryDirectory() as directory:
+                ledger = Ledger(Path(directory))
+                ledger._assert_storage_capacity(0, 0)
+                now = int(time.time())
+                j = job()
+                j.update(nonce=uuid.uuid4().hex, issuedAt=now, expiresAt=now + 180)
+                jid, md = j["jobId"], j["manifestSha256"]
+                ledger.accept(j, now)
+                folder = ledger._directory(jid)
+                partial = folder / ".run.py.partial"
+                partial.write_bytes(b"interrupted")
+                partial.chmod(0o600)
+                with patch("executor._worker_cgroup_active", return_value=False):
+                    recovery = ledger.recover(now + 1)
+                self.assertEqual(recovery["partialsRemoved"], 1)
+                self.assertFalse(partial.exists())
+                with patch("executor.MAX_PHYSICAL_SPOOL_BYTES", 1):
+                    with self.assertRaises(InvalidJob):
+                        ledger.receive_file(jid, md, "run.py", [b"print('hello')"], now + 2)
+                ledger.receive_file(jid, md, "run.py", [b"print('hello')"], now + 2)
+                ledger.verify(jid, md, now + 2)
+                ledger.claim(jid, md, now + 2)
+                ledger.finish(jid, md, "SUCCEEDED",
+                               {"exitCode": 0, "summary": "debian13-storage-ok"}, now + 2)
+                with ledger._connect() as con:
+                    con.execute("UPDATE jobs SET updated=? WHERE id=?",
+                                (now - TERMINAL_RETENTION_SECONDS - 1, jid))
+                with patch("executor._worker_cgroup_active", return_value=False):
+                    cleanup = ledger.recover(now + TERMINAL_RETENTION_SECONDS + 3)
+                self.assertEqual(cleanup["artifactsPurged"], 1)
+                self.assertFalse(folder.exists())
+                self.assertEqual(ledger.result(jid, md)["summary"], "debian13-storage-ok")
+                with ledger._connect() as con:
+                    row = con.execute("SELECT artifacts_purged FROM jobs WHERE id=?", (jid,)).fetchone()
+                self.assertEqual(row["artifacts_purged"], 1)
 
 if __name__ == "__main__":
     unittest.main()
