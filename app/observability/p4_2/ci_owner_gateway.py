@@ -300,13 +300,27 @@ def main():
                 "upstream-prometheus-readonly-toolset",
             )
 
-            p41.eventually(lambda: bool(p41.api(
-                prom, "/api/v1/query?query=" + urllib.parse.quote(
-                    'rate(node_cpu_seconds_total{mode="idle",environment="synthetic"}[2m])'
-                ))["data"]["result"]), "cpu-rate-ready")
-            # Ensure the last aligned 30-second point follows a real scrape.
-            p41.eventually(lambda: int(time.time()) % 30 >= 10 and int(time.time()) % 30 <= 15, "aligned-fixture-clock", seconds=40)
-            now = int(time.time())
+            # Readiness at wall-clock now is insufficient: the fixed range
+            # ends at a rounded-down evaluation instant. Prove that the exact
+            # common endpoint already has real samples for every fixed metric.
+            # Capture the successful endpoint itself, never a later clock read.
+            ready = {}
+            def aligned_metrics_ready():
+                candidate = int(time.time())
+                endpoint = candidate - candidate % 30
+                for expr in QUERIES.values():
+                    data = p41.api(prom, "/api/v1/query?" + urllib.parse.urlencode(
+                        {"query": expr, "time": str(endpoint)}))
+                    rows = data["data"]["result"]
+                    if (data.get("status") != "success" or len(rows) != 1
+                            or rows[0]["value"][0] != endpoint):
+                        return False
+                ready["now"] = endpoint
+                return True
+
+            p41.eventually(aligned_metrics_ready, "exact-aligned-metric-readiness", seconds=90)
+            now = ready["now"]
+            check(now % 30 == 0, "real-samples-at-fixed-window-end")
             revoked = {"value": False}
             revoke_after_query = {"value": False}
             fail_audit = {"value": False}
@@ -494,6 +508,7 @@ def main():
                             and payload["window"] == "5m"
                             and payload["status"] == "available"
                             and 0 < len(payload["samples"]) <= 61
+                            and payload["samples"][-1][0] == now
                             and set(payload) == {"metric", "window", "startAt", "endAt", "stepSeconds", "status", "samples"},
                             "bounded-result-" + metric,
                         )
