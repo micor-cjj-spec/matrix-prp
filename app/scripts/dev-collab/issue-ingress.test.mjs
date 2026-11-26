@@ -242,3 +242,35 @@ test('privileged and collaboration external Actions are pinned by full commit SH
   }
  }
 })
+
+test('owner Issue accept carries exact PR/SHA and claim identity but never client review flags',()=>{
+ const e=event()
+ const p={schema_version:1,action:'accept',
+  request_id:'baaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  requirement_id:'REQ-20261031-001',task_id:'T-001',
+  worker_id:'chat-123',expected_version:10,
+  claim_id:'11111111-1111-4111-8111-111111111111',
+  pr_number:511,head_sha:'b'.repeat(40)}
+ e.issue.body=JSON.stringify(p)
+ const out=validateIssueEvent(env(),e,e.issue)
+ assert.equal(out.command.type,'accept')
+ assert.equal(out.command.claim_id,p.claim_id)
+ assert.equal(out.command.pr_number,p.pr_number)
+ assert.equal(out.command.head_sha,p.head_sha)
+ assert.equal(out.expected_version,10)
+ assert.equal(out.actor,owner)
+ assert.equal(out.recoveryAuthorized,false)
+ for(const changed of [
+  {...p,claim_id:undefined},
+  {...p,pr_number:undefined},
+  {...p,head_sha:undefined},
+  {...p,head_sha:'not-a-sha'},
+  {...p,verifiedReviewContext:{ciVerified:true}},
+  {...p,reviewerAuthorized:true},
+  {...p,allow_merge:true},
+  {...p,action:'close'}
+ ]){
+  e.issue.body=JSON.stringify(changed)
+  assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+ }
+})

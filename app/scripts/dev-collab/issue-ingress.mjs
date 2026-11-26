@@ -15,7 +15,7 @@ const REQ=/^REQ-[0-9]{8}-[0-9]{3}$/
 const TASK=/^T-[0-9]{3}$/
 const WORKER=/^[a-zA-Z0-9_-]{3,64}$/
 const ACTIONS=new Set(['claim','start','progress','pause','block','resume','release',
- 'checkpoint','handoff','takeover','submit','rework','register_task','migrate_v1'])
+ 'checkpoint','handoff','takeover','submit','accept','rework','register_task','migrate_v1'])
 const FIELDS=new Set(['schema_version','action','request_id','requirement_id',
  'task_id','worker_id','claim_id','note','pr_number','head_sha','checkpoint',
  'new_worker_id','expected_claim_id','expected_head_sha','expected_version',
@@ -36,6 +36,7 @@ const ACTION_FIELDS={
  handoff:['claim_id','new_worker_id','expected_head_sha','note'],
  takeover:['claim_id','new_worker_id','expected_claim_id','expected_head_sha','note','checkpoint'],
  submit:['claim_id','pr_number','head_sha'],
+ accept:['claim_id','pr_number','head_sha'],
  register_task:['issue_number','title','depends_on','allowed_paths']
 }
 const check=(ok,code)=>{if(!ok)throw new CollabError(code)}
@@ -107,7 +108,8 @@ function payload(body){
      'INGRESS_TAKEOVER_EXPECTED_CLAIM')
  }
  if(['progress','block','rework'].includes(data.action))check(line(data.note,500),'INGRESS_NOTE_REQUIRED')
- if(data.action==='submit')check(data.pr_number>0&&SHA.test(data.head_sha),'INGRESS_SUBMIT_EVIDENCE')
+ if(['submit','accept'].includes(data.action))check(data.pr_number>0&&SHA.test(data.head_sha),
+   'INGRESS_SUBMIT_EVIDENCE')
  if(data.action==='register_task'){
    check(Number.isSafeInteger(data.issue_number)&&data.issue_number>0,'INGRESS_TASK_ISSUE')
    check(line(data.title,200)&&data.title.trim().length>=4,'INGRESS_TASK_TITLE')
