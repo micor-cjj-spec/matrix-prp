@@ -399,5 +399,15 @@ test('owner policy path retains exact state SHA and final evidence recheck',()=>
  assert.match(source,/validated.expectedStateSha===head&&validated.expected_version===before.version/)
  assert.match(source,/trustedReviewContext\(before,validated.command,env,route=>gh\(route\),proof\)/)
  assert.match(source,/validated.ownerPolicy!==true\|\|fresh.ownerRulesetAttested===true/)
- assert.ok(source.indexOf('const fresh=loadReview()')<source.indexOf("git('-C',tmp,'push','origin','HEAD:'+stateRef)"))
+ assert.ok(source.indexOf('const fresh=loadReview()')<source.lastIndexOf("git('-C',tmp,'push','origin','HEAD:'+stateRef)"))
+})
+
+test('explicit receipt accept cannot mutate without separately verified persisted evidence',()=>{
+ const s=migrated();s.tasks[0]={...s.tasks[0],status:'IN_REVIEW',claim:{claim_id:'11111111-1111-4111-8111-111111111111',worker_id:'chat-A',actor:'micor-cjj-spec'},pr_number:461,head_sha:sha}
+ const x=v('accept',{claim_id:s.tasks[0].claim.claim_id,pr_number:461,head_sha:sha,note:'PRP_PREMERGE_RECEIPT_V1:PRP_RULESET_ATTESTATION_V1:{}'},s.version)
+ const flags={reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,ownerRulesetAttested:true}
+ assert.throws(()=>applyAuthenticatedIssue(s,{...x,ownerPolicy:true,receiptAccept:true},'2026-11-26T06:00:00Z',()=>false,flags),/ISSUE_RECEIPT_PROOF_REQUIRED/)
+ assert.throws(()=>applyAuthenticatedIssue(s,x,'2026-11-26T06:00:00Z',()=>false,{...flags,receiptEvidenceVerified:true}),/ISSUE_RECEIPT_PROOF_REQUIRED/)
+ const done=applyAuthenticatedIssue(s,{...x,ownerPolicy:true,receiptAccept:true},'2026-11-26T06:00:00Z',()=>false,{...flags,receiptEvidenceVerified:true})
+ assert.equal(done.snapshot.tasks[0].status,'DONE');assert.equal(s.tasks[0].status,'IN_REVIEW')
 })

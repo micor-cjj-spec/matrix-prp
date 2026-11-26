@@ -320,3 +320,20 @@ test('historical 446 requires explicit pinned owner Issue and distinct command f
  e.issue.body=JSON.stringify({...p,action:'accept'})
  const ordinary=validateIssueEvent(env(),e,e.issue);assert.equal(ordinary.historical446,undefined);assert.equal(ordinary.command.note,note)
 })
+
+test('receipt actions require explicit owner Issue, exact state and no caller evidence',()=>{
+ const e=event(),stateSha='c'.repeat(40),note='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:stateSha})
+ const p={...request(),claim_id:'11111111-1111-4111-8111-111111111111',pr_number:461,head_sha:sha,expected_state_sha:stateSha,policy_attestation:note}
+ e.issue.created_at='2026-11-26T06:00:00Z'
+ for(const action of ['capture_receipt','accept_receipt']){
+   e.issue.body=JSON.stringify({...p,action});const x=validateIssueEvent(env(),e,e.issue)
+   assert.equal(x.ownerPolicy,true);assert.equal(x.expectedStateSha,stateSha)
+   assert.equal(x.command.type,action==='capture_receipt'?'capture_receipt':'accept')
+   assert.equal(x.captureReceipt===true,action==='capture_receipt')
+   assert.equal(x.receiptAccept===true,action==='accept_receipt')
+   assert.equal(x.command.note,action==='capture_receipt'?note:'PRP_PREMERGE_RECEIPT_V1:'+note)
+   for(const bad of [{...p,action,policy_attestation:undefined},{...p,action,expected_state_sha:undefined},{...p,action,receiptEvidenceVerified:true},{...p,action,receipt:{}}]){
+    e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+   }
+ }
+})

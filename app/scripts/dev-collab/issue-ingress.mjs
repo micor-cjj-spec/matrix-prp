@@ -16,7 +16,7 @@ const REQ=/^REQ-[0-9]{8}-[0-9]{3}$/
 const TASK=/^T-[0-9]{3}$/
 const WORKER=/^[a-zA-Z0-9_-]{3,64}$/
 const ACTIONS=new Set(['claim','start','progress','pause','block','resume','release',
- 'checkpoint','handoff','takeover','submit','accept','accept_historical_415','accept_historical_446','rework','register_task','migrate_v1'])
+ 'checkpoint','handoff','takeover','submit','accept','capture_receipt','accept_receipt','accept_historical_415','accept_historical_446','rework','register_task','migrate_v1'])
 const FIELDS=new Set(['schema_version','action','request_id','requirement_id',
  'task_id','worker_id','claim_id','note','pr_number','head_sha','checkpoint',
  'new_worker_id','expected_claim_id','expected_head_sha','expected_version',
@@ -38,6 +38,8 @@ const ACTION_FIELDS={
  takeover:['claim_id','new_worker_id','expected_claim_id','expected_head_sha','note','checkpoint'],
  submit:['claim_id','pr_number','head_sha'],
  accept:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
+ capture_receipt:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
+ accept_receipt:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
  accept_historical_446:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
  accept_historical_415:['claim_id','pr_number','head_sha','expected_state_sha','policy_attestation'],
  register_task:['issue_number','title','depends_on','allowed_paths']
@@ -111,9 +113,9 @@ function payload(body){
      'INGRESS_TAKEOVER_EXPECTED_CLAIM')
  }
  if(['progress','block','rework'].includes(data.action))check(line(data.note,500),'INGRESS_NOTE_REQUIRED')
- if(['submit','accept','accept_historical_415','accept_historical_446'].includes(data.action))check(data.pr_number>0&&SHA.test(data.head_sha),
+ if(['submit','accept','capture_receipt','accept_receipt','accept_historical_415','accept_historical_446'].includes(data.action))check(data.pr_number>0&&SHA.test(data.head_sha),
    'INGRESS_SUBMIT_EVIDENCE')
- if(data.action==='accept_historical_446'||(data.action==='accept'&&(data.policy_attestation!==undefined||data.expected_state_sha!==undefined))){
+ if(['accept_historical_446','capture_receipt','accept_receipt'].includes(data.action)||(data.action==='accept'&&(data.policy_attestation!==undefined||data.expected_state_sha!==undefined))){
    check(SHA.test(data.expected_state_sha||'')&&typeof data.policy_attestation==='string'&&
      line(data.policy_attestation,2048)&&data.policy_attestation.startsWith('PRP_RULESET_ATTESTATION_V1:'),
      'INGRESS_OWNER_POLICY_FIELDS')
@@ -184,8 +186,9 @@ export function validateIssueEvent(env,event,currentIssue=null,now=Date.now()){
  // Only the event-authorized GitHub actor becomes the state-transaction actor.
  const historical=data.action==='accept_historical_415'
  const historical446=data.action==='accept_historical_446'
- const ownerPolicy=(data.action==='accept'||historical446)&&data.policy_attestation!==undefined
- const command={type:(historical||historical446)?'accept':data.action,requirement_id:data.requirement_id,
+ const captureReceipt=data.action==='capture_receipt',receiptAccept=data.action==='accept_receipt'
+ const ownerPolicy=(data.action==='accept'||historical446||captureReceipt||receiptAccept)&&data.policy_attestation!==undefined
+ const command={type:(historical||historical446||receiptAccept)?'accept':data.action,requirement_id:data.requirement_id,
    task_id:data.task_id,request_id:data.request_id,worker_id:data.worker_id}
  for(const key of ['claim_id','note','pr_number','head_sha','checkpoint',
    'new_worker_id','expected_claim_id','expected_head_sha','issue_number',
@@ -202,7 +205,7 @@ export function validateIssueEvent(env,event,currentIssue=null,now=Date.now()){
      'INGRESS_OWNER_POLICY_ISSUE_TIME')
    // Exact canonical note is included in the existing command fingerprint.
    // All binding, freshness, live policy and CI checks occur in trusted review.
-   command.note=(historical446?'PRP_HISTORICAL_446_V1:':'')+data.policy_attestation
+   command.note=(historical446?'PRP_HISTORICAL_446_V1:':receiptAccept?'PRP_PREMERGE_RECEIPT_V1:':'')+data.policy_attestation
  }
  if(['handoff','takeover'].includes(data.action))
    command.expected_version=data.expected_version
@@ -212,7 +215,7 @@ export function validateIssueEvent(env,event,currentIssue=null,now=Date.now()){
    source_issue:event.issue.number,actor:event.sender.login,actorId:event.sender.id,
    recoveryAuthorized:data.action==='takeover',
    ...(historical?{historical415:true,expectedStateSha:data.expected_state_sha,policyAttestation:data.policy_attestation,issueCreatedAt:event.issue.created_at}:{}),
-   ...(ownerPolicy?{ownerPolicy:true,...(historical446?{historical446:true}:{}),expectedStateSha:data.expected_state_sha,issueCreatedAt:event.issue.created_at}:{})}
+   ...(ownerPolicy?{ownerPolicy:true,...(historical446?{historical446:true}:{}),...(captureReceipt?{captureReceipt:true}:{}),...(receiptAccept?{receiptAccept:true}:{}),expectedStateSha:data.expected_state_sha,issueCreatedAt:event.issue.created_at}:{})}
 }
 if(process.argv[1] && fileURLToPath(import.meta.url)===resolve(process.argv[1])){
  try{

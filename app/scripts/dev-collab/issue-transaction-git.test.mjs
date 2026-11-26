@@ -113,7 +113,7 @@ const policy=()=>({
   "current_user_can_bypass": "never"
 })
 const reviewHead='a'.repeat(40),reviewMerge='b'.repeat(40),reviewClaim='11111111-1111-4111-8111-111111111111'
-function setup({v1=false,review=false}={}){
+function setup({v1=false,review=false,capture=false}={}){
  const root=mkdtempSync(join(tmpdir(),'prp-issue-local-'))
  const origin=join(root,'origin.git'),seed=join(root,'seed'),runner=join(root,'runner')
  mkdirSync(seed)
@@ -127,7 +127,7 @@ function setup({v1=false,review=false}={}){
  for(const filename of [
   'core.mjs','issue-ingress.mjs','issue-transaction.mjs','issue-migrate.mjs',
   'migration-guard.mjs','bootstrap-audit.mjs','state-rule-policy.mjs','task-scope-policy.mjs','ruleset-415-attestation.mjs',
-  ...(review?['review-context.mjs','review-gate.mjs','review-provenance.mjs']:[])])
+  ...(review?['review-context.mjs','review-gate.mjs','review-provenance.mjs','review-receipt-runtime.mjs','review-receipt.mjs','review-receipt-store.mjs']:[])])
   cpSync(join(location,filename),join(dest,filename))
  mkdirSync(join(seed,'app/deploy'),{recursive:true})
  writeFileSync(join(seed,'app/deploy/publication-hold.json'),
@@ -141,6 +141,11 @@ function setup({v1=false,review=false}={}){
  const seedSnapshot=(v1||review)?reviewedV1():initial()
  if(review)Object.assign(seedSnapshot.tasks[0],{status:'IN_REVIEW',
    claim:{claim_id:reviewClaim,worker_id:'chat-A',actor:OWNER},pr_number:138,head_sha:reviewHead})
+ if(capture){
+   const submitId='33333333-3333-4333-8333-333333333333'
+   seedSnapshot.processed_requests.push({request_id:submitId,fingerprint:'a'.repeat(64),actor:OWNER,
+     receipt:{type:'submit',task_id:'T-001',request_id:submitId,version:1,status:'IN_REVIEW',replayed:false}})
+ }
  writeFileSync(join(seed,REQ),JSON.stringify(seedSnapshot,null,2)+'\n')
  git(seed,'add',REQ);git(seed,'commit','-m','initial state')
  git(seed,'push','origin','prp-collab-state')
@@ -157,6 +162,7 @@ function setup({v1=false,review=false}={}){
  const mock=[
   '#!/usr/bin/env bash','set -euo pipefail',
   '[[ "$1" == api ]] || exit 3',
+  'if [[ "$2" == --method ]]; then [[ "$3" == GET && "$4" == --hostname && "$5" == github.com ]] || exit 3; set -- api "$6"; fi',
   'if [[ -n "${PRP_MOCK_REVIEW_ROUTES:-}" && "$2" != */issues/* && "$2" != */rulesets/26294671 && "$2" != installation/repositories && "$2" != */branches/prp-collab-state ]]; then [[ "$GH_TOKEN" == not-a-real-token ]] || exit 4; node "$PRP_MOCK_REVIEW_READER" "$2"; exit $?; fi',
   'case "$2" in',
   ' */issues/999) if [[ "${PRP_MOCK_REVOKE_ON_RECHECK:-}" == "1" ]]; then n=$(cat "$PRP_MOCK_ISSUE_READ_COUNT" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$PRP_MOCK_ISSUE_READ_COUNT"; if (( n >= 2 )); then cat "$PRP_MOCK_ISSUE_REVOKED"; else cat "$PRP_MOCK_ISSUE"; fi; else cat "$PRP_MOCK_ISSUE"; fi ;;',
@@ -218,7 +224,7 @@ function setup({v1=false,review=false}={}){
    const f=process.env.PRP_MOCK_RULE_READS
    const n=(existsSync(f)?Number(readFileSync(f,'utf8')):0)+1
    writeFileSync(f,String(n))
-   if(process.env.PRP_MOCK_POLICY_DRIFT==='1'&&n>=2)value.updated_at='2026-11-26T00:00:00Z'
+   if(process.env.PRP_MOCK_POLICY_DRIFT==='1'&&n>=Number(process.env.PRP_MOCK_POLICY_DRIFT_AFTER||2))value.updated_at='2026-11-26T00:00:00Z'
  }
  console.log(JSON.stringify(value))`)
  const prepareReview=({missingAssociation=false}={})=>{
@@ -256,11 +262,49 @@ function setup({v1=false,review=false}={}){
   writeFileSync(routesPath,JSON.stringify(routes))
   return {GITHUB_RUN_ID:'9001',GITHUB_RUN_ATTEMPT:'1',PRP_MOCK_REVIEW_ROUTES:routesPath,PRP_MOCK_REVIEW_READER:readerPath,PRP_MOCK_RULE_READS:ruleReadsPath}
  }
+ const prepareCapture=()=>{
+   assert.equal(capture,true)
+   const extra=prepareReview()
+   const routes=JSON.parse(readFileSync(routesPath,'utf8')),root='repos/'+REPO
+   const p=routes[root+'/pulls/138'],base='c'.repeat(40),synthetic='d'.repeat(40),tree='e'.repeat(40)
+   Object.assign(p,{state:'open',merged:false,draft:false,mergeable:true,merge_commit_sha:synthetic});p.base.sha=base;delete p.merged_at
+   routes[root+'/branches/'+encodeURIComponent(p.base.ref)].commit.sha=base
+   routes[root+'/git/commits/'+synthetic]={sha:synthetic,tree:{sha:tree},parents:[{sha:base},{sha:reviewHead}]}
+   routes[root+'/commits/'+reviewHead+'/check-runs?per_page=100&filter=latest']=routes[root+'/commits/'+reviewHead+'/check-runs?per_page=100']
+   for(const n of ['ci.yml','feature-impact.yml','prp-dev-collab-contract.yml'])for(const ref of [base,synthetic])
+     routes[root+'/contents/.github/workflows/'+n+'?ref='+ref]={sha:tree}
+   for(const id of [101,102,103]){
+     const run=routes[root+'/actions/runs/'+id]
+     run.pull_requests=[{number:138,head:{sha:reviewHead,repo:{id:1261866723}},base:{ref:p.base.ref,sha:base,repo:{id:1261866723}}}]
+     for(const j of routes[root+'/actions/runs/'+id+'/jobs?per_page=100&filter=latest'].jobs){
+       const action=id===101?'v4':'3d3c42e5aac5ba805825da76410c181273ba90b1',resolved=id===101?'11d5960a326750d5838078e36cf38b85af677262':action
+       j.steps=[{name:'Set up job',conclusion:'success'},{name:'Run actions/checkout@'+action,conclusion:'success',started_at:'2026-10-31T17:02:00Z',completed_at:'2026-10-31T17:02:05Z'}]
+       routes[root+'/actions/jobs/'+j.id+'/logs']=[
+        "2026-10-31T17:01:59Z Download action repository 'actions/checkout@"+action+"' (SHA:"+resolved+")",
+        '2026-10-31T17:02:00Z ##[group]Run actions/checkout@'+action,
+        '2026-10-31T17:02:01Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags origin +'+synthetic+':refs/remotes/pull/138/merge',
+        '2026-10-31T17:02:02Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/138/merge',
+        '2026-10-31T17:02:03Z [command]/usr/bin/git log -1 --format=%H',
+        '2026-10-31T17:02:04Z '+synthetic,'2026-10-31T17:02:06Z ##[group]Run tests'].join('\n')
+     }
+   }
+   const requestId='44444444-4444-4444-8444-444444444444',req='REQ-20261031-001'
+   const note=buildOwnerRulesetAttestation(policy(),{requestId,action:'capture_receipt',requirementId:req,taskId:'T-001',
+     prNumber:138,headSha:reviewHead,stateVersion:1,mainSha:main,stateSha:first,observedAt:new Date(Date.now()-1000).toISOString()})
+   prepare({schema_version:1,action:'capture_receipt',request_id:requestId,requirement_id:req,task_id:'T-001',
+     worker_id:'chat-A',claim_id:reviewClaim,expected_version:1,expected_state_sha:first,pr_number:138,head_sha:reviewHead,policy_attestation:note})
+   routes[root+'/actions/runs/9001'].created_at=new Date().toISOString()
+   writeFileSync(routesPath,JSON.stringify(routes))
+   const mockFetch=join(temp,'mock-fetch.mjs')
+   // No network even if the production code unexpectedly attempts a different URL.
+   writeFileSync(mockFetch,"import {readFileSync} from 'node:fs';globalThis.fetch=async (url,opts)=>{const u=new URL(url);if(u.origin!=='https://api.github.com'||opts?.headers?.Authorization!=='Bearer not-a-real-token')throw Error('unexpected external fetch');const value=JSON.parse(readFileSync(process.env.PRP_MOCK_REVIEW_ROUTES,'utf8'))[u.pathname.slice(1)];if(typeof value!=='string')throw Error('missing log fixture');return new Response(value,{status:200})}")
+   return {...extra,NODE_OPTIONS:'--import='+mockFetch}
+ }
  const execute=(extra={})=>spawnSync(process.execPath,['app/scripts/dev-collab/issue-transaction.mjs'],
-  {cwd:runner,env:{...env,...extra},encoding:'utf8',timeout:15000})
+  {cwd:runner,env:{...env,...extra},encoding:'utf8',timeout:capture?90000:15000})
  const head=()=>git(root,'--git-dir',origin,'rev-parse',REF)
  const snapshot=()=>JSON.parse(git(root,'--git-dir',origin,'show',REF+':'+REQ))
- return {root,prepare,prepareTaskIssue,prepareReview,execute,head,snapshot,initialHead:first,initialMain:main,origin,checkpointSha,appReposPath,ruleReadsPath,
+ return {root,prepare,prepareTaskIssue,prepareReview,prepareCapture,execute,head,snapshot,initialHead:first,initialMain:main,origin,checkpointSha,appReposPath,ruleReadsPath,
   dispose:()=>rmSync(root,{recursive:true,force:true})}
 }
 test('isolated Git: owner probe verifies App scope without mutating protected state',
@@ -561,5 +605,30 @@ test('isolated bare Git: missing PR association remains fail closed even with va
   assert.notEqual(res.status,0)
   assert.match(res.stderr,/WORKFLOW_PR_MISMATCH_/)
   assert.equal(f.head(),initial);assert.deepEqual(f.snapshot(),before)
+ }finally{f.dispose()}
+})
+
+test('real isolated Git: Owner capture adds exactly one receipt, keeps requirement byte-identical', {timeout:120000},()=>{
+ const f=setup({review:true,capture:true})
+ try{
+   const before=f.snapshot(),initial=f.head(),result=f.execute(f.prepareCapture())
+   assert.equal(result.status,0,result.stderr)
+   const head=f.head(),path='receipts/REQ-20261031-001/T-001/33333333-3333-4333-8333-333333333333.json'
+   assert.notEqual(head,initial)
+   assert.equal(git(f.root,'--git-dir',f.origin,'show','-s','--format=%P',head),initial)
+   assert.equal(git(f.root,'--git-dir',f.origin,'diff','--name-status',initial,head),'A\t'+path)
+   assert.deepEqual(f.snapshot(),before)
+   const receipt=JSON.parse(git(f.root,'--git-dir',f.origin,'show',head+':'+path))
+   assert.equal(receipt.body.state_sha,initial);assert.equal(receipt.body.state_version,1);assert.equal(receipt.body.checks.length,7)
+   assert.match(result.stdout,new RegExp('PRP_COLLAB_RECEIPT_APPEND=999 '+head+' '+receipt.digest))
+   assert.equal(JSON.stringify(receipt).includes(reviewClaim),false)
+ }finally{f.dispose()}
+})
+test('real isolated Git: evidence drift in final capture recheck prevents any state write', {timeout:120000},()=>{
+ const f=setup({review:true,capture:true})
+ try{
+   const initial=f.head(),before=f.snapshot()
+   const result=f.execute({...f.prepareCapture(),PRP_MOCK_POLICY_DRIFT:'1',PRP_MOCK_POLICY_DRIFT_AFTER:'3'})
+   assert.notEqual(result.status,0);assert.equal(f.head(),initial);assert.deepEqual(f.snapshot(),before)
  }finally{f.dispose()}
 })
