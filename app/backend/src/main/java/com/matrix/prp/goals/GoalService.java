@@ -49,8 +49,10 @@ public class GoalService {
             rs.getString("domain"), rs.getString("status"), rs.getString("priority"),
             rs.getString("success_criteria"),
             rs.getDate("target_date") == null ? null : rs.getDate("target_date").toLocalDate(),
-            rs.getTimestamp("created_at").toLocalDateTime(),
-            rs.getTimestamp("updated_at").toLocalDateTime());
+            // DATETIME is a wall-clock value, not an instant. Timestamp conversion
+            // can shift the revision token when JDBC and JVM time zones differ.
+            rs.getObject("created_at", LocalDateTime.class),
+            rs.getObject("updated_at", LocalDateTime.class));
 
     private final JdbcTemplate db;
     private final PersonalOntologyReferenceGuard references;

@@ -109,6 +109,79 @@ final class PersonalOsV31Assertions {
             assertThat(count(c,"SELECT COUNT(*) FROM prp_goals")).isZero();
             assertThat(count(c,"SELECT COUNT(*) FROM prp_personal_assertions")).isZero();
         }
+        verifyGoalDateTimeCasAcrossTimeZones(url, user, password);
+    }
+
+    /**
+     * Reproduce the staging regression without changing the global JVM zone,
+     * shared datasource, schema, or CI workflow. The connection interprets
+     * instant-oriented Timestamp reads in a zone different from the JVM.
+     */
+    private static void verifyGoalDateTimeCasAcrossTimeZones(String url, String user,
+            String password) throws SQLException {
+        var stored = java.time.LocalDateTime.parse("2025-01-02T03:04:05.123456");
+        var jvmOffset = java.time.ZoneId.systemDefault().getRules()
+            .getOffset(java.time.Instant.parse("2025-01-02T03:04:05Z"));
+        String connectionZone = jvmOffset.equals(java.time.ZoneOffset.ofHours(8))
+            ? "UTC" : "Asia%2FShanghai";
+        String mixedZoneUrl = url + "&connectionTimeZone=" + connectionZone
+            + "&preserveInstants=true";
+        try (Connection c = DriverManager.getConnection(mixedZoneUrl, user, password)) {
+            c.setAutoCommit(false);
+            try {
+                insert(c, "INSERT INTO prp_users (id,username,display_name,password_hash) "
+                    + "VALUES (970001,'personal_os_ci_a','Synthetic A','CI_ONLY')");
+                insert(c, "INSERT INTO prp_users (id,username,display_name,password_hash) "
+                    + "VALUES (970002,'personal_os_ci_b','Synthetic B','CI_ONLY')");
+                long id = insertKey(c, "INSERT INTO prp_goals "
+                    + "(user_id,title,domain,priority,created_at,updated_at) "
+                    + "VALUES (970001,'Synthetic timezone goal','career','medium',"
+                    + "'2025-01-02 03:04:05.123456','2025-01-02 03:04:05.123456')");
+                var jdbc = new JdbcTemplate(new SingleConnectionDataSource(c, true));
+                var goals = new com.matrix.prp.goals.GoalService(jdbc,
+                    new PersonalOntologyReferenceGuard(jdbc));
+                var legacyRead = jdbc.queryForObject(
+                    "SELECT updated_at FROM prp_goals WHERE id=?",
+                    (rs, row) -> rs.getTimestamp(1).toLocalDateTime(), id);
+                assertThat(legacyRead).as("fixture must exercise the old shifted Timestamp read")
+                    .isNotEqualTo(stored);
+                SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken(
+                        new UserProfile(970001L,"personal_os_ci_a","Synthetic A"),null,List.of()));
+                var first = goals.get(id);
+                assertThat(first.createdAt()).isEqualTo(stored);
+                assertThat(first.updatedAt()).isEqualTo(stored);
+                var revision = new com.matrix.prp.goals.GoalService.Revision(
+                    "Updated synthetic timezone goal",null,"career","high",null,null,
+                    first.updatedAt());
+                var updated = goals.revise(id, revision);
+                assertThat(updated.priority()).isEqualTo("high");
+                assertThat(updated.updatedAt()).isNotEqualTo(first.updatedAt());
+                var actual = jdbc.queryForObject(
+                    "SELECT updated_at FROM prp_goals WHERE id=?",
+                    (rs, row) -> rs.getObject(1, java.time.LocalDateTime.class), id);
+                assertThat(updated.updatedAt()).isEqualTo(actual);
+                assertThatThrownBy(() -> goals.revise(id, revision))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                        .isEqualTo(HttpStatus.CONFLICT));
+                SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken(
+                        new UserProfile(970002L,"personal_os_ci_b","Synthetic B"),null,List.of()));
+                assertThatThrownBy(() -> goals.revise(id,
+                    new com.matrix.prp.goals.GoalService.Revision(
+                        "Foreign synthetic goal",null,"career","low",null,null,updated.updatedAt())))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+                System.out.println("CI_PERSONAL_OS_GOAL_DATETIME_CAS_MIXED_ZONE=PASS");
+            } finally {
+                SecurityContextHolder.clearContext();
+                c.rollback();
+                c.setAutoCommit(true);
+            }
+            assertThat(count(c,"SELECT COUNT(*) FROM prp_goals")).isZero();
+        }
     }
 
     private static void verifyOwnedReferences(Connection connection, long ownGoal,
