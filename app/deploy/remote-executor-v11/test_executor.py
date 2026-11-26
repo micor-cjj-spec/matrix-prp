@@ -361,5 +361,144 @@ class SandboxTests(unittest.TestCase):
             launch.assert_not_called()
         self.assertEqual(self.ledger.status(sid,sd)["state"],"VERIFIED")
 
+
+class BridgeTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from executor import Ledger
+        self.tmp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name)
+        self.ledger=Ledger(self.root)
+
+    @staticmethod
+    def archive_bytes(entries):
+        import io
+        import zipfile
+        stream=io.BytesIO()
+        with zipfile.ZipFile(stream,"w") as z:
+            for name,data in entries:
+                z.writestr(name,data)
+        return stream.getvalue()
+
+    def artifact_job(self, raw, data=b"image data"):
+        j=job()
+        a=artifact("image.tar",len(data))
+        a["sha256"]=hashlib.sha256(data).hexdigest()
+        a["source"]["archiveSize"]=len(raw)
+        a["source"]["archiveSha256"]=hashlib.sha256(raw).hexdigest()
+        j["manifest"].update(operation="artifact.inspect",entrypoint=None,files=[a])
+        j["manifestSha256"]=manifest_sha256(j["manifest"])
+        return j
+
+    @staticmethod
+    def provider(j, raw):
+        import io
+        from unittest.mock import Mock
+        src=j["manifest"]["files"][0]["source"]
+        p=Mock()
+        p.run_metadata.return_value={"id":src["runId"],"repository":{"full_name":REPOSITORY},
+            "head_repository":{"full_name":REPOSITORY},"head_sha":src["commit"],
+            "path":".github/workflows/"+src["workflow"],"status":"completed","conclusion":"success"}
+        p.artifact_metadata.return_value={"id":src["artifactId"],"name":src["name"],
+            "expired":False,"size_in_bytes":src["archiveSize"],"digest":"sha256:"+src["archiveSha256"],
+            "workflow_run":{"id":src["runId"],"head_sha":src["commit"]}}
+        p.artifact_zip.side_effect=lambda _:io.BytesIO(raw)
+        return p
+
+    def test_event_context(self):
+        from bridge import verify_event, OWNER
+        actor={"login":OWNER,"type":"User"}
+        j=job()
+        e={"action":"created","repository":{"full_name":REPOSITORY},
+           "sender":actor,"issue":{"number":123,"state":"open"},
+           "comment":{"id":1,"user":actor,"body":"/prp-remote-v11 "+j["jobId"]+" abcdefgh"}}
+        self.assertEqual(verify_event(e,REPOSITORY,"refs/heads/main",123),(j["jobId"],"abcdefgh"))
+        for changed in ({"action":"edited"},{"sender":{"login":"someone","type":"User"}},
+                        {"issue":{"number":123,"state":"open","pull_request":{}}}):
+            with self.assertRaises(InvalidJob):
+                verify_event(dict(e,**changed),REPOSITORY,"refs/heads/main",123)
+        with self.assertRaises(InvalidJob): verify_event(e,REPOSITORY,"refs/heads/dev",123)
+        with self.assertRaises(InvalidJob): verify_event(e,REPOSITORY,"refs/heads/main",277)
+
+    def test_inline_and_repository_stream(self):
+        import io
+        from unittest.mock import Mock
+        from bridge import transfer_job
+        j=job()
+        f=inline("config.json",b"{}")
+        f["source"]={"kind":"repository","repository":REPOSITORY,"commit":"b"*40,"path":"fixtures/config.json"}
+        j["manifest"]["files"].append(f)
+        j["manifestSha256"]=manifest_sha256(j["manifest"])
+        p=Mock()
+        p.repository_file.return_value=io.BytesIO(b"{}")
+        self.assertEqual(transfer_job(j,self.ledger,p,now=NOW)["state"],"VERIFIED")
+        p.repository_file.assert_called_once_with("b"*40,"fixtures/config.json")
+        p.artifact_zip.assert_not_called()
+        with self.assertRaises(InvalidJob): transfer_job(j,self.ledger,p,now=NOW)
+
+    def test_ci_archive_stream(self):
+        from bridge import transfer_job
+        raw=self.archive_bytes([("image.tar",b"image data")])
+        j=self.artifact_job(raw)
+        p=self.provider(j,raw)
+        self.assertEqual(transfer_job(j,self.ledger,p,{("build.yml","b"*40)},NOW)["state"],"VERIFIED")
+        self.assertEqual((self.root/"jobs"/j["jobId"]/"image.tar").read_bytes(),b"image data")
+
+    def test_unapproved_producer_no_download(self):
+        from bridge import transfer_job
+        raw=self.archive_bytes([("image.tar",b"image data")])
+        j=self.artifact_job(raw)
+        p=self.provider(j,raw)
+        with self.assertRaises(InvalidJob): transfer_job(j,self.ledger,p,now=NOW)
+        p.artifact_zip.assert_not_called()
+
+    def test_wrong_run_or_artifact_metadata(self):
+        from bridge import verify_producer
+        raw=self.archive_bytes([("image.tar",b"image data")])
+        j=self.artifact_job(raw)
+        p=self.provider(j,raw)
+        src=j["manifest"]["files"][0]["source"]
+        run=p.run_metadata.return_value
+        artifact_meta=p.artifact_metadata.return_value
+        allow={("build.yml","b"*40)}
+        for changed in ({"conclusion":"failure"},{"head_sha":"d"*40},{"path":".github/workflows/other.yml"},
+                        {"head_repository":{"full_name":"fork/repo"}}):
+            with self.assertRaises(InvalidJob): verify_producer(src,dict(run,**changed),artifact_meta,allow)
+        for changed in ({"expired":True},{"id":3},{"digest":"sha256:"+"e"*64},{"workflow_run":{"id":99}}):
+            with self.assertRaises(InvalidJob): verify_producer(src,run,dict(artifact_meta,**changed),allow)
+
+    def test_bad_outer_bytes(self):
+        from bridge import transfer_job
+        raw=self.archive_bytes([("image.tar",b"image data")])
+        j=self.artifact_job(raw)
+        p=self.provider(j,raw[:-1]+bytes([raw[-1]^1]))
+        with self.assertRaises(InvalidJob): transfer_job(j,self.ledger,p,{("build.yml","b"*40)},NOW)
+        self.assertEqual(self.ledger.status(j["jobId"],j["manifestSha256"])["state"],"RECEIVED")
+
+    def test_archive_traversal_symlink_duplicate(self):
+        import zipfile
+        import stat
+        from bridge import transfer_job
+        link=zipfile.ZipInfo("link")
+        link.create_system=3
+        link.external_attr=(stat.S_IFLNK|0o777)<<16
+        for bad in [("../outside",b"x"),(link,b"image.tar"),("IMAGE.TAR",b"x")]:
+            raw=self.archive_bytes([("image.tar",b"image data"),bad])
+            j=self.artifact_job(raw)
+            j["nonce"]=uuid.uuid4().hex
+            p=self.provider(j,raw)
+            with self.assertRaises(InvalidJob): transfer_job(j,self.ledger,p,{("build.yml","b"*40)},NOW)
+            self.assertFalse((self.root/"jobs"/j["jobId"]/"image.tar").exists())
+
+    def test_member_digest_mismatch(self):
+        from bridge import transfer_job
+        raw=self.archive_bytes([("image.tar",b"image data")])
+        j=self.artifact_job(raw,b"wrong data")
+        p=self.provider(j,raw)
+        with self.assertRaises(InvalidJob): transfer_job(j,self.ledger,p,{("build.yml","b"*40)},NOW)
+        self.assertFalse((self.root/"jobs"/j["jobId"]/"image.tar").exists())
+
 if __name__ == "__main__":
     unittest.main()
