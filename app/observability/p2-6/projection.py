@@ -29,6 +29,11 @@ FALSE_FLAGS = ("candidate_source_verified", "source_authenticated", "artifact_by
                "current_review_satisfied", "release_eligible", "approval_authorized",
                "deployment_authorized", "production_authorized", "live_verified")
 RELEASE_STATES = ("HELD", "BLOCKED", "READY_NOT_LIVE", "LIVE_CLAIMED_UNVERIFIED")
+PROJECTION_STATES = ("fresh", "stale", "future", "rate_limit", "api_error", "timeout", "invalid")
+
+
+class EvidenceUnavailable(ValueError):
+    pass
 
 
 def require(condition):
@@ -87,15 +92,26 @@ def state(row):
     return "unknown"
 
 
-def pages(value, key, now):
+def pages(value, key, now, observed):
     require(type(value) is list and 0 < len(value) <= MAX_PAGES)
     items, total = [], None
     for i, envelope in enumerate(value, 1):
         exact(envelope, {"page", "http_status", "received_at", "body"})
         require(integer(envelope["page"], 1, MAX_PAGES) == i)
-        require(type(envelope["http_status"]) is int and envelope["http_status"] == 200)
+        status = envelope["http_status"]
+        if status is None:
+            raise EvidenceUnavailable("timeout")
+        require(type(status) is int)
+        if status == 429:
+            raise EvidenceUnavailable("rate_limit")
+        if status != 200:
+            require(100 <= status <= 599)
+            raise EvidenceUnavailable("api_error")
         t = epoch(envelope["received_at"])
-        require(-FUTURE <= now - t < TTL)
+        if now - t >= TTL:
+            raise EvidenceUnavailable("stale")
+        if t > now + FUTURE or t > observed + FUTURE:
+            raise EvidenceUnavailable("future")
         body = envelope["body"]
         require(type(body) is dict and key in body and "total_count" in body)
         n = integer(body["total_count"], 0, MAX_ITEMS)
@@ -128,7 +144,10 @@ def regression_claim(receipt, commit, now):
             and receipt.get("repository") == REPO and receipt.get("environment") == "prp-unified-396"
             and receipt.get("issue") == 396 and all(receipt.get(k) is False for k in FALSE_FLAGS))
     c = receipt.get("candidate")
-    require(type(c) is dict and c.get("repository") == REPO and sha(c.get("commit")) == commit)
+    require(type(c) is dict and c.get("repository") == REPO and sha(c.get("commit")) == commit
+            and type(c.get("schema")) is int and c["schema"] == 31
+            and type(c.get("artifact_digest")) is str
+            and re.fullmatch(r"sha256:[a-f0-9]{64}", c["artifact_digest"]) is not None)
     w = receipt.get("window")
     fields = ("runtime_before_at", "started_at", "finished_at", "runtime_after_at")
     exact(w, fields)
@@ -171,7 +190,7 @@ def project(raw, now):
             return unavailable("stale")
         if age < -FUTURE:
             return unavailable("future")
-        runs = pages(data["run_pages"], "workflow_runs", now)
+        runs = pages(data["run_pages"], "workflow_runs", now, observed)
         require(bool(runs))
         for row in runs:
             require(row.get("path") == WORKFLOW and sha(row.get("head_sha")) == commit
@@ -181,7 +200,7 @@ def project(raw, now):
             require(stamp(row.get("created_at")) <= stamp(row.get("updated_at")) <= now + FUTURE)
         selected = max(runs, key=lambda row: (stamp(row["created_at"]), row["id"]))
         run_state = state(selected)
-        rows = pages(data["job_pages"], "jobs", now)
+        rows = pages(data["job_pages"], "jobs", now, observed)
         require(bool(rows))
         counts = {k: Counter() for k in ("all", "mcp")}
         durations = {k: 0 for k in counts}
@@ -235,6 +254,8 @@ def project(raw, now):
                 "duration_seconds": durations, "release_state_claim": release_state,
                 "regression_claim": regression, "authority": "offline_unverified",
                 "runtime_verified": False, "deployment_authorized": False, "live_verified": False}
+    except EvidenceUnavailable as exc:
+        return unavailable(str(exc))
     except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError, OSError):
         return unavailable()
 
@@ -244,6 +265,9 @@ def prometheus(raw, now):
     value = project(raw, now)
     lines = ["# TYPE prp_ci_projection_fresh gauge",
              "prp_ci_projection_fresh " + ("1" if value["fresh"] else "0")]
+    reason = "fresh" if value["fresh"] else value["reason"]
+    for st in PROJECTION_STATES:
+        lines.append('prp_ci_projection_state{state="' + st + '"} ' + str(int(reason == st)))
     if not value["fresh"]:
         return "\n".join(lines) + "\n"
     lines += ["prp_ci_snapshot_age_seconds " + str(value["age_seconds"]),
