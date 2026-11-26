@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 34,
-  "updated_at": "2026-11-26T12:29:20.664Z",
+  "version": 35,
+  "updated_at": "2026-11-26T13:12:06.330Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -454,6 +454,19 @@
         "status": "CLAIMED",
         "replayed": false
       }
+    },
+    {
+      "request_id": "d6060002-1126-4a06-8601-000000000002",
+      "fingerprint": "5170097b047c62a7902e895ca8cf5920ef1a3a17941a0461eb932e093a76f298",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "start",
+        "task_id": "T-006",
+        "request_id": "d6060002-1126-4a06-8601-000000000002",
+        "version": 35,
+        "status": "IN_PROGRESS",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -591,7 +604,7 @@
       "task_id": "T-006",
       "issue_number": 141,
       "title": "只读任务看板与 Issue 投影",
-      "status": "CLAIMED",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "T-003"
       ],
