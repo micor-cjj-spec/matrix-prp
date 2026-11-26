@@ -1,0 +1,47 @@
+name: PRP Unified Staging S1 Compose Review (offline only)
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "app/deploy/unified-staging/**"
+      - ".github/workflows/prp-unified-staging-compose-review.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-compose-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Run synthetic validation with no Docker execution
+        run: |
+          set -euo pipefail
+          python3 -m py_compile app/deploy/unified-staging/check_env.py app/deploy/unified-staging/test_check_env.py
+          python3 -m unittest discover -s app/deploy/unified-staging -p 'test_*.py' -v
+      - name: Validate profile-only Compose syntax on disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          envfile="$RUNNER_TEMP/prp-unified-stage-review.env"
+          trap 'rm -f "$envfile"' EXIT
+          PYTHONPATH=app/deploy/unified-staging python3 - <<'PY' > "$envfile"
+          from test_check_env import sample
+          for key, value in sample().items():
+              print(f"{key}={value}")
+          PY
+          python3 app/deploy/unified-staging/check_env.py --env-file "$envfile"
+          docker compose --env-file "$envfile" \
+            --profile unified-review \
+            -f app/deploy/unified-staging/compose.review.yaml config --quiet
+          count="$(docker compose --env-file "$envfile" \
+            --profile unified-review \
+            -f app/deploy/unified-staging/compose.review.yaml config --services | wc -l)"
+          test "$count" -eq 3
+          echo 'PASS: syntax and three profile-gated services; NO CONTAINERS WERE STARTED'

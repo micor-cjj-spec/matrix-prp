@@ -1,0 +1,90 @@
+# REVIEW ONLY — never treat this file or compose config success as host authorization.
+# Every service requires --profile unified-review; no default running services.
+# Build from an independently reviewed exact candidate SHA, not an arbitrary branch.
+name: prp-unified-stage-review
+services:
+  mysql:
+    profiles: ["unified-review"]
+    image: mysql:8.4
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${PRP_UNIFIED_DB_ROOT_PASSWORD:?stage-only root secret required}
+      MYSQL_DATABASE: matrix_prp_unified_stage
+      MYSQL_USER: prp_unified
+      MYSQL_PASSWORD: ${PRP_UNIFIED_DB_PASSWORD:?stage-only app secret required}
+    volumes: [unified_mysql:/var/lib/mysql]
+    networks: [unified_private]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    profiles: ["unified-review"]
+    build:
+      context: ../../..
+      dockerfile: app/deploy/mcp-staging/Dockerfile.backend
+    restart: "no"
+    depends_on:
+      mysql: {condition: service_healthy}
+    environment:
+      MATRIX_PRP_DB_URL: jdbc:mysql://mysql:3306/matrix_prp_unified_stage?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      MATRIX_PRP_DB_USER: prp_unified
+      MATRIX_PRP_DB_PASSWORD: ${PRP_UNIFIED_DB_PASSWORD:?}
+      MATRIX_PRP_JWT_SECRET: ${PRP_UNIFIED_JWT_SECRET:?}
+      MATRIX_PRP_BOOTSTRAP_USERNAME: ${PRP_UNIFIED_BOOTSTRAP_USERNAME:?}
+      MATRIX_PRP_BOOTSTRAP_PASSWORD: ${PRP_UNIFIED_BOOTSTRAP_PASSWORD:?}
+      MATRIX_PRP_FLYWAY_ENABLED: "true"
+      MATRIX_PRP_MCP_ENABLED: "false"
+      MATRIX_PRP_MCP_OAUTH_ENABLED: "false"
+      MATRIX_PRP_MCP_WRITE_ENABLED: "false"
+      MATRIX_PRP_MCP_OAUTH_FIRST_PARTY_LINK_ENABLED: "false"
+      MATRIX_PRP_MCP_OAUTH_ADVERTISED_SCOPES: "TASK_ONLY"
+      MATRIX_PRP_MCP_ALLOWED_ORIGINS: ${PRP_UNIFIED_PUBLIC_URL:?}
+      MATRIX_PRP_MCP_OAUTH_ISSUER: ${PRP_UNIFIED_AUTH_ISSUER:?}
+      MATRIX_PRP_MCP_OAUTH_JWK_SET_URI: ${PRP_UNIFIED_AUTH_ISSUER:?}/protocol/openid-connect/certs
+      MATRIX_PRP_MCP_OAUTH_RESOURCE: ${PRP_UNIFIED_PUBLIC_URL:?}/api/mcp
+      MATRIX_PRP_AI_SPRING_AI_ENABLED: "false"
+      MATRIX_PRP_AI_SPRING_AI_TOOLS_ENABLED: "false"
+      MATRIX_PRP_VIDEO_ROOT: /data/video
+      MATRIX_PRP_VOCAL_ROOT: /data/vocal
+    volumes:
+      - unified_video:/data/video
+      - unified_vocal:/data/vocal
+    networks: [unified_private]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+
+  gateway:
+    profiles: ["unified-review"]
+    build:
+      context: ../../..
+      dockerfile: app/deploy/mcp-staging/Dockerfile.web
+      args:
+        VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT: ${PRP_UNIFIED_AUTH_ISSUER:?}/protocol/openid-connect/auth
+    restart: "no"
+    depends_on: [backend]
+    environment:
+      PRP_STAGE_HOST: ${PRP_UNIFIED_PUBLIC_HOST:?}
+    ports:
+      - "127.0.0.1:${PRP_UNIFIED_LOOPBACK_PORT:?explicit isolated port required}:8080"
+    volumes:
+      # Overrides the legacy MCP-enabled template only inside this review service.
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks: [unified_private, unified_ingress]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  # Allows the published loopback listener without attaching the app or DB.
+  unified_ingress:
+    driver: bridge
+  unified_private:
+    driver: bridge
+    internal: true
+
+volumes:
+  unified_mysql:
+  unified_video:
+  unified_vocal:
