@@ -682,5 +682,107 @@ class FrameTests(unittest.TestCase):
                 ledger.receive_file(jid,md,item["path"],file_frame_chunks(io.BytesIO(raw),jid,md,item),NOW)
             self.assertFalse((Path(root)/"jobs"/jid/item["path"]).exists())
 
+
+class ProviderTests(unittest.TestCase):
+    @staticmethod
+    def response(status, data=b"", headers=None):
+        import io
+        from unittest.mock import Mock
+        response=Mock(status=status)
+        response.read=io.BytesIO(data).read
+        response.getheader.side_effect=lambda name:(headers or {}).get(name)
+        return response
+
+    def test_fixed_metadata_and_repository_routes(self):
+        from unittest.mock import patch
+        from bridge import GitHubProvider
+        provider=GitHubProvider("synthetic-test-token")
+        with patch("bridge.http.client.HTTPSConnection") as connect:
+            conn=connect.return_value
+            conn.getresponse.side_effect=[self.response(200,b'{"id":12}'),self.response(200,b"{}")]
+            self.assertEqual(provider.run_metadata(12),{"id":12})
+            with provider.repository_file("b"*40,"fixtures/config.json") as stream:
+                self.assertEqual(stream.read(8),b"{}")
+            calls=conn.request.call_args_list
+            self.assertEqual(calls[0].args[:2],("GET","/repos/"+REPOSITORY+"/actions/runs/12"))
+            self.assertEqual(calls[1].args[1],"/repos/"+REPOSITORY+"/contents/fixtures/config.json?ref="+"b"*40)
+            self.assertEqual(calls[0].kwargs["headers"]["Authorization"],"Bearer synthetic-test-token")
+            self.assertEqual(connect.call_args.args[0],"api.github.com")
+        with self.assertRaises(InvalidJob): provider.run_metadata(True)
+        with self.assertRaises(InvalidJob):
+            with provider.repository_file("dev","fixtures/config.json"): pass
+
+    def test_redirect_credentials_not_forwarded(self):
+        from unittest.mock import patch, Mock
+        from bridge import GitHubProvider
+        provider=GitHubProvider("synthetic-test-token",["storage.example.invalid"])
+        api=Mock()
+        storage=Mock()
+        api.getresponse.return_value=self.response(302,headers={"Location":"https://storage.example.invalid/archive?sig=synthetic"})
+        storage.getresponse.return_value=self.response(200,b"archive")
+        with patch("bridge.http.client.HTTPSConnection",side_effect=[api,storage]) as connect:
+            with provider.artifact_zip(12) as stream:
+                self.assertEqual(stream.read(16),b"archive")
+            self.assertEqual([c.args[0] for c in connect.call_args_list],["api.github.com","storage.example.invalid"])
+            self.assertIn("Authorization",api.request.call_args.kwargs["headers"])
+            self.assertNotIn("Authorization",storage.request.call_args.kwargs["headers"])
+            self.assertEqual(storage.request.call_args.args[1],"/archive?sig=synthetic")
+
+    def test_redirect_denial_and_no_second_redirect(self):
+        from unittest.mock import patch, Mock
+        from bridge import GitHubProvider
+        provider=GitHubProvider("synthetic-test-token",["storage.example.invalid"])
+        for location in ("http://storage.example.invalid/x","https://other.example.invalid/x",
+                         "https://storage.example.invalid@other.example.invalid/x",
+                         "https://storage.example.invalid:443/x","https://storage.example.invalid//x"):
+            with patch("bridge.http.client.HTTPSConnection") as connect:
+                connect.return_value.getresponse.return_value=self.response(302,headers={"Location":location})
+                with self.assertRaises(InvalidJob):
+                    with provider.artifact_zip(12): pass
+                connect.assert_called_once()
+        api=Mock()
+        store=Mock()
+        api.getresponse.return_value=self.response(302,headers={"Location":"https://storage.example.invalid/archive"})
+        store.getresponse.return_value=self.response(302,headers={"Location":"https://other.example.invalid/x"})
+        with patch("bridge.http.client.HTTPSConnection",side_effect=[api,store]) as connect:
+            with self.assertRaises(InvalidJob):
+                with provider.artifact_zip(12): pass
+            self.assertEqual(connect.call_count,2)
+
+    def test_stream_limits_and_deadline(self):
+        import time
+        from bridge import GitHubProvider,_DeadlineStream
+        for headers in ({"Content-Length":"1000"},{"Content-Encoding":"gzip"}):
+            with self.assertRaises(InvalidJob):
+                GitHubProvider._stream(self.response(200,b"x",headers),10,time.monotonic()+10)
+        stream=_DeadlineStream(self.response(200,b"1234"),time.monotonic()+10,3)
+        self.assertEqual(stream.read(3),b"123")
+        with self.assertRaises(InvalidJob): stream.read(1)
+        stream=_DeadlineStream(self.response(200,b"x"),time.monotonic()-1,10)
+        with self.assertRaises(InvalidJob): stream.read(1)
+
+    def test_frame_sender_and_receiver(self):
+        import io
+        from bridge import encode_file_stream,file_frame_chunks
+        j=job()
+        item=j["manifest"]["files"][0]
+        jid,md=j["jobId"],j["manifestSha256"]
+        data=b"print('hello')"
+        frames=b"".join(encode_file_stream(io.BytesIO(data),jid,md,item))
+        self.assertEqual(b"".join(file_frame_chunks(io.BytesIO(frames),jid,md,item)),data)
+        for corrupt in (data[:-1],data+b"x",b"x"*len(data)):
+            with self.assertRaises(InvalidJob):
+                list(encode_file_stream(io.BytesIO(corrupt),jid,md,item))
+
+    def test_ssh_fixed_target_and_no_command_injection(self):
+        from bridge import ssh_receive_argv
+        argv=ssh_receive_argv("staging.example.invalid","/tmp/key","/tmp/hosts")
+        self.assertEqual(argv[-2:],["prp-remote-v11@staging.example.invalid","receive-v11"])
+        self.assertIn("StrictHostKeyChecking=yes",argv)
+        self.assertIn("ClearAllForwardings=yes",argv)
+        for host in ("-oProxyCommand=x","staging.example.invalid;id","user@staging.example.invalid"):
+            with self.assertRaises(InvalidJob): ssh_receive_argv(host,"/tmp/key","/tmp/hosts")
+        with self.assertRaises(InvalidJob): ssh_receive_argv("staging.example.invalid","relative","/tmp/hosts")
+
 if __name__ == "__main__":
     unittest.main()
