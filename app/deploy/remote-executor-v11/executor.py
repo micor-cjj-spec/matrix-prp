@@ -6,6 +6,7 @@ A future trusted transport must authenticate owner and bind approval before
 calling this internal API.
 """
 from contextlib import contextmanager
+import errno
 import hashlib
 import hmac
 import os
@@ -710,12 +711,22 @@ def handoff_once(ledger, *, enabled=False):
     require(enabled is True, "local handoff disabled")
     receiver, worker = _handoff_accounts()
     service_identity(SERVICE_USER)
-    _handoff_socket(receiver, worker)
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-        conn.settimeout(10)
-        conn.connect(str(HANDOFF_SOCKET))
-        _peer(conn, worker)
-        return handoff_receiver(conn, ledger)
+    # Retry only a missing/not-yet-listening local endpoint, before any claim.
+    # Peer validation and task dispatch are strictly outside this retry path.
+    deadline = time.monotonic() + 5
+    while True:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            try:
+                _handoff_socket(receiver, worker)
+                conn.settimeout(max(0.001, deadline - time.monotonic()))
+                conn.connect(str(HANDOFF_SOCKET))
+            except OSError as exc:
+                require(exc.errno in (errno.ENOENT, errno.ECONNREFUSED)
+                        and time.monotonic() < deadline, "handoff endpoint unavailable")
+                time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+                continue
+            _peer(conn, worker)
+            return handoff_receiver(conn, ledger)
 
 def worker_main():
     """Fixed one-shot worker; no receiver ledger or private key access."""
@@ -729,9 +740,15 @@ def worker_main():
     require(not HANDOFF_SOCKET.exists() and not HANDOFF_SOCKET.is_symlink(),
             "handoff socket already exists")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
-        listener.bind(str(HANDOFF_SOCKET))
+        # Publish a socket with the final DAC mode at bind time (Linux).
+        # The receiver may see the pathname before listen, so connect retries
+        # that startup window without claiming or transferring any job.
+        previous_umask = os.umask(0o117)
         try:
-            HANDOFF_SOCKET.chmod(0o660)
+            listener.bind(str(HANDOFF_SOCKET))
+        finally:
+            os.umask(previous_umask)
+        try:
             _handoff_socket(receiver, worker)
             listener.listen(1)
             listener.settimeout(15)

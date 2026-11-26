@@ -1337,6 +1337,52 @@ class LocalHandoffTests(unittest.TestCase):
             with self.assertRaises(InvalidJob):
                 _handoff_accounts()
 
+    def test_preclaim_socket_startup_retry_only(self):
+        import socket
+        from types import SimpleNamespace
+        from pathlib import Path
+        from unittest.mock import patch
+        from executor import handoff_once
+        account=SimpleNamespace(pw_uid=os.geteuid(),pw_gid=os.getegid())
+        endpoint=Path(self.tmp.name)/"startup.sock"
+        with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as listener:
+            listener.bind(str(endpoint))
+            # The actual first connect encounters ECONNREFUSED; start listening
+            # only after the retry path sleeps. No task claim occurs yet.
+            with patch("executor.HANDOFF_SOCKET",endpoint), \
+                 patch("executor._handoff_accounts",return_value=(account,account)), \
+                 patch("executor.service_identity"), \
+                 patch("executor._handoff_socket"), \
+                 patch("executor.time.sleep",side_effect=lambda _:listener.listen(1)) as retry, \
+                 patch("executor.handoff_receiver",return_value={"state":"SUCCEEDED"}) as dispatch:
+                self.assertEqual(handoff_once(self.ledger,enabled=True),{"state":"SUCCEEDED"})
+                retry.assert_called_once()
+                dispatch.assert_called_once()
+        endpoint.unlink()
+
+    def test_dispatch_failure_never_retries(self):
+        import socket
+        from types import SimpleNamespace
+        from pathlib import Path
+        from unittest.mock import patch
+        from executor import handoff_once
+        account=SimpleNamespace(pw_uid=os.geteuid(),pw_gid=os.getegid())
+        endpoint=Path(self.tmp.name)/"dispatch.sock"
+        with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as listener:
+            listener.bind(str(endpoint))
+            listener.listen(1)
+            with patch("executor.HANDOFF_SOCKET",endpoint), \
+                 patch("executor._handoff_accounts",return_value=(account,account)), \
+                 patch("executor.service_identity"), \
+                 patch("executor._handoff_socket"), \
+                 patch("executor.time.sleep") as retry, \
+                 patch("executor.handoff_receiver",side_effect=ConnectionRefusedError()) as dispatch:
+                with self.assertRaises(ConnectionRefusedError):
+                    handoff_once(self.ledger,enabled=True)
+                retry.assert_not_called()
+                dispatch.assert_called_once()
+        endpoint.unlink()
+
     def test_peer_mismatch_and_default_off(self):
         import socket
         from types import SimpleNamespace

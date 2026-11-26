@@ -45,7 +45,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends bubblewrap debootstrap
           sudo install -d -m 0755 /opt/matrix-prp-remote-executor-v11/src /etc/matrix-prp-remote-executor-v11
-          sudo debootstrap --variant=minbase --include=bash,python3 noble /opt/matrix-prp-remote-executor-v11/rootfs https://archive.ubuntu.com/ubuntu/
+          # Use the official Azure Ubuntu mirror on the disposable hosted VM.
+          # Preserve signed package verification and fail closed on fetch error.
+          sudo debootstrap --variant=minbase --include=bash,python3 noble /opt/matrix-prp-remote-executor-v11/rootfs https://azure.archive.ubuntu.com/ubuntu/
           sudo install -d -m 0755 /opt/matrix-prp-remote-executor-v11/rootfs/input
           # Hosted images can have a writable /opt parent. The candidate
           # correctly rejects any non-root or group/world-writable ancestor.
