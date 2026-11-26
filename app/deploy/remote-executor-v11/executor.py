@@ -9,6 +9,8 @@ from contextlib import contextmanager
 import hashlib
 import hmac
 import os
+import pwd
+import sys
 from pathlib import Path
 import sqlite3
 import signal
@@ -17,11 +19,14 @@ import tempfile
 import stat
 import time
 
-from protocol import InvalidJob, canonical, parse, require, validate_job, relative_path, validate_request
+from protocol import InvalidJob, canonical, parse, require, validate_job, relative_path, validate_request, MAX_ARTIFACT
 
 TERMINAL = frozenset({"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED", "REJECTED", "RECONCILE_REQUIRED"})
 MAX_RESULT = 16 * 1024
 CHUNK = 1024 * 1024
+MAX_RETAINED_JOBS = 32
+MAX_RESERVED_BYTES = 1024 * 1024 * 1024
+MAX_RETAINED_REQUESTS = 1024
 
 def _private_dir(path):
     info = path.lstat()
@@ -80,6 +85,8 @@ class Ledger:
             # Queries must resolve an existing job with the exact digest.
             if req["action"] != "submit":
                 self._get(con, req["jobId"], req["manifestSha256"])
+            require(con.execute("SELECT count(*) FROM requests").fetchone()[0] < MAX_RETAINED_REQUESTS,
+                    "request retention capacity exhausted")
             try:
                 con.execute("INSERT INTO requests VALUES(?,?,?,?,?,?,?)",
                             (req["requestId"], req["nonce"], comment_id,
@@ -116,6 +123,12 @@ class Ledger:
         validate_job(job, now)
         job_id = job["jobId"]
         with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            retained = con.execute("SELECT manifest FROM jobs").fetchall()
+            require(len(retained) < MAX_RETAINED_JOBS, "job retention capacity exhausted")
+            reserved = sum(f["size"] for row in retained for f in parse(row["manifest"].encode("ascii"))["files"])
+            incoming = sum(f["size"] for f in job["manifest"]["files"])
+            require(reserved + incoming <= MAX_RESERVED_BYTES, "spool reservation exhausted")
             try:
                 con.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,NULL)",
                             (job_id, job["nonce"], canonical(job["manifest"]).decode("ascii"),
@@ -494,3 +507,81 @@ def dispatch_verified_job(ledger, job_id, digest, *, enabled=False, now=None):
     if operation in SANDBOX_OPS:
         return run_sandbox(ledger, job_id, digest)
     raise InvalidJob("operation unavailable; use existing authorized staging runner")
+
+
+# Candidate host entrypoints. No installation, service creation or gate write.
+INSTALL_ROOT = Path("/opt/matrix-prp-remote-executor-v11")
+CONFIG_ROOT = Path("/etc/matrix-prp-remote-executor-v11")
+LEDGER_ROOT = Path("/var/lib/matrix-prp-remote-executor-v11")
+SERVICE_USER = "prp-remote-v11"
+RECEIVER_GATE = CONFIG_ROOT / "receiver.enabled"
+WORKER_GATE = CONFIG_ROOT / "worker.enabled"
+
+def host_gate(path, expected):
+    """Fixed root-owned opt-in; no environment override."""
+    try:
+        _trusted_path(path, False)
+        st = path.stat()
+        require(stat.S_IMODE(st.st_mode) == 0o444 and st.st_size == len(expected)
+                and path.read_bytes() == expected, "host gate disabled")
+    except OSError as exc:
+        raise InvalidJob("host gate unavailable") from exc
+
+def service_identity():
+    try:
+        account = pwd.getpwnam(SERVICE_USER)
+        require(account.pw_uid > 0 and account.pw_gid > 0
+                and os.geteuid() == os.getuid() == account.pw_uid
+                and os.getegid() == os.getgid() == account.pw_gid
+                and set(os.getgroups()) <= {account.pw_gid},
+                "unexpected service identity or groups")
+        return account
+    except (OSError, KeyError) as exc:
+        raise InvalidJob("service identity unavailable") from exc
+
+def next_verified(ledger, now=None):
+    """Select one exact, unexpired, submit-bound job from durable state.
+
+    Selection is read-only; dispatch performs the actual atomic job claim.
+    No automatic retry of RUNNING or RECONCILE_REQUIRED jobs. Unknown
+    operations remain outside this worker's allowlist.
+    """
+    now = int(time.time() if now is None else now)
+    with ledger._connect() as con:
+        if con.execute("SELECT 1 FROM jobs WHERE state IN ('RUNNING','RECONCILE_REQUIRED') LIMIT 1").fetchone():
+            return None
+        rows = con.execute("""SELECT j.id,j.digest,j.manifest FROM jobs j
+            WHERE j.state='VERIFIED' AND j.expires>?
+              AND EXISTS (SELECT 1 FROM requests r WHERE r.action='submit'
+                  AND r.job_id=j.id AND r.digest=j.digest AND r.nonce=j.nonce)
+            ORDER BY j.updated,j.id LIMIT ?""", (now, MAX_RETAINED_JOBS)).fetchall()
+        for row in rows:
+            operation = parse(row["manifest"].encode("ascii"))["operation"]
+            if operation in SANDBOX_OPS or operation in FIXED_LOCAL_OPS:
+                return row["id"], row["digest"]
+    return None
+
+def worker_once(ledger, *, enabled=False, now=None):
+    require(enabled is True, "worker disabled")
+    selected = next_verified(ledger, now)
+    if selected is None:
+        return None
+    return dispatch_verified_job(ledger, *selected, enabled=True, now=now)
+
+def worker_main():
+    """One-shot worker for an independently provisioned bounded systemd unit."""
+    require(sys.argv[1:] == ["worker-once"], "invalid worker invocation")
+    service_identity()
+    host_gate(WORKER_GATE, b"PRP_STAGING_WORKER_V11\n")
+    # Even fixed-operation work runs under the accepted dedicated service
+    # boundary. Do not treat a marker alone as a successful isolation test.
+    sandbox_preflight()
+    worker_once(Ledger(LEDGER_ROOT), enabled=True)
+
+if __name__ == "__main__":
+    try:
+        worker_main()
+    except Exception:
+        # No job content, command, file names or private values in journal.
+        print("REMOTE_EXECUTOR_WORKER_BLOCKED_OR_UNCERTAIN", file=sys.stderr)
+        sys.exit(2)
