@@ -1,0 +1,29 @@
+# Candidate systemd unit. Installation is NOT part of CI or this PR.
+[Unit]
+Description=PRP observability pilot host metrics
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=prp-monitor
+Group=prp-monitor
+EnvironmentFile=/etc/prp-observability/node.env
+ExecStart=/opt/prp-observability/bin/node_exporter --web.listen-address=${PRP_MON_LISTEN} --collector.disable-defaults --collector.cpu --collector.meminfo --collector.filesystem --collector.filesystem.mount-points-include=^/$ --collector.netdev
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=75%
+TasksMax=128
+Restart=no
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
