@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.ProviderManager;
@@ -84,6 +85,7 @@ public class ObservabilityConfig {
     }
 
     @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     MeterFilter observabilityMetricAllowlist() {
         return MeterFilter.deny(id -> !allowed(id));
     }
@@ -107,16 +109,19 @@ public class ObservabilityConfig {
     }
 
     @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     MeterFilter observabilityUriBound() {
         return MeterFilter.maximumAllowableTags("http.server.requests", "uri", 256, MeterFilter.deny());
     }
 
     @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     MeterFilter observabilityMethodBound() {
         return MeterFilter.maximumAllowableTags("http.server.requests", "method", 16, MeterFilter.deny());
     }
 
     @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     MeterFilter observabilityPoolBound() {
         return MeterFilter.maximumAllowableTags("hikaricp", "pool", 8, MeterFilter.deny());
     }
