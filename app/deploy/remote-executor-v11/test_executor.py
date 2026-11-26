@@ -129,5 +129,108 @@ class ContractTests(unittest.TestCase):
         m["files"][0]["source"]["data"] += "="
         with self.assertRaises(InvalidJob): validate_manifest(m)
 
+
+class LedgerTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from executor import Ledger
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.ledger = Ledger(self.root)
+        self.job = job()
+        self.id = self.ledger.accept(self.job, NOW)
+        self.digest = self.job["manifestSha256"]
+
+    def transfer(self):
+        self.ledger.receive_file(self.id, self.digest, "run.py", [b"print('hello')"], NOW)
+
+    def ready(self):
+        self.transfer()
+        self.ledger.verify(self.id, self.digest, NOW)
+
+    def test_persistence_and_single_claim(self):
+        from executor import Ledger
+        self.ready()
+        reopened = Ledger(self.root)
+        self.assertEqual(reopened.status(self.id,self.digest)["state"],"VERIFIED")
+        self.assertEqual(reopened.claim(self.id,self.digest,NOW),self.job["manifest"])
+        with self.assertRaises(InvalidJob): self.ledger.claim(self.id,self.digest,NOW)
+        reopened.finish(self.id,self.digest,"SUCCEEDED",{"exitCode":0,"summary":"synthetic"},NOW)
+        self.assertEqual(self.ledger.result(self.id,self.digest)["exitCode"],0)
+
+    def test_replay_and_lookup_binding(self):
+        with self.assertRaises(InvalidJob): self.ledger.accept(self.job,NOW)
+        changed=copy.deepcopy(self.job)
+        changed["jobId"]=str(uuid.uuid4())
+        with self.assertRaises(InvalidJob): self.ledger.accept(changed,NOW)
+        with self.assertRaises(InvalidJob): self.ledger.status(self.id,"b"*64)
+
+    def test_bad_transfer_and_retry(self):
+        with self.assertRaises(InvalidJob):
+            self.ledger.receive_file(self.id,self.digest,"run.py",[b"bad"],NOW)
+        self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"RECEIVED")
+        self.assertFalse((self.root/"jobs"/self.id/"run.py").exists())
+        self.ready()
+
+    def test_transfer_interruption(self):
+        def interrupted():
+            yield b"print"
+            raise RuntimeError("synthetic disconnect")
+        with self.assertRaises(RuntimeError):
+            self.ledger.receive_file(self.id,self.digest,"run.py",interrupted(),NOW)
+        self.assertFalse((self.root/"jobs"/self.id/".run.py.partial").exists())
+        self.ready()
+
+    def test_expiry_and_cancel(self):
+        with self.assertRaises(InvalidJob):
+            self.ledger.receive_file(self.id,self.digest,"run.py",[b"print('hello')"],NOW+180)
+        self.ready()
+        self.ledger.cancel_pending(self.id,self.digest,NOW)
+        self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"CANCELLED")
+        with self.assertRaises(InvalidJob): self.ledger.claim(self.id,self.digest,NOW)
+
+    def test_tamper_before_verification(self):
+        self.transfer()
+        (self.root/"jobs"/self.id/"run.py").write_bytes(b"bad")
+        with self.assertRaises(InvalidJob): self.ledger.verify(self.id,self.digest,NOW)
+
+    def test_symlink_rejected(self):
+        folder=self.root/"jobs"/self.id
+        folder.mkdir(mode=0o700)
+        outside=self.root/"outside"
+        outside.write_bytes(b"unchanged")
+        (folder/"run.py").symlink_to(outside)
+        with self.assertRaises(InvalidJob): self.transfer()
+        self.assertEqual(outside.read_bytes(),b"unchanged")
+
+    def test_active_and_uncertain_blocks_next(self):
+        self.ready()
+        self.ledger.claim(self.id,self.digest,NOW)
+        second=job()
+        second["nonce"]="b"*32
+        sid=self.ledger.accept(second,NOW)
+        sd=second["manifestSha256"]
+        self.ledger.receive_file(sid,sd,"run.py",[b"print('hello')"],NOW)
+        self.ledger.verify(sid,sd,NOW)
+        with self.assertRaises(InvalidJob): self.ledger.claim(sid,sd,NOW)
+        self.ledger.mark_uncertain(self.id,self.digest,NOW)
+        self.assertEqual(self.ledger.status(self.id,self.digest)["state"],"RECONCILE_REQUIRED")
+        with self.assertRaises(InvalidJob): self.ledger.claim(sid,sd,NOW)
+        with self.assertRaises(InvalidJob): self.ledger.claim(self.id,self.digest,NOW)
+
+    def test_completion_validation(self):
+        self.ready()
+        with self.assertRaises(InvalidJob):
+            self.ledger.finish(self.id,self.digest,"SUCCEEDED",{"exitCode":0,"summary":"premature"},NOW)
+        self.ledger.claim(self.id,self.digest,NOW)
+        with self.assertRaises(InvalidJob):
+            self.ledger.finish(self.id,self.digest,"SUCCEEDED",{"exitCode":1,"summary":"mismatch"},NOW)
+        with self.assertRaises(InvalidJob):
+            self.ledger.finish(self.id,self.digest,"FAILED",{"exitCode":1,"summary":"x"*20000},NOW)
+        self.ledger.finish(self.id,self.digest,"FAILED",{"exitCode":1,"summary":"synthetic"},NOW)
+        self.assertEqual(self.ledger.result(self.id,self.digest)["exitCode"],1)
+
 if __name__ == "__main__":
     unittest.main()
