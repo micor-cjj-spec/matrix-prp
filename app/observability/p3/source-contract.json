@@ -1,0 +1,21 @@
+{
+  "p1": {
+    "pr": 451,
+    "head": "e8e5536f3d0dcdd2852f597a0402529332c24f42",
+    "files": {
+      "app/observability/pilot/prometheus.yml": "34e23f1cde8a5b688414b07136cf0420e2b2dd9a",
+      "app/observability/ci_smoke.py": "6a3a12e26ffd923737aa7ce35a163f6ab91a3bd8"
+    }
+  },
+  "p2": {
+    "pr": 476,
+    "head": "ee34a882c5a1a2296303a1a751a7869eb661b760",
+    "files": {
+      "app/observability/integration/prometheus.yml": "d82f0238c6b5699495203aca88911ef73b7a6cd9",
+      "app/observability/integration/fixture.py": "532f0dda888d5410ff64db168890436ba6d79ee2",
+      "app/observability/p2-6/projection.py": "c65402f4e71ab1b7728fd516ba4860db59fef8a2",
+      "app/observability/p2-1/ci_availability.py": "d1cafa264f3bceed42d66be7ffab2ca218f715d9",
+      "app/backend/src/main/resources/application-observability.yml": "626cf68b69161fc59733ce994ea7b0cb7046c61d"
+    }
+  }
+}

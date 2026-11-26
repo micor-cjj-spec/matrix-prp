@@ -1,0 +1,18 @@
+name: PRP observability P3 offline alerts
+on:
+  pull_request:
+    paths:
+      - 'app/observability/p3/**'
+      - '.github/workflows/prp-observability-p3.yml'
+permissions:
+  contents: read
+jobs:
+  isolated-alert-lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run promtool and isolated Alertmanager lifecycle
+        run: python3 app/observability/p3/ci_alerts.py

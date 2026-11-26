@@ -1,0 +1,153 @@
+{
+  "groups": [
+    {
+      "name": "prp-synthetic-candidate",
+      "interval": "15s",
+      "rules": [
+        {
+          "alert": "HostCPUHigh",
+          "expr": "100 * (1 - avg by (environment,job,instance) (rate(node_cpu_seconds_total{job=\"node\",environment=\"synthetic\",mode=\"idle\"}[1m]))) > 85",
+          "for": "2m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "CPU busy above candidate threshold"
+          }
+        },
+        {
+          "alert": "HostMemoryLow",
+          "expr": "100 * node_memory_MemAvailable_bytes{job=\"node\",environment=\"synthetic\"} / node_memory_MemTotal_bytes{job=\"node\",environment=\"synthetic\"} < 20",
+          "for": "1m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Available memory below candidate threshold"
+          }
+        },
+        {
+          "alert": "HostMemoryCritical",
+          "expr": "100 * node_memory_MemAvailable_bytes{job=\"node\",environment=\"synthetic\"} / node_memory_MemTotal_bytes{job=\"node\",environment=\"synthetic\"} < 10",
+          "for": "1m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Available memory critically low"
+          }
+        },
+        {
+          "alert": "HostRootDiskLow",
+          "expr": "100 * node_filesystem_avail_bytes{job=\"node\",environment=\"synthetic\",mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"node\",environment=\"synthetic\",mountpoint=\"/\"} < 15",
+          "for": "1m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Root filesystem free space low"
+          }
+        },
+        {
+          "alert": "TargetScrapeDown",
+          "expr": "up{environment=\"synthetic\",job=~\"node|http_health|https_health|p2-app|p2-cgroup|p2-mysql|p2-nginx|p2-keycloak|p2-ci\"} == 0",
+          "for": "30s",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Metrics endpoint unavailable"
+          }
+        },
+        {
+          "alert": "ProbeTargetDown",
+          "expr": "(probe_success{environment=\"synthetic\",job=~\"http_health|https_health\"} == 0) and on(environment,job,instance) (up == 1)",
+          "for": "30s",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "HTTP transport probe failed"
+          }
+        },
+        {
+          "alert": "MySQLTargetDown",
+          "expr": "(mysql_up{environment=\"synthetic\",job=\"p2-mysql\"} == 0) and on(environment,job,instance) (up == 1)",
+          "for": "30s",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Database target unavailable"
+          }
+        },
+        {
+          "alert": "NginxTargetDown",
+          "expr": "(nginx_up{environment=\"synthetic\",job=\"p2-nginx\"} == 0) and on(environment,job,instance) (up == 1)",
+          "for": "30s",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "NGINX target unavailable"
+          }
+        },
+        {
+          "alert": "TLSCertificateExpiring",
+          "expr": "(probe_ssl_earliest_cert_expiry{environment=\"synthetic\",job=\"https_health\"} - time() < 14 * 86400) and on(environment,job,instance) (probe_success == 1) and on(environment,job,instance) (up == 1)",
+          "for": "1m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Validated probe certificate expires within 14 days"
+          }
+        },
+        {
+          "alert": "ApplicationErrorRateHigh",
+          "expr": "(sum by(environment,job,instance) (rate(http_server_requests_seconds_count{environment=\"synthetic\",job=\"p2-app\",status=~\"5..\"}[1m])) / sum by(environment,job,instance) (rate(http_server_requests_seconds_count{environment=\"synthetic\",job=\"p2-app\"}[1m])) > 0.05) and on(environment,job,instance) (sum by(environment,job,instance) (rate(http_server_requests_seconds_count{environment=\"synthetic\",job=\"p2-app\"}[1m])) >= 1)",
+          "for": "1m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Application HTTP 5xx ratio above 5 percent"
+          }
+        },
+        {
+          "alert": "ApplicationMeanLatencyHigh",
+          "expr": "(sum by(environment,job,instance) (rate(http_server_requests_seconds_sum{environment=\"synthetic\",job=\"p2-app\"}[1m])) / sum by(environment,job,instance) (rate(http_server_requests_seconds_count{environment=\"synthetic\",job=\"p2-app\"}[1m])) > 1) and on(environment,job,instance) (sum by(environment,job,instance) (rate(http_server_requests_seconds_count{environment=\"synthetic\",job=\"p2-app\"}[1m])) >= 1)",
+          "for": "1m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Mean application HTTP duration exceeds one second"
+          }
+        },
+        {
+          "alert": "CIEvidenceUnavailable",
+          "expr": "(prp_ci_projection_fresh{environment=\"synthetic\",job=\"p2-ci\"} == 0) or absent(prp_ci_projection_fresh{environment=\"synthetic\",job=\"p2-ci\",instance=\"fixture-ci\"})",
+          "for": "30s",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Offline CI evidence stale or absent; not runtime health"
+          }
+        },
+        {
+          "alert": "CIExecutionFailed",
+          "expr": "(prp_ci_run_state{environment=\"synthetic\",job=\"p2-ci\",state=~\"failure|timed_out|startup_failure\"} == 1) and on(environment,job,instance) (prp_ci_projection_fresh == 1)",
+          "for": "30s",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Offline CI execution reports failure"
+          }
+        }
+      ]
+    }
+  ]
+}

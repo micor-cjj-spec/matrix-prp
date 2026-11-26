@@ -1,0 +1,74 @@
+{
+  "global": {
+    "resolve_timeout": "1m"
+  },
+  "route": {
+    "receiver": "discard",
+    "routes": [
+      {
+        "receiver": "synthetic-webhook",
+        "matchers": [
+          "environment=\"synthetic\""
+        ],
+        "group_by": [
+          "environment",
+          "job",
+          "instance"
+        ],
+        "group_wait": "3s",
+        "group_interval": "5s",
+        "repeat_interval": "1h"
+      }
+    ]
+  },
+  "receivers": [
+    {
+      "name": "discard"
+    },
+    {
+      "name": "synthetic-webhook",
+      "webhook_configs": [
+        {
+          "url": "http://webhook:8080/receive",
+          "send_resolved": true,
+          "max_alerts": 20,
+          "http_config": {
+            "follow_redirects": false
+          }
+        }
+      ]
+    }
+  ],
+  "inhibit_rules": [
+    {
+      "source_matchers": [
+        "alertname=\"HostMemoryCritical\"",
+        "environment=\"synthetic\""
+      ],
+      "target_matchers": [
+        "alertname=\"HostMemoryLow\"",
+        "environment=\"synthetic\""
+      ],
+      "equal": [
+        "environment",
+        "job",
+        "instance"
+      ]
+    },
+    {
+      "source_matchers": [
+        "alertname=\"TargetScrapeDown\"",
+        "environment=\"synthetic\""
+      ],
+      "target_matchers": [
+        "alertname=~\"ProbeTargetDown|MySQLTargetDown|NginxTargetDown\"",
+        "environment=\"synthetic\""
+      ],
+      "equal": [
+        "environment",
+        "job",
+        "instance"
+      ]
+    }
+  ]
+}
