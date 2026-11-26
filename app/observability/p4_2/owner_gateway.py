@@ -11,12 +11,9 @@ import threading
 import uuid
 
 from auth_adapter import authorize_request, GrantFile
-from mcp_adapter import ServerVerifiedContext
-from query_contract import (
-    CLIENT, FIXTURE_PROFILE, ISSUER, RESOURCE, SCOPE, Policy, QueryDenied,
-)
+from http_boundary import Budget
+from query_contract import FIXTURE_PROFILE, SCOPE, Policy, QueryDenied
 from rpc_adapter import dispatch_fixture
-from snapshot_contract import utc
 
 TOOL_NAME = "prp_observability_query"
 AUTH_PROBE = b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
@@ -151,7 +148,7 @@ class OwnerBoundGrafanaGateway:
             or not callable(server.get("trusted_clock"))
             or not callable(audit_sink)
             or not callable(disclosure_check)
-            or type(budget).__name__ != "Budget"
+            or type(budget) is not Budget
             or type(query_adapter) is not FixedGrafanaQueryAdapter
         ):
             raise ValueError("invalid gateway configuration")
