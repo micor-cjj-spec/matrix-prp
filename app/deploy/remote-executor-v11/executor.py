@@ -76,21 +76,24 @@ class Ledger:
         The caller MUST first authenticate the trusted event. Neither the
         request nonce nor the comment number proves authentication.
         """
-        now = int(time.time() if now is None else now)
         validate_request(req, now)
         require(type(comment_id) is int and 0 < comment_id <= 2**63-1,
                 "invalid comment identity")
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            # Refresh live authorization after waiting on a contended lock.
+            validate_request(req, now)
             # Queries must resolve an existing job with the exact digest.
             if req["action"] != "submit":
                 self._get(con, req["jobId"], req["manifestSha256"])
             require(con.execute("SELECT count(*) FROM requests").fetchone()[0] < MAX_RETAINED_REQUESTS,
                     "request retention capacity exhausted")
+            claimed_at = int(time.time() if now is None else now)
+            validate_request(req, claimed_at)
             try:
                 con.execute("INSERT INTO requests VALUES(?,?,?,?,?,?,?)",
                             (req["requestId"], req["nonce"], comment_id,
-                             req["jobId"], req["manifestSha256"], req["action"], now))
+                             req["jobId"], req["manifestSha256"], req["action"], claimed_at))
             except sqlite3.IntegrityError as exc:
                 raise InvalidJob("duplicate request, nonce or comment") from exc
 

@@ -1019,6 +1019,67 @@ class RelayTests(unittest.TestCase):
         self.assertEqual(reply["result"],{"exitCode":0,"summary":"synthetic"})
         provider.repository_file.assert_called_once()
 
+    def test_expired_control_request_cannot_disclose_result(self):
+        import io
+        from unittest.mock import patch
+        from bridge import relay_receiver, write_control
+        req=self.request()
+        self.exchange(req,1,self.provider)
+        jid,md=req["jobId"],req["manifestSha256"]
+        self.ledger.claim(jid,md,NOW)
+        self.ledger.finish(jid,md,"SUCCEEDED",{"exitCode":0,"summary":"synthetic"},NOW)
+        query=self.query(req,"result")
+        query["expiresAt"]=NOW+1
+        event=self.event(query,2)
+        stream=io.BytesIO()
+        write_control(stream,{"event":event})
+        write_control(stream,{"done":True,"jobId":jid,"manifestSha256":md})
+        clock=[NOW]
+        class Delayed(io.BytesIO):
+            def read(self,n=-1):
+                clock[0]=NOW+5
+                return super().read(n)
+        out=io.BytesIO()
+        cert,key=self.identities["server"]
+        with patch("bridge.time.time",side_effect=lambda:clock[0]), \
+             patch.object(self.ledger,"snapshot",wraps=self.ledger.snapshot) as snapshot:
+            with self.assertRaises(InvalidJob):
+                relay_receiver(Delayed(stream.getvalue()),out,issue=123,ledger=self.ledger,
+                               recipient_cert=cert,recipient_key=key,signer_cert=cert,signer_key=key)
+            snapshot.assert_not_called()
+        self.assertEqual(out.getvalue(),b"")
+
+    def test_query_expires_during_completion_handshake(self):
+        import io
+        from unittest.mock import patch
+        from bridge import relay_receiver,write_control,read_control
+        req=self.request()
+        self.exchange(req,1,self.provider)
+        jid,md=req["jobId"],req["manifestSha256"]
+        query=self.query(req,"result")
+        query["expiresAt"]=NOW+1
+        stream=io.BytesIO()
+        write_control(stream,{"event":self.event(query,2)})
+        write_control(stream,{"done":True,"jobId":jid,"manifestSha256":md})
+        stream.seek(0)
+        clock=[NOW]
+        def read_and_expire(source):
+            value=read_control(source)
+            if value.get("done"): clock[0]=NOW+5
+            return value
+        cert,key=self.identities["server"]
+        out=io.BytesIO()
+        with patch("bridge.time.time",side_effect=lambda:clock[0]), \
+             patch("bridge.read_control",side_effect=read_and_expire), \
+             patch.object(self.ledger,"snapshot",wraps=self.ledger.snapshot) as snapshot:
+            with self.assertRaises(InvalidJob):
+                relay_receiver(stream,out,issue=123,ledger=self.ledger,
+                               recipient_cert=cert,recipient_key=key,signer_cert=cert,signer_key=key)
+            snapshot.assert_not_called()
+        out.seek(0)
+        self.assertEqual(read_control(out)["plan"]["files"],[])
+        self.assertEqual(out.read(),b"")
+
     def test_duplex_ci_artifact(self):
         raw=BridgeTests.archive_bytes([("image.tar",b"image data")])
         j=BridgeTests.artifact_job(self,raw)
@@ -1178,6 +1239,34 @@ class WorkerReadinessTests(unittest.TestCase):
         other=self.request()["job"]
         with patch("executor.MAX_RETAINED_JOBS",1):
             with self.assertRaises(InvalidJob): self.ledger.accept(other,NOW)
+
+    def test_request_expires_waiting_for_actual_sqlite_lock(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from contextlib import contextmanager
+        from threading import Event
+        from unittest.mock import patch
+        req=self.request()
+        req["expiresAt"]=req["job"]["expiresAt"]=NOW+1
+        connect=self.ledger._connect
+        started,expired=Event(),Event()
+        @contextmanager
+        def observed_connect():
+            with connect() as con:
+                started.set()
+                yield con
+        with patch("executor.time.time",side_effect=lambda:NOW+5 if expired.is_set() else NOW):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                with connect() as con:
+                    con.execute("BEGIN IMMEDIATE")
+                    with patch.object(self.ledger,"_connect",observed_connect):
+                        future=pool.submit(self.ledger.claim_request,req,1)
+                        self.assertTrue(started.wait(2))
+                        self.assertFalse(future.done())
+                        expired.set()
+                with self.assertRaises(InvalidJob):
+                    future.result(timeout=5)
+        with connect() as con:
+            self.assertEqual(con.execute("SELECT count(*) FROM requests").fetchone()[0],0)
 
     def test_request_retention_limit(self):
         from unittest.mock import patch

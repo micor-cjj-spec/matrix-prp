@@ -28,7 +28,7 @@ import zipfile
 from protocol import (REPOSITORY, MAX_ARTIFACT, MAX_FILES, InvalidJob,
                       require, relative_path, validate_job, inline_bytes, canonical, parse,
                       exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER, commit, seal_receipt, validate_file, MAX_INLINE,
-                      validate_distinct_identities)
+                      validate_distinct_identities, validate_request)
 from executor import CHUNK
 
 OWNER = "micor-cjj-spec"
@@ -467,17 +467,18 @@ def dispatch_event(event, repository, ref, issue, ledger, provider,
     actual event provenance and independent approval; JSON fields alone are
     not an authentication mechanism. No script launch or stage mutation here.
     """
-    t = int(time.time() if now is None else now)
     require(type(issue) is int and issue > 0 and issue != 277,
             "dedicated V1.1 issue required")
     req = decode_comment_request(event, repository, ref, issue,
-                                 recipient_cert, recipient_key, t)
-    # Claim before any file transfer, query result access or response signing.
-    ledger.claim_request(req, event["comment"]["id"], t)
+                                 recipient_cert, recipient_key, now)
+    # Preserve None for live clocks across all blocking boundaries.
+    ledger.claim_request(req, event["comment"]["id"], now)
     jid, md = req["jobId"], req["manifestSha256"]
     if req["action"] == "submit":
-        transfer_job(req["job"], ledger, provider, approved_producers, t)
+        transfer_job(req["job"], ledger, provider, approved_producers, now)
+    validate_request(req, now)
     snapshot = ledger.snapshot(jid, md, include_result=req["action"] == "result")
+    validate_request(req, now)
     receipt = {k: req[k] for k in ("version", "target", "action", "requestId",
                                    "jobId", "manifestSha256", "nonce")}
     receipt.update(snapshot)
@@ -601,33 +602,33 @@ def relay_receiver(incoming, outgoing, *, issue, ledger, recipient_cert,
     SSH service after host-local gate and identity checks. Does not launch jobs.
     No GitHub token or artifact downloader is needed on the server.
     """
-    t = int(time.time() if now is None else now)
     require(type(issue) is int and issue > 0 and issue != 277, "dedicated issue required")
     control = read_control(incoming)
     exact(control, "event")
     event = control["event"]
+    # No frozen session timestamp: decrypt/validate after control reception.
     req = decode_comment_request(event, REPOSITORY, "refs/heads/main", issue,
-                                 recipient_cert, recipient_key, t)
-    ledger.claim_request(req, event["comment"]["id"], t)
+                                 recipient_cert, recipient_key, now)
+    ledger.claim_request(req, event["comment"]["id"], now)
     jid, md = req["jobId"], req["manifestSha256"]
     if req["action"] == "submit":
         j = req["job"]
-        ledger.accept(j,t)
+        ledger.accept(j,now)
         for item in j["manifest"]["files"]:
             if item["source"]["kind"] == "inline":
                 data = inline_bytes(item["source"])
-                ledger.receive_file(jid,md,item["path"],[data] if data else [],t)
+                ledger.receive_file(jid,md,item["path"],[data] if data else [],now)
         plan = {"version":11,"jobId":jid,"manifestSha256":md,
                 "files":external_files(j["manifest"])}
         write_control(outgoing,{"plan":plan})
         for item in plan["files"]:
             ledger.receive_file(jid,md,item["path"],
                                 file_frame_chunks(incoming,jid,md,item,require_eof=False),
-                                int(time.time() if now is None else now))
+                                now)
         require(read_control(incoming) == {"done":True,"jobId":jid,"manifestSha256":md},
                 "relay completion mismatch")
         require(incoming.read(1) == b"", "trailing relay input")
-        ledger.verify(jid,md,int(time.time() if now is None else now))
+        ledger.verify(jid,md,now)
     else:
         # Query sends an empty plan so the runner can terminate input cleanly.
         write_control(outgoing,{"plan":{"version":11,"jobId":jid,
@@ -635,7 +636,9 @@ def relay_receiver(incoming, outgoing, *, issue, ledger, recipient_cert,
         require(read_control(incoming) == {"done":True,"jobId":jid,"manifestSha256":md},
                 "relay completion mismatch")
         require(incoming.read(1) == b"", "trailing relay input")
+    validate_request(req, now)
     snapshot = ledger.snapshot(jid,md,include_result=req["action"]=="result")
+    validate_request(req, now)
     receipt = {k:req[k] for k in ("version","target","action","requestId",
                                  "jobId","manifestSha256","nonce")}
     receipt.update(snapshot)
