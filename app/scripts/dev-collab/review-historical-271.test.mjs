@@ -24,7 +24,7 @@ const mainDefault='a'.repeat(40),integrationDefault='b'.repeat(40),stateDefault=
 export function historical271Fixture(task_id='T-003',mainSha=mainDefault,stateSha=stateDefault){
  const cfg=TASKS[task_id],command={type:'accept',requirement_id:REQ,task_id,worker_id:'chat-A',claim_id,request_id,pr_number:271,head_sha:HEAD,note:HISTORICAL_271_PREFIX+'PRP_RULESET_ATTESTATION_V1:{}'}
  const snapshot={schema_version:1,requirement_id:REQ,issue_number:132,title:'MVP',version,status:'ACTIVE',
-  tasks:Array.from({length:9},(_,i)=>{const id='T-'+String(i+1).padStart(3,'0'),c=TASKS[id];return {task_id:id,issue_number:133+i,title:id,status:id===task_id?'IN_REVIEW':['T-001','T-007','T-009'].includes(id)?'DONE':'READY',depends_on:c?.deps??[],allowed_paths:c?.scopes??[],claim:id===task_id?{claim_id,worker_id:'chat-A',actor}:null,...(id===task_id?{pr_number:271,head_sha:HEAD}:{})}}),
+  tasks:Array.from({length:9},(_,i)=>{const id='T-'+String(i+1).padStart(3,'0'),c=TASKS[id];return {task_id:id,issue_number:[133,134,135,136,137,141,142,143,146][i],title:id,status:id===task_id?'IN_REVIEW':['T-001','T-007','T-009'].includes(id)?'DONE':'READY',depends_on:c?.deps??[],allowed_paths:c?.scopes??[],claim:id===task_id?{claim_id,worker_id:'chat-A',actor}:null,...(id===task_id?{pr_number:271,head_sha:HEAD}:{})}}),
   processed_requests:[{request_id:submitId,fingerprint:'a'.repeat(64),actor,receipt:{type:'submit',task_id,request_id:submitId,version,status:'IN_REVIEW',replayed:false}}]}
  const proof={historical271:true,actorId:123868412,sourceIssue:999,stateSha,expectedStateSha:stateSha,expectedVersion:version,note:command.note}
  const routes={},put=(p,v)=>routes[ROOT+p]=v
