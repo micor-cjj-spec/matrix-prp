@@ -116,11 +116,11 @@ export function verifyIntegrationPolicy(requirementId,rule){
 /**
  * Create the compact note payload for a human owner who has just fetched the
  * complete Ruleset response in an owner-authorized context. This is a claim by
- * the authenticated workflow dispatcher, not a cryptographic signature.
+ * the authenticated request author, not a cryptographic signature.
  * Never build it from the redacted GITHUB_TOKEN response.
  */
 export function buildOwnerRulesetAttestation(rule,binding){
-  const allowed=['requestId','action','requirementId','taskId','prNumber','headSha','stateVersion','mainSha','observedAt']
+  const allowed=['requestId','action','requirementId','taskId','prNumber','headSha','stateVersion','mainSha','observedAt','stateSha']
   check(binding&&typeof binding==='object'&&!Array.isArray(binding)&&
     Object.keys(binding).every(k=>allowed.includes(k))&&
     ['requestId','action','requirementId','taskId','prNumber','headSha','stateVersion','mainSha'].every(k=>Object.hasOwn(binding,k)),
@@ -134,12 +134,12 @@ export function buildOwnerRulesetAttestation(rule,binding){
     (binding.action==='accept'?TASK_ID.test(binding.taskId):binding.taskId===null)&&
     Number.isSafeInteger(binding.prNumber)&&binding.prNumber>0&&
     SHA.test(binding.headSha)&&Number.isSafeInteger(binding.stateVersion)&&binding.stateVersion>=1&&
-    SHA.test(binding.mainSha),'OWNER_RULESET_ATTESTATION_BINDING')
+    SHA.test(binding.mainSha)&&(binding.stateSha===undefined||SHA.test(binding.stateSha)),'OWNER_RULESET_ATTESTATION_BINDING')
   const body={
     schema_version:1,request_id:binding.requestId,action:binding.action,
     requirement_id:binding.requirementId,task_id:binding.taskId,
     pr_number:binding.prNumber,head_sha:binding.headSha,state_version:binding.stateVersion,
-    expected_main_sha:binding.mainSha,ruleset_id:INTEGRATION_POLICY.id,
+    expected_main_sha:binding.mainSha,...(binding.stateSha===undefined?{}:{expected_state_sha:binding.stateSha}),ruleset_id:INTEGRATION_POLICY.id,
     rule_updated_at:normalizeTime(rule.updated_at),observed_at:observedAt,
     bypass_actors:rule.bypass_actors,policy_sha256:digest(INTEGRATION_POLICY)
   }
@@ -149,10 +149,10 @@ export function buildOwnerRulesetAttestation(rule,binding){
   return note
 }
 
-/** Verify a fresh, owner-authenticated workflow_dispatch attestation when GitHub
+/** Verify a fresh, owner-authenticated request attestation when GitHub
  * redacts bypass_actors from the read-only runtime token. */
 export function verifyOwnerAttestedIntegrationPolicy(requirementId,rule,note,binding,workflowRun,now=Date.now()){
-  check(rule&&!Object.hasOwn(rule,'bypass_actors')&&rule.current_user_can_bypass==='never',
+  check(rule&&rule.current_user_can_bypass==='never'&&(!Object.hasOwn(rule,'bypass_actors')||(Array.isArray(rule.bypass_actors)&&rule.bypass_actors.length===0)),
     'INTEGRATION_POLICY_BYPASS_UNVERIFIED')
   check(typeof note==='string'&&note.length<=2048&&note.startsWith(OWNER_RULESET_PREFIX),
     'OWNER_RULESET_ATTESTATION_REQUIRED')
@@ -160,7 +160,7 @@ export function verifyOwnerAttestedIntegrationPolicy(requirementId,rule,note,bin
   let a
   try{a=JSON.parse(raw)}catch{throw new CollabError('OWNER_RULESET_ATTESTATION_JSON')}
   const keys=['schema_version','request_id','action','requirement_id','task_id','pr_number','head_sha',
-    'state_version','expected_main_sha','ruleset_id','rule_updated_at','observed_at','bypass_actors','policy_sha256']
+    'state_version','expected_main_sha',...(binding?.stateSha===undefined?[]:['expected_state_sha']),'ruleset_id','rule_updated_at','observed_at','bypass_actors','policy_sha256']
   check(a&&typeof a==='object'&&!Array.isArray(a)&&Object.keys(a).length===keys.length&&
     keys.every(k=>Object.hasOwn(a,k))&&JSON.stringify(a)===raw,'OWNER_RULESET_ATTESTATION_FIELDS')
   check(a.schema_version===1&&UUID.test(a.request_id)&&
@@ -174,14 +174,17 @@ export function verifyOwnerAttestedIntegrationPolicy(requirementId,rule,note,bin
   check(a.request_id===binding?.requestId&&a.action===binding?.action&&
     a.requirement_id===requirementId&&a.task_id===(binding?.taskId??null)&&
     a.pr_number===binding?.prNumber&&a.head_sha===binding?.headSha&&
-    a.state_version===binding?.stateVersion&&a.expected_main_sha===binding?.mainSha,
+    a.state_version===binding?.stateVersion&&a.expected_main_sha===binding?.mainSha&&
+    (binding?.stateSha===undefined||SHA.test(binding.stateSha)&&a.expected_state_sha===binding.stateSha),
     'OWNER_RULESET_ATTESTATION_BINDING')
   const created=Date.parse(workflowRun?.created_at),observed=Date.parse(a.observed_at)
   check(Number.isFinite(created)&&Number.isFinite(observed)&&
     observed<=created+30000&&created-observed<=300000&&
-    now>=observed-30000&&now-observed<=600000,
+    now>=observed-30000&&now>=created-30000&&now-observed<=600000,
     'OWNER_RULESET_ATTESTATION_EXPIRED')
-  verifyPolicySnapshot(requirementId,{...rule,bypass_actors:a.bypass_actors},a.bypass_actors)
+  // Prefer a visible list when the runtime can read it. Otherwise use only the
+  // authenticated owner assertion, after verifying every visible policy field.
+  verifyPolicySnapshot(requirementId,rule,Object.hasOwn(rule,'bypass_actors')?rule.bypass_actors:a.bypass_actors)
   return Object.freeze({verified:true,rule_id:rule.id,revision:normalizeTime(rule.updated_at),
     ownerAttested:true,observed_at:a.observed_at})
 }

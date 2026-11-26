@@ -7,7 +7,8 @@ import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/
 const OWNER_ID=123868412
-const COORDINATOR_PATH='.github/workflows/prp-collab-coordinator.yml'
+const ISSUE_PATH='.github/workflows/prp-collab-issue-ingress.yml'
+const OWNER_NOTE='PRP_RULESET_ATTESTATION_V1:'
 function check(ok,code){if(!ok)throw new CollabError(code)}
 export function ghApi(route){
   if(isReviewLogRoute(route))return execFileSync(process.execPath,
@@ -18,7 +19,7 @@ export function ghApi(route){
 }
 
 /** The only trust boundary: called exclusively from the owner-initiated reviewed workflow. */
-export function trustedReviewContext(snapshot,command,env,api){
+export function trustedReviewContext(snapshot,command,env,api,issueProof){
   check(env.GITHUB_ACTIONS==='true' && env.GITHUB_REF==='refs/heads/main' &&
     env.GITHUB_REPOSITORY===REPO && env.GITHUB_ACTOR==='micor-cjj-spec' &&
     env.GITHUB_REPOSITORY_OWNER==='micor-cjj-spec' && typeof env.GH_TOKEN==='string' &&
@@ -30,23 +31,34 @@ export function trustedReviewContext(snapshot,command,env,api){
   const root='repos/'+REPO
   const requirePolicy=()=>{
     const rule=api(root+'/rulesets/28050327')
-    if(Object.hasOwn(rule??{},'bypass_actors'))
-      return verifyIntegrationPolicy(snapshot.requirement_id,rule)
-    const runId=Number(env.GITHUB_RUN_ID),attempt=Number(env.GITHUB_RUN_ATTEMPT)
-    check(Number.isSafeInteger(runId)&&runId>0&&attempt===1&&env.GITHUB_RUN_ATTEMPT==='1',
+    const noteIsOwner=typeof command.note==='string'&&command.note.startsWith(OWNER_NOTE)
+    if(!noteIsOwner && issueProof===undefined)return verifyIntegrationPolicy(snapshot.requirement_id,rule)
+    // Redacted evidence is supported only by the existing authenticated Issue
+    // transaction, which revalidates the original event and evidence before CAS.
+    // The manual coordinator lacks that final review boundary; no fallback there.
+    check(issue&&command.type==='accept'&&noteIsOwner&&issueProof?.actorId===OWNER_ID&&
+      Number.isSafeInteger(issueProof.sourceIssue)&&issueProof.sourceIssue>0&&
+      SHA.test(issueProof.stateSha||'')&&issueProof.stateSha===issueProof.expectedStateSha&&
+      issueProof.expectedVersion===snapshot.version&&issueProof.note===command.note,
+      'OWNER_RULESET_ISSUE_CONTEXT_REQUIRED')
+    const runId=Number(env.GITHUB_RUN_ID)
+    check(Number.isSafeInteger(runId)&&runId>0&&env.GITHUB_RUN_ATTEMPT==='1',
       'OWNER_RULESET_WORKFLOW_RUN')
     const run=api(root+'/actions/runs/'+runId)
-    check(run?.id===runId&&run.event==='workflow_dispatch'&&run.path===COORDINATOR_PATH&&
+    const issueTime=Date.parse(issueProof.issueCreatedAt),runTime=Date.parse(run?.created_at)
+    check(run?.id===runId&&run.event==='issues'&&run.path===ISSUE_PATH&&
       run.status==='in_progress'&&run.head_branch==='main'&&run.head_sha===env.GITHUB_SHA&&
       run.run_attempt===1&&run.actor?.login===env.GITHUB_ACTOR&&
       run.actor?.login==='micor-cjj-spec'&&run.actor?.id===OWNER_ID&&
-      run.repository?.full_name===REPO&&run.repository?.id===1261866723,
+      run.repository?.full_name===REPO&&run.repository?.id===1261866723&&
+      Number.isFinite(issueTime)&&Number.isFinite(runTime)&&runTime>=issueTime-30000&&
+      runTime<=Date.now()+30000,
       'OWNER_RULESET_WORKFLOW_IDENTITY')
     return verifyOwnerAttestedIntegrationPolicy(snapshot.requirement_id,rule,command.note,{
       requestId:command.request_id,action:command.type,taskId:command.task_id??null,
       prNumber:command.pr_number,headSha:command.head_sha,stateVersion:snapshot.version,
-      mainSha:env.GITHUB_SHA
-    },run)
+      mainSha:env.GITHUB_SHA,stateSha:issueProof.stateSha
+    },{created_at:issueProof.issueCreatedAt})
   }
   const requireMain=main=>check(main?.name==='main' && main.protected===true && main.commit?.sha===env.GITHUB_SHA,'REVIEW_MAIN_REVISION_MISMATCH')
   const loadJobs=id=>api(root+'/actions/runs/'+id+'/jobs?per_page=100&filter=latest')
@@ -63,10 +75,10 @@ export function trustedReviewContext(snapshot,command,env,api){
     const files=api(`repos/${REPO}/pulls/${task.pr_number}/files?per_page=100`)
     verifyTaskEvidence(snapshot,command.task_id,{pr,branch,comparison,checks,files})
     requireMain(api(root+'/branches/main'))
-    requirePolicy()
+    const policyProof=requirePolicy()
     verifyWorkflowProvenance(checks,{sha:task.head_sha,prNumber:task.pr_number,
       baseRef:integrationRef,headRef:pr.head.ref,mergedAt:pr.merged_at},id=>api(`repos/${REPO}/actions/runs/${id}`),loadJobs)
-    return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true}
+    return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,...(policyProof.ownerAttested?{ownerRulesetAttested:true}:{})}
   }
   check(Number.isInteger(command.pr_number)&&SHA.test(command.head_sha),'MISSING_INTEGRATION_PR')
   const pr=api(`repos/${REPO}/pulls/${command.pr_number}`)

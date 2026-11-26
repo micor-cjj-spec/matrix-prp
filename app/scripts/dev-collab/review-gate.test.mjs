@@ -365,3 +365,18 @@ test('owner attestation task binding is action-specific: accept requires a task 
  assert.throws(()=>buildOwnerRulesetAttestation(rule,{...base,action:'close',taskId:'T-007'}),
   e=>e.code==='OWNER_RULESET_ATTESTATION_BINDING')
 })
+
+test('issue attestation binds exact state SHA and cannot ignore visible nonempty or null bypass list',()=>{
+ const full=integrationPolicyFixture(),redacted={...full};delete redacted.bypass_actors
+ const binding={requestId:'11111111-1111-4111-8111-111111111111',action:'accept',
+  requirementId:'REQ-20261031-001',taskId:'T-007',prNumber:446,headSha:'a'.repeat(40),
+  stateVersion:19,mainSha:'b'.repeat(40),stateSha:'c'.repeat(40)}
+ const observedAt=new Date(Date.now()-60000).toISOString(),note=buildOwnerRulesetAttestation(full,{...binding,observedAt})
+ const source={created_at:new Date(Date.parse(observedAt)+30000).toISOString()}
+ assert.equal(verifyOwnerAttestedIntegrationPolicy(binding.requirementId,redacted,note,binding,source).ownerAttested,true)
+ assert.equal(verifyOwnerAttestedIntegrationPolicy(binding.requirementId,full,note,binding,source).ownerAttested,true)
+ for(const list of [null,[{actor_type:'Team',actor_id:1}]]){
+  assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,{...full,bypass_actors:list},note,binding,source),e=>e.code==='INTEGRATION_POLICY_BYPASS_UNVERIFIED')
+ }
+ assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,redacted,note,{...binding,stateSha:'d'.repeat(40)},source),e=>e.code==='OWNER_RULESET_ATTESTATION_BINDING')
+})
