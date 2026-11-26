@@ -129,7 +129,7 @@ jobs:
           # Only Debian archive packages are executed during image construction.
           # Repository candidate source is copied, never executed on the host.
           sudo debootstrap --arch=amd64 --variant=minbase --keyring="$keyring" --force-check-gpg \
-            --include=linux-image-amd64,systemd-sysv,apparmor,python3,bubblewrap,openssl,procps,util-linux \
+            --include=linux-image-amd64,systemd-sysv,dbus,apparmor,python3,bubblewrap,openssl,procps,util-linux \
             trixie "$guest" https://deb.debian.org/debian/
           sudo install -d -m 0755 "$sandbox"
           sudo debootstrap --arch=amd64 --variant=minbase --keyring="$keyring" --force-check-gpg \
@@ -152,7 +152,9 @@ jobs:
           sudo chmod 0444 "$guest/etc/matrix-prp-remote-executor-v11/sandbox.enabled"
           sudo tee "$guest/usr/local/sbin/prp-debian13-pilot" >/dev/null <<'GUEST_SCRIPT'
           #!/bin/bash
-          set -euo pipefail
+          set -Eeuo pipefail
+          exec 2>&1
+          trap 'echo "DEBIAN_GUEST_FAILED_LINE=$LINENO STATUS=$?"' ERR
           finish() {
             rc=$?
             trap - EXIT
@@ -185,7 +187,10 @@ jobs:
           dpkg-query -W bubblewrap apparmor
           /usr/bin/bwrap --version
           sysctl kernel.unprivileged_userns_clone user.max_user_namespaces
-          aa-status 2>/dev/null || true
+          aa-status --profiled
+          aa-status --enforced
+          systemctl is-active dbus.service
+          echo 'DEBIAN13_GUEST_BUS_READY=PASS'
           systemd-run --wait --pipe --collect --unit=prp-remote-executor-v11.service \
             --property=Type=exec \
             --property=User=prp-remote-v11 --property=Group=prp-remote-v11 \
@@ -205,10 +210,12 @@ jobs:
           sudo tee "$guest/etc/systemd/system/prp-debian13-pilot.service" >/dev/null <<'GUEST_UNIT'
           [Unit]
           Description=Disposable Debian remote executor isolation test
-          After=local-fs.target
+          Requires=dbus.service
+          After=local-fs.target dbus.service apparmor.service
           [Service]
           Type=oneshot
           ExecStart=/usr/local/sbin/prp-debian13-pilot
+          LogRateLimitIntervalSec=0
           StandardOutput=journal+console
           StandardError=journal+console
           TimeoutStartSec=180
