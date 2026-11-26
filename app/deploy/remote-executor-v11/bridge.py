@@ -707,6 +707,7 @@ def relay_receiver(incoming, outgoing, *, issue, ledger, recipient_cert,
     req = decode_comment_request(event, REPOSITORY, "refs/heads/main", issue,
                                  recipient_cert, recipient_key, now)
     comment_id=authenticate_owner_approval(event,issue,req,approval_lookup,now)
+    ledger.recover(now)
     ledger.claim_request(req,comment_id,now)
     jid, md = req["jobId"], req["manifestSha256"]
     if req["action"] == "submit":
@@ -898,7 +899,9 @@ def receiver_main():
         service_identity()
         host_gate(RECEIVER_GATE, b"PRP_STAGING_RECEIVER_V11\n")
         host_gate(WORKER_GATE, b"PRP_STAGING_WORKER_V11\n")
-        handoff_once(Ledger(LEDGER_ROOT), enabled=True)
+        ledger = Ledger(LEDGER_ROOT)
+        ledger.recover()
+        handoff_once(ledger, enabled=True)
         return
     require(sys.argv[1:] == ["receive-v11"]
             and os.environ.get("SSH_ORIGINAL_COMMAND") == "receive-v11",
@@ -916,8 +919,9 @@ def receiver_main():
     signer_key = _fixed_config(CONFIG_ROOT/"signer.key", account.pw_gid, 16384, secret=True)
     validate_distinct_identities(recipient_cert, recipient_key, signer_cert, signer_key)
     deadline = time.monotonic()+240
+    ledger = Ledger(LEDGER_ROOT)
     relay_receiver(_Pipe(sys.stdin.buffer, deadline), _Pipe(sys.stdout.buffer, deadline),
-                   issue=issue, ledger=Ledger(LEDGER_ROOT),
+                   issue=issue, ledger=ledger,
                    recipient_cert=recipient_cert, recipient_key=recipient_key,
                    signer_cert=signer_cert, signer_key=signer_key,
                    approval_lookup=fetch_owner_approval)
