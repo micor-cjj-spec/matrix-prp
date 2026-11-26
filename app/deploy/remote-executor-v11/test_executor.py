@@ -529,5 +529,158 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(transfer_job(j,self.ledger,p,{("build.yml","b"*40)},NOW)["state"],"VERIFIED")
         self.assertEqual((self.root/"jobs"/j["jobId"]/"image.tar").stat().st_size,size)
 
+
+class CryptoTests(unittest.TestCase):
+    """Real OpenSSL with ephemeral synthetic keys, never real credentials."""
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        import subprocess
+        from pathlib import Path
+        tmp=tempfile.TemporaryDirectory()
+        cls.addClassCleanup(tmp.cleanup)
+        cls.identities={}
+        for name in ("server","reply","other"):
+            cert=Path(tmp.name)/(name+".crt")
+            key=Path(tmp.name)/(name+".key")
+            subprocess.run(["/usr/bin/openssl","req","-new","-x509","-nodes","-newkey","rsa:2048",
+                            "-days","1","-subj","/CN=synthetic-"+name,"-keyout",str(key),"-out",str(cert)],
+                           check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15)
+            cls.identities[name]=(cert.read_bytes(),key.read_bytes())
+
+    def request(self, action="submit"):
+        j=job()
+        return {"version":11,"target":"prp-staging","action":action,"requestId":str(uuid.uuid4()),
+                "jobId":j["jobId"],"manifestSha256":j["manifestSha256"],"nonce":j["nonce"],
+                "issuedAt":NOW,"expiresAt":NOW+180,"replyCertificate":self.identities["reply"][0].decode("ascii"),
+                "job":j if action=="submit" else None}
+
+    def receipt(self,req,state="SUCCEEDED"):
+        return {**{k:req[k] for k in ("version","target","action","requestId","jobId","manifestSha256","nonce")},
+                "issuedAt":NOW,"state":state,"result":{"exitCode":0,"summary":"synthetic"} if req["action"]=="result" else None}
+
+    def test_encrypted_request_roundtrip(self):
+        from protocol import seal_request,open_request
+        req=self.request()
+        cert,key=self.identities["server"]
+        cipher=seal_request(req,cert,NOW)
+        self.assertNotIn(b"print('hello')",cipher)
+        self.assertEqual(open_request(cipher,cert,key,NOW),req)
+        other_cert,other_key=self.identities["other"]
+        with self.assertRaises(InvalidJob): open_request(cipher,other_cert,other_key,NOW)
+        with self.assertRaises(InvalidJob): open_request(cipher[:-1]+bytes([cipher[-1]^1]),cert,key,NOW)
+
+    def test_request_binding_and_expiry(self):
+        from protocol import validate_request
+        req=self.request()
+        for k,v in (("target","prp-production"),("manifestSha256","e"*64),("nonce","e"*32),
+                    ("jobId",str(uuid.uuid4())),("action","status")):
+            with self.assertRaises(InvalidJob): validate_request(dict(req,**{k:v}),NOW)
+        with self.assertRaises(InvalidJob): validate_request(req,NOW+180)
+
+    def test_signed_encrypted_result(self):
+        from protocol import seal_receipt,open_receipt
+        req=self.request("result")
+        receipt=self.receipt(req)
+        cert,key=self.identities["server"]
+        reply_key=self.identities["reply"][1]
+        sealed=seal_receipt(receipt,req,cert,key,NOW)
+        self.assertEqual(open_receipt(sealed,req,reply_key,cert,NOW),receipt)
+        with self.assertRaises(InvalidJob): open_receipt(sealed,req,reply_key,self.identities["other"][0],NOW)
+        with self.assertRaises(InvalidJob): open_receipt(sealed,dict(req,requestId=str(uuid.uuid4())),reply_key,cert,NOW)
+        with self.assertRaises(InvalidJob): open_receipt(sealed[:-1]+bytes([sealed[-1]^1]),req,reply_key,cert,NOW)
+
+    def test_unsigned_or_wrong_signer_rejected(self):
+        from protocol import cms_seal,open_receipt,seal_receipt
+        req=self.request("result")
+        receipt=self.receipt(req)
+        cert,key=self.identities["server"]
+        reply_cert,reply_key=self.identities["reply"]
+        with self.assertRaises(InvalidJob): open_receipt(cms_seal(canonical(receipt),reply_cert),req,reply_key,cert,NOW)
+        other_cert,other_key=self.identities["other"]
+        with self.assertRaises(InvalidJob): open_receipt(seal_receipt(receipt,req,other_cert,other_key,NOW),req,reply_key,cert,NOW)
+
+    def test_fresh_query_identity_and_scope(self):
+        from protocol import validate_request,validate_receipt,seal_receipt,open_receipt
+        req=self.request("status")
+        receipt=self.receipt(req,"RUNNING")
+        cert,key=self.identities["server"]
+        self.assertEqual(validate_request(req,NOW),req)
+        with self.assertRaises(InvalidJob): validate_receipt(dict(receipt,result={"exitCode":0,"summary":"unexpected"}),req,NOW)
+        fresh=dict(req,requestId=str(uuid.uuid4()),nonce=uuid.uuid4().hex,
+                   replyCertificate=self.identities["other"][0].decode("ascii"))
+        fresh_receipt=self.receipt(fresh,"RUNNING")
+        ciphertext=seal_receipt(fresh_receipt,fresh,cert,key,NOW)
+        self.assertEqual(open_receipt(ciphertext,fresh,self.identities["other"][1],cert,NOW),fresh_receipt)
+        with self.assertRaises(InvalidJob): open_receipt(ciphertext,req,self.identities["reply"][1],cert,NOW)
+
+    def test_comment_binding(self):
+        from bridge import decode_comment_request,OWNER
+        from protocol import seal_request
+        req=self.request()
+        cert,key=self.identities["server"]
+        encoded=base64.urlsafe_b64encode(seal_request(req,cert,NOW)).decode("ascii").rstrip("=")
+        actor={"login":OWNER,"type":"User"}
+        event={"action":"created","repository":{"full_name":REPOSITORY},"sender":actor,
+               "issue":{"number":123,"state":"open"},"comment":{"id":1,"user":actor,
+               "body":"/prp-remote-v11 "+req["jobId"]+" "+encoded}}
+        self.assertEqual(decode_comment_request(event,REPOSITORY,"refs/heads/main",123,cert,key,NOW),req)
+        event["comment"]["body"]="/prp-remote-v11 "+str(uuid.uuid4())+" "+encoded
+        with self.assertRaises(InvalidJob): decode_comment_request(event,REPOSITORY,"refs/heads/main",123,cert,key,NOW)
+
+class FrameTests(unittest.TestCase):
+    def test_multiframe_and_empty(self):
+        import io
+        from bridge import pack_frame,file_frame_chunks
+        j=job()
+        jid,md=j["jobId"],j["manifestSha256"]
+        item={"path":"run.py","size":6}
+        a=pack_frame(jid,md,"run.py",0,b"abc",False)
+        b=pack_frame(jid,md,"run.py",3,b"def",True)
+        self.assertEqual(b"".join(file_frame_chunks(io.BytesIO(a+b),jid,md,item)),b"abcdef")
+        empty=pack_frame(jid,md,"empty",0,b"",True)
+        self.assertEqual(list(file_frame_chunks(io.BytesIO(empty),jid,md,{"path":"empty","size":0})),[])
+
+    def test_corruption_truncation_and_sequence(self):
+        import io
+        from bridge import pack_frame,file_frame_chunks
+        j=job()
+        jid,md=j["jobId"],j["manifestSha256"]
+        item={"path":"run.py","size":6}
+        a=pack_frame(jid,md,"run.py",0,b"abc",False)
+        b=pack_frame(jid,md,"run.py",3,b"def",True)
+        wrong=pack_frame(jid,md,"run.py",2,b"def",True)
+        path=pack_frame(jid,md,"other.py",3,b"def",True)
+        for raw in (a+b[:-1],a+b[:-1]+b"x",a+wrong,a+path,a+b+b"x",a,a+a+b,
+                    pack_frame(jid,"f"*64,"run.py",0,b"abcdef",True)):
+            with self.assertRaises(InvalidJob):
+                list(file_frame_chunks(io.BytesIO(raw),jid,md,item))
+
+    def test_frame_header_bounds(self):
+        import io
+        import struct
+        from bridge import read_frame,FRAME_MAGIC,MAX_FRAME_HEADER,pack_frame
+        with self.assertRaises(InvalidJob):
+            read_frame(io.BytesIO(FRAME_MAGIC+struct.pack(">I",MAX_FRAME_HEADER+1)))
+        j=job()
+        with self.assertRaises(InvalidJob): pack_frame(j["jobId"],j["manifestSha256"],"../x",0,b"x",True)
+
+    def test_ledger_does_not_publish_trailing_frame(self):
+        import io
+        import tempfile
+        from pathlib import Path
+        from executor import Ledger
+        from bridge import pack_frame,file_frame_chunks
+        j=job()
+        jid,md=j["jobId"],j["manifestSha256"]
+        item=j["manifest"]["files"][0]
+        raw=pack_frame(jid,md,item["path"],0,b"print('hello')",True)+b"trailing"
+        with tempfile.TemporaryDirectory() as root:
+            ledger=Ledger(Path(root))
+            ledger.accept(j,NOW)
+            with self.assertRaises(InvalidJob):
+                ledger.receive_file(jid,md,item["path"],file_frame_chunks(io.BytesIO(raw),jid,md,item),NOW)
+            self.assertFalse((Path(root)/"jobs"/jid/item["path"]).exists())
+
 if __name__ == "__main__":
     unittest.main()
