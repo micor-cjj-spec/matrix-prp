@@ -1,6 +1,6 @@
 # P1 disposable monitoring experiment (#450)
 
-Not a deployable stack. Never run on a PRP host or self-hosted runner. This experiment uses only an isolated GitHub-hosted runner, an internal Docker network, ephemeral volumes and random loopback host ports. No production environment, credentials, host filesystem mounts (except a generated synthetic Prometheus config), Docker socket in containers, privileged mode, existing OAuth, external metrics destination, or tunnel.
+Not a deployable stack. Never run on a PRP host or self-hosted runner. This experiment uses only an isolated GitHub-hosted runner, an internal Docker network, ephemeral volumes and no published host ports (the CI host probes addresses in the disposable internal bridge). No production environment, credentials, host filesystem mounts (except a generated synthetic Prometheus config), Docker socket in containers, privileged mode, existing OAuth, external metrics destination, or tunnel.
 
 Candidate tags: Prometheus 3.13.5 LTS, Grafana 13.3.0, node_exporter 1.13.1. Source release references:
 - https://github.com/prometheus/prometheus/releases/tag/v3.13.5
@@ -8,6 +8,8 @@ Candidate tags: Prometheus 3.13.5 LTS, Grafana 13.3.0, node_exporter 1.13.1. Sou
 - https://github.com/prometheus/node_exporter/releases/tag/v1.13.1
 
 The CI resolves each tag once and runs the resulting local image ID; evidence is not a pre-approved digest lock, SBOM or vulnerability audit. Test only; review trusted digest and security support before any deployment.
+
+The first run stopped at docker port: an internal network did not yield the expected published port. The follow-up removes all published ports, asserts internal network and port-binding state, resolves private container addresses and adds limited exit/OOM diagnostics. See https://docs.docker.com/reference/cli/docker/network/create/ for host access to internal bridge addresses. The exact underlying first-run Docker stderr was suppressed, so the revised access path still needs CI validation.
 
 ## Evidence
 - 30s scrape, 7d retention and 512MB TSDB retention-size target; not a hard disk quota because WAL/head and transient usage are additional.
