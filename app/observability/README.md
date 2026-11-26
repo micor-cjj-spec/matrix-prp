@@ -2,9 +2,9 @@
 
 Not a deployable stack. Never run on a PRP host or self-hosted runner. This experiment uses only an isolated GitHub-hosted runner, an internal Docker network, ephemeral volumes and no published host ports (the CI host probes addresses in the disposable internal bridge). No production environment, credentials, host filesystem mounts (except a generated synthetic Prometheus config), Docker socket in containers, privileged mode, existing OAuth, external metrics destination, or tunnel.
 
-Candidate tags: Prometheus 3.13.5 LTS, Grafana 13.3.0, node_exporter 1.13.1. Source release references:
+Candidate tags: Prometheus 3.13.5 LTS, Grafana 13.3.2, node_exporter 1.13.1. Source release references:
 - https://github.com/prometheus/prometheus/releases/tag/v3.13.5
-- https://github.com/grafana/grafana/releases/tag/v13.3.0
+- https://github.com/grafana/grafana/releases/tag/v13.3.2
 - https://github.com/prometheus/node_exporter/releases/tag/v1.13.1
 
 The CI resolves each tag once and runs the resulting local image ID; evidence is not a pre-approved digest lock, SBOM or vulnerability audit. Test only; review trusted digest and security support before any deployment.
@@ -28,3 +28,6 @@ The separate `ci_capacity.py` job reuses the P1.1 runner helpers and official ve
 The capacity job uses hidden Prometheus test-only 1-minute minimum/3-minute maximum block duration to exercise persisted TSDB blocks in minutes. It asserts a nonempty persisted block, logs compaction level/sample count, and checks historical queries. Level 1 establishes Head-to-block persistence, not multi-block compaction; higher compaction levels must be observed before claiming block merge. Do not use these accelerated flags for deployment. Reference: https://github.com/prometheus/prometheus/blob/main/cmd/prometheus/main.go and https://prometheus.io/docs/prometheus/latest/storage/.
 
 Container caps (test only): Prometheus 512MiB, Grafana 384MiB, ordinary Node Exporter 128MiB, four fixtures 64MiB each, all at 0.75 CPU each. Scrape sample limit 3,000 per synthetic target; query concurrency 4 and query timeout 5s. Record p95/max latency, observed max TSDB size and repeated resource snapshots, not true continuous RSS/peak. Synthetic series are not representative of all JVM/database labels, churn, retention, storage compaction or production load. P1.1 still runs unchanged; capacity test results pending. No real installation or production approvals.
+
+## Security patch refresh (P1.3)
+Grafana 13.3.0 was the earlier isolated experiment only. Grafana 13.3.2 (2026-11-24) is the new candidate due to upstream security patches, including the fixed-version requirement for CVE-2026-102589 (>=13.3.1) and additional 13.3.2 security fixes. Sources: https://grafana.com/security/security-advisories/cve-2026-102589/ and https://github.com/grafana/grafana/releases/tag/v13.3.2 . Re-run all monitoring jobs; earlier Grafana digest is superseded. No live upgrade or installation.
