@@ -20,6 +20,7 @@ from urllib.parse import quote, urlsplit
 import re
 import stat
 import struct
+import sys
 import tempfile
 import uuid
 import zipfile
@@ -759,3 +760,59 @@ def relay_over_ssh(event, repository, ref, issue, *, enabled=False, host=None,
                 for f in (proc.stdin,proc.stdout):
                     if f is not None:
                         f.close()
+
+
+def _fixed_config(path, group, max_size, *, secret=False):
+    """Read only fixed, administrator-owned files. Never log their contents."""
+    from executor import _trusted_path
+    try:
+        _trusted_path(path, False)
+        st = path.stat()
+        expected_mode = 0o440 if secret else 0o444
+        require(st.st_gid == group and stat.S_IMODE(st.st_mode) == expected_mode
+                and 0 < st.st_size <= max_size, "invalid receiver config")
+        with path.open("rb") as f:
+            data = f.read(max_size+1)
+        require(len(data) == st.st_size, "invalid receiver config size")
+        return data
+    except OSError as exc:
+        raise InvalidJob("receiver configuration unavailable") from exc
+
+def receiver_main():
+    """Candidate forced-command receiver. Default denied on unconfigured hosts.
+
+    Root must install reviewed code and fixed authorized_keys command with
+    restrict/no PTY/no forwarding/no user rc/environment injection. SSH key
+    possession is the trusted transport boundary, not independent approval.
+    The worker is a separate one-shot process under the dedicated cgroup.
+    """
+    from executor import (CONFIG_ROOT, LEDGER_ROOT, RECEIVER_GATE, Ledger,
+                          host_gate, service_identity)
+    require(sys.argv[1:] == ["receive-v11"]
+            and os.environ.get("SSH_ORIGINAL_COMMAND") == "receive-v11",
+            "unexpected receiver command")
+    account = service_identity()
+    host_gate(RECEIVER_GATE, b"PRP_STAGING_RECEIVER_V11\n")
+    issue_bytes = _fixed_config(CONFIG_ROOT/"issue", account.pw_gid, 20)
+    require(re.fullmatch(rb"[1-9][0-9]{0,17}\n?", issue_bytes) is not None,
+            "invalid dedicated issue")
+    issue = int(issue_bytes)
+    require(issue != 277, "production V1 issue prohibited")
+    recipient_cert = _fixed_config(CONFIG_ROOT/"recipient.crt", account.pw_gid, 5000)
+    recipient_key = _fixed_config(CONFIG_ROOT/"recipient.key", account.pw_gid, 16384, secret=True)
+    signer_cert = _fixed_config(CONFIG_ROOT/"signer.crt", account.pw_gid, 5000)
+    signer_key = _fixed_config(CONFIG_ROOT/"signer.key", account.pw_gid, 16384, secret=True)
+    require(recipient_cert != signer_cert and recipient_key != signer_key,
+            "separate recipient and signer identities required")
+    deadline = time.monotonic()+240
+    relay_receiver(_Pipe(sys.stdin.buffer, deadline), _Pipe(sys.stdout.buffer, deadline),
+                   issue=issue, ledger=Ledger(LEDGER_ROOT),
+                   recipient_cert=recipient_cert, recipient_key=recipient_key,
+                   signer_cert=signer_cert, signer_key=signer_key)
+
+if __name__ == "__main__":
+    try:
+        receiver_main()
+    except Exception:
+        print("REMOTE_EXECUTOR_RECEIVER_BLOCKED_OR_UNCERTAIN", file=sys.stderr)
+        sys.exit(2)
