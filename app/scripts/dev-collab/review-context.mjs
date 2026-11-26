@@ -4,7 +4,7 @@ import { CollabError } from './core.mjs'
 import { verifyTaskEvidence, verifyIntegrationRelease, verifyRequirementClose, verifyIntegrationPolicy, verifyOwnerAttestedIntegrationPolicy, hasDevAncestry } from './review-gate.mjs'
 import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.mjs'
 
-import {HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446} from './review-historical-446.mjs'
+import {HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446} from './review-provenance.mjs'
 
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/

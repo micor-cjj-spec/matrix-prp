@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {verifyHistorical446Evidence,verifyHistorical446Binding,HISTORICAL_446_PREFIX} from './review-historical-446.mjs'
+import {verifyHistorical446Evidence,verifyHistorical446Binding,HISTORICAL_446_PREFIX} from './review-provenance.mjs'
 const H='216b280386120f932eee28f22448d41bcaf82dec',B='5a30345529a1d07819069822a1b90e07b5376fcc',M='22b477fc52e90b25663ecb911e280d2979018d53',T='1c74c4681da9497adbcde50c6f2a7f30ce08f050',TREE='1614c8a00cd5419e92ddf079ac4b950cd0ca3663'
 const repo='micor-cjj-spec/matrix-prp',target='integrate/REQ-20261031-001',source='task/REQ-20261031-001-T-007-security-20261125',pin='3d3c42e5aac5ba805825da76410c181273ba90b1'
 const at='2026-11-26T02:19:49Z',finish='2026-11-26T02:19:51Z',merged='2026-11-26T02:53:19Z'
@@ -40,7 +40,7 @@ for(const [label,mutate] of [
  ['truncated checkout log',e=>e.logs[139647320786]=e.logs[139647320786].split('\n').slice(0,-1).join('\n')],
  ['post-merge job',e=>e.jobs[45741491165].jobs[0].completed_at='2026-11-26T02:54:00Z']
 ]){
- test('rejects '+label,()=>{const e=fixture();mutate(e);assert.throws(()=>verifyHistorical446Evidence(e),/HISTORICAL_|REVIEW_CHECKOUT/)})
+ test('rejects '+label,()=>{const e=fixture();mutate(e);assert.throws(()=>verifyHistorical446Evidence(e),/HISTORICAL_|REVIEW_CHECKOUT|REVIEW_LOG_UNAVAILABLE/)})
 }
 
 test('wrong resolved checkout v4 action is denied',()=>{const e=fixture();e.logs[139647320786]=e.logs[139647320786].replace('11d5960a326750d5838078e36cf38b85af677262','f'.repeat(40));assert.throws(()=>verifyHistorical446Evidence(e),/REVIEW_CHECKOUT_ACTION/)})

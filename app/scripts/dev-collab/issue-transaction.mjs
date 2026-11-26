@@ -216,7 +216,9 @@ async function main(){
      const proof=Object.freeze({actorId:validated.actorId,sourceIssue:validated.source_issue,
        issueCreatedAt:validated.issueCreatedAt,stateSha:head,expectedStateSha:validated.expectedStateSha,
        expectedVersion:validated.expected_version,note:validated.command.note,...(validated.historical446===true?{historical446:true}:{})})
-     loadReview=()=>trustedReviewContext(before,validated.command,env,validated.historical446===true?ghApi:route=>gh(route),proof)
+     loadReview=validated.historical446===true
+       ?()=>trustedReviewContext(before,validated.command,env,ghApi,proof)
+       :()=>trustedReviewContext(before,validated.command,env,route=>gh(route),proof)
    }else loadReview=()=>trustedReviewContext(before,validated.command,env,route=>gh(route))
    verifiedReview=loadReview()
  }
