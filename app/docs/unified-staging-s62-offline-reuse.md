@@ -1,0 +1,10 @@
+# #396 S6.2 offline reuse checkpoint
+
+- S6.1 is read-only and remains unchanged; actual run 45762812755 passed 9/9 groups, 11/11 checks. Do not reuse its switch or owner command for writes.
+- S5 historical source is stored verbatim as a non-executable fixture, from issue comment 7180051769, SHA256 2c199c8b0fae7bdaaae2a10cc3d06f2bfd8fd33ee8c096b9399d4ccb1eb0d04c; operator report 7180210751 passed five modules and 14 cleanup checks.
+- The new test injects a fake helper and blocks actual network and process creation. It exercises the exact historical source, with synthetic accounts, fake stage/schema/transport, temporary journal and unrelated baseline row. No real secrets, Docker, external calls, provider, user creation, or stage writes. This is not live evidence or a signed trust receipt.
+- Preferred future runtime is the existing server-local operator runner (fixed loopback, root-private A/B files, exact runtime/schema preflight). S6.1 GitHub hosted runner has only A credentials and fixed GET-only policy; do not migrate B, broaden public routes, or introduce a privileged self-hosted runner merely to achieve S6.2. A separate approved execution mechanism is needed to automate writes, with exact target/version pinning, exclusive access, crash recovery and verified journal reconciliation.
+- Historical source lacks automatic interrupted-run recovery and durable remote scheduling; finally cleanup cannot guarantee deletion after SIGKILL/power loss. Physical soft deletes may persist. Before live automation, handle incomplete journals explicitly, preserve exact marker/ID ownership, never delete unrelated data, and revalidate current Backend image after #453. Do not pretend a fake test proves actual security enforcement.
+- Coverage stays task, finance, record, empty video folder, empty practice subject. No media upload, question writes, AI, health or Personal OS tests. Leave #323 responsible for trusted evidence intake.
+- Run: `python3 -m unittest discover -s app/scripts -p test_unified_staging_s5_fixture.py -v`.
+- No live workflow, credentials, permission, governance, or publication hold changes. Draft review and CI only.
