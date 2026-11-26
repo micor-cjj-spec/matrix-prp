@@ -4,16 +4,20 @@ A trusted default-branch workflow will supply authenticated metadata and streams
 using fixed GitHub API routes. A manifest is not proof of artifact provenance.
 """
 from contextlib import contextmanager
+import base64
+import binascii
 import hashlib
 import hmac
 import re
 import stat
+import struct
 import tempfile
 import uuid
 import zipfile
 
 from protocol import (REPOSITORY, MAX_ARTIFACT, MAX_FILES, InvalidJob,
-                      require, relative_path, validate_job, inline_bytes)
+                      require, relative_path, validate_job, inline_bytes, canonical, parse,
+                      exact, integer, digest, uuid4_text, open_request, MAX_CMS_DER)
 from executor import CHUNK
 
 OWNER = "micor-cjj-spec"
@@ -168,3 +172,93 @@ def transfer_job(job, ledger, provider, approved_producers=frozenset(), now=None
                         ledger.receive_file(jid, digest, item["path"], chunks(data), now)
     ledger.verify(jid, digest, now)
     return ledger.status(jid, digest)
+
+
+def decode_comment_request(event, repository, ref, issue, cert, key, now=None):
+    """Call only on an authentic GitHub event from the trusted workflow."""
+    public_job_id, encoded = verify_event(event, repository, ref, issue)
+    try:
+        raw = base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise InvalidJob("invalid ciphertext") from exc
+    require(len(raw) <= MAX_CMS_DER
+            and base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=") == encoded,
+            "noncanonical ciphertext")
+    request = open_request(raw, cert, key, now)
+    require(public_job_id == request["jobId"], "comment job mismatch")
+    return request
+
+# Candidate binary framing for a single file over a future authenticated
+# staging-only SSH stream. No SSH invocation or remote receiver entrypoint.
+# The authenticated control request binds the job and manifest; chunk hashes
+# detect corruption, not sender identity. Ledger verifies the whole file.
+FRAME_MAGIC = b"PRP11F\x00"
+MAX_FRAME_HEADER = 2048
+
+def _read_exact(stream, n):
+    result = bytearray()
+    while len(result) < n:
+        block = stream.read(n - len(result))
+        require(type(block) is bytes and 0 < len(block) <= n - len(result), "truncated frame")
+        result.extend(block)
+    return bytes(result)
+
+def _validate_frame(header, data):
+    exact(header, "version jobId manifestSha256 path offset size sha256 final")
+    require(type(header["version"]) is int and header["version"] == 11, "wrong frame version")
+    uuid4_text(header["jobId"])
+    digest(header["manifestSha256"])
+    relative_path(header["path"])
+    integer(header["offset"], 0, MAX_ARTIFACT)
+    integer(header["size"], 0, CHUNK)
+    digest(header["sha256"])
+    require(type(header["final"]) is bool, "invalid frame final flag")
+    require(type(data) is bytes and len(data) == header["size"]
+            and (len(data) > 0 or header["final"])
+            and header["offset"] + len(data) <= MAX_ARTIFACT, "invalid frame length")
+    require(hmac.compare_digest(hashlib.sha256(data).hexdigest(), header["sha256"]),
+            "frame digest mismatch")
+
+def pack_frame(job_id, manifest_digest, path, offset, data, final):
+    require(type(data) is bytes and len(data) <= CHUNK, "invalid frame data")
+    header = {"version":11, "jobId":job_id, "manifestSha256":manifest_digest,
+              "path":path, "offset":offset, "size":len(data),
+              "sha256":hashlib.sha256(data).hexdigest(), "final":final}
+    _validate_frame(header, data)
+    raw = canonical(header)
+    require(len(raw) <= MAX_FRAME_HEADER, "frame header too large")
+    return FRAME_MAGIC + struct.pack(">I", len(raw)) + raw + data
+
+def read_frame(stream):
+    require(_read_exact(stream, len(FRAME_MAGIC)) == FRAME_MAGIC, "wrong frame magic")
+    size, = struct.unpack(">I", _read_exact(stream, 4))
+    require(0 < size <= MAX_FRAME_HEADER, "invalid frame header length")
+    raw = _read_exact(stream, size)
+    header = parse(raw, limit=MAX_FRAME_HEADER)
+    require(type(header) is dict and "size" in header, "invalid header")
+    require(raw == canonical(header), "noncanonical header")
+    integer(header["size"], 0, CHUNK)
+    data = _read_exact(stream, header["size"])
+    _validate_frame(header, data)
+    return header, data
+
+def file_frame_chunks(stream, job_id, manifest_digest, item):
+    """Sequential, exact file framing; one complete file per bounded stream.
+
+    Future transport must independently authenticate, impose IO deadlines,
+    and provide a private spool. No automatic resume or execution.
+    """
+    offset = 0
+    while True:
+        header, data = read_frame(stream)
+        require(header["jobId"] == job_id and header["manifestSha256"] == manifest_digest
+                and header["path"] == item["path"] and header["offset"] == offset,
+                "frame identity or sequence mismatch")
+        offset += len(data)
+        require(offset <= item["size"] and header["final"] == (offset == item["size"]),
+                "incorrect frame completion")
+        if data:
+            yield data
+        if header["final"]:
+            require(stream.read(1) == b"", "trailing frame data")
+            return
