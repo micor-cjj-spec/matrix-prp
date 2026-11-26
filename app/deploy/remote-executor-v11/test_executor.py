@@ -1010,5 +1010,49 @@ class RelayTests(unittest.TestCase):
         with self.assertRaises(OSError): _credential(path,"do not overwrite")
         with self.assertRaises(InvalidJob): _credential(self.ledger.root/"bad","")
 
+
+class FixedOperationTests(unittest.TestCase):
+    setUp=DispatchTests.setUp
+
+    def prepare(self,operation="artifact.inspect"):
+        j=job()
+        m=j["manifest"]
+        m.update(operation=operation,entrypoint=None,files=[inline("artifact.txt",b"fixture")] if operation=="artifact.inspect" else [])
+        j["manifestSha256"]=manifest_sha256(m)
+        jid,md=j["jobId"],j["manifestSha256"]
+        self.ledger.accept(j,NOW)
+        if m["files"]:
+            self.ledger.receive_file(jid,md,"artifact.txt",[b"fixture"],NOW)
+        self.ledger.verify(jid,md,NOW)
+        return jid,md
+
+    def test_fixed_inspect_receipt(self):
+        from executor import dispatch_verified_job
+        from unittest.mock import patch
+        jid,md=self.prepare()
+        with patch("executor.subprocess.Popen") as launch:
+            result=dispatch_verified_job(self.ledger,jid,md,enabled=True,now=NOW)
+            launch.assert_not_called()
+        self.assertEqual(result["state"],"SUCCEEDED")
+        receipt=parse(result["result"]["summary"].encode("ascii"))
+        self.assertEqual(receipt["integrity"],"MATCH")
+        self.assertEqual(receipt["bytes"],7)
+        self.assertEqual(receipt["files"][0]["sha256"],hashlib.sha256(b"fixture").hexdigest())
+        with self.assertRaises(InvalidJob): dispatch_verified_job(self.ledger,jid,md,enabled=True,now=NOW)
+
+    def test_disabled_and_existing_stage_runner_boundary(self):
+        from executor import dispatch_verified_job
+        jid,md=self.prepare("stage.health")
+        with self.assertRaises(InvalidJob): dispatch_verified_job(self.ledger,jid,md)
+        with self.assertRaises(InvalidJob): dispatch_verified_job(self.ledger,jid,md,enabled=True,now=NOW)
+        self.assertEqual(self.ledger.status(jid,md)["state"],"VERIFIED")
+
+    def test_tamper_denied_before_fixed_operation(self):
+        from executor import dispatch_verified_job
+        jid,md=self.prepare()
+        (self.ledger.root/"jobs"/jid/"artifact.txt").write_bytes(b"changed")
+        with self.assertRaises(InvalidJob): dispatch_verified_job(self.ledger,jid,md,enabled=True,now=NOW)
+        self.assertEqual(self.ledger.status(jid,md)["state"],"VERIFIED")
+
 if __name__ == "__main__":
     unittest.main()
