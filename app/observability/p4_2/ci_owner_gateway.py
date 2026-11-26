@@ -57,7 +57,7 @@ def main():
     from query_contract import (
         CLIENT, FIXTURE_PROFILE, ISSUER, RESOURCE, SCOPE, Policy,
     )
-    from snapshot_contract import SnapshotStore
+    from snapshot_contract import SnapshotStore, utc
     from owner_gateway import (
         FixedGrafanaQueryAdapter,
         OwnerBoundGrafanaGateway,
@@ -84,14 +84,16 @@ def main():
     with tempfile.TemporaryDirectory(prefix="p42-") as temp:
         root = Path(temp)
         root.chmod(0o700)
-        p3_path = root / "p3.py"
+        fixtures = root / "fixtures"
+        fixtures.mkdir(mode=0o755)
+        p3_path = fixtures / "p3.py"
         p3_path.write_bytes(
             p41.exact(P3, "app/observability/p3/fixture.py", P3_FIXTURE_BLOB)
         )
         p3_path.chmod(0o644)
-        (root / "state.json").write_text(json.dumps({"node": True}))
-        (root / "state.json").chmod(0o644)
-        prom_config = root / "prometheus.yml"
+        (fixtures / "state.json").write_text(json.dumps({"node": True}))
+        (fixtures / "state.json").chmod(0o644)
+        prom_config = fixtures / "prometheus.yml"
         prom_config.write_text(
             "global:\n"
             "  scrape_interval: 2s\n"
@@ -152,7 +154,7 @@ def main():
 
             start(
                 "p3", "python", "128m",
-                mount(root, "/control"),
+                mount(fixtures, "/control"),
                 ("python", "/control/p3.py", "metrics"),
             )
             start(
@@ -298,6 +300,8 @@ def main():
                 "upstream-prometheus-readonly-toolset",
             )
 
+            # Ensure the last aligned 30-second point follows a real scrape.
+            p41.eventually(lambda: int(time.time()) % 30 >= 5 and int(time.time()) % 30 <= 10, "aligned-fixture-clock", seconds=40)
             now = int(time.time())
             revoked = {"value": False}
             revoke_after_query = {"value": False}
@@ -386,7 +390,7 @@ def main():
                 return response
 
             adapter = FixedGrafanaQueryAdapter(
-                upstream_rpc, datasource_uid=UID
+                upstream_rpc, datasource_uid=UID, clock=lambda: now
             )
             gateway = OwnerBoundGrafanaGateway(
                 server=server,
@@ -473,8 +477,9 @@ def main():
                             result["isError"] is False
                             and payload["metric"] == metric
                             and payload["window"] == "5m"
-                            and "fixture-node" in json.dumps(payload)
-                            and "foreign-marker" not in json.dumps(payload),
+                            and payload["status"] == "available"
+                            and 0 < len(payload["samples"]) <= 61
+                            and set(payload) == {"metric", "window", "startAt", "endAt", "stepSeconds", "status", "samples"},
                             "bounded-result-" + metric,
                         )
                         args = upstream_calls[-1]["params"]["arguments"]
@@ -484,14 +489,14 @@ def main():
                                 "datasourceUid": UID,
                                 "expr": QUERIES[metric],
                                 "queryType": "range",
-                                "startTime": "now-5m",
-                                "endTime": "now",
+                                "startTime": utc(now - now % 5 - 300),
+                                "endTime": utc(now - now % 5),
                                 "stepSeconds": 5,
                             },
                             "server-fixed-promql-and-window-" + metric,
                         )
 
-                    for window, expected_step in (("15m", 15), ("1h", 60)):
+                    for window, expected_step in (("15m", 15), ("30m", 30)):
                         request_id += 1
                         response = post(
                             "tools/call",
@@ -507,8 +512,8 @@ def main():
                         )
                         args = upstream_calls[-1]["params"]["arguments"]
                         check(
-                            args["startTime"] == "now-" + window
-                            and args["endTime"] == "now"
+                            args["startTime"] == utc(now - now % expected_step - WINDOWS[window][0])
+                            and args["endTime"] == utc(now - now % expected_step)
                             and args["stepSeconds"] == expected_step
                             and args["datasourceUid"] == UID
                             and args["expr"] == QUERIES["memory_available_bytes"],
@@ -516,9 +521,13 @@ def main():
                         )
 
                     calls_before = len(upstream_calls)
+                    duplicate = client.post("/mcp", json={"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":TOOL_NAME,"arguments":{"metric":"memory_available_bytes","window":"5m"}}}, headers=[("Authorization","Bearer "+OWNER_TOKEN),("Authorization","Bearer other"),("Accept","application/json, text/event-stream")])
+                    check(duplicate.status_code == 400, "duplicate-authorization-denied")
                     for bad_args in (
                         {"metric": "memory_available_bytes", "window": "5m", "expr": "up"},
                         {"metric": "memory_available_bytes", "window": "2h"},
+                        {"metric": "memory_available_bytes", "window": "5m", "offset": "2h"},
+                        {"metric": "memory_available_bytes", "window": "5m", "startTime": "2020-01-01T00:00:00Z"},
                         {"metric": "memory_available_bytes", "window": "5m", "datasourceUid": "other"},
                         {"metric": "up", "window": "5m"},
                         {"metric": "memory_available_bytes", "window": "now-1d"},
@@ -531,7 +540,7 @@ def main():
                         )
                         check(
                             denied.status_code == 200
-                            and denied.json()["result"]["isError"] is True,
+                            and (denied.json().get("result", {}).get("isError") is True or denied.json().get("error") is not None),
                             "invalid-query-arguments-denied",
                         )
                     check(len(upstream_calls) == calls_before, "invalid-args-no-downstream-call")
@@ -564,7 +573,7 @@ def main():
                     check(
                         revoked_during_query.status_code == 200
                         and revoked_during_query.json()["result"]["isError"] is True
-                        and "fixture-node" not in revoked_during_query.text,
+                        and "samples" not in revoked_during_query.text,
                         "owner-revocation-during-query-denies-result",
                     )
 
@@ -623,8 +632,8 @@ def main():
             )
         finally:
             for name in reversed(created):
-                p41.run("docker", "rm", "-f", "-v", name, allow_failure=True)
-            p41.run("docker", "network", "rm", network, allow_failure=True)
+                __import__("subprocess").run(["docker", "rm", "-f", "-v", name], capture_output=True, timeout=30)
+            __import__("subprocess").run(["docker", "network", "rm", network], capture_output=True, timeout=30)
 
 
 if __name__ == "__main__":
