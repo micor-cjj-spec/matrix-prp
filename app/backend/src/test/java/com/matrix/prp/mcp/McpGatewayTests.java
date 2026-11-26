@@ -69,7 +69,7 @@ class McpGatewayTests {
 
     @SuppressWarnings("unchecked")
     private void storedTaskChange(String kind, McpDraftService.TaskChange change, String status) throws Exception {
-        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,expires_at"),
+        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,LEAST("),
             any(RowMapper.class), eq(CHANGE_ID), eq(501L))).thenAnswer(invocation -> {
                 RowMapper<Object> mapper = invocation.getArgument(1);
                 ResultSet rs = mock(ResultSet.class);
@@ -77,7 +77,7 @@ class McpGatewayTests {
                 when(rs.getString("payload_json")).thenReturn(json.writeValueAsString(change));
                 when(rs.getString("result_json")).thenReturn("{\"deleted\":true}");
                 when(rs.getString("status")).thenReturn(status);
-                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                when(rs.getLong("effective_expires_epoch")).thenReturn(1790000900L);
                 return List.of(mapper.mapRow(rs, 0));
             });
         when(db.query(startsWith("SELECT updated_at"), any(RowMapper.class), eq(77L), eq(501L)))
@@ -160,6 +160,7 @@ class McpGatewayTests {
 
     @BeforeEach
     void authenticated() {
+        when(db.queryForObject("SELECT UNIX_TIMESTAMP()", Long.class)).thenReturn(1790000000L);
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(new UserProfile(501L, "mcp-user", "MCP"), null, List.of()));
     }
@@ -208,14 +209,16 @@ class McpGatewayTests {
     @Test
     void preparePersistsOwnerNotClientSelectedUserId() {
         when(db.queryForObject(any(String.class), eq(Integer.class), eq(501L))).thenReturn(0);
+        when(db.queryForObject(startsWith("SELECT UNIX_TIMESTAMP(expires_at)"), eq(Long.class), anyString(), eq(501L))).thenReturn(1790000900L);
         var preview = drafts(true).prepare(McpDraftService.Kind.TASK,
             new CreateTaskRequest("work", "Review API contract", "", "high", null));
         assertThat(preview.kind()).isEqualTo("TASK");
+        assertThat(preview.expiresAt()).isEqualTo(java.time.Instant.ofEpochSecond(1790000900L).toString());
         assertThat(preview.instruction()).contains("https://prp-test.micor.top/prp/me/mcp-approve/" + preview.draftId())
             .contains("never in chat");
         assertThat(preview.values().get("title").asText()).isEqualTo("Review API contract");
         verify(db).update(startsWith("INSERT INTO prp_mcp_write_drafts"),
-            any(), eq(501L), eq("TASK"), any(), any());
+            any(), eq(501L), eq("TASK"), any());
         verifyNoInteractions(tasks, finance, records);
     }
 
@@ -237,7 +240,7 @@ class McpGatewayTests {
                 ResultSet rs = mock(ResultSet.class);
                 when(rs.getString("status")).thenReturn("PENDING");
                 when(rs.getInt("approval_failures")).thenReturn(0);
-                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                when(rs.getLong("effective_expires_epoch")).thenReturn(1790000900L);
                 return List.of(mapper.mapRow(rs, 0));
             });
         when(users.findById(501L)).thenReturn(java.util.Optional.of(
@@ -262,12 +265,13 @@ class McpGatewayTests {
                 ResultSet rs = mock(ResultSet.class);
                 when(rs.getString("status")).thenReturn("PENDING");
                 when(rs.getInt("approval_failures")).thenReturn(0);
-                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                when(rs.getLong("effective_expires_epoch")).thenReturn(1790000900L);
                 return List.of(mapper.mapRow(rs, 0));
             });
         when(users.findById(501L)).thenReturn(java.util.Optional.of(
             new UserAccount(501L, "mcp-user", "MCP", "hashed-password", false, true)));
         when(passwords.matches("correct", "hashed-password")).thenReturn(true);
+        when(db.update(startsWith("UPDATE prp_mcp_write_drafts SET status='APPROVED'"), eq(id), eq(501L))).thenReturn(1);
 
         var outcome = drafts(true).approve(id, "correct");
         assertThat(outcome.status()).isEqualTo("APPROVED");
@@ -280,7 +284,7 @@ class McpGatewayTests {
     @SuppressWarnings("unchecked")
     void pendingDraftCannotConfirmWithoutServerSideApproval() throws Exception {
         String id = "41abc027-d67e-4bdf-8985-e3ec97d23204";
-        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,expires_at"),
+        when(db.query(startsWith("SELECT kind,payload_json,result_json,status,LEAST("),
             any(RowMapper.class), eq(id), eq(501L))).thenAnswer(invocation -> {
                 RowMapper<Object> mapper = invocation.getArgument(1);
                 ResultSet rs = mock(ResultSet.class);
@@ -288,7 +292,7 @@ class McpGatewayTests {
                 when(rs.getString("payload_json")).thenReturn("{}");
                 when(rs.getString("result_json")).thenReturn(null);
                 when(rs.getString("status")).thenReturn("PENDING");
-                when(rs.getTimestamp("expires_at")).thenReturn(Timestamp.valueOf(LocalDateTime.now().plusMinutes(5)));
+                when(rs.getLong("effective_expires_epoch")).thenReturn(1790000900L);
                 return List.of(mapper.mapRow(rs, 0));
             });
 
