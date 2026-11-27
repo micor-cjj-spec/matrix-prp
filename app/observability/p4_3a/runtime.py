@@ -71,6 +71,11 @@ def load_config(gid):
         os.close(fd)
 
 
+class RequestRejected(ValueError):
+    def __init__(self, status):
+        self.status = status
+
+
 class BoundedSDK:
     """Bound SDK ASGI request/response on HTTPS loopback.
 
@@ -98,8 +103,7 @@ class BoundedSDK:
             try:
                 async with asyncio.timeout(DEADLINE):
                     if not self.enabled():
-                        await send_response(send, response(503))
-                        return
+                        raise RequestRejected(503)
                     method, target, pairs = extract_scope(scope)
                     headers = parse_headers(pairs)
                     if headers.get("host") != "ops.invalid" or headers.get("origin", "https://chatgpt.com") != "https://chatgpt.com":
@@ -107,17 +111,14 @@ class BoundedSDK:
                     if "transfer-encoding" in headers or "content-encoding" in headers:
                         raise ValueError("invalid framing")
                     if (target == "/mcp" and method != "POST") or (target != "/mcp" and method != "GET"):
-                        await send_response(send, response(405))
-                        return
+                        raise RequestRejected(405)
                     size = headers.get("content-length", "0")
                     if not size.isascii() or not size.isdecimal() or len(size) > 8:
                         raise ValueError("invalid length")
                     if int(size) > MAX_RPC:
-                        await send_response(send, response(413))
-                        return
+                        raise RequestRejected(413)
                     if target == "/mcp" and headers.get("content-type", "").split(";")[0] != "application/json":
-                        await send_response(send, response(415))
-                        return
+                        raise RequestRejected(415)
                     data = bytearray()
                     for _ in range(MAX_BODY_EVENTS):
                         event = await receive()
@@ -126,8 +127,7 @@ class BoundedSDK:
                         require(event["type"] == "http.request")
                         data.extend(event.get("body", b""))
                         if len(data) > MAX_RPC:
-                            await send_response(send, response(413))
-                            return
+                            raise RequestRejected(413)
                         if not event.get("more_body", False):
                             break
                     else:
@@ -160,16 +160,19 @@ class BoundedSDK:
                         start["headers"] = [(k,v) for k,v in start.get("headers", [])
                                             if k.lower() not in (b"cache-control", b"x-content-type-options")]
                         start["headers"] += [(b"cache-control",b"no-store"),(b"x-content-type-options",b"nosniff")]
-                        # No timeout response after sending any partial response.
-                        for event in events:
-                            await asyncio.wait_for(send(event), SEND_SECONDS)
-                        return
+            except RequestRejected as error:
+                result = response(error.status)
             except asyncio.TimeoutError:
                 result = response(503)
             except Exception:
                 result = response(400)
+            # Sending is outside the processing timeout/exception conversion.
+            # A failed/partial send must not attempt a second response.
             if result is not None:
                 await send_response(send, result)
+            else:
+                for event in events:
+                    await asyncio.wait_for(send(event), SEND_SECONDS)
         finally:
             self.active -= 1
 
