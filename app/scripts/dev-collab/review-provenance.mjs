@@ -122,8 +122,9 @@ export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef,m
   if(checkout!==undefined)check(checkout&&baseRef==='main'&&headRef==='dev'&&SHA.test(checkout.baseSha||'')&&typeof checkout.loadLog==='function','REVIEW_CHECKOUT_INPUT')
   const seenRun = new Map(), seenJobs=new Map(), checkouts=[]
   for(const name of REQUIRED_CHECKS){
-    const job=recent.get(name)
-    check(job,'CHECK_MISSING_'+name)
+    const selected=recent.get(name)
+    check(selected,'CHECK_MISSING_'+name)
+    const job=selected.job
     check(job.app?.id===15368,'WRONG_CHECK_APP_'+name)
     check(job.head_sha===sha && job.status==='completed' && job.conclusion==='success',
       'CHECK_NOT_GREEN_'+name)
@@ -132,7 +133,7 @@ export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef,m
     check(match && Number(match[2])===job.id,'UNTRUSTED_CHECK_DETAILS_'+name)
     const runId=Number(match[1])
     check(Number.isSafeInteger(runId) && runId>0,'UNTRUSTED_WORKFLOW_ID')
-    if(!seenRun.has(runId)) seenRun.set(runId,loadRun(runId))
+    if(!seenRun.has(runId)) seenRun.set(runId,candidateRuns.has(runId)?candidateRuns.get(runId):loadRun(runId))
     const run=seenRun.get(runId)
     const expected=WORKFLOW_FOR_CHECK[name]
     check(run?.id===runId && run?.path===expected && run?.name===WORKFLOW_NAME[expected],
