@@ -1,0 +1,18 @@
+name: PRP observability P2.6 offline CI MCP projection
+on:
+  pull_request:
+    paths:
+      - 'app/observability/p2-6/**'
+      - '.github/workflows/prp-observability-p2-6.yml'
+permissions:
+  contents: read
+jobs:
+  offline-projection:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pure offline projection tests
+        run: python3 -m unittest discover -s app/observability/p2-6 -p 'test_*.py' -v
