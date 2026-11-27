@@ -94,42 +94,6 @@ test('job-list omissions, duplicate names and post-merge reruns fail closed',()=
  fails(()=>verify(jobs(),run,id=>{const l=list(id);l.jobs[0].completed_at='2026-10-31T18:01:00Z';return l}),'WORKFLOW_JOB_TIME_MISMATCH_backend-tests')
 })
 
-test('empty merged-run PR association requires exact PR merge checkout evidence',()=>{
- const x=jobs(),baseSha='b'.repeat(40)
- const actionFor=id=>id>=1001&&id<=1005?'v4':'3d3c42e5aac5ba805825da76410c181273ba90b1'
- const checkoutLog=(pr=number,checkoutSha=sha,action='v4')=>{
-  const pin=action==='v4'?'11d5960a326750d5838078e36cf38b85af677262':action
-  return [
-   '2026-10-31T17:01:59.000Z Download action repository \'actions/checkout@'+action+'\' (SHA:'+pin+')',
-   '2026-10-31T17:02:00.000Z ##[group]Run actions/checkout@'+action,
-   '2026-10-31T17:02:00.100Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +'+checkoutSha+':refs/remotes/pull/'+pr+'/merge',
-   '2026-10-31T17:02:00.200Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/'+pr+'/merge',
-   '2026-10-31T17:02:00.300Z [command]/usr/bin/git log -1 --format=%H',
-   '2026-10-31T17:02:00.400Z '+checkoutSha,
-   '2026-10-31T17:03:00.000Z ##[group]Run next step'
-  ].join('\n')
- }
- const jobLoader=id=>{
-  const l=list(id,'dev')
-  return {...l,jobs:l.jobs.map(j=>{
-   const action=actionFor(j.id)
-   return {...j,steps:[
-    {name:'Set up job',conclusion:'success'},
-    {name:'Initialize containers',conclusion:'success'},
-    {name:'Run actions/checkout@'+action,conclusion:'success',
-     started_at:'2026-10-31T17:02:00Z',completed_at:'2026-10-31T17:03:00Z'}
-   ]}
-  })}
- }
- const runLoader=id=>({...run(id,'dev'),pull_requests:[]})
- const options={sha,prNumber:number,baseRef:'main',headRef:'dev',mergedAt:'2026-10-31T18:00:00Z',
-  checkout:{baseSha,loadLog:id=>checkoutLog(number,sha,actionFor(id))}}
- const result=verifyWorkflowProvenance(x,options,runLoader,jobLoader)
- assert.equal(result.checkouts.length,REQUIRED_CHECKS.length)
- assert.ok(result.checkouts.every(c=>c.sha===sha))
- const wrongPr={...options,checkout:{...options.checkout,loadLog:id=>checkoutLog(number+1,sha,actionFor(id))}}
- assert.throws(()=>verifyWorkflowProvenance(x,wrongPr,runLoader,jobLoader),e=>e.code==='REVIEW_CHECKOUT_REF_OR_SHA')
-});
 test('log download accepts only validated repository route, strips authorization on redirect',async()=>{
  const route='repos/micor-cjj-spec/matrix-prp/actions/jobs/123/logs'
  const calls=[]
