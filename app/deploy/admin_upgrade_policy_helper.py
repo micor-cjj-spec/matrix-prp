@@ -6,20 +6,20 @@ from pathlib import Path
 TARGET=Path('/usr/local/sbin/prp-diagnose')
 CONTROLLER=Path('/usr/local/sbin/prp-release')
 BASE=Path('/var/backups/prp-policy-attestor')
-OLD='9070861e69b3ec2a0106f3e6c9992f3344397eecccd9cc80e42370392517121f'
+OLD='84343877e8510ebe6722849867e989c234a55805128eaa8f166816e74d0f8483'
 CONTROLLER_SHA='c329836ed2f48296e5ab505451aab3c59b33db7f7c20aba5ae7c2b1ec80622e2'
 
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
-def require_clock_only_change(before,after):
+def require_match_only_change(before,after):
     old=ast.parse(before).body;new=ast.parse(after).body
-    if len(old)!=len(new):raise ValueError('Only the reviewed daemon_birth function may change')
+    if len(old)!=len(new):raise ValueError('Only the reviewed configuration collection functions may change')
     changed=[]
     for a,b in zip(old,new):
         if ast.dump(a,include_attributes=False)==ast.dump(b,include_attributes=False):continue
         if not isinstance(a,ast.FunctionDef) or not isinstance(b,ast.FunctionDef) or a.name!=b.name:
             raise ValueError('Unexpected helper change')
         changed.append(a.name)
-    if changed!=['daemon_birth']:raise ValueError('Only daemon_birth may change')
+    if changed!=['configuration_files','collect_policy']:raise ValueError('Only configuration_files and collect_policy may change')
 def state():
     files=[CONTROLLER,Path('/usr/local/bin/prp-deploy-gateway'),Path('/home/prp-deploy/.ssh/authorized_keys'),Path('/etc/ssh/sshd_config')]
     files+=sorted(Path('/etc/ssh/sshd_config.d').glob('*'))+sorted(Path('/etc/sudoers.d').glob('*'))
@@ -58,7 +58,7 @@ def main():
         if a.candidate is None or a.candidate.is_symlink():raise SystemExit('Candidate regular file required')
         data=a.candidate.read_bytes();ast.parse(data);sha=hashlib.sha256(data).hexdigest()
         if digest(TARGET)!=OLD:raise SystemExit('STOP: unknown installed helper; do not overwrite')
-        require_clock_only_change(TARGET.read_bytes(),data)
+        require_match_only_change(TARGET.read_bytes(),data)
         print('old_sha256='+OLD);print('candidate_sha256='+sha)
         if a.action=='check':
             print('CHECK ONLY: no production file modified');return
