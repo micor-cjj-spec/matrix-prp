@@ -1,0 +1,57 @@
+name: PRP observability P4.2 Owner-bound Grafana MCP offline integration
+on:
+  pull_request:
+    paths:
+      - 'app/observability/p4_2/**'
+      - '.github/workflows/prp-observability-p4-2.yml'
+permissions:
+  contents: read
+jobs:
+  owner-bound-grafana-mcp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13.5'
+          architecture: x64
+          check-latest: false
+      - name: Verify and reuse exact accepted source revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTH=329ca6eb024ca3486e711fabc0ad2c428cde6221
+          SDK=3e7e3afcc8fd2ee5750a76bf3ff579c9f9fe6393
+          P4=c459ac4c56ebdd2be6808f9f7bac46995625714a
+          P3=b0c0521bf345231ac1562db66ef92746828466e3
+
+          test "$(git rev-parse "$AUTH:app/ops/query_contract.py")" = f415a83479c1fa266d89651555ec6eaafed275c1
+          test "$(git rev-parse "$AUTH:app/ops/auth_adapter.py")" = e901873b8ccfb1a1806c8ca85767a8c01ea87adc
+          test "$(git rev-parse "$AUTH:app/ops/rpc_adapter.py")" = 6e5f85c70815dec318d68a0e313498045efe7840
+          test "$(git rev-parse "$AUTH:app/ops/http_boundary.py")" = 19720f4377622e1535763763320e0dd980731ea9
+          test "$(git rev-parse "$AUTH:app/ops/audit_store.py")" = 6fe11792639624a4b17314c592881d1e54954ebd
+          test "$(git rev-parse "$AUTH:app/ops/snapshot_contract.py")" = 55dd6b7c5b2cc0cd73572854299c30ad53cd6218
+          test "$(git rev-parse "$AUTH:app/ops/admin_grant.py")" = e240d16e0feedb5046a46e48744ef017a7ceb888
+          test "$(git rev-parse "$SDK:app/ops/sdk_spike_ci.py")" = aabfd47a36d5aab1de3af92225f70c4c05f89829
+          test "$(git rev-parse "$P4:app/observability/p4/ci_grafana_mcp.py")" = e3a220f59b08d9e4aa3758facccf5c5bf5db4d9b
+          test "$(git rev-parse "$P3:app/observability/p3/fixture.py")" = 0384dee80ac635397b8dcc9170bfecce513773cf
+          test "$(git rev-parse "$AUTH:app/ops/query_contract.py")" = "$(git rev-parse "$SDK:app/ops/query_contract.py")"
+
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          git archive "$AUTH" app/ops app/deploy/systemd | tar -x -C "$work"
+          git show "$SDK:app/ops/sdk_spike_ci.py" > "$work/app/ops/sdk_spike_ci.py"
+          git show "$P4:app/observability/p4/ci_grafana_mcp.py" > "$work/p4_1_ci.py"
+
+          python -m unittest discover -s "$work/app/ops" -p 'test_*.py' -v
+
+          python -m venv "$work/venv"
+          "$work/venv/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1'
+          "$work/venv/bin/python" -m pip check
+          "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
+          "$work/venv/bin/python" app/observability/p4_2/ci_owner_gateway.py "$work" "$work/p4_1_ci.py"
