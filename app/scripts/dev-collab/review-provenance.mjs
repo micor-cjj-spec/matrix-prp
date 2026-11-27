@@ -152,20 +152,12 @@ export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef,m
       run?.head_branch===headRef &&
       run?.repository?.full_name===REPO && run?.head_repository?.full_name===REPO && run.repository.id===1261866723 && run.head_repository.id===1261866723 && Number.isSafeInteger(run.run_attempt) && run.run_attempt>0 && Number.isFinite(Date.parse(run.created_at)) && Date.parse(run.created_at)<=Date.parse(mergedAt),
       'WRONG_WORKFLOW_ORIGIN_'+name)
-    const links=run?.pull_requests
-    if(checkout && Array.isArray(links) && links.length===0){
-      // After merge, GitHub may omit the run-level PR association. In this
-      // squash-only path, the exact pull/<number>/merge checkout log below
-      // binds the PR number and tested SHA; the test-commit parents bind base
-      // and head. Missing or ambiguous associations still fail closed.
-    }else{
-      check(Array.isArray(links) && links.length===1 && links.every(pr=>
-        pr.number===prNumber && pr.head?.sha===sha && pr.base?.ref===baseRef),
-        'WORKFLOW_PR_MISMATCH_'+name)
-      if(checkout){
-        const link=links[0]
-        check(link.base.sha===checkout.baseSha&&link.head.ref===headRef&&link.base.repo?.id===1261866723&&link.head.repo?.id===1261866723,'WORKFLOW_CHECKOUT_PR_BASE_MISMATCH_'+name)
-      }
+    check(Array.isArray(run?.pull_requests) && run.pull_requests.length===1 && run.pull_requests.every(pr=>
+      pr.number===prNumber && pr.head?.sha===sha && pr.base?.ref===baseRef),
+      'WORKFLOW_PR_MISMATCH_'+name)
+    if(checkout){
+      const link=run.pull_requests[0]
+      check(link.base.sha===checkout.baseSha&&link.head.ref===headRef&&link.base.repo?.id===1261866723&&link.head.repo?.id===1261866723,'WORKFLOW_CHECKOUT_PR_BASE_MISMATCH_'+name)
     }
     if(!seenJobs.has(runId))seenJobs.set(runId,loadJobs(runId))
     const listing=seenJobs.get(runId)
