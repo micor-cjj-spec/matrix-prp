@@ -4,6 +4,11 @@ import { CollabError } from './core.mjs'
 import { verifyTaskEvidence, verifyIntegrationRelease, verifyRequirementClose, verifyIntegrationPolicy, verifyOwnerAttestedIntegrationPolicy, hasDevAncestry } from './review-gate.mjs'
 import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.mjs'
 
+import {HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446} from './review-provenance.mjs'
+
+const RECEIPT_ACCEPT_PREFIX='PRP_PREMERGE_RECEIPT_V1:'
+const HISTORICAL_271_PREFIX='PRP_HISTORICAL_271_V1:'
+
 const REPO='micor-cjj-spec/matrix-prp'
 const SHA=/^[a-f0-9]{40}$/
 const OWNER_ID=123868412
@@ -19,24 +24,36 @@ export function ghApi(route){
 }
 
 /** The only trust boundary: called exclusively from the owner-initiated reviewed workflow. */
-export function trustedReviewContext(snapshot,command,env,api,issueProof){
+export function trustedReviewContext(snapshot,command,env,api,issueProof,receiptRuntime,historical271Runtime){
   check(env.GITHUB_ACTIONS==='true' && env.GITHUB_REF==='refs/heads/main' &&
     env.GITHUB_REPOSITORY===REPO && env.GITHUB_ACTOR==='micor-cjj-spec' &&
     env.GITHUB_REPOSITORY_OWNER==='micor-cjj-spec' && typeof env.GH_TOKEN==='string' &&
     env.GH_TOKEN.length>0,'UNTRUSTED_REVIEW_CONTEXT')
-  check(command.type==='accept'||command.type==='close','INVALID_REVIEW_ACTION')
+  check(command.type==='accept'||command.type==='close'||command.type==='capture_receipt','INVALID_REVIEW_ACTION')
   const manual=env.GITHUB_EVENT_NAME==='workflow_dispatch' && env.GITHUB_WORKFLOW_REF===REPO+'/.github/workflows/prp-collab-coordinator.yml@refs/heads/main'
   const issue=env.GITHUB_EVENT_NAME==='issues' && env.GITHUB_EVENT_ACTION==='opened' && env.GITHUB_WORKFLOW_REF===REPO+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'
-  check(SHA.test(env.GITHUB_SHA||'') && (manual || (issue && command.type==='accept')),'UNTRUSTED_REVIEW_ENTRYPOINT')
+  check(SHA.test(env.GITHUB_SHA||'') && (manual || (issue && ['accept','capture_receipt'].includes(command.type))),'UNTRUSTED_REVIEW_ENTRYPOINT')
   const root='repos/'+REPO
+  const historical446=issueProof?.historical446===true
+  const marked=typeof command.note==='string'&&command.note.startsWith(HISTORICAL_446_PREFIX)
+  check(marked===historical446&&(!historical446||issue),'HISTORICAL_446_EXPLICIT_ISSUE_REQUIRED')
+  const capture=command.type==='capture_receipt',receiptAccept=issueProof?.receiptAccept===true
+  const receiptMarked=typeof command.note==='string'&&command.note.startsWith(RECEIPT_ACCEPT_PREFIX)
+  check(receiptMarked===receiptAccept&&capture===(issueProof?.captureReceipt===true)&&
+    (!capture&&!receiptAccept||issue&&!historical446&&(!receiptAccept||command.type==='accept')),'RECEIPT_EXPLICIT_ISSUE_REQUIRED')
+  const historical271=issueProof?.historical271===true
+  const marked271=typeof command.note==='string'&&command.note.startsWith(HISTORICAL_271_PREFIX)
+  check(marked271===historical271&&(!historical271||issue&&command.type==='accept'&&!historical446&&!capture&&!receiptAccept),'HISTORICAL_271_EXPLICIT_ISSUE_REQUIRED')
+  const ownerNote=historical271?command.note.slice(HISTORICAL_271_PREFIX.length):historical446?command.note.slice(HISTORICAL_446_PREFIX.length):
+    receiptAccept?command.note.slice(RECEIPT_ACCEPT_PREFIX.length):command.note
   const requirePolicy=()=>{
     const rule=api(root+'/rulesets/28050327')
-    const noteIsOwner=typeof command.note==='string'&&command.note.startsWith(OWNER_NOTE)
+    const noteIsOwner=typeof ownerNote==='string'&&ownerNote.startsWith(OWNER_NOTE)
     if(!noteIsOwner && issueProof===undefined)return verifyIntegrationPolicy(snapshot.requirement_id,rule)
     // Redacted evidence is supported only by the existing authenticated Issue
     // transaction, which revalidates the original event and evidence before CAS.
     // The manual coordinator lacks that final review boundary; no fallback there.
-    check(issue&&command.type==='accept'&&noteIsOwner&&issueProof?.actorId===OWNER_ID&&
+    check(issue&&['accept','capture_receipt'].includes(command.type)&&noteIsOwner&&issueProof?.actorId===OWNER_ID&&
       Number.isSafeInteger(issueProof.sourceIssue)&&issueProof.sourceIssue>0&&
       SHA.test(issueProof.stateSha||'')&&issueProof.stateSha===issueProof.expectedStateSha&&
       issueProof.expectedVersion===snapshot.version&&issueProof.note===command.note,
@@ -54,7 +71,7 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
       Number.isFinite(issueTime)&&Number.isFinite(runTime)&&runTime>=issueTime-30000&&
       runTime<=Date.now()+30000,
       'OWNER_RULESET_WORKFLOW_IDENTITY')
-    return verifyOwnerAttestedIntegrationPolicy(snapshot.requirement_id,rule,command.note,{
+    return verifyOwnerAttestedIntegrationPolicy(snapshot.requirement_id,rule,ownerNote,{
       requestId:command.request_id,action:command.type,taskId:command.task_id??null,
       prNumber:command.pr_number,headSha:command.head_sha,stateVersion:snapshot.version,
       mainSha:env.GITHUB_SHA,stateSha:issueProof.stateSha
@@ -63,6 +80,36 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
   const requireMain=main=>check(main?.name==='main' && main.protected===true && main.commit?.sha===env.GITHUB_SHA,'REVIEW_MAIN_REVISION_MISMATCH')
   const loadJobs=id=>api(root+'/actions/runs/'+id+'/jobs?per_page=100&filter=latest')
   const integrationRef='integrate/'+snapshot.requirement_id
+  if(historical271){
+    check(typeof historical271Runtime?.verifyHistorical271==='function','HISTORICAL_271_RUNTIME_REQUIRED')
+    requireMain(api(root+'/branches/main'))
+    check(requirePolicy().ownerAttested===true,'HISTORICAL_271_OWNER_POLICY')
+    const result=historical271Runtime.verifyHistorical271(snapshot,command,issueProof,env.GITHUB_SHA,api)
+    check(result?.historical271Verified===true&&result.checks===7&&result.pr===271&&result.task===command.task_id,'HISTORICAL_271_EVIDENCE_REQUIRED')
+    requireMain(api(root+'/branches/main'))
+    check(requirePolicy().ownerAttested===true,'HISTORICAL_271_OWNER_POLICY')
+    return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,ownerRulesetAttested:true,historical271Verified:true}
+  }
+  if(capture||receiptAccept){
+    check(receiptRuntime&&typeof receiptRuntime.verifyReceiptCommand==='function'&&typeof receiptRuntime.collectReceiptEvidence==='function'&&typeof receiptRuntime.verifyReceiptAccept==='function','RECEIPT_RUNTIME_REQUIRED')
+    receiptRuntime.verifyReceiptCommand(snapshot,command,issueProof)
+    requireMain(api(root+'/branches/main'))
+    const policy=requirePolicy()
+    check(policy.ownerAttested===true,'RECEIPT_OWNER_POLICY')
+    if(capture){
+      const evidence=receiptRuntime.collectReceiptEvidence(snapshot,command.task_id,api)
+      evidence.captureOrigin={request_id:command.request_id,source_issue:issueProof.sourceIssue,
+        issue_created_at:issueProof.issueCreatedAt,run_id:Number(env.GITHUB_RUN_ID),main_sha:env.GITHUB_SHA}
+      requireMain(api(root+'/branches/main'))
+      requirePolicy()
+      return {captureEvidenceVerified:true,evidence}
+    }
+    const result=receiptRuntime.verifyReceiptAccept(snapshot,command,issueProof,env.GITHUB_SHA,api)
+    check(result.receiptEvidenceVerified===true&&result.checks===7,'RECEIPT_EVIDENCE_REQUIRED')
+    requireMain(api(root+'/branches/main'))
+    requirePolicy()
+    return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,ownerRulesetAttested:true,receiptEvidenceVerified:true}
+  }
   if(command.type==='accept'){
     const task=snapshot.tasks.find(t=>t.task_id===command.task_id)
     check(task && task.status==='IN_REVIEW','TASK_NOT_IN_REVIEW')
@@ -76,6 +123,13 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof){
     verifyTaskEvidence(snapshot,command.task_id,{pr,branch,comparison,checks,files})
     requireMain(api(root+'/branches/main'))
     const policyProof=requirePolicy()
+    if(historical446){
+      verifyHistorical446Binding(snapshot,command,issueProof)
+      const evidence=collectHistorical446(api,pr,branch,checks)
+      check(evidence.historicalEvidenceVerified===true&&evidence.pr===446&&evidence.checks===7,'HISTORICAL_446_EVIDENCE')
+      requirePolicy()
+      return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,ownerRulesetAttested:true,historical446Verified:true}
+    }
     verifyWorkflowProvenance(checks,{sha:task.head_sha,prNumber:task.pr_number,
       baseRef:integrationRef,headRef:pr.head.ref,mergedAt:pr.merged_at},id=>api(`repos/${REPO}/actions/runs/${id}`),loadJobs)
     return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,...(policyProof.ownerAttested?{ownerRulesetAttested:true}:{})}
