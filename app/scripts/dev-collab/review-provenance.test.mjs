@@ -178,6 +178,7 @@ function h529Fixture(){
    base:{ref:'main',sha:h529.base,repo:{full_name:repo,id:1261866723}},
    head:{ref:'dev',sha:h529.head,repo:{full_name:repo,id:1261866723}}},
   main:{name:'main',protected:true,commit:{sha:'f283f77684e6ca247ea41b25864a3829e407dc5d'}},
+  mainAncestryComparison:{status:'diverged',behind_by:63,base_commit:{sha:h529.head},merge_base_commit:{sha:h529.base},commits:[{sha:h529.merge}]},
   timeline:[{event:'merged',commit_id:h529.merge,created_at:h529.mergedAt}],
   files:h529Files.map(([filename,status])=>({filename,status})),
   checks:{total_count:checkRuns.length,check_runs:checkRuns},
@@ -219,6 +220,7 @@ test('historical #529 rejects changed PR identity, ambiguous association, wrong 
   [e=>e.files.push({filename:'unexpected.txt',status:'added'}),'HISTORICAL_529_FILES_MISMATCH'],
   [e=>e.workflowBlobs[h529.ci][2]='3'.repeat(40),'HISTORICAL_529_WORKFLOW_BLOB_MISMATCH'],
   [e=>e.timeline[0].commit_id='4'.repeat(40),'HISTORICAL_529_TIMELINE_MISMATCH'],
+  [e=>e.mainAncestryComparison.merge_base_commit.sha='4'.repeat(40),'HISTORICAL_529_ANCESTRY_MISMATCH'],
   [e=>delete e.runs[45980919751].pull_requests,'HISTORICAL_529_RUN_MISMATCH']
  ]
  for(const [mutate,code] of mutations){const e=h529Fixture();mutate(e);assert.throws(()=>verifyHistorical529Evidence(e),x=>x.message===code||x.code===code)}
@@ -242,7 +244,7 @@ test('historical #529 collector reads only pinned GET evidence and reuses the se
   }
   throw Error('unexpected route '+route)
  }
- const result=collectHistorical529(api,e.pr,e.main,e.checks)
+ const result=collectHistorical529(api,e.pr,e.main,e.checks,e.mainAncestryComparison)
  assert.equal(result.historical529Verified,true)
  assert.equal(routes.filter(x=>x.endsWith('/logs')).length,7)
  assert.ok(routes.every(x=>x.startsWith('repos/'+repo+'/')))
