@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 41,
-  "updated_at": "2026-11-27T02:27:38.986Z",
+  "version": 42,
+  "updated_at": "2026-11-27T02:51:01.894Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -546,6 +546,20 @@
         "status": "DONE",
         "replayed": false
       }
+    },
+    {
+      "request_id": "d4080001-1127-4a08-8601-000000000001",
+      "fingerprint": "20b9f8ded5c5891f5f33317b5cc702a346332b05a560d5abf450a10b54dd958d",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "claim",
+        "task_id": "T-008",
+        "request_id": "d4080001-1127-4a08-8601-000000000001",
+        "claim_id": "d525fc5f-7dac-4281-9531-403aa489b85a",
+        "version": 42,
+        "status": "CLAIMED",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -734,7 +748,7 @@
       "task_id": "T-008",
       "issue_number": 143,
       "title": "CAS 并发及工作流边界测试",
-      "status": "READY",
+      "status": "CLAIMED",
       "depends_on": [
         "T-003",
         "T-007",
@@ -747,7 +761,13 @@
         "app/scripts/dev-collab/workflow-boundary.test.mjs",
         "app/scripts/dev-collab/workflow-contract.test.mjs"
       ],
-      "claim": null
+      "claim": {
+        "claim_id": "d525fc5f-7dac-4281-9531-403aa489b85a",
+        "worker_id": "chat_t008_cas_20261127",
+        "actor": "micor-cjj-spec",
+        "claimed_at": "2026-11-27T02:51:01.894Z",
+        "generation": 1
+      }
     },
     {
       "task_id": "T-009",
