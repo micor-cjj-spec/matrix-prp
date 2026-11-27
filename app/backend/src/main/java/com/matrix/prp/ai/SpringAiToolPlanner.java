@@ -3,7 +3,6 @@ package com.matrix.prp.ai;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -116,8 +115,7 @@ public class SpringAiToolPlanner {
         oneAttempt.setRetryPolicy(new NeverRetryPolicy());
 
         var requestFactory = new org.springframework.http.client.JdkClientHttpRequestFactory(
-            HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
-                .followRedirects(HttpClient.Redirect.NEVER).build());
+            AiEgressTransport.httpClient().build());
         requestFactory.setReadTimeout(Duration.ofSeconds(35));
         RestClient.Builder transport = RestClient.builder()
             .requestFactory(requestFactory)
