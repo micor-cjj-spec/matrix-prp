@@ -1,0 +1,138 @@
+name: Unified Staging #428 exact-source artifact witness (CI only)
+
+on:
+  pull_request:
+    branches: [dev]
+    paths: ['.github/workflows/unified-396-artifact-428-witness.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unified-396-artifact-428-witness-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-disposable:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'review/unified-396-artifact-428'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 7c91309e9cc02cd6efc1826fdb6945e5304d81a8
+          persist-credentials: false
+      - name: Verify exact source and existing disposable runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_EVENT_NAME" = pull_request
+          test "$GITHUB_BASE_REF" = dev
+          test "$GITHUB_REPOSITORY" = micor-cjj-spec/matrix-prp
+          test "$(git rev-parse HEAD)" = 7c91309e9cc02cd6efc1826fdb6945e5304d81a8
+          test "$(git rev-parse HEAD^{tree})" = ce13755424298518c08a53d5b3dd99f0c3f77057
+          bash -n app/deploy/unified-staging/smoke_disposable.sh
+      - name: Reuse existing disposable full-app smoke and image export
+        shell: bash
+        env:
+          PRP_EXPORT_TESTED_IMAGES: 'true'
+        run: bash app/deploy/unified-staging/smoke_disposable.sh
+      - name: Verify source receipt and exported archive checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/prp-unified-staging-images"
+          test "$(sed -n '1p' SOURCE)" = 7c91309e9cc02cd6efc1826fdb6945e5304d81a8
+          test "$(sed -n '2p' SOURCE)" = ce13755424298518c08a53d5b3dd99f0c3f77057
+          sha256sum --check SHA256SUMS
+          test "$(wc -l < IMAGE-IDS)" -eq 3
+          cat SOURCE IMAGE-IDS
+          echo 'CI_ONLY_NO_HOST_INSTALL_AUTHORITY'
+      - name: Upload exact-source tested images for separate staging review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prp-unified-staging-tested-images-428
+          path: ${{ runner.temp }}/prp-unified-staging-images/
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+
+  exact-source-health-browser:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'review/unified-396-artifact-428'
+    name: Synthetic Health V2 ${{ matrix.browser }} 375/390/1280
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - name: Checkout isolated review branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 7c91309e9cc02cd6efc1826fdb6945e5304d81a8
+          persist-credentials: false
+      - name: Verify exact candidate and isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_EVENT_NAME" = pull_request
+          test "$GITHUB_BASE_REF" = dev
+          test "$(git rev-parse HEAD)" = 7c91309e9cc02cd6efc1826fdb6945e5304d81a8
+          test "$(git rev-parse HEAD^{tree})" = ce13755424298518c08a53d5b3dd99f0c3f77057
+      - name: Use Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated browser-only dependencies
+        run: |
+          npm ci --prefix app/web
+          python3 -m pip install --no-cache-dir playwright==1.55.0
+          python3 -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Compile exact reviewed Health V2 Vue source
+        env:
+          VITE_APP_BASE: /prp/
+          VITE_API_BASE: /api
+        run: npm run build --prefix app/web
+      - name: Browser acceptance using synthetic requests only
+        env:
+          VITE_APP_BASE: /prp/
+          VITE_API_BASE: /api
+          PRP_HEALTH_BROWSER: ${{ matrix.browser }}
+          PRP_HEALTH_SMOKE_URL: http://127.0.0.1:4173/prp/
+          PRP_HEALTH_SMOKE_DIR: ${{ runner.temp }}/health-v2-browser
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd app/web
+          ./node_modules/.bin/vite preview --host 127.0.0.1 --port 4173 --strictPort \
+            > "$RUNNER_TEMP/health-v2-preview.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in {1..30}; do
+            if curl --silent --fail --output /dev/null "$PRP_HEALTH_SMOKE_URL"; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          python3 ../scripts/health_v2_browser_smoke.py
+          python3 ../scripts/health_v2_write_feedback_browser.py
+          python3 ../scripts/health_v2_ai_change_browser.py
+      - name: Retain synthetic-only screenshots for review
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: health-v2-synthetic-${{ matrix.browser }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/health-v2-browser/
+          if-no-files-found: ignore
+          retention-days: 3
