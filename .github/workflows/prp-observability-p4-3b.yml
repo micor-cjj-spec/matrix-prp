@@ -163,10 +163,12 @@ jobs:
               m=re.fullmatch(r"([0-9a-f]{64}) [ *](.+)",line)
               assert m and m[2] not in entries
               entries[m[2]]=m[1]
+          pinned={archive:"6758ec29de0c300f662a4c74682048e7ab34722515296095928dd0d9c9bfc01f",
+                  sbom:"27b68b8c6fbe324f25b5381d96a1f868be31944adef35b23ab94534e1df6732b"}
           for name in (archive,sbom):
               with (folder/name).open("rb") as stream:
                   sha=hashlib.file_digest(stream,"sha256").hexdigest()
-              assert entries[name]==sha
+              assert entries[name]==sha==pinned[name]
               print("OBS_P43B_SIGNED_ASSET="+name+"|"+sha)
           doc=json.loads((folder/sbom).read_text())
           packages=doc["packages"]
@@ -178,6 +180,7 @@ jobs:
               candidates=[x for x in tar.getmembers() if x.name in ("mcp-grafana","./mcp-grafana")]
               assert len(candidates)==1 and candidates[0].isreg() and 0<candidates[0].size<250*1024*1024
               data=tar.extractfile(candidates[0]).read()
+          assert hashlib.sha256(data).hexdigest()=="7b7c5d2ffd284faabf4e5d7d814ed5e066ddddcc348b4a1cdd4ca1ba68057b58"
           target=binary/"mcp-grafana"
           target.write_bytes(data)
           target.chmod(0o555)
@@ -189,15 +192,18 @@ jobs:
           grep -Eq 'build[[:space:]]+CGO_ENABLED=0$' "$work/buildinfo"
           grep -Eq 'build[[:space:]]+GOOS=linux$' "$work/buildinfo"
           grep -Eq 'build[[:space:]]+GOARCH=amd64$' "$work/buildinfo"
-          if grep -q 'vcs.revision=' "$work/buildinfo"; then grep -q 'vcs.revision=7f717bceff42080b3eeb026506672e8ba4fbdce7' "$work/buildinfo"; fi
+          grep -q 'vcs.revision=7f717bceff42080b3eeb026506672e8ba4fbdce7' "$work/buildinfo"
           readelf -l "$work/binary/mcp-grafana" > "$work/elf-program"
           readelf -d "$work/binary/mcp-grafana" > "$work/elf-dynamic"
           ! grep -Eq 'INTERP|Requesting program interpreter' "$work/elf-program"
           ! grep -q '(NEEDED)' "$work/elf-dynamic"
           echo 'OBS_P43B_BINARY_STATIC_LINKAGE=PASS; MINIZIP_VENDORED_CODE_NOT_EXCLUDED'
+          # Mount only public release artifacts, not the private temp work root.
+          chmod 0755 "$work/release" "$work/binary"
+          chmod 0444 "$work/release/$sbom"
           for mode in sbom rootfs; do
-            if [ "$mode" = sbom ]; then target="/evidence/release/$sbom"; else target=/evidence/binary; fi
-            docker run --rm --platform linux/amd64 --cap-drop ALL --security-opt no-new-privileges --mount "type=volume,src=$cache,dst=/cache" --mount "type=bind,src=$work,dst=/evidence,readonly" "$scanner" "$mode" --cache-dir /cache --scanners vuln --severity HIGH,CRITICAL --ignorefile /dev/null --format json --timeout 7m --exit-code 0 --list-all-pkgs "$target" > "$work/$mode.json"
+            if [ "$mode" = sbom ]; then source="$work/release"; target="/evidence/$sbom"; else source="$work/binary"; target=/evidence; fi
+            docker run --rm --platform linux/amd64 --cap-drop ALL --security-opt no-new-privileges --mount "type=volume,src=$cache,dst=/cache" --mount "type=bind,src=$source,dst=/evidence,readonly" "$scanner" "$mode" --cache-dir /cache --scanners vuln --severity HIGH,CRITICAL --ignorefile /dev/null --format json --timeout 7m --exit-code 0 --list-all-pkgs "$target" > "$work/$mode.json"
             python - "$mode" "$work/$mode.json" <<'PY'
           import json,sys
           mode=sys.argv[1]
