@@ -97,6 +97,11 @@ class AiBusinessContextTests {
             .content("{\"content\":\"No personal data\"}"))
             .andExpect(request().asyncStarted()).andReturn();
         mvc.perform(asyncDispatch(plain)).andExpect(status().isOk());
+        assertThat(plain.getResponse().getContentAsString())
+            .as("Plain stream must complete successfully")
+            .contains("event:done").doesNotContain("event:error");
+        assertThat(modelCalls.get()).isEqualTo(1);
+        assertThat(observed.get()).isNotNull().isNotEmpty();
         assertThat(observed.get().getLast().content()).isEqualTo("No personal data");
         verify(practice, never()).statistics();
         verify(wellness, never()).daily(any(LocalDate.class));
@@ -159,6 +164,8 @@ class AiBusinessContextTests {
             .content(json.writeValueAsString(Map.of("content","replay", "contextToken",token,
                 "contextScopes",List.of("tasks","practice","wellness")))))
             .andExpect(status().isBadRequest());
+        assertThat(modelCalls.get()).as("Consented prompt must reach the model exactly once; replay must not").isEqualTo(1);
+        assertThat(observed.get()).isNotNull().isNotEmpty();
         String outbound = observed.get().getLast().content();
         assertThat(outbound).contains("Friend learning task", "How am I doing?", "exerciseMinutes", "attempted")
             .doesNotContain("Private admin project").doesNotContain("NOT FOR MODEL CONTEXT")
@@ -174,7 +181,7 @@ class AiBusinessContextTests {
         assertThat(history).contains("How am I doing?").doesNotContain("Friend learning task");
 
         int previousModelCalls = modelCalls.get();
-        assertThat(previousModelCalls).as("The consented prompt reached the model").isGreaterThan(0);
+        assertThat(previousModelCalls).as("The consented prompt reached the model exactly once").isEqualTo(1);
         MvcResult next = mvc.perform(post("/api/ai/chat/stream")
             .header(HttpHeaders.AUTHORIZATION,bearer(friend)).contentType(MediaType.APPLICATION_JSON)
             .content("{\"content\":\"Another question\"}"))
@@ -186,6 +193,7 @@ class AiBusinessContextTests {
         assertThat(modelCalls.get())
             .as("The unconsented follow-up must reach the model independently")
             .isEqualTo(previousModelCalls + 1);
+        assertThat(observed.get()).isNotNull().isNotEmpty();
         assertThat(observed.get().getLast().content()).isEqualTo("Another question");
     }
 }
