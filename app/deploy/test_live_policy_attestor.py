@@ -130,6 +130,20 @@ class LivePolicyAttestorTests(unittest.TestCase):
             with self.subTest(data=data),self.assertRaises(ValueError):
                 installer.require_match_only_change(before,data)
 
+    def test_installer_pins_each_ast_contract_to_its_own_source_digest(self):
+        import admin_upgrade_policy_helper as installer
+        before=b'def daemon_birth():\n    return 1\ndef configuration_files():\n    return 2\ndef collect_policy():\n    return 3\n'
+        clock=before.replace(b'return 1',b'return 4')
+        coexist=before.replace(b'return 2',b'return 5').replace(b'return 3',b'return 6')
+        digest=hashlib.sha256(before).hexdigest()
+        with patch.object(installer,'OLD',digest):
+            self.assertEqual(installer.validate_upgrade(before,clock),digest)
+            with self.assertRaises(ValueError):installer.validate_upgrade(before,coexist)
+        with patch.object(installer,'MATCH_OLD',digest):
+            self.assertEqual(installer.validate_upgrade(before,coexist),digest)
+            with self.assertRaises(ValueError):installer.validate_upgrade(before,clock)
+        with self.assertRaises(ValueError):installer.validate_upgrade(before,coexist)
+
     def test_loaded_configuration_requires_file_and_glob_directory_ctime_before_daemon(self):
         self.assertTrue(policy.loaded_configuration([{'ctime':1_000_000_000},{'ctime':2_000_000_000}],3))
         for records in [[],[{'ctime':4_000_000_000}],[{'missing':True}],[{}],[{'ctime':2_990_000_000}]]:
