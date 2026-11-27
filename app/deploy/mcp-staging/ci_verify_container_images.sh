@@ -33,7 +33,7 @@ docker build --pull=false \
   --label "org.opencontainers.image.revision=$revision" \
   --label "prp.release-authorized=false" \
   --tag "$web_img" .
-docker build --pull=false \
+bash app/deploy/mcp-staging/ci_retry_maven_build.sh OCI docker build --progress=plain --pull=false \
   -f app/deploy/mcp-staging/Dockerfile.backend \
   --label "org.opencontainers.image.revision=$revision" \
   --label "prp.release-authorized=false" \

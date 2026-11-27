@@ -33,11 +33,20 @@ test('dev and PR CI cannot enqueue auto-deploy; main push CI remains eligible', 
 test('disposable E2E emits a fixed Maven failure class but never raw build logs', () => {
   const script = readFileSync(
     new URL('../../app/deploy/mcp-oauth/test_full_e2e_ci.sh', import.meta.url), 'utf8')
-  assert.match(script, /if ! \.\/mvnw -B -ntp -DskipTests package/)
-  assert.match(script, /E2E_DIAG_MAVEN_BUILD_CATEGORY=\$diagnostic/)
-  assert.match(script, /diagnostic="WRAPPER_DOWNLOAD"/)
-  assert.match(script, /diagnostic="DEPENDENCY_OR_NETWORK"/)
-  assert.doesNotMatch(script, /(?:cat|tail|head)\s+["']?\$tmp\/java-build\.log/)
+  const retry = readFileSync(new URL('../deploy/mcp-staging/ci_retry_maven_build.sh', import.meta.url), 'utf8')
+  assert.match(script, /ci_retry_maven_build\.sh E2E \.\/mvnw -B -ntp -DskipTests package/)
+  assert.match(retry, /for attempt in 1 2 3; do/)
+  assert.match(retry, /"\$retryable" == true && "\$attempt" -lt 3/)
+  assert.match(retry, /diagnostic=WRAPPER_DOWNLOAD/)
+  assert.match(retry, /detail=UNCLASSIFIED_WRAPPER/)
+  const wrapperBranch = retry.split('diagnostic=WRAPPER_DOWNLOAD')[1].split('elif grep')[0]
+  assert.doesNotMatch(wrapperBranch, /retryable=true/)
+  assert.match(retry, /DIAG_MAVEN_BUILD_DETAIL=\$detail ATTEMPT=\$attempt/)
+  assert.match(retry, /diagnostic=DEPENDENCY_OR_NETWORK/)
+  assert.match(retry, /exit "\$status"/)
+  assert.doesNotMatch(retry, /(?:cat|tail|head)\s+["']?\$log/)
+  const oci = readFileSync(new URL('../deploy/mcp-staging/ci_verify_container_images.sh', import.meta.url), 'utf8')
+  assert.match(oci, /ci_retry_maven_build\.sh OCI docker build --progress=plain --pull=false/)
 })
 
 test('release candidates originate only from successful main push CI', () => {
