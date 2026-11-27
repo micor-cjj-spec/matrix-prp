@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 48,
-  "updated_at": "2026-11-27T05:13:00.621Z",
+  "version": 49,
+  "updated_at": "2026-11-27T06:03:14.374Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -639,6 +639,19 @@
         "status": "IN_REVIEW",
         "replayed": false
       }
+    },
+    {
+      "request_id": "d4050005-1127-4a05-8601-000000000005",
+      "fingerprint": "19206b9c5847a47a4b862c65378740678592144c4a6c3a612e3948efea86f27c",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "accept",
+        "task_id": "T-005",
+        "request_id": "d4050005-1127-4a05-8601-000000000005",
+        "version": 49,
+        "status": "DONE",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -758,7 +771,7 @@
       "task_id": "T-005",
       "issue_number": 137,
       "title": "集成审查与端到端验收",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "depends_on": [
         "T-001",
         "T-002",
@@ -772,13 +785,7 @@
       "allowed_paths": [
         "app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md"
       ],
-      "claim": {
-        "claim_id": "a7df96c0-46f7-4184-98b1-00a2bccb557b",
-        "worker_id": "chat_t005_final_20261127",
-        "actor": "micor-cjj-spec",
-        "claimed_at": "2026-11-27T03:59:28.412Z",
-        "generation": 1
-      },
+      "claim": null,
       "pr_number": 518,
       "head_sha": "e268fb5e636ec84aa522f9b0ddf2b0c86ab4221b"
     },
