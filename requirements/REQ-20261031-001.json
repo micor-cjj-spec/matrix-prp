@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 46,
-  "updated_at": "2026-11-27T03:59:28.412Z",
+  "version": 47,
+  "updated_at": "2026-11-27T04:00:57.630Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -613,6 +613,19 @@
         "status": "CLAIMED",
         "replayed": false
       }
+    },
+    {
+      "request_id": "d4050002-1127-4a05-8601-000000000002",
+      "fingerprint": "560003e0c695451364041780d2cd2655fdd2a04035ae8c62a20fa23b9f144b81",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "start",
+        "task_id": "T-005",
+        "request_id": "d4050002-1127-4a05-8601-000000000002",
+        "version": 47,
+        "status": "IN_PROGRESS",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -732,7 +745,7 @@
       "task_id": "T-005",
       "issue_number": 137,
       "title": "集成审查与端到端验收",
-      "status": "CLAIMED",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "T-001",
         "T-002",
