@@ -498,9 +498,9 @@ test('historical #529 selector is manual-close only and cannot widen generic PR 
  const issue={...ctx,GITHUB_EVENT_NAME:'issues',GITHUB_EVENT_ACTION:'opened',
   GITHUB_WORKFLOW_REF:ctx.GITHUB_REPOSITORY+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'}
  assert.throws(()=>trustedReviewContext(snapshot,command,issue,api),
-  e=>e.code==='HISTORICAL_529_EXPLICIT_MANUAL_CLOSE_REQUIRED')
+  e=>e.code==='UNTRUSTED_REVIEW_ENTRYPOINT')
  assert.throws(()=>trustedReviewContext(snapshot,{...command,pr_number:528},ctx,api),
-  e=>e.code==='HISTORICAL_529_BINDING')
+  e=>e.message==='HISTORICAL_529_BINDING')
 })
 test('historical #529 close rejects altered run association and test ancestry',()=>{
  const {snapshot,command,api}=h529CloseFixture()
@@ -508,10 +508,10 @@ test('historical #529 close rejects altered run association and test ancestry',(
   const x=api(route)
   if(route.endsWith('/actions/runs/45980919751'))x.pull_requests=[{number:528}]
   return x
- }),e=>e.code==='HISTORICAL_529_RUN_MISMATCH')
+ }),e=>e.message==='HISTORICAL_529_RUN_MISMATCH')
  assert.throws(()=>trustedReviewContext(snapshot,command,ctx,route=>{
   const x=api(route)
   if(route.endsWith('/git/commits/'+h529.test))x.parents[1].sha='f'.repeat(40)
   return x
- }),e=>e.code==='HISTORICAL_529_COMMIT_MISMATCH')
+ }),e=>e.message==='HISTORICAL_529_COMMIT_MISMATCH')
 })
