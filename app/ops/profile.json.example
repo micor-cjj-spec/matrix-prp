@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "environment": "staging",
+  "issuer": "https://issuer.invalid/realms/prp-ops-staging",
+  "resource": "https://ops.invalid/mcp",
+  "subject": "REPLACE_WITH_VERIFIED_OWNER_SUBJECT",
+  "introspectionClientId": "prp-ops-staging-resource"
+}

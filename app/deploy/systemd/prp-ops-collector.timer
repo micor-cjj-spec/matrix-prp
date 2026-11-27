@@ -1,0 +1,13 @@
+# TEMPLATE ONLY. Not enabled or installed by this change.
+[Unit]
+Description=PRP fixed-metric snapshot collection timer
+ConditionPathExists=/etc/matrix-prp-ops/ALLOW_HOST_METRICS
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+Unit=prp-ops-collector.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,40 @@
+# TEMPLATE ONLY. Do not install/enable without independent M06 authorization.
+[Unit]
+Description=PRP fixed-metric read-only snapshot collector (offline-reviewed template)
+ConditionPathExists=/etc/matrix-prp-ops/ALLOW_HOST_METRICS
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=prp-ops-collector
+Group=prp-ops-snapshot
+UMask=0027
+ExecStart=/usr/bin/python3 /usr/local/libexec/prp-ops/collector_runtime.py
+TimeoutStartSec=8s
+Restart=no
+KillMode=control-group
+RuntimeDirectory=prp-ops-collector
+RuntimeDirectoryMode=0700
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/prp-ops
+TasksMax=8
+MemoryMax=64M
+CPUQuota=10%

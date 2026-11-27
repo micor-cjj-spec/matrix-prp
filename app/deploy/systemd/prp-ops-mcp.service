@@ -1,0 +1,42 @@
+# TEMPLATE ONLY. Separate approval and target-host verification required.
+[Unit]
+Description=PRP isolated read-only ops MCP (nonproduction candidate)
+ConditionPathExists=/etc/matrix-prp-ops/ENABLE_MCP_PROFILE
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=prp-ops-mcp
+Group=prp-ops-mcp
+SupplementaryGroups=prp-ops-snapshot
+UMask=0077
+ExecStart=/opt/prp-ops/venv/bin/python /usr/local/libexec/prp-ops/service_entry.py
+LoadCredential=introspection-secret:/etc/matrix-prp-ops/credentials/introspection-secret
+LoadCredential=tls-cert.pem:/etc/matrix-prp-ops/credentials/tls-cert.pem
+LoadCredential=tls-key.pem:/etc/matrix-prp-ops/credentials/tls-key.pem
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/var/lib/prp-ops /etc/matrix-prp-ops
+ReadWritePaths=/var/lib/prp-ops-audit
+TasksMax=16
+MemoryMax=128M
+CPUQuota=25%
+TimeoutStopSec=8s
+KillMode=control-group
+Restart=no
