@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 39,
-  "updated_at": "2026-11-27T01:35:13.528Z",
+  "version": 40,
+  "updated_at": "2026-11-27T02:13:02.037Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -520,6 +520,19 @@
         "status": "IN_PROGRESS",
         "replayed": false
       }
+    },
+    {
+      "request_id": "d4040003-1127-4a04-8601-000000000003",
+      "fingerprint": "02d9587ae70469b6bb2194a19d786a14f0feab5e8de8c8791c4a96c6242cd91a",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "submit",
+        "task_id": "T-004",
+        "request_id": "d4040003-1127-4a04-8601-000000000003",
+        "version": 40,
+        "status": "IN_REVIEW",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -622,7 +635,7 @@
       "task_id": "T-004",
       "issue_number": 136,
       "title": "验收、安全回归和跨会话操作手册",
-      "status": "IN_PROGRESS",
+      "status": "IN_REVIEW",
       "depends_on": [
         "T-001",
         "T-003"
@@ -637,7 +650,9 @@
         "actor": "micor-cjj-spec",
         "claimed_at": "2026-11-27T01:34:03.212Z",
         "generation": 1
-      }
+      },
+      "pr_number": 500,
+      "head_sha": "3e870315cc44965de3676f8fa5726c84dbb5ef34"
     },
     {
       "task_id": "T-005",
