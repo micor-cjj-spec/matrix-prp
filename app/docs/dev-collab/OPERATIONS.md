@@ -16,7 +16,7 @@
 
 ## 日常操作：在 ChatGPT 中完成
 
-日常入口为受保护 main 上的 .github/workflows/prp-collab-issue-ingress.yml，触发事件是 issues.opened。不能以旧 integration 分支或历史手册中的入口实现代替当前 main 的实际契约。
+日常入口为受保护 main 上的 .github/workflows/prp-collab-issue-ingress.yml，触发事件是 issues.opened。**版本边界：本手册所在 integration 基线 [cd8fb526](https://github.com/micor-cjj-spec/matrix-prp/tree/cd8fb52640bf7239d6bb77808549c8574bbe7351) 与实际运行的 main [3afa2acc](https://github.com/micor-cjj-spec/matrix-prp/tree/3afa2accb6e7a0f26a6a1dcadaa774aee1915210) 不同。** [integration 入口](https://github.com/micor-cjj-spec/matrix-prp/blob/cd8fb52640bf7239d6bb77808549c8574bbe7351/app/scripts/dev-collab/issue-ingress.mjs#L17-L40) 不支持 Owner Issue 自动 accept、capture_receipt、accept_receipt 或 accept_historical_*；其已实现的验收入口仍是受保护 main 上由 Owner 授权的手动 coordinator workflow_dispatch，参见 TRUSTED-ACCEPTANCE.md。本次文档 PR 不移植这些功能。以下日常事务及新版验收说明以明确标出的运行分支为准，执行前重新核验当前 main SHA 与实际入口；若入口不支持所需动作，停止并报告，禁止改用直接写状态等绕过方式。
 
 1. 用户在 ChatGPT 中明确授权相应操作；ChatGPT 读取最新权威台账、状态 SHA、依赖及允许路径，核对 GitHub 连接的 Owner 身份。
 2. 通过连接创建标题严格为 `[PRP-COLLAB-REQUEST]` 的 Owner Issue，正文仅为符合当前入口 schema 的 JSON。每笔新操作使用新 request_id（UUID）；同一操作的幂等重试保留原 request_id 和原始请求内容，不把已提交的请求修改成另一操作。
@@ -34,8 +34,8 @@
 - checkpoint：保存简洁进度、下一步、远端分支及 HEAD、测试和阻塞信息；只在需要恢复时保存，不记录聊天全文或凭据。
 - handoff / takeover：明确目标 worker_id，核验旧领取、当前版本、真实 Git 分支及 HEAD；轮换领取标识及 generation，拒绝旧领取。没有断点时按现有恢复机制核验真实远端证据；不能仅凭会话沉默自动抢占。参见 SESSION-RECOVERY.md 的恢复契约（其早期状态说明属于历史背景）。
 - submit：绑定精确 PR 编号和 HEAD，事务成功才进入 IN_REVIEW；不等于 CI、合并或正式验收通过。
-- accept：当前 main 已支持经可信证据验证的 Owner Issue 验收。普通任务按现有普通验收契约核验文件范围、精确 HEAD、可信 CI、受保护 integration 中的合并证明及现行 Ruleset；必要时按已实现的 capture_receipt / accept_receipt 契约保留合并前可信证据。合并和正式 Accept 必须分别获得用户明确授权，不得因 CI 通过自行执行。
-- accept_historical_415 / accept_historical_446 / accept_historical_271：只适用于当前实现明确允许的历史任务及固定证据，绝不是通用绕过路径。当前历史 #271 验收仅覆盖 T-002、T-003、T-006；不得将其用于 T-004 或 T-008。
+- accept（**仅已部署的新版 main**）：固定证据为 [main 3afa2acc 的入口](https://github.com/micor-cjj-spec/matrix-prp/blob/3afa2accb6e7a0f26a6a1dcadaa774aee1915210/app/scripts/dev-collab/issue-ingress.mjs#L18-L45) 与 [事务校验](https://github.com/micor-cjj-spec/matrix-prp/blob/3afa2accb6e7a0f26a6a1dcadaa774aee1915210/app/scripts/dev-collab/issue-transaction.mjs#L58-L83)。普通任务按现有普通验收契约核验文件范围、精确 HEAD、可信 CI、受保护 integration 中的合并证明及现行 Ruleset；必要时按该新版 main 的 capture_receipt / accept_receipt 契约保留合并前可信证据。旧 integration checkout 不接受这些 Owner Issue 动作，应遵循其已实现的手动 coordinator 验收契约。合并和正式 Accept 必须分别获得用户明确授权，不得因 CI 通过自行执行。
+- accept_historical_415 / accept_historical_446 / accept_historical_271（**仅上述新版 main**）：只适用于该运行版本明确允许的历史任务及固定证据，绝不是通用绕过路径。当前历史 #271 验收仅覆盖 T-002、T-003、T-006；不得将其用于 T-004 或 T-008。
 - close：不是普通 Owner Issue ingress 的允许操作；最终需求关闭仍须满足现有可信关闭契约、全部任务 DONE 及独立授权，不能把任务全部 DONE 等同于需求已关闭或生产发布。
 
 不得自动合并 PR、扩大路径白名单、改变保护规则或执行生产部署。可信验收失败时保留 IN_REVIEW，检查具体证据缺口，不降低校验强度。
