@@ -44,6 +44,7 @@ jobs:
           cp app/observability/p4_3b/{profile_app,ci_profile}.py "$work/candidate/"
           python -m unittest discover -s "$work/app/ops" -p 'test_*.py' -v
           python -m venv "$work/venv"
+          "$work/venv/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'pip==26.3'
           "$work/venv/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1' 'uvicorn==0.54.0' 'h11==0.16.0'
           "$work/venv/bin/python" -m pip check
           "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
@@ -69,7 +70,9 @@ jobs:
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
           python -m venv "$work/runtime"
+          "$work/runtime/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'pip==26.3'
           python -m venv "$work/auditor"
+          "$work/auditor/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'pip==26.3'
           "$work/runtime/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1' 'uvicorn==0.54.0' 'h11==0.16.0'
           "$work/runtime/bin/python" -m pip check
           "$work/runtime/bin/python" -m pip list --format=json > "$work/packages.json"
@@ -114,4 +117,29 @@ jobs:
           print("OBS_P43B_IMAGE_AUDIT="+sys.argv[1]+"|TARGETS="+str(len(results))+"|FINDINGS="+str(count))
           PY
           done
+          # Inspect the exact immutable image filesystem without starting its process.
+          mcp_ref='grafana/mcp-grafana@sha256:63d4501d3166c2b9242d8a2b5b7df8892c59c6c477be3a2a61bcf8a252671f31'
+          docker pull --platform linux/amd64 "$mcp_ref"
+          cid="$(docker create --platform linux/amd64 "$mcp_ref")"
+          trap 'docker rm "$cid" >/dev/null || true; docker volume rm "$cache" >/dev/null || true; rm -rf "$work"' EXIT
+          docker export "$cid" > "$work/rootfs.tar"
+          python - "$work/rootfs.tar" <<'PY'
+          import json,sys,tarfile
+          with tarfile.open(sys.argv[1]) as archive:
+              members=archive.getmembers()
+              status=next(m for m in members if m.name.lstrip("./")=="var/lib/dpkg/status")
+              text=archive.extractfile(status).read().decode()
+              packages={}
+              for block in text.split("\n\n"):
+                  rows=dict(line.split(": ",1) for line in block.splitlines() if line and not line[0].isspace() and ": " in line)
+                  if rows.get("Status")=="install ok installed":
+                      packages[rows["Package"]]=rows["Version"]
+              assert "zlib1g" in packages
+              minizip_packages={k:v for k,v in packages.items() if "minizip" in k.lower()}
+              paths=[m.name for m in members if "minizip" in m.name.lower() and not m.isdir()]
+              print("OBS_P43B_MINIZIP_INVENTORY="+json.dumps({"zlib1g":packages["zlib1g"],"minizip_packages":minizip_packages,"named_files":paths}))
+              print("OBS_P43B_CVE_2023_45853=REVIEW_EVIDENCE_ONLY; STATIC_VENDORED_CODE_NOT_EXCLUDED")
+          PY
+          docker rm "$cid"
+          trap 'docker volume rm "$cache" >/dev/null || true; rm -rf "$work"' EXIT
           echo 'OBS_P43B_SECURITY_SCAN=EVIDENCE_ONLY; LIVE_ACTIVATION=NO_GO'
