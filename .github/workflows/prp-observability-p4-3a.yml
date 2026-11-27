@@ -49,7 +49,7 @@ jobs:
           git archive "$P42" app/observability/p4_2 | tar -x -C "$work"
           python -m unittest discover -s "$work/app/ops" -p 'test_*.py' -v
           python -m venv "$work/venv"
-          "$work/venv/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1' 'uvicorn==0.34.3'
+          "$work/venv/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1' 'uvicorn==0.54.0' 'h11==0.16.0'
           "$work/venv/bin/python" -m pip check
           "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
           sudo chown -R root:root "$work/venv"
@@ -66,7 +66,7 @@ jobs:
           assert source.count(anchor) == 1
           hook = "\n            from ci_runtime import exercise\n            exercise(mcp_url, upstream_caller, viewer_token, work, p41_path, Path(__file__).resolve().parent / 'owner_gateway.py')"
           # Refresh fixture clock only after the extra real-process test.
-          hook += '\n            now = int(time.time())\n            now -= now % 30'
+          hook += '\n            p41.eventually(aligned_metrics_ready, "post-process-aligned-metric-readiness", seconds=90)\n            now = ready["now"]'
           path.write_text(source.replace(anchor, anchor + hook))
           PY
           "$work/venv/bin/python" "$work/app/observability/p4_2/ci_owner_gateway.py" "$work" "$work/p4_1_ci.py"
