@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { trustedReviewContext } from './review-context.mjs'
+import { HISTORICAL_529_PREFIX } from './review-provenance.mjs'
 import { REQUIRED_CHECKS, buildOwnerRulesetAttestation } from './review-gate.mjs'
 const req='REQ-20261031-001',sha='a'.repeat(40),merge='b'.repeat(40),branchSha='c'.repeat(40)
 const ctx={GITHUB_ACTIONS:'true',GITHUB_REF:'refs/heads/main',
@@ -371,4 +372,146 @@ test('historical #271 cannot be selected by manual or ordinary accept or bypass 
  assert.throws(()=>trustedReviewContext(state(),marked,issueEnv,api,hp),/HISTORICAL_271_RUNTIME_REQUIRED/)
  const runtime={verifyHistorical271:()=>({historical271Verified:false})}
  assert.throws(()=>trustedReviewContext(state(),marked,issueEnv,api,hp,undefined,runtime),/HISTORICAL_271_EVIDENCE_REQUIRED/)
+})
+
+
+const h529={
+ base:'edd6d76b6c803ea5734f40fc1350ea3b29018562',
+ head:'4397169413cd1c43844c7ac21fddc3016e5dfcba',
+ merge:'c567761ee555e8d4ec9fa120468a74d8dae97fa8',
+ test:'ed2952343acf7c3f151b4380589dcda60ac5fa18',
+ tree:'1f9721e95c1d4d3029ae1b8c4c18efbdce551a0a',
+ integration:'6c2c3603259829c7d55437f8ed9a2b34f8c165f2',
+ ci:'.github/workflows/ci.yml',
+ impact:'.github/workflows/feature-impact.yml',
+ contract:'.github/workflows/prp-dev-collab-contract.yml'
+}
+const h529Entries=[
+ ['backend-tests',140448213160,45980919751,2,h529.ci,'CI','v4'],
+ ['web-build',140448215660,45980919751,2,h529.ci,'CI','v4'],
+ ['mobile-build',140448203693,45980919751,2,h529.ci,'CI','v4'],
+ ['db-migration-integration',140448233338,45980919751,2,h529.ci,'CI','v4'],
+ ['video-db-integration',140448231019,45980919751,2,h529.ci,'CI','v4'],
+ ['impact-report',140444287659,45980919689,1,h529.impact,'Feature Impact Report','3d3c42e5aac5ba805825da76410c181273ba90b1'],
+ ['dev-collab-contract',140444288158,45980919800,1,h529.contract,'PRP Dev Collaboration Contract','3d3c42e5aac5ba805825da76410c181273ba90b1']
+]
+function h529CloseFixture(){
+ const repoName='micor-cjj-spec/matrix-prp'
+ const pr={number:529,state:'closed',merged:true,draft:false,merge_commit_sha:h529.merge,merged_at:'2026-11-27T10:48:31Z',changed_files:7,
+  base:{ref:'main',sha:h529.base,repo:{full_name:repoName,id:1261866723}},
+  head:{ref:'dev',sha:h529.head,repo:{full_name:repoName,id:1261866723}}}
+ const main={name:'main',protected:true,commit:{sha:branchSha}}
+ const integrationBranch={name:'integrate/'+req,protected:true,commit:{sha:h529.integration}}
+ const files=[
+  ['app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md','added'],
+  ['app/docs/dev-collab/OPERATIONS.md','modified'],
+  ['app/scripts/dev-collab/core.mjs','modified'],
+  ['app/scripts/dev-collab/core.test.mjs','modified'],
+  ['app/scripts/dev-collab/integration-ci-boundary.test.mjs','modified'],
+  ['app/scripts/dev-collab/recovery.mjs','modified'],
+  ['app/scripts/dev-collab/recovery.test.mjs','modified']
+ ].map(([filename,status])=>({filename,status}))
+ const blobMap={
+  [h529.ci]:'2e8ded58e20cf540c033365ed266d0e2045309b6',
+  [h529.impact]:'5a64a9e728f4bb6dd0fc91bb0393b2cca74ae302',
+  [h529.contract]:'c1373ee788d3469aea37624328f4e53e66a68f9c'
+ }
+ const runs={
+  45980919751:{id:45980919751,name:'CI',path:h529.ci,event:'pull_request',status:'completed',conclusion:'success',head_sha:h529.head,head_branch:'dev',run_attempt:2,created_at:'2026-11-27T09:58:00Z',repository:{full_name:repoName,id:1261866723},head_repository:{full_name:repoName,id:1261866723},pull_requests:[]},
+  45980919689:{id:45980919689,name:'Feature Impact Report',path:h529.impact,event:'pull_request',status:'completed',conclusion:'success',head_sha:h529.head,head_branch:'dev',run_attempt:1,created_at:'2026-11-27T09:58:00Z',repository:{full_name:repoName,id:1261866723},head_repository:{full_name:repoName,id:1261866723},pull_requests:[]},
+  45980919800:{id:45980919800,name:'PRP Dev Collaboration Contract',path:h529.contract,event:'pull_request',status:'completed',conclusion:'success',head_sha:h529.head,head_branch:'dev',run_attempt:1,created_at:'2026-11-27T09:58:00Z',repository:{full_name:repoName,id:1261866723},head_repository:{full_name:repoName,id:1261866723},pull_requests:[]}
+ }
+ const jobs={},logs={},checkRuns=[]
+ for(const [name,id,run,attempt,path,workflow,action] of h529Entries){
+  const start='2026-11-27T10:00:00Z',end='2026-11-27T10:00:05Z'
+  const steps=[{name:'Set up job',conclusion:'success'}]
+  if(name==='db-migration-integration'||name==='video-db-integration')steps.push({name:'Initialize containers',conclusion:'success'})
+  steps.push({name:'Run actions/checkout@'+action,conclusion:'success',started_at:start,completed_at:end})
+  const job={name,id,run_id:run,run_attempt:attempt,head_sha:h529.head,head_branch:'dev',workflow_name:workflow,status:'completed',conclusion:'success',
+   started_at:'2026-11-27T09:59:00Z',completed_at:'2026-11-27T10:01:00Z',steps}
+  if(!jobs[run])jobs[run]={total_count:0,jobs:[]}
+  jobs[run].jobs.push(job);jobs[run].total_count++
+  const fetchLine=name==='impact-report'
+   ?'[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/* +'+h529.test+':refs/remotes/pull/529/merge'
+   :name==='dev-collab-contract'
+    ?'[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=2 origin +'+h529.test+':refs/remotes/pull/529/merge'
+    :'[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +'+h529.test+':refs/remotes/pull/529/merge'
+  const resolved=action==='v4'?'11d5960a326750d5838078e36cf38b85af677262':action
+  logs[id]=[
+   "2026-11-27T09:59:59Z Download action repository 'actions/checkout@"+action+"' (SHA:"+resolved+")",
+   "2026-11-27T10:00:00Z ##[group]Run actions/checkout@"+action,
+   "2026-11-27T10:00:01Z "+fetchLine,
+   "2026-11-27T10:00:02Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/529/merge",
+   "2026-11-27T10:00:03Z [command]/usr/bin/git log -1 --format=%H",
+   "2026-11-27T10:00:04Z "+h529.test,
+   "2026-11-27T10:00:05Z ##[group]Run next step"
+  ].join('\n')
+  checkRuns.push({name,id,head_sha:h529.head,status:'completed',conclusion:'success',app:{slug:'github-actions',id:15368},
+   details_url:'https://github.com/'+repoName+'/actions/runs/'+run+'/job/'+id,
+   started_at:'2026-11-27T09:59:00Z',completed_at:'2026-11-27T10:01:00Z'})
+ }
+ const checks={total_count:checkRuns.length,check_runs:checkRuns}
+ const testCommit={sha:h529.test,tree:{sha:h529.tree},parents:[{sha:h529.base},{sha:h529.head}]}
+ const mergeCommit={sha:h529.merge,tree:{sha:h529.tree},parents:[{sha:h529.base}]}
+ const timeline=[{event:'merged',commit_id:h529.merge,created_at:'2026-11-27T10:48:31Z'}]
+ const api=route=>{
+  if(route.endsWith('/rulesets/28050327'))return policy()
+  if(route.endsWith('/pulls/529'))return structuredClone(pr)
+  if(route.endsWith('/branches/main'))return structuredClone(main)
+  if(route.endsWith('/branches/'+encodeURIComponent('integrate/'+req)))return structuredClone(integrationBranch)
+  if(route.includes('/compare/'+h529.merge+'...'))return{status:'ahead',behind_by:0,base_commit:{sha:h529.merge},merge_base_commit:{sha:h529.merge},commits:[]}
+  if(route.includes('/compare/'+h529.integration+'...'))return{status:'ahead',behind_by:0,base_commit:{sha:h529.integration},merge_base_commit:{sha:h529.integration},commits:[]}
+  if(route.includes('/compare/'+h529.head+'...'))return{status:'diverged',behind_by:1,base_commit:{sha:h529.head},merge_base_commit:{sha:h529.base},commits:[{sha:h529.merge}]}
+  if(route.includes('/commits/'+h529.head+'/check-runs'))return checks
+  if(route.endsWith('/issues/529/timeline?per_page=100&page=1'))return timeline
+  if(route.endsWith('/issues/529/timeline?per_page=100&page=2'))return []
+  if(route.endsWith('/pulls/529/files?per_page=100'))return files
+  if(route.endsWith('/git/commits/'+h529.test))return testCommit
+  if(route.endsWith('/git/commits/'+h529.merge))return mergeCommit
+  if(route.includes('/actions/runs/')&&route.includes('/jobs?'))return jobs[Number(route.match(/\/runs\/(\d+)\/jobs/)[1])]
+  if(route.includes('/actions/runs/'))return runs[Number(route.split('/').at(-1))]
+  if(route.includes('/actions/jobs/'))return logs[Number(route.match(/\/jobs\/(\d+)\/logs/)[1])]
+  if(route.includes('/contents/')){
+   const [path,ref]=route.split('/contents/')[1].split('?ref=')
+   return {sha:[h529.base,h529.test,h529.merge].includes(ref)?blobMap[path]:undefined}
+  }
+  throw Error('unexpected route '+route)
+ }
+ const s=state()
+ s.version=49
+ s.tasks=Array.from({length:9},(_,i)=>({task_id:'T-'+String(i+1).padStart(3,'0'),issue_number:133+i,
+  title:'Task '+(i+1),status:'DONE',depends_on:[],allowed_paths:['app/scripts/dev-collab/'],claim:null}))
+ const command={type:'close',pr_number:529,head_sha:h529.head,note:HISTORICAL_529_PREFIX}
+ return {snapshot:s,command,api}
+}
+test('owner manual close uses only the exact historical #529 proof and existing squash release gate',()=>{
+ const {snapshot,command,api}=h529CloseFixture()
+ const result=trustedReviewContext(snapshot,command,ctx,api)
+ assert.deepEqual(result,{reviewerAuthorized:true,acceptanceApproved:true,integrationReviewVerified:true,historical529Verified:true})
+})
+test('historical #529 selector is manual-close only and cannot widen generic PR association rules',()=>{
+ const {snapshot,command,api}=h529CloseFixture()
+ assert.throws(()=>trustedReviewContext(snapshot,{...command,note:undefined},ctx,api),
+  e=>e.code==='WORKFLOW_PR_MISMATCH_backend-tests')
+ assert.throws(()=>trustedReviewContext(snapshot,{...command,type:'accept'},ctx,api),
+  e=>e.code==='HISTORICAL_529_EXPLICIT_MANUAL_CLOSE_REQUIRED')
+ const issue={...ctx,GITHUB_EVENT_NAME:'issues',GITHUB_EVENT_ACTION:'opened',
+  GITHUB_WORKFLOW_REF:ctx.GITHUB_REPOSITORY+'/.github/workflows/prp-collab-issue-ingress.yml@refs/heads/main'}
+ assert.throws(()=>trustedReviewContext(snapshot,command,issue,api),
+  e=>e.code==='UNTRUSTED_REVIEW_ENTRYPOINT')
+ assert.throws(()=>trustedReviewContext(snapshot,{...command,pr_number:528},ctx,api),
+  e=>e.message==='HISTORICAL_529_BINDING')
+})
+test('historical #529 close rejects altered run association and test ancestry',()=>{
+ const {snapshot,command,api}=h529CloseFixture()
+ assert.throws(()=>trustedReviewContext(snapshot,command,ctx,route=>{
+  const x=api(route)
+  if(route.endsWith('/actions/runs/45980919751'))x.pull_requests=[{number:528}]
+  return x
+ }),e=>e.message==='HISTORICAL_529_RUN_MISMATCH')
+ assert.throws(()=>trustedReviewContext(snapshot,command,ctx,route=>{
+  const x=api(route)
+  if(route.endsWith('/git/commits/'+h529.test))x.parents[1].sha='f'.repeat(40)
+  return x
+ }),e=>e.message==='HISTORICAL_529_TEST_PARENTS')
 })
