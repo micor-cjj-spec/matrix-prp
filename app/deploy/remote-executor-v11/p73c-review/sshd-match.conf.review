@@ -1,0 +1,26 @@
+# Review only: append to a copy of the target's complete config for validation.
+# Do not place in an early Include or reload SSH before separate approval.
+Match User prp-remote-v11
+    AuthenticationMethods publickey
+    PubkeyAuthentication yes
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    GSSAPIAuthentication no
+    HostbasedAuthentication no
+    PermitEmptyPasswords no
+    AuthorizedKeysFile /etc/matrix-prp-remote-executor-v11/authorized_keys
+    AuthorizedKeysCommand none
+    TrustedUserCAKeys none
+    AuthorizedPrincipalsFile none
+    AuthorizedPrincipalsCommand none
+    ForceCommand prp-receive-v11
+    PermitTTY no
+    DisableForwarding yes
+    AllowAgentForwarding no
+    AllowTcpForwarding no
+    AllowStreamLocalForwarding no
+    X11Forwarding no
+    PermitTunnel no
+    PermitUserRC no
+    MaxSessions 1
+Match all

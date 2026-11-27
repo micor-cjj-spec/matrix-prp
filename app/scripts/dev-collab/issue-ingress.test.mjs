@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {validateTaskScopeList} from './task-scope-policy.mjs'
 import {validateIssueEvent} from './issue-ingress.mjs'
+import {OWNER_RULESET_DIGEST,OWNER_RULESET_REVISION,historicalNote} from './ruleset-415-attestation.mjs'
 const owner='micor-cjj-spec',repo=owner+'/matrix-prp',sha='a'.repeat(40)
 const env=()=>({GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'issues',
  GITHUB_EVENT_ACTION:'opened',GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:repo,
@@ -241,4 +242,116 @@ test('privileged and collaboration external Actions are pinned by full commit SH
    assert.match(match[2],/^[a-f0-9]{40}$/,`${path} contains an unpinned action: ${match[0]}`)
   }
  }
+})
+
+test('owner Issue accept carries exact PR/SHA and claim identity but never client review flags',()=>{
+ const e=event()
+ const p={schema_version:1,action:'accept',
+  request_id:'baaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  requirement_id:'REQ-20261031-001',task_id:'T-001',
+  worker_id:'chat-123',expected_version:10,
+  claim_id:'11111111-1111-4111-8111-111111111111',
+  pr_number:511,head_sha:'b'.repeat(40)}
+ e.issue.body=JSON.stringify(p)
+ const out=validateIssueEvent(env(),e,e.issue)
+ assert.equal(out.command.type,'accept')
+ assert.equal(out.command.claim_id,p.claim_id)
+ assert.equal(out.command.pr_number,p.pr_number)
+ assert.equal(out.command.head_sha,p.head_sha)
+ assert.equal(out.expected_version,10)
+ assert.equal(out.actor,owner)
+ assert.equal(out.recoveryAuthorized,false)
+ for(const changed of [
+  {...p,claim_id:undefined},
+  {...p,pr_number:undefined},
+  {...p,head_sha:undefined},
+  {...p,head_sha:'not-a-sha'},
+  {...p,verifiedReviewContext:{ciVerified:true}},
+  {...p,reviewerAuthorized:true},
+  {...p,allow_merge:true},
+  {...p,action:'close'}
+ ]){
+  e.issue.body=JSON.stringify(changed)
+  assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+ }
+})
+
+test('historical owner action binds fresh attestation to original owner Issue and cannot forge flags',()=>{
+ const e=event(),now=Date.parse('2026-11-25T07:40:20Z'),p={schema_version:1,action:'accept_historical_415',request_id:'baaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',requirement_id:'REQ-20261031-001',task_id:'T-001',worker_id:'chat_t001_delivery_20261125',expected_version:16,claim_id:'11111111-1111-4111-8111-111111111111',pr_number:415,head_sha:'ba05b6ebe5e435d7cd474bade5accb6fc0c71b65',expected_state_sha:'8ce0676fa6c193520264fd5ddc3ed528ecc352e5'}
+ p.policy_attestation={schema_version:1,request_id:p.request_id,snapshot_sha256:OWNER_RULESET_DIGEST,rule_updated_at:OWNER_RULESET_REVISION,observed_at:'2026-11-25T07:40:00Z',expected_main_sha:sha,merge_sha:'5a30345529a1d07819069822a1b90e07b5376fcc'}
+ e.issue.created_at='2026-11-25T07:40:20Z';e.issue.body=JSON.stringify(p)
+ const v=validateIssueEvent(env(),e,e.issue,now)
+ assert.equal(v.historical415,true);assert.equal(v.command.type,'accept');assert.equal(v.command.note,historicalNote(p.policy_attestation));assert.equal(v.expectedStateSha,p.expected_state_sha)
+ assert.throws(()=>validateIssueEvent(env(),e,null,now))
+ assert.throws(()=>validateIssueEvent(env(),e,{...e.issue,created_at:'2026-11-25T07:40:21Z'},now))
+ assert.throws(()=>validateIssueEvent(env(),e,e.issue,now+600001))
+ for(const bad of [{...p,expected_version:12},{...p,pr_number:416},{...p,task_id:'T-002'},{...p,expected_state_sha:'invalid-state-sha'},{...p,reviewerAuthorized:true},{...p,policy_attestation:undefined},{...p,policy_attestation:{...p.policy_attestation,request_id:'wrong'}},{...p,action:'accept',expected_state_sha:undefined,policy_attestation:undefined,note:historicalNote(p.policy_attestation)}]){
+ e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue,now))
+ }
+})
+
+test('ordinary accept transports owner note only in an authenticated original Issue with exact state SHA',()=>{
+ const e=event(),stateSha='c'.repeat(40),note='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:stateSha})
+ const p={...request(),action:'accept',claim_id:'11111111-1111-4111-8111-111111111111',
+  pr_number:511,head_sha:'b'.repeat(40),expected_state_sha:stateSha,policy_attestation:note}
+ e.issue.created_at='2026-11-25T07:40:20Z';e.issue.body=JSON.stringify(p)
+ const validated=validateIssueEvent(env(),e,e.issue)
+ assert.equal(validated.ownerPolicy,true);assert.equal(validated.command.note,note)
+ assert.equal(validated.expectedStateSha,stateSha);assert.equal(validated.issueCreatedAt,e.issue.created_at)
+ assert.equal(validated.historical415,undefined)
+ assert.throws(()=>validateIssueEvent(env(),e),x=>x.code==='INGRESS_OWNER_POLICY_ISSUE_TIME')
+ assert.throws(()=>validateIssueEvent(env(),e,{...e.issue,created_at:'2026-11-25T07:40:21Z'}),x=>x.code==='INGRESS_OWNER_POLICY_ISSUE_TIME')
+ for(const bad of [{...p,expected_state_sha:undefined},{...p,policy_attestation:undefined},
+  {...p,expected_state_sha:'d'.repeat(40)},{...p,policy_attestation:{}},{...p,policy_attestation:'PRP_RULESET_ATTESTATION_V1:not-json'},
+  {...p,reviewerAuthorized:true},{...p,action:'start'}]){
+  e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+ }
+})
+
+test('historical 446 requires explicit pinned owner Issue and distinct command fingerprint note',()=>{
+ const e=event(),stateSha='c'.repeat(40),note='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:stateSha})
+ const p={...request(),action:'accept_historical_446',task_id:'T-007',worker_id:'chat_t007_security_20261125',expected_version:20,claim_id:'11111111-1111-4111-8111-111111111111',pr_number:446,head_sha:'216b280386120f932eee28f22448d41bcaf82dec',expected_state_sha:stateSha,policy_attestation:note}
+ e.issue.created_at='2026-11-26T03:00:00Z';e.issue.body=JSON.stringify(p)
+ const out=validateIssueEvent(env(),e,e.issue)
+ assert.equal(out.historical446,true);assert.equal(out.ownerPolicy,true);assert.equal(out.command.note,'PRP_HISTORICAL_446_V1:'+note)
+ for(const bad of [{...p,task_id:'T-001'},{...p,pr_number:415},{...p,head_sha:sha},{...p,expected_version:19},{...p,policy_attestation:undefined},{...p,reviewerAuthorized:true}]){
+   e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+ }
+ e.issue.body=JSON.stringify({...p,action:'accept'})
+ const ordinary=validateIssueEvent(env(),e,e.issue);assert.equal(ordinary.historical446,undefined);assert.equal(ordinary.command.note,note)
+})
+
+test('receipt actions require explicit owner Issue, exact state and no caller evidence',()=>{
+ const e=event(),stateSha='c'.repeat(40),note='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:stateSha})
+ const p={...request(),claim_id:'11111111-1111-4111-8111-111111111111',pr_number:461,head_sha:sha,expected_state_sha:stateSha,policy_attestation:note}
+ e.issue.created_at='2026-11-26T06:00:00Z'
+ for(const action of ['capture_receipt','accept_receipt']){
+   e.issue.body=JSON.stringify({...p,action});const x=validateIssueEvent(env(),e,e.issue)
+   assert.equal(x.ownerPolicy,true);assert.equal(x.expectedStateSha,stateSha)
+   assert.equal(x.command.type,action==='capture_receipt'?'capture_receipt':'accept')
+   assert.equal(x.captureReceipt===true,action==='capture_receipt')
+   assert.equal(x.receiptAccept===true,action==='accept_receipt')
+   assert.equal(x.command.note,action==='capture_receipt'?note:'PRP_PREMERGE_RECEIPT_V1:'+note)
+   for(const bad of [{...p,action,policy_attestation:undefined},{...p,action,expected_state_sha:undefined},{...p,action,receiptEvidenceVerified:true},{...p,action,receipt:{}}]){
+    e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+   }
+ }
+})
+
+test('explicit #271 historical accept only admits T-002/T-003/T-006 and pinned source',()=>{
+ const e=event(),stateSha='c'.repeat(40),note='PRP_RULESET_ATTESTATION_V1:'+JSON.stringify({expected_state_sha:stateSha})
+ const p={...request(),action:'accept_historical_271',task_id:'T-002',expected_version:28,
+   claim_id:'11111111-1111-4111-8111-111111111111',pr_number:271,head_sha:'48b3a69232690e7e2fb54a2d92efac02cc512c0e',expected_state_sha:stateSha,policy_attestation:note}
+ e.issue.created_at='2026-11-26T08:00:00Z'
+ for(const task_id of ['T-002','T-003','T-006']){
+   e.issue.body=JSON.stringify({...p,task_id,expected_version:task_id==='T-006'?36:28});const x=validateIssueEvent(env(),e,e.issue)
+   assert.equal(x.command.type,'accept');assert.equal(x.historical271,true);assert.equal(x.ownerPolicy,true)
+   assert.equal(x.command.note,'PRP_HISTORICAL_271_V1:'+note)
+ }
+ for(const bad of [{...p,task_id:'T-004'},{...p,task_id:'T-008'},{...p,task_id:'T-006',expected_version:32},{...p,pr_number:446},{...p,head_sha:sha},{...p,expected_version:24},
+  {...p,policy_attestation:undefined},{...p,expected_state_sha:undefined},{...p,historical271Verified:true}]){
+   e.issue.body=JSON.stringify(bad);assert.throws(()=>validateIssueEvent(env(),e,e.issue))
+ }
+ e.issue.body=JSON.stringify({...p,action:'accept'})
+ assert.equal(validateIssueEvent(env(),e,e.issue).historical271,undefined)
 })

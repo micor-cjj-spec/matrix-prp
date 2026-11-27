@@ -1,0 +1,9 @@
+#!/usr/bin/python3 -I
+# Review only. No installation or login-shell change authorized.
+import os
+import sys
+if sys.argv[1:] != ["-c", "prp-receive-v11"] or os.environ.get("SSH_ORIGINAL_COMMAND") != "receive-v11":
+    sys.exit(2)
+os.execve("/usr/bin/python3",
+          ["/usr/bin/python3", "-E", "-s", "/opt/matrix-prp-remote-executor-v11/src/bridge.py", "receive-v11"],
+          {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "SSH_ORIGINAL_COMMAND": "receive-v11"})

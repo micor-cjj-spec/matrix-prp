@@ -71,9 +71,10 @@ class McpExpandedCapabilitiesTests {
  }
  @Test void whitespaceScopesPassRealSecurityChainAndDraftRemainsOwnerBound() throws Exception {
   when(jdbc.queryForObject(anyString(),eq(Integer.class),eq(2L))).thenReturn(0);
+  when(jdbc.queryForObject(startsWith("SELECT UNIX_TIMESTAMP(expires_at)"), eq(Long.class), anyString(), eq(2L))).thenReturn(1790000900L);
   var r=request(prepare());assertThat(r.getResponse().getStatus()).isEqualTo(200);
   assertThat(r.getResponse().getContentAsString()).contains("draftId","Synthetic expanded draft").doesNotContain("\"isError\":true");
-  verify(jdbc).update(startsWith("INSERT INTO prp_mcp_write_drafts"),any(),eq(2L),eq("TASK"),any(),any());
+  verify(jdbc).update(startsWith("INSERT INTO prp_mcp_write_drafts"),any(),eq(2L),eq("TASK"),any());
  }
  @Test void anotherAccountIsDeniedEvenWithAllSignedScopesAndGrant() throws Exception {
   identity(1,CLIENT,SCOPES);request(prepare());verifyNoInteractions(jdbc);
