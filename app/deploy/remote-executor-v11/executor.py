@@ -337,6 +337,18 @@ class Ledger:
             manifest = parse(row["manifest"].encode("ascii"))
             item = next((f for f in manifest["files"] if f["path"] == path), None)
             require(item is not None, "unexpected file")
+            # Reserve every missing directory plus the temporary file before
+            # allocating any inode. SQLite rollback cannot undo mkdir.
+            parents = [self.spool / job_id]
+            for part in path.split("/")[:-1]:
+                parents.append(parents[-1] / part)
+            missing = 0
+            for directory in parents:
+                try:
+                    _private_dir(directory)
+                except FileNotFoundError:
+                    missing += 1
+            self._assert_storage_capacity(item["size"], missing + 1)
             folder = self._directory(job_id)
             dest = folder
             for part in path.split("/")[:-1]:
@@ -354,7 +366,6 @@ class Ledger:
                 _private_file(temp)
                 temp.unlink()
                 _sync_dir(dest.parent)
-            self._assert_storage_capacity(item["size"], 1 + path.count("/"))
             fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             count = 0
             hasher = hashlib.sha256()
