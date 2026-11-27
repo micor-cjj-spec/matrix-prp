@@ -2,6 +2,7 @@
 # variable and the dedicated protected environment may permit a later approved relay.
 name: Remote Executor V1.1 (staging only)
 on:
+  workflow_dispatch:
   issue_comment:
     types: [created]
 permissions:
@@ -43,3 +44,83 @@ jobs:
           PRP_REX_V11_KNOWN_HOSTS: ${{ secrets.PRP_REX_V11_KNOWN_HOSTS }}
           GH_TOKEN: ${{ github.token }}
         run: python3 -E -s app/deploy/remote-executor-v11/actions_bridge.py
+
+  connectivity-only:
+    # Fixed owner-dispatched probe; never sends a protocol frame or a script.
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'micor-cjj-spec/matrix-prp' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor_id == '123868412' &&
+      github.actor == 'micor-cjj-spec' &&
+      github.triggering_actor == 'micor-cjj-spec' &&
+      github.run_attempt == '1' &&
+      vars.PRP_REX_V11_ENABLED == 'false'
+    runs-on: ubuntu-latest
+    environment: remote-executor-v11-staging
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check pinned SSH authentication and closed receiver
+        env:
+          PRP_REX_V11_ENABLED: ${{ vars.PRP_REX_V11_ENABLED }}
+          PRP_REX_V11_HOST: ${{ secrets.PRP_REX_V11_HOST }}
+          PRP_REX_V11_SSH_KEY: ${{ secrets.PRP_REX_V11_SSH_KEY }}
+          PRP_REX_V11_KNOWN_HOSTS: ${{ secrets.PRP_REX_V11_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          python3 -E -s - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+          import tempfile
+
+          def probe():
+              if (os.environ.get("GITHUB_ACTIONS") != "true"
+                  or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"
+                  or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+                  or os.environ.get("GITHUB_REPOSITORY") != "micor-cjj-spec/matrix-prp"
+                  or os.environ.get("GITHUB_REF") != "refs/heads/main"
+                  or os.environ.get("GITHUB_ACTOR_ID") != "123868412"
+                  or os.environ.get("GITHUB_RUN_ATTEMPT") != "1"
+                  or os.environ.get("PRP_REX_V11_ENABLED") != "false"):
+                  raise RuntimeError("probe disabled")
+              sys.path.insert(0, str(Path("app/deploy/remote-executor-v11").resolve()))
+              from bridge import _credential, ssh_receive_argv
+              with tempfile.TemporaryDirectory() as tmp:
+                  key = Path(tmp) / "key"
+                  hosts = Path(tmp) / "known_hosts"
+                  _credential(key, os.environ.get("PRP_REX_V11_SSH_KEY"))
+                  _credential(hosts, os.environ.get("PRP_REX_V11_KNOWN_HOSTS"))
+                  argv = ssh_receive_argv(os.environ.get("PRP_REX_V11_HOST"),
+                                          str(key), str(hosts))
+                  argv.insert(1, "-v")
+                  result = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25,
+                      cwd="/", env={"PATH":"/usr/bin:/bin","LANG":"C.UTF-8"})
+                  lines = result.stderr.splitlines()
+                  # Never print SSH debug output, host, keys or network details.
+                  auth = any(re.fullmatch(rb'Authenticated to .+ using "publickey"\.', line)
+                             for line in lines)
+                  host = any(re.fullmatch(rb'debug1: Server host key: ssh-ed25519 SHA256:bTzAe8ULEHvgAAF4vclP2l6OlbceJ9RSTbN/C4eazqk', line)
+                             for line in lines)
+                  denied = lines.count(b"REMOTE_EXECUTOR_RECEIVER_BLOCKED_OR_UNCERTAIN") == 1
+                  if not (auth and host and denied and result.returncode == 2 and not result.stdout):
+                      raise RuntimeError("probe not proven")
+              print("PUBLIC_ACTIONS_PINNED_HOST=PASS")
+              print("PUBLIC_ACTIONS_PUBLICKEY_AUTH=PASS")
+              print("CLOSED_RECEIVER_REJECTION=PASS")
+              print("PUBLIC_ACTIONS_SSH_CONNECTIVITY=PASS")
+          try:
+              probe()
+          except Exception:
+              print("PUBLIC_ACTIONS_SSH_CONNECTIVITY=NOT_PROVEN", file=sys.stderr)
+              sys.exit(2)
+          PY
