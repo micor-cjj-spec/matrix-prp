@@ -197,6 +197,10 @@ jobs:
         run: python3 -m unittest discover -s app/scripts -p test_staging_runtime_evidence.py -v
       - name: Validate offline migration restore risk and unified release chain
         run: python3 -m unittest discover -s app/scripts -p test_staging_database_evidence.py -v
+      - name: Validate offline P3.7.1 evidence intake contract
+        run: python3 -m unittest discover -s app/scripts -p test_staging_evidence_intake.py -v
+      - name: Validate offline P3.7.2 signed runtime, database and module UAT receipts
+        run: python3 -m unittest discover -s app/scripts -p test_staging_authenticated_receipts.py -v
       - name: Validate OAuth authorization metadata preflight fixtures
         run: python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_*.py' -v
       - name: Validate isolated MCP staging configuration guards
