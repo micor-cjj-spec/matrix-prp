@@ -107,8 +107,10 @@ public class GoalService {
         } catch (DataIntegrityViolationException duplicate) {
             // Strictly scoped and payload-checked idempotency; never swallow
             // a foreign-key or unrelated database integrity failure.
+            // A plain SELECT can retain the pre-insert REPEATABLE READ snapshot.
+            // A current read sees the committed winner of the unique-key race.
             existing = db.query("SELECT " + COLS
-                + " FROM prp_goals WHERE user_id=? AND request_key=? AND deleted=0 LIMIT 1",
+                + " FROM prp_goals WHERE user_id=? AND request_key=? AND deleted=0 LIMIT 1 FOR UPDATE",
                 GOAL_MAPPER, owner, request.requestKey());
             if (!existing.isEmpty()) return idempotent(existing.get(0), request);
             throw duplicate;

@@ -15,6 +15,7 @@ import com.matrix.prp.ai.AiStore;
 import com.matrix.prp.auth.model.UserAccount;
 import com.matrix.prp.auth.repository.UserStore;
 import com.matrix.prp.memory.PersonalMemoryService;
+import com.matrix.prp.goals.GoalService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -33,6 +34,9 @@ import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -47,6 +51,8 @@ class PersonalOsAiConcurrencyDatabaseIT {
     @Autowired AiStore chats;
     @Autowired JdbcTemplate jdbc;
     @Autowired PersonalMemoryService memories;
+    @Autowired GoalService goals;
+    @Autowired PlatformTransactionManager transactions;
 
     private static String key(String prefix) {
         return prefix + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
@@ -90,6 +96,75 @@ class PersonalOsAiConcurrencyDatabaseIT {
             start.countDown();
             pool.shutdownNow();
             assertThat(pool.awaitTermination(15,TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    // Establish both consistent snapshots before either request can insert.
+    // GoalService joins these actual REPEATABLE READ transactions through AOP.
+    private long createFromMissingSnapshot(long owner, GoalService.Create request,
+                                           CountDownLatch snapshots) {
+        var transaction = new TransactionTemplate(transactions);
+        transaction.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        return transaction.execute(status -> {
+            assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM prp_goals WHERE user_id=? AND request_key=?",
+                Integer.class, owner, request.requestKey())).isZero();
+            snapshots.countDown();
+            try {
+                if (!snapshots.await(15, TimeUnit.SECONDS))
+                    throw new IllegalStateException("Both goal snapshots must precede insert");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Goal race interrupted", e);
+            }
+            return goals.create(request).id();
+        });
+    }
+
+    @Test void concurrentGoalRetriesReturnWinnerOrPayloadConflict() throws Exception {
+        String database=jdbc.execute((ConnectionCallback<String>) connection ->
+            connection.getMetaData().getURL());
+        if (!"true".equals(System.getenv("GITHUB_ACTIONS"))
+                || !"Linux".equals(System.getenv("RUNNER_OS"))
+                || database==null || !database.matches(
+                    "jdbc:mysql://(localhost|127\\.0\\.0\\.1):3306/matrix_prp(\\?.*)?"))
+            throw new SecurityException("DISPOSABLE_PERSONAL_OS_GOAL_MYSQL_ONLY");
+
+        UserAccount owner=users.create(key("goal_ci_"),"Synthetic Goal Owner",
+            "CI-only-irrelevant-password-hash",false);
+        long id=owner.id();
+        try {
+            String identicalKey=key("goal_same_");
+            var same=new GoalService.Create("Synthetic same goal",null,"career",
+                "medium",null,null,identicalKey);
+            var sameSnapshots=new CountDownLatch(2);
+            var identical=race(owner,
+                ()->createFromMissingSnapshot(id,same,sameSnapshots),
+                ()->createFromMissingSnapshot(id,same,sameSnapshots));
+            assertThat(identical.get(0)).isPositive();
+            assertThat(identical.get(1)).isEqualTo(identical.get(0));
+            assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM prp_goals WHERE user_id=? AND request_key=?",
+                Integer.class,id,identicalKey)).isEqualTo(1);
+
+            String conflictKey=key("goal_conflict_");
+            var first=new GoalService.Create("Synthetic first goal",null,"career",
+                "medium",null,null,conflictKey);
+            var second=new GoalService.Create("Synthetic conflicting goal",null,"career",
+                "medium",null,null,conflictKey);
+            var conflictSnapshots=new CountDownLatch(2);
+            var conflicting=race(owner,
+                ()->createFromMissingSnapshot(id,first,conflictSnapshots),
+                ()->createFromMissingSnapshot(id,second,conflictSnapshots));
+            assertThat(conflicting).contains(-409L);
+            assertThat(conflicting.stream().filter(n->n>0).count()).isEqualTo(1);
+            assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM prp_goals WHERE user_id=? AND request_key=?",
+                Integer.class,id,conflictKey)).isEqualTo(1);
+        } finally {
+            SecurityContextHolder.clearContext();
+            jdbc.update("DELETE FROM prp_goals WHERE user_id=?",id);
+            jdbc.update("DELETE FROM prp_users WHERE id=?",id);
         }
     }
 
