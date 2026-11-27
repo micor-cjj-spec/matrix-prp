@@ -1,0 +1,20 @@
+[Unit]
+Description=PRP V1.1 isolated one-shot worker
+AssertPathExists=/etc/matrix-prp-remote-executor-v11/receiver.enabled
+AssertPathExists=/etc/matrix-prp-remote-executor-v11/worker.enabled
+AssertPathExists=/etc/matrix-prp-remote-executor-v11/sandbox.enabled
+[Service]
+Type=exec
+User=prp-remote-worker-v11
+Group=prp-remote-worker-v11
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+MemoryMax=512M
+MemorySwapMax=0
+TasksMax=64
+CPUQuota=100%
+RuntimeMaxSec=260
+TimeoutStopSec=5
+KillMode=control-group
+WorkingDirectory=/opt/matrix-prp-remote-executor-v11/src
+ExecStart=/usr/bin/python3 -E -s /opt/matrix-prp-remote-executor-v11/src/executor.py worker-once

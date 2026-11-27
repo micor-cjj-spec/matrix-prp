@@ -19,6 +19,10 @@ jobs:
         run: |
           python3 -m py_compile app/deploy/remote-executor-v11/protocol.py app/deploy/remote-executor-v11/executor.py app/deploy/remote-executor-v11/bridge.py
           python3 -m unittest discover -s app/deploy/remote-executor-v11 -p 'test_*.py' -v
+      - name: Verify review-only SSH and service configuration (no daemon or unit start)
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_EVENT_NAME,GITHUB_REPOSITORY \
+            bash app/deploy/remote-executor-v11/p73c-review/plan.sh ci
 
   disposable-isolation:
     # Only a fresh GitHub-hosted VM, never a self-hosted or project server.
