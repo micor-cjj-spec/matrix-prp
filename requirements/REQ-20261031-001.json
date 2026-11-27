@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 37,
-  "updated_at": "2026-11-27T01:30:07.533Z",
+  "version": 38,
+  "updated_at": "2026-11-27T01:34:03.212Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -493,6 +493,20 @@
         "status": "DONE",
         "replayed": false
       }
+    },
+    {
+      "request_id": "d4040001-1127-4a04-8601-000000000001",
+      "fingerprint": "ca90e21180e478612f5fe9a2a2b41f1f6cd2838bf2b5a1ba9eb9352c0d73e02e",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "claim",
+        "task_id": "T-004",
+        "request_id": "d4040001-1127-4a04-8601-000000000001",
+        "claim_id": "fe01b502-f5ac-4e3b-ac5d-b75f324debce",
+        "version": 38,
+        "status": "CLAIMED",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -595,7 +609,7 @@
       "task_id": "T-004",
       "issue_number": 136,
       "title": "验收、安全回归和跨会话操作手册",
-      "status": "READY",
+      "status": "CLAIMED",
       "depends_on": [
         "T-001",
         "T-003"
@@ -604,7 +618,13 @@
         "app/scripts/dev-collab/coordinator-cli.test.mjs",
         "app/docs/dev-collab/"
       ],
-      "claim": null
+      "claim": {
+        "claim_id": "fe01b502-f5ac-4e3b-ac5d-b75f324debce",
+        "worker_id": "chat_t004_ops_20261127",
+        "actor": "micor-cjj-spec",
+        "claimed_at": "2026-11-27T01:34:03.212Z",
+        "generation": 1
+      }
     },
     {
       "task_id": "T-005",
