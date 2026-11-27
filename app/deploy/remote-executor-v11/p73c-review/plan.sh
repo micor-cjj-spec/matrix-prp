@@ -48,7 +48,7 @@ else
   test -x /usr/sbin/sshd
   install -d -m 0755 /run/sshd
   ssh-keygen -q -t ed25519 -N '' -f "$work/synthetic_host_key"
-  printf '%s\n' "HostKey $work/synthetic_host_key" 'UsePAM yes' 'StrictModes yes' 'PermitUserEnvironment no' 'AcceptEnv LANG LC_*' > "$work/base"
+  printf '%s\n' "HostKey $work/synthetic_host_key" 'UsePAM yes' 'StrictModes yes' 'PermitUserEnvironment no' 'AcceptEnv LANG LC_* COLORTERM NO_COLOR' > "$work/base"
 fi
 { cat "$work/base"; printf '\n'; cat "$here/sshd-match.conf.review"; } > "$work/candidate"
 python3 -I "$here/verify.py" "$work/base" "$work/candidate"

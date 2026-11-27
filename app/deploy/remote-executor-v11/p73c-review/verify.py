@@ -34,11 +34,37 @@ def check_receiver(raw):
     for key, value in expected.items():
         if values.get(key) != [value]:
             raise ValueError("effective setting mismatch: " + key)
-    # Locale patterns only. No client-controlled loader/Python env or forced env.
-    if any(x not in {"LANG","LC_*"} for line in values.get("acceptenv",[]) for x in line.split()):
+    check_env_policy(values)
+
+def check_env_policy(values):
+    # Exact Debian locale and terminal-color patterns, not arbitrary names.
+    # The -I login wrapper also replaces the environment before execve.
+    allowed = {"LANG", "LC_*", "COLORTERM", "NO_COLOR"}
+    if any(x not in allowed for line in values.get("acceptenv", []) for x in line.split()):
         raise ValueError("unsafe AcceptEnv")
     if values.get("setenv"):
         raise ValueError("unexpected SetEnv")
+
+def test_env_policy():
+    check_env_policy({"acceptenv": ["LANG LC_* COLORTERM NO_COLOR"]})
+    check_env_policy({"acceptenv": ["LANG", "LC_*", "COLORTERM", "NO_COLOR"]})
+    for value in ["*", "COLORTERM*", "NO_*", "LD_PRELOAD", "LD_LIBRARY_PATH",
+                  "PYTHONPATH", "BASH_ENV", "ENV", "SSH_ORIGINAL_COMMAND", "PATH"]:
+        try:
+            check_env_policy({"acceptenv": ["LANG LC_* " + value]})
+        except ValueError as exc:
+            if str(exc) != "unsafe AcceptEnv":
+                raise
+        else:
+            raise ValueError("unsafe environment fixture accepted")
+    try:
+        check_env_policy({"acceptenv": ["LANG"], "setenv": ["PYTHONPATH=/tmp"]})
+    except ValueError as exc:
+        if str(exc) != "unexpected SetEnv":
+            raise
+    else:
+        raise ValueError("forced environment fixture accepted")
+    print("ENV_POLICY_REGRESSION=PASS")
 
 def reject_wrapper():
     wrapper = HERE / "login-wrapper.review"
@@ -64,6 +90,7 @@ def main():
     for path in [baseline, candidate]:
         subprocess.run(["/usr/sbin/sshd","-t","-f",str(path)], check=True,
                        timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    test_env_policy()
     check_receiver(effective(candidate, RECEIVER))
     # Scope check for root and other existing dedicated worker.
     for user in ["root", WORKER]:
