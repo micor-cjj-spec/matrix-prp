@@ -197,6 +197,15 @@ test('historical #529 exact seven-job squash evidence accepts empty run PR assoc
  assert.equal(result.squashProof.checkouts.length,7)
  assert.ok(result.squashProof.checkouts.every(x=>x.sha===h529.test))
 })
+test('historical #529 also accepts one exact PR association but rejects multiple associations',()=>{
+ const e=h529Fixture()
+ const exact={number:529,head:{sha:h529.head,ref:'dev',repo:{id:1261866723}},
+  base:{ref:'main',sha:h529.base,repo:{id:1261866723}}}
+ e.runs[45980919751].pull_requests=[exact]
+ assert.equal(verifyHistorical529Evidence(e).historical529Verified,true)
+ e.runs[45980919751].pull_requests=[exact,exact]
+ assert.throws(()=>verifyHistorical529Evidence(e),/HISTORICAL_529_RUN_MISMATCH/)
+})
 test('historical #529 binding is one-shot and requires the exact V49 completed task ledger',()=>{
  const snapshot={requirement_id:'REQ-20261031-001',version:49,status:'ACTIVE',
   tasks:Array.from({length:9},(_,i)=>({task_id:'T-'+String(i+1).padStart(3,'0'),status:'DONE'}))}
