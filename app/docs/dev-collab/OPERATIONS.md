@@ -1,90 +1,87 @@
 # PRP Collaboration MVP：操作方式与安全边界
 
 父需求：[Issue #132](https://github.com/micor-cjj-spec/matrix-prp/issues/132)。
-核心实现：[Draft PR #138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)。
-状态迁移提案：[Draft PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144)。
+核心实现：[PR #271](https://github.com/micor-cjj-spec/matrix-prp/pull/271)（原候选 [#138](https://github.com/micor-cjj-spec/matrix-prp/pull/138)）。
+状态迁移历史：[PR #144](https://github.com/micor-cjj-spec/matrix-prp/pull/144)。
 独立信任边界审查：[Issue #147](https://github.com/micor-cjj-spec/matrix-prp/issues/147)。
 零点击操作要求：[Issue #148](https://github.com/micor-cjj-spec/matrix-prp/issues/148)。
 
-## 当前状态
+## 当前状态与权威来源
 
-当前实现仍在 Draft PR #138，尚未合并到 main；GitHub Issue 自动入口尚未真实触发，专用 App token 的状态分支写入尚未验收。代码测试通过不等于生产启用。
+截至 2026-11-27，协作自动入口已在受保护 main 上运行，V0→V1 迁移、专用 App 非强制 Git CAS 写入及脱敏回执均有真实证据。V1 指状态结构迁移后的九任务清单；业务状态版本随事务递增，不等于 schema_version。
 
-GitHub 的 prp-collab-state 分支保存 requirements/<REQ-ID>.json，是任务状态唯一权威来源；它不是 PRP 生产数据库。仓库为公开仓库，禁止在状态文件、Issue 或日志中保存私密聊天全文、Token、私钥、密码或个人敏感信息。
+以受保护分支 prp-collab-state 的 requirements/<REQ-ID>.json 及其精确 Git SHA 为唯一权威状态。Issue 描述、看板、历史手册、聊天记录均不是状态写入依据。验收基线 [V37](https://github.com/micor-cjj-spec/matrix-prp/blob/ff904968eb7860480fe0bbf3a0d9bd0892670069/requirements/REQ-20261031-001.json) 已有六项 DONE：T-001、T-002、T-003、T-006、T-007、T-009；其余任务继续以实时台账为准。V37 是历史证据，不是固定的 expected_version。
 
-## 正式启用后的日常操作：直接在 ChatGPT 中完成
+协作状态不是 PRP 生产数据库。仓库公开，禁止在状态文件、Issue、日志中保存私密聊天全文、Token、私钥、密码或个人敏感信息。生产发布冻结仍保留，协作验收不等于生产启用或部署。
 
-日常入口为 .github/workflows/prp-collab-issue-ingress.yml，触发方式是 GitHub issues.opened，而不是 workflow_dispatch。
+## 日常操作：在 ChatGPT 中完成
 
-用户在 ChatGPT 中提出领取、开始、更新进度、暂停/恢复、阻塞、释放、保存断点、主动交接、接管旧会话、提交 PR 或登记新任务等明确要求后，ChatGPT 读取最新状态，并通过已连接的 GitHub 所有者身份创建 [PRP-COLLAB-REQUEST] Issue。GitHub 自动运行 main 上的受信任工作流，验证原始事件、Issue 作者、当前 Issue、严格 JSON schema、状态版本和 GitHub App 写入范围，再通过单文件非强制 Git CAS 更新状态分支。
+日常入口为受保护 main 上的 .github/workflows/prp-collab-issue-ingress.yml，触发事件是 issues.opened。不能以旧 integration 分支或历史手册中的入口实现代替当前 main 的实际契约。
 
-成功必须同时满足：工作流完成、回执明确、远端状态 SHA 与预期提交一致。创建 Issue 本身不代表任务状态已改变。失败或状态版本过期时，ChatGPT 重新读取状态后再发起新请求。
+1. 用户在 ChatGPT 中明确授权相应操作；ChatGPT 读取最新权威台账、状态 SHA、依赖及允许路径，核对 GitHub 连接的 Owner 身份。
+2. 通过连接创建标题严格为 `[PRP-COLLAB-REQUEST]` 的 Owner Issue，正文仅为符合当前入口 schema 的 JSON。每笔新操作使用新 request_id（UUID）；同一操作的幂等重试保留原 request_id 和原始请求内容，不把已提交的请求修改成另一操作。
+3. 受信任工作流验证原始事件、实时 Issue、作者、JSON schema、状态版本及专用 App 边界，通过非强制 Git CAS 更新状态分支。普通任务变更不能直接推送权威状态分支。
+4. 同时核对 Actions 成功、脱敏回执与实际远端状态 SHA/版本/任务状态。Issue 创建或任务排队不代表事务成功。发现版本冲突，先读最新状态，确认前一请求未成功，才使用新的绑定发起新操作；不得盲目重试、强制推送或覆盖其他会话。
 
-该流程不要求日常操作逐次点击 Actions → Run workflow，也不要求逐次点击 Required reviewers。worker_id 是会话标签，不是 ChatGPT 会话身份凭证；公开的 claim_id 不是秘密。
+无需逐笔点击 GitHub Actions 或 Required reviewers。worker_id 是会话标签，不是独立身份认证；claim_id 是公开状态中的领取标识，不是秘密。真正身份由 GitHub Owner 事件认证，写入由专用 App 和现有事务控制。
 
-## 一次性启用前置条件
+## 任务执行、恢复及验收
 
-1. 对 PR #138 中的所有 bootstrap / workflow / GitHub App 信任边界变更完成独立审查，并由仓库所有者单独授权合并。Issue #147 尚未关闭。
-2. 在 GitHub 一次性配置专用 Environment：prp-collab-automation。Deployment branches 限制为 main；该自动化 Environment 不配置 Required reviewers 或 Wait timer。
-3. 在该 Environment 配置 secret PRP_COLLAB_APP_PRIVATE_KEY，以及变量 PRP_COLLAB_APP_CLIENT_ID、PRP_COLLAB_APP_ID=5561446、PRP_COLLAB_RULESET_ID=26294671。不要把私钥或 Token 交给 ChatGPT，也不要写入 Issue。
-4. 专用 GitHub App 只安装到 micor-cjj-spec/matrix-prp，并只申请所需的最小仓库权限。自动入口只请求单仓库 Contents: write。
-5. 保留 prp-collab-state 的精确 Ruleset #26294671：仅匹配 refs/heads/prp-collab-state，要求 update、deletion、non_fast_forward 限制，唯一 bypass 为专用 Integration App。
-6. 保留 main 的保护 Ruleset #24968649，不给协作 App main bypass；保留 app/deploy/publication-hold.json 的生产发布冻结。
-7. 先运行只读 `probe` 真实 Issue opened 事件，核对 Actions、App installation token 作用域、脱敏回执和状态 SHA **完全未变**；探针不证明写入权限。之后只有在另行明确授权的低影响写入试点中，才核验专用 App 非强制 Git 推送与新远端 SHA。
+- claim：依赖全部 DONE 且任务 READY 时领取；每次从最新状态读取 expected_version。
+- start：使用当前领取的 claim_id 与 worker_id 启动。任务未成功进入 IN_PROGRESS 前，不将代码变更当作已启动的任务交付。
+- 开发：基于最新受保护 integrate/<REQ-ID> 创建独立任务分支，只修改台账 allowed_paths 且不超过本次用户授权范围。使用精确 HEAD 的 Draft PR、完整 CI 和独立审查，禁止覆盖其他会话分支。
+- progress / pause / block / resume / release：按已审查的入口和状态机执行；不得绕过版本、领取及依赖校验。
+- checkpoint：保存简洁进度、下一步、远端分支及 HEAD、测试和阻塞信息；只在需要恢复时保存，不记录聊天全文或凭据。
+- handoff / takeover：明确目标 worker_id，核验旧领取、当前版本、真实 Git 分支及 HEAD；轮换领取标识及 generation，拒绝旧领取。没有断点时按现有恢复机制核验真实远端证据；不能仅凭会话沉默自动抢占。参见 SESSION-RECOVERY.md 的恢复契约（其早期状态说明属于历史背景）。
+- submit：绑定精确 PR 编号和 HEAD，事务成功才进入 IN_REVIEW；不等于 CI、合并或正式验收通过。
+- accept：当前 main 已支持经可信证据验证的 Owner Issue 验收。普通任务按现有普通验收契约核验文件范围、精确 HEAD、可信 CI、受保护 integration 中的合并证明及现行 Ruleset；必要时按已实现的 capture_receipt / accept_receipt 契约保留合并前可信证据。合并和正式 Accept 必须分别获得用户明确授权，不得因 CI 通过自行执行。
+- accept_historical_415 / accept_historical_446 / accept_historical_271：只适用于当前实现明确允许的历史任务及固定证据，绝不是通用绕过路径。当前历史 #271 验收仅覆盖 T-002、T-003、T-006；不得将其用于 T-004 或 T-008。
+- close：不是普通 Owner Issue ingress 的允许操作；最终需求关闭仍须满足现有可信关闭契约、全部任务 DONE 及独立授权，不能把任务全部 DONE 等同于需求已关闭或生产发布。
 
-专用 App token 故意不授予 Administration 权限。GitHub 可能对该低权限 token 隐藏完整 bypass_actors 列表；运行时验证该 App 自身确实具有 state-ref bypass 能力。启用前必须使用仓库管理员身份运行只读 preflight，确认完整 bypass_actors 列表恰好只有 Integration App 5561446。Ruleset 变更后必须重新运行管理员 preflight；不要为了读取列表而给协作 App 增加 Administration 权限。
+不得自动合并 PR、扩大路径白名单、改变保护规则或执行生产部署。可信验收失败时保留 IN_REVIEW，检查具体证据缺口，不降低校验强度。
 
-不要为了绕过审批而解除现有保护。旧的 prp-collab-controller Environment 保持不变；它不作为日常 Issue 自动入口的审批路径。
+## 保护与安装边界（保持现有配置）
 
-## 一次性 V0→V1 迁移
+以下为现有安装和复核约束，而非重复启用或变更配置的指令：
 
-REQ-20261031-001 当前正式状态仍为 V0，包含五个 READY 任务。PR #144 提出九任务 V1 状态文件，但尚未应用。
+1. 专用 Environment prp-collab-automation 限制 main；既有自动化入口不配置逐次 Required reviewers 或 Wait timer。旧 prp-collab-controller Environment 保持不变。
+2. 私钥只保存在 Environment secret PRP_COLLAB_APP_PRIVATE_KEY；变量 PRP_COLLAB_APP_CLIENT_ID、PRP_COLLAB_APP_ID=5561446、PRP_COLLAB_RULESET_ID=26294671 按既有配置。不得将私钥或 Token 提供给 ChatGPT 或写入 Issue。
+3. 专用 App 仅限 micor-cjj-spec/matrix-prp，自动入口请求单仓库 Contents: write；不授予 Administration 权限。
+4. 保留状态分支 Ruleset #26294671（update、deletion、non_fast_forward，唯一 bypass 为专用 Integration App 5561446）、main Ruleset #24968649 和 integration Ruleset #28050327。协作 App 不得拥有 main bypass；integration 无 bypass 主体，依照现有必需检查和 PR 保护运行。
+5. App 低权限 Token 可能无法读取完整 bypass_actors；必须在需要完整列表的现有验收路径中使用 Owner 可见证据并满足精确绑定及有效期，不能因列表不可见而视为空，也不能因此新增 App 权限。
+6. 保留 app/deploy/publication-hold.json。协作验证仅涉及获准的状态分支及任务分支，不授权生产 SSH、SQL、数据库迁移或发布。
 
-用户在 ChatGPT 中明确要求执行迁移后，自动入口接受唯一固定的 migrate_v1 请求。该 owner-authored Issue 代表这次迁移的明确授权，不再要求额外 GitHub GUI approve。工作流仍须验证固定 V0 SHA、固定提案 SHA、PR #144 的身份和单文件九任务精确差异、专用 App 单仓库范围、Ruleset、main 发布冻结、并发状态和远端提交结果。
-
-该功能不支持任意版本迁移。普通“继续 PRP”、领取任务或创建任务的请求，不代表同意迁移。迁移完成前不允许登记 V1 新任务。
+历史 V0→V1 迁移是固定的一次性事务，当前已完成。不得重复运行 migrate_v1，不把递增的业务版本解释为待迁移的 schema，不自动迁移任意版本。首次只读 probe 的历史回执仅证明读链路；后续真实事务才证明非强制写入。
 
 ## 新任务创建与登记
 
-V1 生效后，创建新任务分两步，均可由 ChatGPT GitHub 连接自动完成，不需要用户打开 GitHub：
+使用现有两步 Owner Issue 入口：先创建带唯一 PRP_TASK_MANIFEST 的 Task Issue，再通过 register_task 引用该 Issue，绑定最新状态版本、标题、依赖和允许路径。登记成功须有远端 CAS 回执，才可另行领取。普通新任务范围由 task-scope-policy.mjs 校验，不能将既有 bootstrap 任务的特殊路径授权推广给新任务；协作治理工作流、迁移、部署配置及信任根不属于普通新任务范围。参见 AUTO-REQUESTS.md 的请求格式，早期 V0 状态描述不作为当前运行依据。
 
-1. 创建 owner-authored Task Issue，标题为 [TASK][REQ-ID/T-NNN] 标题；正文包含目标、验收标准和唯一的 PRP_TASK_MANIFEST JSON 清单。
-2. 创建 [PRP-COLLAB-REQUEST] Issue，action=register_task，引用 Task Issue 编号、标题、依赖、允许路径和最新状态版本。
+## 只读看板与 Issue 投影
 
-工作流在登记前先验证 V1 的 T-006/#141、T-007/#142、T-008/#143、T-009/#146 固定种子任务身份，而不是仅检查随普通操作递增的 `state.version`。随后重新读取 Task Issue，校验作者、标题、Issue 状态和机器清单，再通过 CAS 将任务登记为 READY。登记成功不等于自动领取；如用户要求立即开始，ChatGPT 再发起 claim 操作。任务编号必须连续，依赖必须存在，文件范围必须符合 task-scope-policy.mjs 的白名单。协作治理工作流、迁移、部署配置和信任根文件不属于普通任务范围。
+board.mjs 读取权威 JSON，显示状态、依赖、worker、PR 及精确状态 SHA，隐藏领取凭证和请求历史。现有 PRP Collaboration Board 工作流仅通过 workflow_dispatch 在 main 运行，权限为 contents: read。当前连接器不一定提供 dispatch；直接读取权威 JSON 仍可核查当前状态，但不能冒充真实 Board 运行回执。
 
-## 任务状态和代码审查边界
+Issue 投影与 Board、Owner 请求回执是不同操作。真实 Issue 投影写入必须独立获准；不得因为 Accept 或只读看板通过而自动启用投影。Issue 投影始终不是权威任务状态。
 
-- claim / start / progress / pause / block / resume / release：由所有者 Issue 触发的自动状态事务。
-- checkpoint：按需要记录可恢复的摘要和 Git 远端分支/SHA，不要求每次对话都写断点。
-- handoff / takeover：必须明确指定目标会话标签并校验旧 claim、状态版本和远端 SHA；不能仅凭会话沉默自动接管。
-- submit：记录 PR 编号和准确 head SHA，不代表 PR 已获批准。
-- accept / close：当前不在零点击 Issue ingress 的允许操作中，仍需独立可信的 PR、CI、集成分支和验收证据；不能通过普通任务请求将任务直接标为 DONE。
-- 不自动合并任务 PR，不自动合并 bootstrap PR，不自动执行生产部署。
+## 回归与真实验收证据
 
-## 只读任务看板
+以下为已经核验的历史证据，不是本次候选 HEAD 的新测试回执：
 
-app/scripts/dev-collab/board.mjs 从状态文件生成只读任务看板，展示需求、任务、状态、依赖、worker 和 PR。看板不包含 claim 凭证，也不授权领取、验收、合并或部署。
+| 场景 | 既有证据及限制 |
+| --- | --- |
+| 双会话竞争、重复领取、主动交接及失联接管 | V37 台账保留 T-001/T-002 的 V2–V10 真实事务和归档断点；重复领取拒绝记录见 T-001 归档 checkpoint。不能将其说成重新执行了真实 workflow_dispatch 并发试验。 |
+| CAS、幂等、防重放、依赖及权限边界 | [PR #492 专项流水线](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/45839129899) 344/344 PASS，含真实本地隔离裸 Git 竞态测试；不是线上并发写入实验。 |
+| 真实 Owner 授权、专用 App 写入及历史证据验收 | [T-006 Owner Issue #496](https://github.com/micor-cjj-spec/matrix-prp/issues/496#issuecomment-7207348200)、[Actions #45922806139](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/45922806139)、[V37](https://github.com/micor-cjj-spec/matrix-prp/blob/ff904968eb7860480fe0bbf3a0d9bd0892670069/requirements/REQ-20261031-001.json) 一致，非强制 CAS 晋升成功。 |
+| 看板 | [真实 V33 Board](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/45805618945) 成功；T-006 经 Owner 明确接受复用及源码一致性、专项测试证据，未在 V36 重新 dispatch，也未真实写入 Issue 投影。 |
+| 完整 CI | [#492 合并后 main CI](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/45840881851) 34/34 PASS；新任务仍须按其当前基线和精确 HEAD 检查全部 CI、影响分析、协作契约及审查。 |
 
-## 验证证据与真实启用边界
+已有真实试点可复用；不因文档更新而重复开展实际写入竞态、部署或扩展治理。对候选 HEAD 的测试与历史证据分开记录，不把 CI 通过等同于实际生产能力、独立审查或正式验收。
 
-每次审查都必须读取 PR #138 当前 head 的 GitHub Actions 结果，只能把该精确 SHA 上全部必需检查成功视为候选代码 CI 通过。旧 SHA 的绿色结果不能代替最新 head 的 CI 结果。
-
-CI 通过仅证明自动化测试和静态工作流契约通过，不证明以下事项已经完成：
-- prp-collab-automation Environment 的真实 secret、variables 和 main-only 部署分支配置；
-- GitHub App installation token 的实际签发、单仓库范围和 Contents: write 能力；
-- 专用 App 对 prp-collab-state Ruleset 的真实 bypass 能力；
-- 真实 issues.opened 事件从 ChatGPT 创建 Issue 到状态分支 CAS 写入、远端 SHA 核验和脱敏回执的完整链路。
-
-正式状态必须以 GitHub 当前分支、Ruleset、Actions 运行和远端状态 SHA 为准。不得用历史测试结果或 Issue 创建成功推断任务状态已更新。
-
-main 的生产发布冻结必须持续有效；协作功能验收不授权生产发布。
-
-## 验证命令
+## 验证命令（本地或现有 CI）
 
 ```bash
 node --test app/scripts/dev-collab/*.test.mjs
 bash -n app/scripts/dev-collab/state-transaction.sh
 ```
 
-不要在本地测试通过后声称 GitHub 自动入口已经上线。真实验收必须以 GitHub Actions 运行、专用 App 实际写入和远端状态 SHA 为准。
+完整 CI、Feature Impact Report、PRP Dev Collaboration Contract 均使用现有工作流。核对精确 PR HEAD、基线、变更文件、完整检查、审查回执及生产隔离；真实状态变更须核对 Owner Issue、Actions 和权威台账三方证据。禁止因手册更新而改变实际权限、校验机制或发布门禁。
