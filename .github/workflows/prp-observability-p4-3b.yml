@@ -1,0 +1,262 @@
+name: PRP observability P4.3B OAuth profile preparation
+on:
+  pull_request:
+    paths:
+      - 'app/observability/p4_3b/**'
+      - 'app/observability/p4_3c3/**'
+      - '.github/workflows/prp-observability-p4-3b.yml'
+permissions:
+  contents: read
+jobs:
+  profile-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13.5'
+          architecture: x64
+          check-latest: false
+      - name: Verify and adapt exact sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTH=329ca6eb024ca3486e711fabc0ad2c428cde6221
+          SDK=3e7e3afcc8fd2ee5750a76bf3ff579c9f9fe6393
+          P42=fea1d7e1bd83511710e1f768e5c26b3d826f3d78
+          P43A=e99996646c78ff1fd7678675bb7b926fa4eeada6
+          P4=c459ac4c56ebdd2be6808f9f7bac46995625714a
+          test "$(git rev-parse "$AUTH:app/ops/auth_adapter.py")" = e901873b8ccfb1a1806c8ca85767a8c01ea87adc
+          test "$(git rev-parse "$AUTH:app/ops/profile_config.py")" = "$(git rev-parse "$SDK:app/ops/profile_config.py")"
+          test "$(git rev-parse "$SDK:app/ops/sdk_spike_ci.py")" = aabfd47a36d5aab1de3af92225f70c4c05f89829
+          test "$(git rev-parse "$P4:app/observability/p4/ci_grafana_mcp.py")" = e3a220f59b08d9e4aa3758facccf5c5bf5db4d9b
+          work="$(mktemp -d)"
+          trap 'sudo rm -rf "$work"' EXIT
+          git archive "$AUTH" app/ops app/deploy/systemd | tar -x -C "$work"
+          git show "$SDK:app/ops/sdk_spike_ci.py" > "$work/app/ops/sdk_spike_ci.py"
+          git show "$P42:app/observability/p4_2/owner_gateway.py" > "$work/accepted_gateway.py"
+          git show "$P43A:app/observability/p4_3a/runtime.py" > "$work/accepted_runtime.py"
+          python app/observability/p4_3b/materialize.py "$work/accepted_gateway.py" "$work/accepted_runtime.py" "$work/candidate"
+          cp app/observability/p4_3b/{profile_app,ci_profile}.py "$work/candidate/"
+          python -m unittest discover -s "$work/app/ops" -p 'test_*.py' -v
+          python -m venv "$work/venv"
+          python app/observability/p4_3b/materialize.py --install-locked "$work/venv"
+          "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
+          PYTHONPATH="$work/app/ops" "$work/venv/bin/python" "$work/candidate/ci_profile.py"
+          # Preserve the entire direct-profile suite. Tunnel-only candidate
+          # operates on separate copies, exact accepted materializer and lock.
+          cp -a "$work/app/ops" "$work/tunnel-ops"
+          cp -a "$work/candidate" "$work/tunnel-candidate"
+          python app/observability/p4_3c3/materialize_tunnel.py "$work/tunnel-ops" "$work/tunnel-candidate"
+          PYTHONPATH="$work/tunnel-ops" "$work/venv/bin/python" "$work/tunnel-candidate/ci_profile.py"
+  dependency-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13.5'
+          architecture: x64
+          check-latest: false
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532
+      - name: Audit installed runtime dependencies and exact public images
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          python -m venv "$work/runtime"
+          python app/observability/p4_3b/materialize.py --install-locked "$work/runtime"
+          python -m venv "$work/auditor"
+          "$work/auditor/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'pip==26.3'
+          "$work/runtime/bin/python" -m pip list --format=json > "$work/packages.json"
+          "$work/auditor/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'pip-audit==2.10.0'
+          site="$("$work/runtime/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          rc=0
+          "$work/auditor/bin/pip-audit" --strict --format=json --path "$site" > "$work/audit.json" || rc=$?
+          python - "$work/packages.json" "$work/audit.json" "$rc" <<'PY'
+          import json,sys,re
+          norm=lambda s:re.sub(r"[-_.]+","-",s).lower()
+          packages=json.load(open(sys.argv[1]))
+          report=json.load(open(sys.argv[2]))
+          deps=report["dependencies"]
+          assert {norm(x["name"]):x["version"] for x in deps}=={norm(x["name"]):x["version"] for x in packages}
+          assert not any("skip_reason" in d for d in deps)
+          findings=0
+          for d in deps:
+              print("OBS_P43B_PACKAGE="+d["name"]+"=="+d["version"])
+              for v in d["vulns"]:
+                  findings+=1
+                  print("OBS_P43B_PY_FINDING="+json.dumps({"package":d["name"],"version":d["version"],"id":v["id"],"fix_versions":v["fix_versions"]}))
+          assert int(sys.argv[3])==(1 if findings else 0)
+          print("OBS_P43B_PY_AUDIT=EVIDENCE_ONLY; FINDINGS="+str(findings))
+          PY
+          scanner='ghcr.io/aquasecurity/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb'
+          docker pull --platform linux/amd64 "$scanner"
+          cache="p43b-scan-${GITHUB_RUN_ID}"
+          docker volume create "$cache"
+          trap 'docker volume rm "$cache" >/dev/null || true; rm -rf "$work"' EXIT
+          for ref in 'grafana/mcp-grafana@sha256:63d4501d3166c2b9242d8a2b5b7df8892c59c6c477be3a2a61bcf8a252671f31' 'grafana/grafana@sha256:81556409ba48b2b922e0adb69a2511337d8ba7578f11962eefa6149a2d815101' 'quay.io/prometheus/prometheus@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9'; do
+            docker run --rm --platform linux/amd64 --cap-drop ALL --security-opt no-new-privileges --mount "type=volume,src=$cache,dst=/cache" "$scanner" image --image-src remote --platform linux/amd64 --cache-dir /cache --scanners vuln --severity HIGH,CRITICAL --ignorefile /dev/null --format json --timeout 7m --exit-code 0 "$ref" > "$work/image.json"
+            python - "$ref" "$work/image.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[2]))
+          results=report["Results"]
+          assert isinstance(results,list) and results
+          count=0
+          for result in results:
+              for v in result.get("Vulnerabilities") or []:
+                  count+=1
+                  print("OBS_P43B_IMAGE_FINDING="+json.dumps({"image":sys.argv[1],"target":result["Target"],**{k:v.get(k) for k in ("Severity","VulnerabilityID","PkgName","InstalledVersion","FixedVersion")}}))
+          print("OBS_P43B_IMAGE_AUDIT="+sys.argv[1]+"|TARGETS="+str(len(results))+"|FINDINGS="+str(count))
+          PY
+          done
+          # Inspect the exact immutable image filesystem without starting its process.
+          mcp_ref='grafana/mcp-grafana@sha256:63d4501d3166c2b9242d8a2b5b7df8892c59c6c477be3a2a61bcf8a252671f31'
+          docker pull --platform linux/amd64 "$mcp_ref"
+          cid="$(docker create --platform linux/amd64 "$mcp_ref")"
+          trap 'docker rm "$cid" >/dev/null || true; docker volume rm "$cache" >/dev/null || true; rm -rf "$work"' EXIT
+          docker export "$cid" > "$work/rootfs.tar"
+          python - "$work/rootfs.tar" <<'PY'
+          import json,sys,tarfile
+          with tarfile.open(sys.argv[1]) as archive:
+              members=archive.getmembers()
+              status=next(m for m in members if m.name.lstrip("./")=="var/lib/dpkg/status")
+              text=archive.extractfile(status).read().decode()
+              packages={}
+              for block in text.split("\n\n"):
+                  rows=dict(line.split(": ",1) for line in block.splitlines() if line and not line[0].isspace() and ": " in line)
+                  if rows.get("Status")=="install ok installed":
+                      packages[rows["Package"]]=rows["Version"]
+              assert "zlib1g" in packages
+              minizip_packages={k:v for k,v in packages.items() if "minizip" in k.lower()}
+              paths=[m.name for m in members if "minizip" in m.name.lower() and not m.isdir()]
+              print("OBS_P43B_MINIZIP_INVENTORY="+json.dumps({"zlib1g":packages["zlib1g"],"minizip_packages":minizip_packages,"named_files":paths}))
+              print("OBS_P43B_CVE_2023_45853=REVIEW_EVIDENCE_ONLY; STATIC_VENDORED_CODE_NOT_EXCLUDED")
+          PY
+          docker rm "$cid"
+          trap 'docker volume rm "$cache" >/dev/null || true; rm -rf "$work"' EXIT
+          # Verify the immutable official archive AND SBOM before extracting anything.
+          release='https://github.com/grafana/mcp-grafana/releases/download/v2.4.0'
+          manifest='mcp-grafana_2.4.0_checksums.txt'
+          archive='mcp-grafana_Linux_x86_64.tar.gz'
+          sbom="$archive.sbom.json"
+          mkdir "$work/release" "$work/binary"
+          for file in "$manifest" "$manifest.sigstore.json" "$archive" "$sbom"; do
+            curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 2 --connect-timeout 15 --max-time 180 "$release/$file" -o "$work/release/$file"
+          done
+          identity='https://github.com/grafana/mcp-grafana/.github/workflows/release.yml@refs/tags/v2.4.0'
+          cosign verify-blob --bundle "$work/release/$manifest.sigstore.json" --certificate-identity "$identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$work/release/$manifest"
+          cp "$work/release/$manifest" "$work/tampered"
+          echo tampered >> "$work/tampered"
+          if cosign verify-blob --bundle "$work/release/$manifest.sigstore.json" --certificate-identity "$identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$work/tampered" >/dev/null 2>&1; then exit 1; fi
+          python - "$work/release" "$manifest" "$archive" "$sbom" "$work/binary" <<'PY'
+          import hashlib,json,re,sys,tarfile
+          from pathlib import Path
+          folder,manifest,archive,sbom,binary=sys.argv[1:]
+          folder,binary=Path(folder),Path(binary)
+          entries={}
+          for line in (folder/manifest).read_text().splitlines():
+              m=re.fullmatch(r"([0-9a-f]{64}) [ *](.+)",line)
+              assert m and m[2] not in entries
+              entries[m[2]]=m[1]
+          pinned={archive:"6758ec29de0c300f662a4c74682048e7ab34722515296095928dd0d9c9bfc01f",
+                  sbom:"27b68b8c6fbe324f25b5381d96a1f868be31944adef35b23ab94534e1df6732b"}
+          for name in (archive,sbom):
+              with (folder/name).open("rb") as stream:
+                  sha=hashlib.file_digest(stream,"sha256").hexdigest()
+              assert entries[name]==sha==pinned[name]
+              print("OBS_P43B_SIGNED_ASSET="+name+"|"+sha)
+          doc=json.loads((folder/sbom).read_text())
+          packages=doc["packages"]
+          assert doc["spdxVersion"].startswith("SPDX-") and packages
+          go=[p for p in packages if any("pkg:golang/" in r.get("referenceLocator","") for r in p.get("externalRefs",[]))]
+          assert go
+          print("OBS_P43B_SIGNED_SBOM_PACKAGES="+str(len(packages))+"|GO="+str(len(go)))
+          with tarfile.open(folder/archive,"r:gz") as tar:
+              candidates=[x for x in tar.getmembers() if x.name in ("mcp-grafana","./mcp-grafana")]
+              assert len(candidates)==1 and candidates[0].isreg() and 0<candidates[0].size<250*1024*1024
+              data=tar.extractfile(candidates[0]).read()
+          assert hashlib.sha256(data).hexdigest()=="7b7c5d2ffd284faabf4e5d7d814ed5e066ddddcc348b4a1cdd4ca1ba68057b58"
+          target=binary/"mcp-grafana"
+          target.write_bytes(data)
+          target.chmod(0o555)
+          print("OBS_P43B_VERIFIED_BINARY_SHA256="+hashlib.sha256(data).hexdigest())
+          PY
+          go version -m "$work/binary/mcp-grafana" > "$work/buildinfo"
+          cat "$work/buildinfo"
+          grep -Eq 'path[[:space:]]+github.com/grafana/mcp-grafana/v2/cmd/mcp-grafana$' "$work/buildinfo"
+          grep -Eq 'build[[:space:]]+CGO_ENABLED=0$' "$work/buildinfo"
+          grep -Eq 'build[[:space:]]+GOOS=linux$' "$work/buildinfo"
+          grep -Eq 'build[[:space:]]+GOARCH=amd64$' "$work/buildinfo"
+          grep -q 'vcs.revision=7f717bceff42080b3eeb026506672e8ba4fbdce7' "$work/buildinfo"
+          readelf -l "$work/binary/mcp-grafana" > "$work/elf-program"
+          readelf -d "$work/binary/mcp-grafana" > "$work/elf-dynamic"
+          ! grep -Eq 'INTERP|Requesting program interpreter' "$work/elf-program"
+          ! grep -q '(NEEDED)' "$work/elf-dynamic"
+          echo 'OBS_P43B_BINARY_STATIC_LINKAGE=PASS; MINIZIP_VENDORED_CODE_NOT_EXCLUDED'
+          # Mount only public release artifacts, not the private temp work root.
+          chmod 0755 "$work/release" "$work/binary"
+          chmod 0444 "$work/release/$sbom"
+          for mode in sbom rootfs; do
+            if [ "$mode" = sbom ]; then source="$work/release"; target="/evidence/$sbom"; else source="$work/binary"; target=/evidence; fi
+            docker run --rm --platform linux/amd64 --cap-drop ALL --security-opt no-new-privileges --mount "type=volume,src=$cache,dst=/cache" --mount "type=bind,src=$source,dst=/evidence,readonly" "$scanner" "$mode" --cache-dir /cache --scanners vuln --severity HIGH,CRITICAL --ignorefile /dev/null --format json --timeout 7m --exit-code 0 --list-all-pkgs "$target" > "$work/$mode.json"
+            python - "$mode" "$work/$mode.json" <<'PY'
+          import json,sys
+          mode=sys.argv[1]
+          results=json.load(open(sys.argv[2]))["Results"]
+          assert isinstance(results,list) and results
+          pkgs=sum(len(r.get("Packages") or []) for r in results)
+          assert pkgs>0, "scanner package inventory empty"
+          findings=[(r["Target"],v) for r in results for v in r.get("Vulnerabilities") or []]
+          for target,v in findings:
+              print("OBS_P43B_BINARY_FINDING="+json.dumps({"mode":mode,"target":target,**{k:v.get(k) for k in ("Severity","VulnerabilityID","PkgName","InstalledVersion","FixedVersion")}}))
+          print("OBS_P43B_BINARY_AUDIT="+mode+"|PACKAGES="+str(pkgs)+"|FINDINGS="+str(len(findings)))
+          PY
+          done
+          # Reuse the complete #488 native product regression. A local scratch
+          # image contains only the verified executable; no push or base OS.
+          image="prp-p43b-binary-ci:$GITHUB_RUN_ID"
+          trap 'docker image rm "$image" >/dev/null || true; docker volume rm "$cache" >/dev/null || true; rm -rf "$work"' EXIT
+          printf 'FROM scratch\nCOPY mcp-grafana /mcp-grafana\nUSER 65532:65532\nENTRYPOINT ["/mcp-grafana"]\n' > "$work/binary/Dockerfile"
+          docker build --network none --pull=false -t "$image" "$work/binary"
+          test "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532:65532
+          export P43B_CI_BINARY_IMAGE="$image"
+          export P43B_CI_BINARY_ID="$(docker image inspect -f '{{.Id}}' "$image")"
+          git show c459ac4c56ebdd2be6808f9f7bac46995625714a:app/observability/p4/ci_grafana_mcp.py > "$work/exact-p4.py"
+          test "$(git hash-object "$work/exact-p4.py")" = e3a220f59b08d9e4aa3758facccf5c5bf5db4d9b
+          python - "$work/exact-p4.py" "$work/binary-p4.py" <<'PY'
+          import sys
+          from pathlib import Path
+          source=Path(sys.argv[1]).read_text()
+          old="\n".join("                "+line for line in (
+              'run("docker","pull","--platform","linux/amd64",tag,timeout=300)',
+              'image=json.loads(run("docker","image","inspect",tag))[0]',
+              'check(image["Os"]=="linux" and image["Architecture"]=="amd64" and bool(image["RepoDigests"]),"image-"+key)',
+              'refs[key]=image["Id"]',
+              'print("OBS_P4_IMAGE="+key+"|"+tag+"|"+image["RepoDigests"][0]+"|"+image["Id"],flush=True)'))
+          new="\n".join("                "+line for line in (
+              'if key=="mcp":',
+              '    tag=os.environ["P43B_CI_BINARY_IMAGE"]',
+              '    image=json.loads(run("docker","image","inspect",tag))[0]',
+              '    check(image["Id"]==os.environ["P43B_CI_BINARY_ID"] and image["Config"]["User"]=="65532:65532","signed-binary-image")',
+              '    refs[key]=image["Id"]',
+              '    print("OBS_P43B_BINARY_CI_IMAGE="+image["Id"],flush=True)',
+              '    continue'))+"\n"+old
+          assert source.count(old)==1
+          Path(sys.argv[2]).write_text(source.replace(old,new))
+          compile(Path(sys.argv[2]).read_text(),sys.argv[2],"exec")
+          PY
+          python "$work/binary-p4.py"
+          echo 'OBS_P43B_SIGNED_BINARY_REGRESSION=PASS; CI_ONLY'
+          echo 'OBS_P43B_SECURITY_SCAN=EVIDENCE_ONLY; LIVE_ACTIVATION=NO_GO'
