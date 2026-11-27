@@ -18,6 +18,7 @@ import { ArrowRight, Bell, Calendar, CollectionTag, Document, EditPen, Tickets }
       <div class="domain-tool-grid">
         <RouterLink class="domain-tool-card" to="/tasks"><span class="tool-icon tool-blue"><el-icon><Tickets /></el-icon></span><div><h3>任务与计划</h3><p>今日待办、截止日期、优先级</p><span class="tool-action">管理任务 <el-icon><ArrowRight /></el-icon></span></div></RouterLink>
         <RouterLink class="domain-tool-card" to="/records"><span class="tool-icon tool-amber"><el-icon><Document /></el-icon></span><div><h3>生活记录</h3><p>记录每天的小事与重要片段</p><span class="tool-action">添加记录 <el-icon><ArrowRight /></el-icon></span></div></RouterLink>
+        <RouterLink class="domain-tool-card" to="/personal-os"><span class="tool-icon tool-violet"><el-icon><CollectionTag /></el-icon></span><div><h3>个人智能操作系统</h3><p>目标管理、记忆核对与人生时间轴</p><span class="tool-action">进入 Personal OS <el-icon><ArrowRight /></el-icon></span></div></RouterLink>
         <RouterLink class="domain-tool-card" to="/reviews"><span class="tool-icon tool-green"><el-icon><EditPen /></el-icon></span><div><h3>每周复盘</h3><p>总结收获、问题和下阶段目标</p><span class="tool-action">查看复盘 <el-icon><ArrowRight /></el-icon></span></div></RouterLink>
         <RouterLink class="domain-tool-card" to="/notifications"><span class="tool-icon tool-violet"><el-icon><Bell /></el-icon></span><div><h3>消息提醒</h3><p>为重要日程创建自定义提醒</p><span class="tool-action">设置提醒 <el-icon><ArrowRight /></el-icon></span></div></RouterLink>
       </div>

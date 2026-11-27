@@ -142,6 +142,11 @@ matrix-prp:
     user-monthly-reserved-tokens: ${MATRIX_PRP_AI_USER_MONTHLY_TOKENS:12000000}
     global-monthly-reserved-tokens: ${MATRIX_PRP_AI_GLOBAL_MONTHLY_TOKENS:60000000}
 
+  # Explicit runtime opt-in; the matching Web build switch is independent.
+  personal-os:
+    chat-extraction:
+      enabled: ${MATRIX_PRP_PERSONAL_OS_CHAT_EXTRACTION_ENABLED:false}
+
   wellness:
     # Optional USDA FoodData Central (CC0) server-only key; never exposed to browsers.
     usda-api-key: ${MATRIX_PRP_USDA_API_KEY:}

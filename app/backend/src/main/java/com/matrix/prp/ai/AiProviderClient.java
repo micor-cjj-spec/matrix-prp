@@ -20,8 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class AiProviderClient {
     private final ObjectMapper json;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
-        .followRedirects(HttpClient.Redirect.NEVER).build();
+    private final HttpClient http = AiEgressTransport.httpClient().build();
 
     public AiProviderClient(ObjectMapper json) { this.json = json; }
 

@@ -2,6 +2,7 @@ package com.matrix.prp.wellness;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.matrix.prp.ai.AiEgressTransport;
 import com.matrix.prp.ai.AiProviderCatalog;
 import com.matrix.prp.ai.AiSettingsService;
 import com.matrix.prp.ai.AiStore;
@@ -53,8 +54,7 @@ public class WellnessAiDraftService {
     private final boolean springAiVisionEnabled;
     private final int userRequests, globalRequests;
     private final long userTokens, globalTokens;
-    private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(6))
-        .followRedirects(HttpClient.Redirect.NEVER).build();
+    private final HttpClient http=AiEgressTransport.httpClient().connectTimeout(Duration.ofSeconds(6)).build();
 
     /** Preserve direct-construction API for validation-only tests. */
     public WellnessAiDraftService(JdbcTemplate db, WellnessService wellness, AiSettingsService settings,

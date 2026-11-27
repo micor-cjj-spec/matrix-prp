@@ -1,7 +1,6 @@
 package com.matrix.prp.ai;
 
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -84,9 +83,7 @@ public class SpringAiStructuredModelClient {
 
         URI endpoint = testEndpoints.getOrDefault(provider.id(), provider.endpoint());
         String origin = endpoint.getScheme() + "://" + endpoint.getRawAuthority();
-        var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(8))
-            .followRedirects(HttpClient.Redirect.NEVER).build());
+        var factory = new JdkClientHttpRequestFactory(AiEgressTransport.httpClient().build());
         factory.setReadTimeout(Duration.ofSeconds(45));
         RestClient.Builder http = RestClient.builder().requestFactory(factory)
             .defaultStatusHandler(HttpStatusCode::isError, (request, response) -> {
