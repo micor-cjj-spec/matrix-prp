@@ -1,0 +1,53 @@
+# Candidate only; do not deploy until owner authorizes this exact revision.
+services:
+  prometheus:
+    image: ${PRP_MON_PROM_IMAGE:?digest-required}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=2GB
+      - --query.max-concurrency=4
+      - --query.timeout=10s
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      - "host-collector:${PRP_MON_GATEWAY:?gateway-required}"
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 0.75
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    networks: [monitoring]
+  grafana:
+    image: ${PRP_MON_GRAF_IMAGE:?digest-required}
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${PRP_MON_GRAFANA_PASSWORD:?password-required}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PLUGINS_DISABLE_PLUGINS: "postgres,grafana-postgresql-datasource,pyroscope,grafana-pyroscope-datasource,jaeger,loki,mssql,mysql,opentsdb,tempo"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.75
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    networks: [monitoring]
+volumes:
+  prometheus-data:
+  grafana-data:
+networks:
+  monitoring:
+    external: true
+    name: ${PRP_MON_NETWORK:?isolated-network-required}
