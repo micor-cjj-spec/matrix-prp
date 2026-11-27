@@ -163,7 +163,7 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof,receipt
     check(!hasDevAncestry(mainAncestryComparison,command.head_sha),'HISTORICAL_529_EXPECTED_SQUASH')
     requireMain(branch)
     requirePolicy()
-    const evidence=collectHistorical529(api,pr,branch,checks)
+    const evidence=collectHistorical529(api,pr,branch,checks,mainAncestryComparison)
     check(evidence.historical529Verified===true&&evidence.pr===529&&evidence.checks===7,
       'HISTORICAL_529_EVIDENCE')
     proof.squashProof=evidence.squashProof
