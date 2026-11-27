@@ -8,6 +8,14 @@ const INCOMPLETE=new Set(['READY','CLAIMED','IN_PROGRESS','PAUSED','BLOCKED','IN
 const ID=/^REQ-[0-9]{8}-[0-9]{3}$/
 const TASK=/^T-[0-9]{3}$/
 
+// An old checkpoint is retained for audit, but is not a current-lease resume token.
+function checkpointLifecycle(task) {
+  if(!task.checkpoint)return 'NONE'
+  if(task.checkpoint.archived===true)return 'ARCHIVED_PREVIOUS_CLAIM'
+  if(!task.claim)return 'UNCLAIMED_HISTORY'
+  return 'ACTIVE_UNVERIFIED'
+}
+
 export function listUnfinishedRequirements(snapshots) {
   if(!Array.isArray(snapshots) || snapshots.length>1000)throw new Error('INVALID_REQUIREMENT_INDEX')
   const seen=new Set()
@@ -22,7 +30,10 @@ export function listUnfinishedRequirements(snapshots) {
       status:t.status==='READY'&&!ready.has(t.task_id)?'WAITING':t.status,
       worker_id:t.claim?.worker_id??null,
       checkpoint_at:t.checkpoint?.recorded_at??null, checkpoint_head_sha:t.checkpoint?.head_sha??null,
-      pr_number:t.pr_number??t.checkpoint?.pr_number??null
+      checkpoint_lifecycle:checkpointLifecycle(t),
+      // Historical checkpoint PRs must not appear to be a new claimant's active PR.
+      pr_number:t.pr_number??(t.claim && t.checkpoint?.archived!==true ?
+        t.checkpoint?.pr_number??null : null)
     }))
     if(s.status!=='CLOSED' && tasks.length)result.push({
       requirement_id:s.requirement_id,issue_number:s.issue_number,title:s.title,
@@ -50,6 +61,7 @@ export function recoveryBrief(snapshot,taskId) {
       pr_number:cp.pr_number??null,recorded_at:cp.recorded_at,
       source_worker:cp.worker_id,
       checkpoint_origin:cp.origin??'legacy_unspecified',
+      checkpoint_lifecycle:checkpointLifecycle(t),
       git_sha_verified:false,
       stale_vs_state_head:Boolean(t.head_sha&&t.head_sha!==cp.head_sha)
     }:null,
@@ -64,8 +76,10 @@ export function recoveryBrief(snapshot,taskId) {
     takeover_authorization:'explicit_owner_authored_issue',
     requires_github_gui_approval_for_forced_takeover:false,
     can_recover_uncommitted_chat_work:false,
-    warning:cp?'Verify the linked branch/SHA and CI on GitHub before continuing.':
-      'No durable checkpoint; reconstruct only from existing GitHub commits, Issues and PRs.'
+    warning:!cp?'No durable checkpoint; reconstruct only from existing GitHub commits, Issues and PRs.':
+      cp.archived===true?'Archived checkpoint from a previous claim: historical evidence only. Do not use for handoff or takeover; obtain fresh owner-verified Git evidence.':
+      !t.claim?'No active task claim: this checkpoint is historical. An authorized claim and fresh Git verification are required before work resumes.':
+      'Verify the linked branch/SHA and CI on GitHub before continuing.'
   }
 }
 

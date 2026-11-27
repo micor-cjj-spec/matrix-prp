@@ -87,3 +87,44 @@ test('recovery briefing labels owner-reconstructed evidence without exposing cla
  assert.equal(b.last_handoff.to_worker,'chat-new')
  assert.equal(JSON.stringify(b).includes('11111111-1111-4111'),false)
 })
+
+test('archived checkpoint is labelled historical in discovery and recovery, without leaking claims',()=>{
+ const s=state()
+ s.tasks[1].checkpoint.archived=true
+ s.tasks[1].checkpoint.worker_id='chat-old'
+ s.tasks[1].checkpoint.pr_number=812
+ const listed=listUnfinishedRequirements([s])[0].tasks[0]
+ assert.equal(listed.checkpoint_lifecycle,'ARCHIVED_PREVIOUS_CLAIM')
+ assert.equal(listed.checkpoint_head_sha,sha)
+ assert.equal(listed.pr_number,null)
+ const brief=recoveryBrief(s,'T-002')
+ assert.equal(brief.checkpoint.checkpoint_lifecycle,'ARCHIVED_PREVIOUS_CLAIM')
+ assert.equal(brief.checkpoint.pr_number,812)
+ assert.match(brief.warning,/Do not use for handoff or takeover/)
+ assert.doesNotMatch(JSON.stringify({listed,brief}),/11111111-1111-4111/)
+})
+
+test('released task checkpoint is historical even before a new claim archives it',()=>{
+ const s=state()
+ s.tasks[1].status='READY'
+ s.tasks[1].claim=null
+ s.tasks[1].checkpoint.pr_number=813
+ const listed=listUnfinishedRequirements([s])[0].tasks[0]
+ assert.equal(listed.checkpoint_lifecycle,'UNCLAIMED_HISTORY')
+ assert.equal(listed.pr_number,null)
+ const brief=recoveryBrief(s,'T-002')
+ assert.equal(brief.checkpoint.checkpoint_lifecycle,'UNCLAIMED_HISTORY')
+ assert.match(brief.warning,/No active task claim/)
+})
+
+test('handoff can preserve a prior worker checkpoint without misclassifying it as archived',()=>{
+ const s=state()
+ s.tasks[1].claim.worker_id='chat-B'
+ const listed=listUnfinishedRequirements([s])[0].tasks[0]
+ assert.equal(listed.checkpoint_lifecycle,'ACTIVE_UNVERIFIED')
+ const brief=recoveryBrief(s,'T-002')
+ assert.equal(brief.checkpoint.checkpoint_lifecycle,'ACTIVE_UNVERIFIED')
+ assert.equal(brief.checkpoint.git_sha_verified,false)
+ assert.match(brief.warning,/Verify the linked branch/)
+ assert.equal(listUnfinishedRequirements([s])[0].tasks[1].checkpoint_lifecycle,'NONE')
+})

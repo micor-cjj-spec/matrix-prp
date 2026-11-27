@@ -262,6 +262,10 @@ export function applyCommand(original, command, context) {
       // Even a re-claim with the same worker_id must use fresh owner-verified evidence.
       if(task.checkpoint!==undefined)
         task.checkpoint={...task.checkpoint,archived:true}
+      // Progress and submission pointers are lease-local. Preserve historical
+      // checkpoint and release receipts, but fence previous-claim pointers.
+      delete task.head_sha
+      delete task.pr_number
       receipt.claim_id = task.claim.claim_id
       break
     }
@@ -378,6 +382,9 @@ export function applyCommand(original, command, context) {
     case 'release':
       requireOwner()
       check(WORKING_STATES.has(task.status), 'INVALID_TRANSITION')
+      // Preserve the previous lease's last pointers for audit.
+      if(task.head_sha!==undefined)receipt.released_head_sha=task.head_sha
+      if(task.pr_number!==undefined)receipt.released_pr_number=task.pr_number
       task.claim = null
       task.status = 'READY'
       break
