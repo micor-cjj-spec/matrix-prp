@@ -380,3 +380,12 @@ test('issue attestation binds exact state SHA and cannot ignore visible nonempty
  }
  assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,redacted,note,{...binding,stateSha:'d'.repeat(40)},source),e=>e.code==='OWNER_RULESET_ATTESTATION_BINDING')
 })
+
+test('capture attestation is distinct from accept and binds exact state',()=>{
+ const rule=integrationPolicyFixture(),observedAt=new Date(Date.now()-1000).toISOString()
+ const binding={requestId:'11111111-1111-4111-8111-111111111111',action:'capture_receipt',requirementId:'REQ-20261031-001',taskId:'T-009',prNumber:461,headSha:sha,stateVersion:24,mainSha:merge,stateSha:integration,observedAt}
+ const note=buildOwnerRulesetAttestation(rule,binding),run={created_at:observedAt}
+ assert.equal(verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,note,binding,run).ownerAttested,true)
+ assert.throws(()=>verifyOwnerAttestedIntegrationPolicy(binding.requirementId,rule,note,{...binding,action:'accept'},run),/OWNER_RULESET_ATTESTATION_BINDING/)
+ assert.throws(()=>buildOwnerRulesetAttestation(rule,{...binding,taskId:null}),/OWNER_RULESET_ATTESTATION_BINDING/)
+})
