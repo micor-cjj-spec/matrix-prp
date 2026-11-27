@@ -24,8 +24,7 @@ public class AiToolPlanner {
     private final ObjectMapper mapper;
     private final SpringAiToolPlanner springAi;
     private final boolean springAiEnabled;
-    private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
-        .followRedirects(HttpClient.Redirect.NEVER).build();
+    private final HttpClient http=AiEgressTransport.httpClient().build();
     /** Tests and emergency legacy path keep the previous constructor. */
     public AiToolPlanner(ObjectMapper mapper) { this(mapper,null,false); }
     @Autowired

@@ -24,7 +24,7 @@ public class DeepSeekClient {
     public record ChatMessage(String role, String content) {}
     public record Result(String answer, long inputTokens, long outputTokens) {}
     private final ObjectMapper mapper;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
+    private final HttpClient http = AiEgressTransport.httpClient().build();
     private final String apiKey;
     private final String model;
 
