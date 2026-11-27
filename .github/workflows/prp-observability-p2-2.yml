@@ -1,0 +1,44 @@
+name: PRP observability P2.2 disposable application metrics
+on:
+  pull_request:
+    paths:
+      - 'app/backend/pom.xml'
+      - 'app/backend/src/main/resources/application*.yml'
+      - 'app/backend/src/main/java/com/matrix/prp/config/ObservabilityConfig.java'
+      - 'app/backend/src/test/java/com/matrix/prp/config/Observability*.java'
+      - '.github/workflows/prp-observability-p2-2.yml'
+permissions:
+  contents: read
+jobs:
+  isolated-metrics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-root-password
+          MYSQL_DATABASE: prp_p2_fixture
+          MYSQL_USER: p2_fixture
+          MYSQL_PASSWORD: ci-only-pool-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: app/backend/pom.xml
+      - name: Prepare existing checksum-verified Maven
+        run: bash app/deploy/mcp-staging/ci_prepare_maven_3916.sh
+      - name: Real application listener and disposable connection pool metrics
+        working-directory: app/backend
+        run: |
+          "$RUNNER_TEMP/apache-maven-3.9.16/bin/mvn" -B -Dtest=ObservabilityDisabledTests,ObservabilityMetricsTests,ObservabilityPoolIT test
