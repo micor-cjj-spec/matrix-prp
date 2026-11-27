@@ -136,38 +136,22 @@ def picker(page, kind, item):
     dialog = page.locator(".el-dialog").filter(
         has=page.get_by_text(title, exact=True))
     dialog.wait_for(state="visible", timeout=15000)
-    dialog.locator(".el-select").click()
-    # Click the real rendered option. Never force a disabled review button:
-    # the owner must have a selected item, valid goal and matching identity.
-    page.get_by_text(item, exact=True).click()
+    # Real native radio input, scoped to this owner dialog; no forced click,
+    # programmatic state mutation, retry or bypass of the separate approval.
     submit_button = dialog.get_by_role("button", name=submit)
+    option = dialog.get_by_role("radio", name=item, exact=True)
+    option.wait_for(state="visible", timeout=15000)
+    check(not submit_button.is_enabled(), "Review enabled before selection")
     try:
+        option.check(timeout=8000)
+        check(option.is_checked(), "Owner option was not selected")
         submit_button.click(timeout=8000)
     except PlaywrightTimeoutError:
-        # A prior WebKit 390px job intermittently clicked a dropdown item but
-        # kept the owner-review button disabled. Log ONLY synthetic DOM state,
-        # not auth tokens, API bodies, personal messages or browser storage.
-        diagnosis = dialog.evaluate("""(root, label) => {
-          const select = root.querySelector('.el-select');
-          const buttons = Array.from(root.querySelectorAll('button'));
-          const submit = buttons.find(b => b.textContent.trim() === label);
-          const options = Array.from(document.querySelectorAll(
-            '.el-select-dropdown__item')).filter(el => el.getClientRects().length > 0);
-          return {
-            buttonDisabled: submit ? submit.disabled : null,
-            selectDisabled: select ? select.classList.contains('is-disabled') : null,
-            selectText: (select?.innerText || '').trim().slice(0, 100),
-            selectInputValue: select?.querySelector('input')?.value?.slice(0, 100) || '',
-            openOptions: options.length,
-            selectedOptions: options.filter(el => el.classList.contains('is-selected'))
-              .map(el => (el.innerText || '').trim().slice(0, 100)),
-            visibleDialog: root.getClientRects().length > 0
-          };
-        }""", submit)
-        print("CI_PERSONAL_OS_PICKER_STATE=" +
-              json.dumps({"browser": ENGINE, "width": page.viewport_size["width"],
-                          "kind": kind, **diagnosis}, ensure_ascii=False),
-              flush=True)
+        print("CI_PERSONAL_OS_PICKER_STATE=" + json.dumps({
+            "browser": ENGINE, "width": page.viewport_size["width"], "kind": kind,
+            "buttonDisabled": not submit_button.is_enabled(),
+            "optionChecked": option.is_checked(),
+        }, ensure_ascii=False), flush=True)
         raise
     label = "确认关联到此目标" if task else "确认复盘关联到此目标"
     page.get_by_role("button", name=label).wait_for(

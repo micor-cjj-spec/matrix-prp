@@ -522,10 +522,14 @@ def run(page, origin):
             dialog = page.locator(".el-dialog").filter(
                 has=page.get_by_text("选择已有任务关联目标", exact=True))
             dialog.wait_for(state="visible", timeout=15000)
-            dialog.locator(".el-select").click()
-            page.get_by_text(
-                "CI-only existing task (#" + str(manual_task_id) + ")",
-                exact=True).click()
+            option = dialog.get_by_role("radio", name=
+                "CI-only existing task (#" + str(manual_task_id) + ")", exact=True)
+            option.wait_for(state="visible", timeout=15000)
+            if dialog.get_by_role("button", name="审核关联").is_enabled():
+                raise RuntimeError("PERSONAL_OS_TASK_REVIEW_ENABLED_BEFORE_SELECTION")
+            option.check()
+            if not option.is_checked():
+                raise RuntimeError("PERSONAL_OS_TASK_NOT_SELECTED")
             dialog.get_by_role("button", name="审核关联").click()
             page.get_by_role("button", name="确认关联到此目标").wait_for(
                 state="visible", timeout=15000)
@@ -628,10 +632,14 @@ def run(page, origin):
         review_dialog = page.locator(".el-dialog").filter(
             has=page.get_by_text("选择已有复盘关联目标", exact=True))
         review_dialog.wait_for(state="visible", timeout=15000)
-        review_dialog.locator(".el-select").click()
-        page.get_by_text(
-            "CI-only existing goal review (#" + str(review_id) + ")",
-            exact=True).click()
+        option = review_dialog.get_by_role("radio", name=
+            "CI-only existing goal review (#" + str(review_id) + ")", exact=True)
+        option.wait_for(state="visible", timeout=15000)
+        if review_dialog.get_by_role("button", name="审核复盘关联").is_enabled():
+            raise RuntimeError("PERSONAL_OS_REVIEW_ENABLED_BEFORE_SELECTION")
+        option.check()
+        if not option.is_checked():
+            raise RuntimeError("PERSONAL_OS_REVIEW_NOT_SELECTED")
         review_dialog.get_by_role("button", name="审核复盘关联").click()
         page.get_by_role("button", name="确认复盘关联到此目标").wait_for(
             state="visible", timeout=15000)
@@ -646,10 +654,14 @@ def run(page, origin):
 
         page.get_by_role("button", name="关联已有复盘（先选择）").click()
         review_dialog.wait_for(state="visible", timeout=15000)
-        review_dialog.locator(".el-select").click()
-        page.get_by_text(
-            "CI-only existing goal review (#" + str(review_id) + ")",
-            exact=True).click()
+        option = review_dialog.get_by_role("radio", name=
+            "CI-only existing goal review (#" + str(review_id) + ")", exact=True)
+        option.wait_for(state="visible", timeout=15000)
+        if review_dialog.get_by_role("button", name="审核复盘关联").is_enabled():
+            raise RuntimeError("PERSONAL_OS_REVIEW_ENABLED_BEFORE_SELECTION")
+        option.check()
+        if not option.is_checked():
+            raise RuntimeError("PERSONAL_OS_REVIEW_NOT_SELECTED")
         review_dialog.get_by_role("button", name="审核复盘关联").click()
         with page.expect_response(
             lambda resp: resp.request.method == "POST"

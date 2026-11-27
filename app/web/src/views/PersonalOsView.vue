@@ -94,6 +94,9 @@ const taskPickerOpen = ref(false)
 const taskPickerBusy = ref(false)
 const taskPickerTasks = ref<TaskItem[]>([])
 const taskPickerTaskId = ref<number | null>(null)
+const taskPickerQuery = ref('')
+const filteredTaskPicker = computed(() => taskPickerTasks.value.filter(item =>
+  `${item.title} (#${item.id})`.toLocaleLowerCase().includes(taskPickerQuery.value.trim().toLocaleLowerCase())))
 const taskPickerGoalId = ref<number | null>(null)
 const taskPickerOwnerToken = ref<string | null>(null)
 let taskPickerGeneration = 0
@@ -102,6 +105,9 @@ const reviewPickerOpen = ref(false)
 const reviewPickerBusy = ref(false)
 const reviewPickerReviews = ref<ReviewItem[]>([])
 const reviewPickerReviewId = ref<number | null>(null)
+const reviewPickerQuery = ref('')
+const filteredReviewPicker = computed(() => reviewPickerReviews.value.filter(item =>
+  `${item.title} (#${item.id})`.toLocaleLowerCase().includes(reviewPickerQuery.value.trim().toLocaleLowerCase())))
 const reviewPickerGoalId = ref<number | null>(null)
 const reviewPickerOwnerToken = ref<string | null>(null)
 let reviewPickerGeneration = 0
@@ -116,6 +122,7 @@ function clearReviewPicker() {
   reviewPickerBusy.value = false
   reviewPickerReviews.value = []
   reviewPickerReviewId.value = null
+  reviewPickerQuery.value = ''
   reviewPickerGoalId.value = null
   reviewPickerOwnerToken.value = null
 }
@@ -129,6 +136,7 @@ function clearTaskPicker() {
   taskPickerBusy.value = false
   taskPickerTasks.value = []
   taskPickerTaskId.value = null
+  taskPickerQuery.value = ''
   taskPickerGoalId.value = null
   taskPickerOwnerToken.value = null
 }
@@ -1210,11 +1218,17 @@ onMounted(async () => {
         <el-skeleton v-if="reviewPickerBusy" :rows="3" animated />
         <template v-else>
           <el-empty v-if="!reviewPickerReviews.length" description="暂无可关联的复盘" />
-          <el-select v-else v-model="reviewPickerReviewId" filterable clearable
-            placeholder="选择现有复盘" aria-label="选择已有复盘" style="width:100%">
-            <el-option v-for="review in reviewPickerReviews" :key="review.id"
-              :label="`${review.title} (#${review.id})`" :value="review.id" />
-          </el-select>
+          <div v-else class="os-picker">
+            <el-input v-model="reviewPickerQuery" clearable placeholder="搜索复盘" aria-label="搜索复盘" />
+            <div class="os-picker-options" role="group" aria-label="选择已有复盘">
+              <label v-for="review in filteredReviewPicker" :key="review.id" class="os-picker-option">
+                <input v-model="reviewPickerReviewId" type="radio" name="os-review-picker" :value="review.id" />
+                <span>{{ review.title }} (#{{ review.id }})</span>
+              </label>
+              <p v-if="!filteredReviewPicker.length" class="os-help">没有匹配的复盘</p>
+            </div>
+            <el-button v-if="reviewPickerReviewId !== null" text @click="reviewPickerReviewId = null">清除选择</el-button>
+          </div>
         </template>
         <template #footer>
           <el-button @click="clearReviewPicker">取消</el-button>
@@ -1230,11 +1244,17 @@ onMounted(async () => {
         <el-skeleton v-if="taskPickerBusy" :rows="3" animated />
         <template v-else>
           <el-empty v-if="!taskPickerTasks.length" description="暂无可关联的任务" />
-          <el-select v-else v-model="taskPickerTaskId" filterable clearable
-            placeholder="选择本人现有任务" aria-label="选择已有任务" style="width:100%">
-            <el-option v-for="task in taskPickerTasks" :key="task.id"
-              :label="`${task.title} (#${task.id})`" :value="task.id" />
-          </el-select>
+          <div v-else class="os-picker">
+            <el-input v-model="taskPickerQuery" clearable placeholder="搜索任务" aria-label="搜索任务" />
+            <div class="os-picker-options" role="group" aria-label="选择已有任务">
+              <label v-for="task in filteredTaskPicker" :key="task.id" class="os-picker-option">
+                <input v-model="taskPickerTaskId" type="radio" name="os-task-picker" :value="task.id" />
+                <span>{{ task.title }} (#{{ task.id }})</span>
+              </label>
+              <p v-if="!filteredTaskPicker.length" class="os-help">没有匹配的任务</p>
+            </div>
+            <el-button v-if="taskPickerTaskId !== null" text @click="taskPickerTaskId = null">清除选择</el-button>
+          </div>
         </template>
         <template #footer>
           <el-button @click="clearTaskPicker">取消</el-button>
@@ -1297,6 +1317,11 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.os-picker { display:grid; gap:10px; }
+.os-picker-options { max-height: min(36vh, 260px); overflow:auto; overscroll-behavior:contain; }
+.os-picker-option { display:flex; align-items:center; gap:10px; padding:10px 8px; min-height:44px; box-sizing:border-box; cursor:pointer; border-bottom:1px solid var(--el-border-color-lighter); }
+.os-picker-option input { flex:none; accent-color:var(--el-color-primary); }
+.os-picker-option span { min-width:0; overflow-wrap:anywhere; }
 .os-chat-source-text { white-space:pre-wrap; overflow-wrap:anywhere; max-height:50vh; overflow-y:auto; padding:14px; border-radius:12px; background:var(--el-fill-color-light); font:inherit; font-size:13px; line-height:1.6 }
 
 .personal-os-page { max-width: 1260px; margin: 0 auto; padding: 0 0 60px; }
