@@ -133,6 +133,12 @@ jobs:
           java-version: '21'
           cache: maven
           cache-dependency-path: app/backend/pom.xml
+      - name: Prepare pinned official Maven 3.9.16 (disposable CI only)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n app/deploy/mcp-staging/ci_prepare_maven_3916.sh
+          bash app/deploy/mcp-staging/ci_prepare_maven_3916.sh
       - name: Apply video schema to real MySQL
         run: |
           sudo apt-get update -qq
@@ -151,13 +157,14 @@ jobs:
         working-directory: app/backend
         env:
           MATRIX_PRP_DB_PASSWORD: ci-app-password
+          PRP_P35_DISPOSABLE_MYSQL: '1'
           MATRIX_PRP_BOOTSTRAP_USERNAME: video_admin
           MATRIX_PRP_BOOTSTRAP_PASSWORD: video-test-admin-password-2026
           MATRIX_PRP_JWT_SECRET: ci-integration-only-secret-key-at-least-32-bytes
           MATRIX_PRP_VIDEO_ROOT: ${{ runner.temp }}/prp-video-it
         run: |
           chmod +x mvnw
-          ./mvnw -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT,PersonalOsAiConcurrencyDatabaseIT test
+          "$RUNNER_TEMP/apache-maven-3.9.16/bin/mvn" -B -Dtest=VideoDatabaseIT,NotificationDatabaseIT,WellnessDatabaseIT,AiDatabaseIT,AgentTaskDatabaseIT,CodexJobDatabaseIT,FinanceLedgerDatabaseIT,FinanceImportDatabaseIT,VocalLibraryDatabaseIT,McpDatabaseIT,McpClientGrantDatabaseIT,McpIdentityLinkDatabaseIT,PersonalOsAiConcurrencyDatabaseIT,StagingReleaseDecisionJournalIT test
 
 
   deployment-gate-tests:
@@ -166,6 +173,30 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test production deployment data-preservation rules
         run: python3 -m unittest discover -s app/deploy -p 'test_*.py' -v
+      - name: Validate offline CI/CD release status fail-closed contract
+        run: python3 -m unittest discover -s app/scripts -p test_release_status.py -v
+      - name: Validate offline candidate evidence inventory
+        run: python3 -m unittest discover -s app/scripts -p test_release_evidence.py -v
+      - name: Validate offline release artifact review contract
+        run: python3 -m unittest discover -s app/scripts -p test_release_artifact_review.py -v
+      - name: Validate offline synthetic release approval contract
+        run: python3 -m unittest discover -s app/scripts -p test_release_approval_contract.py -v
+      - name: Validate offline synthetic approval persistence and process contention
+        run: python3 -m unittest discover -s app/scripts -p test_release_approval_store.py -v
+      - name: Validate offline approval card and owner-decision envelope
+        run: python3 -m unittest discover -s app/scripts -p test_release_approval_card.py -v
+      - name: Validate complete offline release approval lifecycle
+        run: python3 -m unittest discover -s app/scripts -p test_release_approval_e2e.py -v
+      - name: Validate offline staging evidence projection
+        run: node --test app/scripts/staging_evidence_projection.test.cjs
+      - name: Validate offline combined staging evidence inventory
+        run: python3 -m unittest discover -s app/scripts -p test_staging_release_evidence_review.py -v
+      - name: Validate offline build evidence correlation
+        run: python3 -m unittest discover -s app/scripts -p test_staging_build_evidence.py -v
+      - name: Validate offline runtime and UAT evidence correlation
+        run: python3 -m unittest discover -s app/scripts -p test_staging_runtime_evidence.py -v
+      - name: Validate offline migration restore risk and unified release chain
+        run: python3 -m unittest discover -s app/scripts -p test_staging_database_evidence.py -v
       - name: Validate OAuth authorization metadata preflight fixtures
         run: python3 -m unittest discover -s app/deploy/mcp-oauth -p 'test_*.py' -v
       - name: Validate isolated MCP staging configuration guards
