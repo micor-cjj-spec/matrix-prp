@@ -111,7 +111,7 @@ export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef,m
       const run=validRunRef && job.app?.id===15368 && job.head_sha===sha
         ?candidateRun(runId):null
       const expected=WORKFLOW_FOR_CHECK[name]
-      const sameHeadPush=job.app?.id===15368 && job.head_sha===sha && validRunRef &&
+      const sameHeadPush=baseRef==='main' && headRef==='dev' && job.app?.id===15368 && job.head_sha===sha && validRunRef &&
         run?.id===runId && run?.event==='push' && run?.head_sha===sha &&
         run?.head_branch===headRef &&
         run?.repository?.full_name===REPO && run?.repository?.id===1261866723 &&
