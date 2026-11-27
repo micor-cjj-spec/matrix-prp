@@ -164,7 +164,7 @@ export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef,m
         'WORKFLOW_PR_MISMATCH_'+name)
       if(checkout){
         const link=links[0]
-        check(link.base.sha===checkout.baseSha&&link.head.ref===headRef&&link.base.repo?.id===1261866726&&link.head.repo?.id===1261866726,'WORKFLOW_CHECKOUT_PR_BASE_MISMATCH_'+name)
+        check(link.base.sha===checkout.baseSha&&link.head.ref===headRef&&link.base.repo?.id===1261866723&&link.head.repo?.id===1261866723,'WORKFLOW_CHECKOUT_PR_BASE_MISMATCH_'+name)
       }
     }
     if(!seenJobs.has(runId))seenJobs.set(runId,loadJobs(runId))
