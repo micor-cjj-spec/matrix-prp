@@ -6,10 +6,21 @@ from pathlib import Path
 TARGET=Path('/usr/local/sbin/prp-diagnose')
 CONTROLLER=Path('/usr/local/sbin/prp-release')
 BASE=Path('/var/backups/prp-policy-attestor')
-OLD='84343877e8510ebe6722849867e989c234a55805128eaa8f166816e74d0f8483'
+OLD='9070861e69b3ec2a0106f3e6c9992f3344397eecccd9cc80e42370392517121f'
+MATCH_OLD='84343877e8510ebe6722849867e989c234a55805128eaa8f166816e74d0f8483'
 CONTROLLER_SHA='c329836ed2f48296e5ab505451aab3c59b33db7f7c20aba5ae7c2b1ec80622e2'
 
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+def require_clock_only_change(before,after):
+    old=ast.parse(before).body;new=ast.parse(after).body
+    if len(old)!=len(new):raise ValueError('Only the reviewed daemon_birth function may change')
+    changed=[]
+    for a,b in zip(old,new):
+        if ast.dump(a,include_attributes=False)==ast.dump(b,include_attributes=False):continue
+        if not isinstance(a,ast.FunctionDef) or not isinstance(b,ast.FunctionDef) or a.name!=b.name:
+            raise ValueError('Unexpected helper change')
+        changed.append(a.name)
+    if changed!=['daemon_birth']:raise ValueError('Only daemon_birth may change')
 def require_match_only_change(before,after):
     old=ast.parse(before).body;new=ast.parse(after).body
     if len(old)!=len(new):raise ValueError('Only the reviewed configuration collection functions may change')
@@ -20,6 +31,12 @@ def require_match_only_change(before,after):
             raise ValueError('Unexpected helper change')
         changed.append(a.name)
     if changed!=['configuration_files','collect_policy']:raise ValueError('Only configuration_files and collect_policy may change')
+def validate_upgrade(before,after):
+    old=hashlib.sha256(before).hexdigest()
+    if old==OLD:require_clock_only_change(before,after)
+    elif old==MATCH_OLD:require_match_only_change(before,after)
+    else:raise ValueError('STOP: unknown installed helper; do not overwrite')
+    return old
 def state():
     files=[CONTROLLER,Path('/usr/local/bin/prp-deploy-gateway'),Path('/home/prp-deploy/.ssh/authorized_keys'),Path('/etc/ssh/sshd_config')]
     files+=sorted(Path('/etc/ssh/sshd_config.d').glob('*'))+sorted(Path('/etc/sudoers.d').glob('*'))
@@ -51,15 +68,15 @@ def main():
         if a.action=='rollback':
             if not a.backup_id or re.fullmatch(r'[0-9]{8}T[0-9]{6}Z',a.backup_id) is None:raise SystemExit('Invalid fixed backup ID')
             backup=BASE/a.backup_id;receipt=json.loads((backup/'receipt.json').read_text())
-            if digest(TARGET)!=receipt['new_sha256'] or digest(backup/'helper.before')!=OLD:raise SystemExit('STOP: rollback drift')
+            if receipt.get('old_sha256') not in (OLD,MATCH_OLD) or digest(TARGET)!=receipt['new_sha256'] or digest(backup/'helper.before')!=receipt['old_sha256']:raise SystemExit('STOP: rollback drift')
+            validate_upgrade((backup/'helper.before').read_bytes(),TARGET.read_bytes())
             replace((backup/'helper.before').read_bytes())
             if state()!=before:raise SystemExit('Protected state changed; review required')
             print('Only diagnose helper rolled back; controller, SSH policy and service untouched');return
         if a.candidate is None or a.candidate.is_symlink():raise SystemExit('Candidate regular file required')
         data=a.candidate.read_bytes();ast.parse(data);sha=hashlib.sha256(data).hexdigest()
-        if digest(TARGET)!=OLD:raise SystemExit('STOP: unknown installed helper; do not overwrite')
-        require_match_only_change(TARGET.read_bytes(),data)
-        print('old_sha256='+OLD);print('candidate_sha256='+sha)
+        old=validate_upgrade(TARGET.read_bytes(),data)
+        print('old_sha256='+old);print('candidate_sha256='+sha)
         if a.action=='check':
             print('CHECK ONLY: no production file modified');return
         if a.approved_sha256!=sha:raise SystemExit('Explicit reviewed --approved-sha256 is required')
@@ -67,8 +84,8 @@ def main():
         if BASE.is_symlink() or BASE.stat().st_uid!=0 or stat.S_IMODE(BASE.stat().st_mode)!=0o700:raise SystemExit('STOP: untrusted backup directory')
         backup=BASE/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ');backup.mkdir(mode=0o700)
         shutil.copy2(TARGET,backup/'helper.before')
-        if digest(backup/'helper.before')!=OLD:raise SystemExit('STOP: backup verification failed')
-        receipt={'old_sha256':OLD,'new_sha256':sha,'protected_before':before}
+        if digest(backup/'helper.before')!=old:raise SystemExit('STOP: backup verification failed')
+        receipt={'old_sha256':old,'new_sha256':sha,'protected_before':before}
         (backup/'receipt.json').write_text(json.dumps(receipt,indent=2))
         try:
             replace(data)
