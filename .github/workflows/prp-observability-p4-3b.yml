@@ -185,10 +185,10 @@ jobs:
           PY
           go version -m "$work/binary/mcp-grafana" > "$work/buildinfo"
           cat "$work/buildinfo"
-          grep -Eq 'path[[:space:]]+github.com/grafana/mcp-grafana/v2/cmd/mcp-grafana "$work/buildinfo"
-          grep -Eq 'build[[:space:]]+CGO_ENABLED=0 "$work/buildinfo"
-          grep -Eq 'build[[:space:]]+GOOS=linux "$work/buildinfo"
-          grep -Eq 'build[[:space:]]+GOARCH=amd64 "$work/buildinfo"
+          grep -Eq 'path[[:space:]]+github.com/grafana/mcp-grafana/v2/cmd/mcp-grafana$' "$work/buildinfo"
+          grep -Eq 'build[[:space:]]+CGO_ENABLED=0$' "$work/buildinfo"
+          grep -Eq 'build[[:space:]]+GOOS=linux$' "$work/buildinfo"
+          grep -Eq 'build[[:space:]]+GOARCH=amd64$' "$work/buildinfo"
           if grep -q 'vcs.revision=' "$work/buildinfo"; then grep -q 'vcs.revision=7f717bceff42080b3eeb026506672e8ba4fbdce7' "$work/buildinfo"; fi
           readelf -l "$work/binary/mcp-grafana" > "$work/elf-program"
           readelf -d "$work/binary/mcp-grafana" > "$work/elf-dynamic"
