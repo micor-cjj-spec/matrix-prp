@@ -9,14 +9,14 @@
     "application_commit": "86b1ec3ce9b97d54e084db8040464ff2b5b28a70"
   },
   "approved_ssh_policy": {
-    "attestor_sha256": "84343877e8510ebe6722849867e989c234a55805128eaa8f166816e74d0f8483",
+    "attestor_sha256": "3e122c7fe70497593703d55443ecfd444557855c9604e94b7817f9bdc86f2e11",
     "authorized_keys_sha256": "2110ec415e1b5f9cdf35c78c3e87ae2041173855d6ba1b517d7669abe38ef8aa",
     "behavior": "openssh-10.0-subsystem-stderr-ignore",
     "deployment_key_fingerprint": "SHA256:JXTbCNVoO05558wEnplfeX5bQani4nwqwui/KfSdfSo",
     "effective_sshd_sha256": "251897dfd75f68eba241ed7f541d0ef145345b840c97caf97ec009cc3f3cffc4",
     "forced_command": "/usr/local/bin/prp-deploy-gateway",
     "gateway_sha256": "d4743a9b7df77e10968bc8e5a94f2676e2c362a50d55ca0203ed88d85708b10b",
-    "policy_files_sha256": "d894b6616980757e664876308858d6fc532991701b629234ff14b5caf5933c22",
+    "policy_files_sha256": "eb9bd89a9d8398137f9d2a68b2277ed42442e636f714061c50e5cbfa7bc93fa3",
     "subsystem_command": "/usr/lib/openssh/sftp-server"
   },
   "ssh_policy_review": {

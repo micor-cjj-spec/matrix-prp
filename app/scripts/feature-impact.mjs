@@ -196,7 +196,7 @@ export function runCli(argv) {
   if (errors.length) throw Error('Registry mapping errors:\n' + errors.join('\n'))
   let files = opts.files
   if (!files.length) {
-    const changed = execFileSync('git', ['diff','--name-only','-z','--diff-filter=ACDMRT',
+    const changed = execFileSync('git', ['diff','--no-renames','--name-only','-z','--diff-filter=ACDMT',
       opts.base + '...' + opts.head], {cwd:root,encoding:'utf8'})
     files = changed.split('\0').filter(Boolean)
   }
