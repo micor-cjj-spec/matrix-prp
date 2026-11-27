@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 43,
-  "updated_at": "2026-11-27T02:51:45.292Z",
+  "version": 44,
+  "updated_at": "2026-11-27T03:10:26.378Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -573,6 +573,19 @@
         "status": "IN_PROGRESS",
         "replayed": false
       }
+    },
+    {
+      "request_id": "d4080003-1127-4a08-8601-000000000003",
+      "fingerprint": "64294f255c1677751c92f30085fc1f3e5cbd11c5be21638da6aaf8c65243c68e",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "submit",
+        "task_id": "T-008",
+        "request_id": "d4080003-1127-4a08-8601-000000000003",
+        "version": 44,
+        "status": "IN_REVIEW",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -761,7 +774,7 @@
       "task_id": "T-008",
       "issue_number": 143,
       "title": "CAS 并发及工作流边界测试",
-      "status": "IN_PROGRESS",
+      "status": "IN_REVIEW",
       "depends_on": [
         "T-003",
         "T-007",
@@ -780,7 +793,9 @@
         "actor": "micor-cjj-spec",
         "claimed_at": "2026-11-27T02:51:01.894Z",
         "generation": 1
-      }
+      },
+      "pr_number": 509,
+      "head_sha": "750c29cad949cacf5352744925850a8424835b35"
     },
     {
       "task_id": "T-009",
