@@ -377,6 +377,11 @@ function verifyHistorical529Evidence(e){
    'HISTORICAL_529_PR_MISMATCH')
  check(e.main?.name==='main'&&e.main.protected===true&&
    /^[a-f0-9]{40}$/.test(e.main.commit?.sha||''),'HISTORICAL_529_MAIN_MISMATCH')
+ const ancestry=e.mainAncestryComparison
+ check(['behind','diverged'].includes(ancestry?.status)&&Number.isInteger(ancestry.behind_by)&&
+   ancestry.behind_by>0&&ancestry.base_commit?.sha===HEAD&&
+   ancestry.merge_base_commit?.sha===BASE&&Array.isArray(ancestry.commits),
+   'HISTORICAL_529_ANCESTRY_MISMATCH')
  verifyCommit(e.testCommit,TEST)
  verifyCommit(e.mergeCommit,MERGE)
  check(Array.isArray(e.timeline)&&e.timeline.length>0&&e.timeline.length<100&&
@@ -433,7 +438,7 @@ function verifyHistorical529Evidence(e){
    squashProof:{mergeCommit:e.mergeCommit,testCommit:e.testCommit,checkouts,workflowBlobs:e.workflowBlobs}
  })
 }
-function collectHistorical529(api,pr,branch,checks){
+function collectHistorical529(api,pr,branch,checks,mainAncestryComparison){
  const root='repos/'+REPO
  const get=p=>api(root+p)
  const runIds=[45980919751,45980919689,45980919800]
@@ -442,7 +447,7 @@ function collectHistorical529(api,pr,branch,checks){
  const page2=get('/issues/529/timeline?per_page=100&page=2')
  check(Array.isArray(page2)&&page2.length===0,'HISTORICAL_529_TIMELINE_INCOMPLETE')
  return verifyHistorical529Evidence({
-   pr,main:branch,checks,timeline,
+   pr,main:branch,checks,timeline,mainAncestryComparison,
    files:get('/pulls/529/files?per_page=100'),
    testCommit:get('/git/commits/'+TEST),
    mergeCommit:get('/git/commits/'+MERGE),
