@@ -8,15 +8,15 @@ const jobs=()=>({total_count:REQUIRED_CHECKS.length,check_runs:REQUIRED_CHECKS.m
  name,id:1001+i,head_sha:sha,status:'completed',conclusion:'success',app:{slug:'github-actions',id:15368},
  details_url:`https://github.com/${repo}/actions/runs/${name==='impact-report'?102:name==='dev-collab-contract'?103:101}/job/${1001+i}`
 }))})
-const run = (id,branch=headRef)=> {
+const run = (id,branch=headRef,base=baseRef)=> {
  const map={101:['CI','.github/workflows/ci.yml'],102:['Feature Impact Report','.github/workflows/feature-impact.yml'],
   103:['PRP Dev Collaboration Contract','.github/workflows/prp-dev-collab-contract.yml']}
  const [name,path]=map[id]
  return {id,name,path,run_attempt:2,created_at:'2026-10-31T17:00:00Z',event:'pull_request',status:'completed',conclusion:'success',head_sha:sha,
   head_branch:branch,repository:{full_name:repo,id:1261866723},head_repository:{full_name:repo,id:1261866723},
-  pull_requests:[{number,head:{sha,ref:branch},base:{ref:baseRef}}]}
+  pull_requests:[{number,head:{sha,ref:branch},base:{ref:base}}]}
 }
-const list=(id,branch=headRef)=>{const jobsForRun=jobs().check_runs.filter(c=>c.details_url.includes('/runs/'+id+'/')).map(c=>({name:c.name,id:c.id,run_id:id,run_attempt:1,head_sha:sha,head_branch:branch,workflow_name:run(id,branch).name,status:'completed',conclusion:'success',started_at:'2026-10-31T17:01:00Z',completed_at:'2026-10-31T17:59:00Z'}));return {total_count:jobsForRun.length,jobs:jobsForRun}}
+const list=(id,branch=headRef,base=baseRef)=>{const jobsForRun=jobs().check_runs.filter(c=>c.details_url.includes('/runs/'+id+'/')).map(c=>({name:c.name,id:c.id,run_id:id,run_attempt:1,head_sha:sha,head_branch:branch,workflow_name:run(id,branch,base).name,status:'completed',conclusion:'success',started_at:'2026-10-31T17:01:00Z',completed_at:'2026-10-31T17:59:00Z'}));return {total_count:jobsForRun.length,jobs:jobsForRun}}
 const verify=(data,resolver=run,jobLoader=list,overrides={})=>verifyWorkflowProvenance(data,{sha,prNumber:number,baseRef,headRef,mergedAt:'2026-10-31T18:00:00Z',...overrides},resolver,jobLoader)
 const fails=(f,code)=>assert.throws(f,e=>e.code===code)
 test('requires three correct signed workflow identities and precise PR provenance',()=>{
@@ -56,8 +56,8 @@ test('a newer same-HEAD dev push check cannot shadow the exact PR check',()=>{
  x.check_runs.push({...x.check_runs[0],id:9999,
   details_url:'https://github.com/'+repo+'/actions/runs/104/job/9999'})
  x.total_count++
- const pushRun={...run(101,'dev'),id:104,event:'push',pull_requests:[]}
- const result=verify(x,id=>id===104?pushRun:run(id,'dev'),id=>list(id,'dev'),{headRef:'dev'})
+ const pushRun={...run(101,'dev','main'),id:104,event:'push',pull_requests:[]}
+ const result=verify(x,id=>id===104?pushRun:run(id,'dev','main'),id=>list(id,'dev','main'),{headRef:'dev',baseRef:'main'})
  assert.deepEqual(result.workflow_runs,[101,102,103])
 })
 test('same-HEAD dev push checks alone remain rejected as non-PR evidence',()=>{
@@ -67,8 +67,8 @@ test('same-HEAD dev push checks alone remain rejected as non-PR evidence',()=>{
  x.check_runs.push({...backend,id:9999,
   details_url:'https://github.com/'+repo+'/actions/runs/104/job/9999'})
  x.total_count=x.check_runs.length
- const pushRun={...run(101,'dev'),id:104,event:'push',pull_requests:[]}
- fails(()=>verify(x,id=>id===104?pushRun:run(id,'dev'),id=>list(id,'dev'),{headRef:'dev'}),'WRONG_WORKFLOW_ORIGIN_backend-tests')
+ const pushRun={...run(101,'dev','main'),id:104,event:'push',pull_requests:[]}
+ fails(()=>verify(x,id=>id===104?pushRun:run(id,'dev','main'),id=>list(id,'dev','main'),{headRef:'dev',baseRef:'main'}),'WRONG_WORKFLOW_ORIGIN_backend-tests')
 })
 test('same-HEAD non-dev push checks are not excluded from task-branch provenance',()=>{
  const x=jobs()
