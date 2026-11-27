@@ -54,7 +54,7 @@ test('a newer failed authorized check cannot be obscured by an older green one',
 test('a newer same-HEAD dev push check cannot shadow the exact PR check',()=>{
  const x=jobs()
  x.check_runs.push({...x.check_runs[0],id:9999,
-  details_url:\`https://github.com/\${repo}/actions/runs/104/job/9999\`})
+  details_url:'https://github.com/'+repo+'/actions/runs/104/job/9999'})
  x.total_count++
  const pushRun={...run(101),id:104,event:'push',pull_requests:[]}
  const result=verify(x,id=>id===104?pushRun:run(id))
@@ -65,7 +65,7 @@ test('same-HEAD dev push checks alone remain rejected as non-PR evidence',()=>{
  const backend=x.check_runs[0]
  x.check_runs=x.check_runs.filter(c=>c.name!=='backend-tests')
  x.check_runs.push({...backend,id:9999,
-  details_url:\`https://github.com/\${repo}/actions/runs/104/job/9999\`})
+  details_url:'https://github.com/'+repo+'/actions/runs/104/job/9999'})
  x.total_count=x.check_runs.length
  const pushRun={...run(101),id:104,event:'push',pull_requests:[]}
  fails(()=>verify(x,id=>id===104?pushRun:run(id)),'WRONG_WORKFLOW_ORIGIN_backend-tests')
