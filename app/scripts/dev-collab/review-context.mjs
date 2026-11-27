@@ -2,9 +2,11 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { CollabError } from './core.mjs'
 import { verifyTaskEvidence, verifyIntegrationRelease, verifyRequirementClose, verifyIntegrationPolicy, verifyOwnerAttestedIntegrationPolicy, hasDevAncestry } from './review-gate.mjs'
-import { verifyWorkflowProvenance, isReviewLogRoute } from './review-provenance.mjs'
-
-import {HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446} from './review-provenance.mjs'
+import {
+  verifyWorkflowProvenance, isReviewLogRoute,
+  HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446,
+  HISTORICAL_529_PREFIX,verifyHistorical529Binding,collectHistorical529
+} from './review-provenance.mjs'
 
 const RECEIPT_ACCEPT_PREFIX='PRP_PREMERGE_RECEIPT_V1:'
 const HISTORICAL_271_PREFIX='PRP_HISTORICAL_271_V1:'
@@ -44,6 +46,9 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof,receipt
   const historical271=issueProof?.historical271===true
   const marked271=typeof command.note==='string'&&command.note.startsWith(HISTORICAL_271_PREFIX)
   check(marked271===historical271&&(!historical271||issue&&command.type==='accept'&&!historical446&&!capture&&!receiptAccept),'HISTORICAL_271_EXPLICIT_ISSUE_REQUIRED')
+  const historical529=typeof command.note==='string'&&command.note.startsWith(HISTORICAL_529_PREFIX)
+  check(!historical529||(manual&&command.type==='close'&&command.note===HISTORICAL_529_PREFIX&&
+    !historical446&&!historical271&&!capture&&!receiptAccept),'HISTORICAL_529_EXPLICIT_MANUAL_CLOSE_REQUIRED')
   const ownerNote=historical271?command.note.slice(HISTORICAL_271_PREFIX.length):historical446?command.note.slice(HISTORICAL_446_PREFIX.length):
     receiptAccept?command.note.slice(RECEIPT_ACCEPT_PREFIX.length):command.note
   const requirePolicy=()=>{
@@ -153,7 +158,16 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof,receipt
   const loadRun=id=>api(root+'/actions/runs/'+id)
   // Only a fully identified squash candidate may request raw checkout evidence.
   // A missing or malformed ancestry response is not itself squash proof.
-  if(!hasDevAncestry(mainAncestryComparison,command.head_sha)&&SHA.test(pr?.base?.sha||'')&&
+  if(historical529){
+    verifyHistorical529Binding(snapshot,command)
+    check(!hasDevAncestry(mainAncestryComparison,command.head_sha),'HISTORICAL_529_EXPECTED_SQUASH')
+    requireMain(branch)
+    requirePolicy()
+    const evidence=collectHistorical529(api,pr,branch,checks)
+    check(evidence.historical529Verified===true&&evidence.pr===529&&evidence.checks===7,
+      'HISTORICAL_529_EVIDENCE')
+    proof.squashProof=evidence.squashProof
+  }else if(!hasDevAncestry(mainAncestryComparison,command.head_sha)&&SHA.test(pr?.base?.sha||'')&&
     pr.base.ref==='main'&&pr.head.ref==='dev'&&pr.head.sha===command.head_sha&&pr.number===command.pr_number&&pr.merged===true){
     requireMain(branch)
     requirePolicy()
@@ -173,5 +187,6 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof,receipt
   verifyRequirementClose(snapshot,{
     actorIsRepositoryOwner:true,explicitAcceptance:true,integrationReviewVerified:true
   })
-  return {reviewerAuthorized:true,acceptanceApproved:true,integrationReviewVerified:true}
+  return {reviewerAuthorized:true,acceptanceApproved:true,integrationReviewVerified:true,
+    ...(historical529?{historical529Verified:true}:{})}
 }
