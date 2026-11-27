@@ -1,0 +1,114 @@
+{
+  "uid": "prp-ci-mcp-candidate",
+  "title": "PRP CI and MCP evidence (offline assertions only)",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Fresh projection (not runtime availability)",
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prp_ci_projection_fresh"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Snapshot age seconds",
+      "id": 2,
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prp_ci_snapshot_age_seconds"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Release state claims — never LIVE proof",
+      "id": 3,
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prp_ci_release_state_claim == 1"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latest attempt jobs by state",
+      "id": 4,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prp_ci_jobs{group=\"all\"}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "MCP test jobs — not endpoint health",
+      "id": 5,
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prp_ci_jobs{group=\"mcp\"}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Completed job duration sum",
+      "id": 6,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prp_ci_completed_job_duration_seconds"
+        }
+      ]
+    }
+  ]
+}

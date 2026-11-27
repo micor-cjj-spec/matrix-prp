@@ -1,0 +1,39 @@
+# CI-only. No actual PRP hosts or credentials.
+modules:
+  http_health:
+    prober: http
+    timeout: 2s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      follow_redirects: false
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      body_size_limit: 16KB
+  https_health:
+    prober: http
+    timeout: 2s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      follow_redirects: false
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      body_size_limit: 16KB
+      fail_if_not_ssl: true
+      tls_config:
+        ca_file: /etc/blackbox/fixture-ca.crt
+        insecure_skip_verify: false
+  https_untrusted:
+    prober: http
+    timeout: 2s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      follow_redirects: false
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      body_size_limit: 16KB
+      fail_if_not_ssl: true
+      tls_config:
+        insecure_skip_verify: false

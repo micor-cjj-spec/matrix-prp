@@ -1,0 +1,130 @@
+{
+  "uid": "prp-mysql-candidate",
+  "title": "PRP MySQL aggregate candidate (offline)",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "MySQL / scrape path reachability",
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "mysql_up{job=\"p2-mysql\"}"
+        },
+        {
+          "refId": "B",
+          "expr": "up{job=\"p2-mysql\"}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Threads connected / configured maximum",
+      "id": 2,
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "mysql_global_status_threads_connected{job=\"p2-mysql\"}"
+        },
+        {
+          "refId": "B",
+          "expr": "mysql_global_variables_max_connections{job=\"p2-mysql\"}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Queries per second",
+      "id": 3,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(mysql_global_status_queries{job=\"p2-mysql\"}[2m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "InnoDB buffer pool logical / physical reads per second",
+      "id": 4,
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(mysql_global_status_innodb_buffer_pool_read_requests{job=\"p2-mysql\"}[2m])"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(mysql_global_status_innodb_buffer_pool_reads{job=\"p2-mysql\"}[2m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "InnoDB data read / written bytes per second",
+      "id": 5,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(mysql_global_status_innodb_data_read{job=\"p2-mysql\"}[2m])"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(mysql_global_status_innodb_data_written{job=\"p2-mysql\"}[2m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "InnoDB row lock waits per second",
+      "id": 6,
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(mysql_global_status_innodb_row_lock_waits{job=\"p2-mysql\"}[2m])"
+        }
+      ]
+    }
+  ]
+}
