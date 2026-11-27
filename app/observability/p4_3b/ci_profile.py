@@ -112,6 +112,8 @@ def main():
                 meta=client.get("/.well-known/oauth-protected-resource/mcp")
                 check(meta.status_code==200 and meta.json()["resource"]==RESOURCE
                       and meta.json()["authorization_servers"]==[ISSUER], "profile-bound-sdk-metadata")
+                init=client.post("/mcp",headers=headers,json={"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"p43b-ci","version":"1"}}})
+                check(init.status_code==200 and init.json()["result"]["protocolVersion"]=="2025-06-18","profile-sdk-initialize")
                 def call(h=None):
                     return client.post("/mcp",headers=headers if h is None else h,json={
                         "jsonrpc":"2.0","id":1,"method":"tools/call","params":{
