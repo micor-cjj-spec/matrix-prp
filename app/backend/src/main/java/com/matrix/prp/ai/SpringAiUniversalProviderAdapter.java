@@ -86,7 +86,7 @@ public class SpringAiUniversalProviderAdapter {
         // compatible endpoints use a "data: [DONE]" sentinel.
         DeepSeekStreamCompletionProbe completion = new DeepSeekStreamCompletionProbe(
             anthropic ? "event: message_stop" : "data: [DONE]");
-        WebClient.Builder webClient = WebClient.builder().filter((request, next) ->
+        WebClient.Builder webClient = AiEgressTransport.streamingClient().filter((request, next) ->
             next.exchange(request).flatMap(response -> {
                 // Some provider SDKs embed the entire upstream error body in
                 // unchecked exceptions. Reject error responses at the transport

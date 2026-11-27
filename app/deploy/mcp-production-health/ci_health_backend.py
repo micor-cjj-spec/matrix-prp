@@ -78,12 +78,29 @@ class Backend:
      and hashlib.sha256(v30_sql.read_bytes()).hexdigest()==v30_rules[0].get('sha256'))
   self.check('real_health_mysql_v29_migrated',
     self.sql("SELECT version,success FROM flyway_schema_history WHERE version='29' AND type='SQL' LIMIT 1;")=='29\t1')
-  expected_terminal='30' if has_v30 else '29'
+  # V30 remains independently attested even when the disposable candidate
+  # additionally contains the exact, already reviewed V31 migration.
+  v31_sql=migration_root/'V31__personal_os_goals_and_assertions.sql'
+  has_v31=v31_sql.is_file()
+  if has_v31:
+   self.check('real_health_v31_requires_v30',has_v30)
+   v31_rules=[rule for rule in policy.get('rules',[]) if rule.get('version')==31]
+   self.check('real_health_v31_source_policy_attested',
+     len(v31_rules)==1 and v31_rules[0].get('file')==v31_sql.name
+     and v31_rules[0].get('mode')=='create-empty'
+     and v31_rules[0].get('tables')==['prp_goals','prp_personal_assertions']
+     and hashlib.sha256(v31_sql.read_bytes()).hexdigest()==v31_rules[0].get('sha256'))
+  expected_terminal='31' if has_v31 else ('30' if has_v30 else '29')
   self.check('real_health_mysql_candidate_terminal_migrated',
     self.sql('SELECT version,success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;')==expected_terminal+'\t1')
   if has_v30:
+   self.check('real_health_mysql_v30_migrated',
+     self.sql("SELECT version,success FROM flyway_schema_history WHERE version='30' AND type='SQL' LIMIT 1;")=='30\t1')
    self.check('real_health_v30_new_tables_created_empty',
      self.sql('SELECT (SELECT COUNT(*) FROM prp_wellness_meal_analyses) + (SELECT COUNT(*) FROM prp_wellness_meal_item_nutrients);')=='0')
+  if has_v31:
+   self.check('real_health_v31_new_tables_created_empty',
+     self.sql('SELECT (SELECT COUNT(*) FROM prp_goals) + (SELECT COUNT(*) FROM prp_personal_assertions);')=='0')
   migration_history=self.sql('SELECT installed_rank,version,checksum,success FROM flyway_schema_history ORDER BY installed_rank;')
   # /api/health may return 200 before AdminBootstrap's ApplicationRunner inserts the initial owner.
   for _ in range(30):

@@ -64,7 +64,7 @@ public class SpringAiDeepSeekAdapter {
         // bodyToFlux(String.class) consumes and hides the [DONE] event.
         // The probe does not consume, copy, buffer or replay DataBuffers.
         DeepSeekStreamCompletionProbe completion = new DeepSeekStreamCompletionProbe();
-        WebClient.Builder streamingClient = WebClient.builder().filter((request, next) ->
+        WebClient.Builder streamingClient = AiEgressTransport.streamingClient().filter((request, next) ->
             next.exchange(request).map(response -> response.mutate()
                 .body(body -> body.doOnNext(completion::inspect)).build()));
         DeepSeekApi api = DeepSeekApi.builder().baseUrl(endpoint)

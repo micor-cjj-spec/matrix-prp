@@ -128,6 +128,8 @@ jobs:
         working-directory: app/web
         env:
           VITE_APP_BASE: /prp/
+          # Explicit build opt-in; does not enable the backend or authorize publication.
+          VITE_PERSONAL_OS_CHAT_EXTRACTION: ${{ vars.PRP_PERSONAL_OS_CHAT_EXTRACTION == 'true' && 'true' || 'false' }}
           VITE_MCP_FIRST_PARTY_AUTHORIZATION_ENDPOINT: https://auth.micor.top/realms/prp-mcp-prod/protocol/openid-connect/auth
         run: |
           npm ci --no-audit --no-fund
