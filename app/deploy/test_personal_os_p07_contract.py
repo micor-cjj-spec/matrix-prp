@@ -13,6 +13,18 @@ class PersonalOsP07ContractTests(unittest.TestCase):
         for name in ("SpringAiDeepSeekAdapter", "SpringAiUniversalProviderAdapter"):
             self.assertIn("AiEgressTransport.streamingClient().filter(", (AI / (name + ".java")).read_text())
 
+    def test_native_wellness_and_practice_use_model_proxy_only(self):
+        wellness = (AI.parent / "wellness/WellnessAiDraftService.java").read_text()
+        practice = (AI.parent / "practice/PracticeAiService.java").read_text()
+        self.assertIn("AiEgressTransport.httpClient().connectTimeout(Duration.ofSeconds(6)).build()", wellness)
+        self.assertIn("AiEgressTransport.httpClient().build()", practice)
+        for source in (wellness, practice):
+            self.assertNotIn("HttpClient.newBuilder()", source)
+        # These are not model provider HTTP calls; preserve their existing routes.
+        for relative in ("wellness/UsdaFoodCatalog.java", "ai/OpenClawGatewayClient.java",
+                         "ai/CodexWorkflowClient.java"):
+            self.assertNotIn("AiEgressTransport", (AI.parent / relative).read_text())
+
     def test_extraction_build_and_runtime_default_off(self):
         app = (APP / "backend/src/main/resources/application.yml").read_text()
         docker = (APP / "deploy/mcp-staging/Dockerfile.web").read_text()

@@ -11,7 +11,7 @@ import org.springframework.web.reactive.function.client.WebClient;
  * Optional, deployment-owned proxy for model traffic only. No user setting,
  * credential, endpoint rewrite, trust override or direct fallback is introduced.
  */
-final class AiEgressTransport {
+public final class AiEgressTransport {
     private AiEgressTransport() {}
 
     static InetSocketAddress configuredProxy() {
@@ -30,7 +30,7 @@ final class AiEgressTransport {
         return InetSocketAddress.createUnresolved(host, number);
     }
 
-    static HttpClient.Builder httpClient() {
+    public static HttpClient.Builder httpClient() {
         return httpClient(configuredProxy());
     }
 

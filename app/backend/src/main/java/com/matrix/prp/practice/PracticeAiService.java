@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.matrix.prp.auth.security.CurrentUser;
 import com.matrix.prp.ai.SpringAiStructuredModelClient;
+import com.matrix.prp.ai.AiEgressTransport;
 import com.matrix.prp.ai.AiProviderCatalog;
 import com.matrix.prp.ai.AiSettingsService;
 import com.matrix.prp.practice.PracticeController.*;
@@ -32,8 +33,7 @@ public class PracticeAiService {
     private final ObjectMapper mapper;
     private final SpringAiStructuredModelClient structuredModel;
     private final boolean springAiStructuredEnabled;
-    private final HttpClient client = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(8)).build();
+    private final HttpClient client = AiEgressTransport.httpClient().build();
 
     public PracticeAiService(PracticeService practice, JdbcTemplate jdbc, ObjectMapper mapper,
             SpringAiStructuredModelClient structuredModel,

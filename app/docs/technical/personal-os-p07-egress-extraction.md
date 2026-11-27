@@ -7,7 +7,10 @@ authorization, MCP scope change or automatic memory confirmation.
 ## Model transport
 
 The existing Java native and synchronous Spring AI HTTP clients now share a
-model-only JDK HttpClient builder. The two Spring AI streaming adapters preserve
+model-only JDK HttpClient builder, including native wellness image/text and
+practice structured model fallback calls (existing connection timeouts retained).
+USDA, OpenClaw and GitHub/Codex transport are not model provider endpoints and
+are unchanged. The two Spring AI streaming adapters preserve
 their default WebClient connector unless explicitly configured; when enabled
 they use JdkClientHttpConnector with the same explicit HTTP CONNECT proxy.
 No global JVM proxy, TLS trust override, fallback, credential change or retry
