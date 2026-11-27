@@ -358,7 +358,7 @@ function verifyHistorical529Binding(snapshot,command){
  const actual=Array.isArray(snapshot?.tasks)?snapshot.tasks.map(t=>t?.task_id).sort():[]
  check(snapshot?.requirement_id==='REQ-20261031-001'&&snapshot.version===49&&
    snapshot.status==='ACTIVE'&&actual.length===9&&exact(actual,[...expected].sort())&&
-   snapshot.tasks.every(t=>t.status==='DONE')&&
+   snapshot.tasks.every(t=>t?.status==='DONE')&&
    command?.type==='close'&&command.pr_number===529&&command.head_sha===HEAD&&
    command.note===HISTORICAL_529_PREFIX,'HISTORICAL_529_BINDING')
  return true
