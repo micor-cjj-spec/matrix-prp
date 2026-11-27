@@ -1,83 +1,104 @@
-# PRP 纯聊天批准的远程命令通道（候选 V1）
+# PRP：ChatGPT 对话批准后的加密 Shell 通道 V1
 
-状态：**DRAFT / 未合并 / 已完成服务器受限 SSH 网关与环境凭据配置 / 执行开关默认关闭 / 尚不能从 GPT 触发真实命令**。
+> **状态（2026-11-22）：技术端到端验收通过；执行通道默认关闭；生产业务应用发布仍受控。**
+>
+> 这一状态并不意味着 ChatGPT 获得永久远程执行权限。每次新命令都须由用户明确批准；开启服务器执行窗口还需要独立、限时的 root 侧授权。
 
-## 用户交互（无需 MCP 或审批页面）
+## 1. 验收结果与证据
 
-- GPT 展示将执行的**完整 Shell 命令**、目标主机、执行账号与风险。
-- 用户在同一聊天中回复「可以」「批准」或「执行」。
-- GPT 仅对**这一条已展示的原样命令**发起执行，不得根据一次批准自动执行后续新命令。
-- GPT 使用现有 GitHub 连接器在 Issue #277 发布**加密评论**；GitHub Actions 经独立 SSH 账号执行，写回加密输出。GPT 读取并解密结果。
-- 对任何新的命令必须重新征得批准。用户拒绝或修改后，应取消旧提议并展示新命令再确认。
+- GitHub 基础实现：PR [#273](https://github.com/micor-cjj-spec/matrix-prp/pull/273) 已合并。
+- 故障分类：PR [#296](https://github.com/micor-cjj-spec/matrix-prp/pull/296) 已合并。
+- SSH 私钥末尾 LF 兼容修复：PR [#299](https://github.com/micor-cjj-spec/matrix-prp/pull/299) 已合并；合并后 CI [44989571567](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44989571567) 成功。
+- 单次真实端到端验证：运行 [44990969307](https://github.com/micor-cjj-spec/matrix-prp/actions/runs/44990969307) 的 `command` 作业成功。入口为 Issue [#277 的加密评论](https://github.com/micor-cjj-spec/matrix-prp/issues/277#issuecomment-7074957553)，输出为同 Issue 的[加密结果评论](https://github.com/micor-cjj-spec/matrix-prp/issues/277#issuecomment-7074959646)。
+- 经当次生成、只用于该次请求的临时结果私钥解密后，响应字段显示 `exitCode=0`、`timedOut=false`、`truncated=false`、`stderr=""`，`stdout` 为：
 
-**注意**：这是一条基于 GPT 按照当前对话执行工具操作的授权流程，不是可被服务器独立证明的人类审批签名。GitHub 执行端验证真实 GitHub 所有者身份、指定 Issue 和不可重放的密文；它无法判断用户是否真的在聊天中说了「批准」。若今后要求强认证/不可抵赖审计，需要额外审批机制。本方案按照用户选择，不增加 MCP、独立 Web 页面或密码二次验证。
+  ```text
+  PRP_SHELL_E2E_OK
+  prp-shell
+  ```
 
-## 为什么不能直接把 Shell 命令放进 GitHub 评论？
+- 用户随后从服务器 root 终端删除 `/etc/matrix-prp-chat-shell/execution.enabled`，并删除仓库变量 `PRP_CHAT_SHELL_ENABLED`，验证输出为 `E2E SECURELY CLOSED`。最终撤销证据记于 [PR #299 评论](https://github.com/micor-cjj-spec/matrix-prp/pull/299)。
+- 发布保护：main 保留 `app/deploy/publication-hold.json`。上述验收没有将 PRP 业务应用部署到生产；自动部署的 `publish` 步骤在合并后为 `skipped`。
 
-PRP 主仓库公开。Issue 正文、评论和 GitHub Actions 输出不能存放任意命令明文或 stdout/stderr，因为命令/输出可能包含内部路径、敏感信息、数据库连接参数。Base64 **不是加密**。
+**验收范围限定：** 证明一次事先批准的、无副作用命令能够以 `prp-shell` 执行，并完成 CMS 加密回传和解密。没有验证任意复杂脚本、后台任务、长期授权、持久会话或在无人监督下执行的安全性。
 
-为了复用当前 GitHub 连接器可用的「发 Issue 评论」入口，使用 OpenSSL CMS **AES-256-GCM 加密**：
+## 2. 用户交互与授权
 
-- 服务器保存一份**root 仅可读的 RSA 私钥**；
-- PRP 仓库只保存对应的公开证书（完成独立服务器初始化并核验指纹后才能添加）；
-- GPT 在获得用户批准后，使用公钥加密包含 command/target/jobId/nonce/过期时间/临时结果证书的 JSON；
-- Issue #277 只接收固定格式的密文评论；
-- 服务器在隔离 SSH 通道内解密；执行后使用 GPT 本轮提供的**临时结果公钥**加密 stdout/stderr；
-- GitHub Actions 只把**密文结果**写回 Issue，GPT 在当前会话中用本轮临时私钥解密。
+1. ChatGPT 在发起前完整展示拟执行的 Shell 命令、目标 `micor-server`、非 root 执行账号 `prp-shell`、预期影响与风险。
+2. 用户在当前对话中针对**这条原样命令**回复批准；“继续”或旧命令的批准不得被复用到不同命令。任何修改都要重新展示并重新获得批准。
+3. 默认关闭的执行窗口须经过单独授权后才可临时启用。授权窗口的存在不替代逐条命令批准；逐条聊天批准也不等于允许永久打开执行窗口。
+4. ChatGPT 使用仓库公钥证书构造短期加密请求，在固定公开 Issue #277 发表**密文**；GitHub Actions 验证 owner、Issue 和事件类型后，以强制命令 SSH 接入。
+5. 服务器检查 root-only 开关、任务字段、时效和不可重放 nonce，以独立低权限账号 `prp-shell` 执行；结果再用该次请求的临时结果证书加密。
+6. GitHub 只保存结果密文；发起方用本次临时私钥解密并核对任务 ID、退出码、stdout/stderr 和超时/截断标志。任务状态不确定时**不自动重试**。
+7. 测试完成立即撤销双开关，并核对生产发布锁仍存在。
 
-不对外发布命令明文、结果明文或密钥。客户端临时私钥不得写入 Issue、仓库、Action 日志、ChatGPT 普通消息或共享文档。若会话丢失该临时私钥，该批次原始输出可能无法恢复；不自动重跑命令。
+**审批边界：** GitHub 能验证评论来自指定 GitHub owner，但不能独立证明用户确实在 ChatGPT 对话中批准了命令。聊天批准目前是会话执行流程的约束，**不是独立的密码学签名或不可抵赖审计**。如未来需要正式生产环境的长期自助执行，必须单独设计可核实的授权边界，不得靠永久启用两个开关来“简化操作”。
 
-## 现有代码边界
+## 3. 组件与安全边界
 
-- app/deploy/chat-shell/protocol.py：命令加密、结果解密、严格 JSON 与时效校验。
-- app/deploy/chat-shell/github_bridge.py：只接受真实所有者 micor-cjj-spec 在**固定公开 Issue #277** 发出的精确前缀评论，并通过独立 SSH 强制命令执行。
-- app/deploy/chat-shell/prp_shell_executor.py：只读取加密 stdin，校验过期/目标/命令长度/nonce，主机本地一次性认领，再切换为**独立非 root 用户 prp-shell**执行。
-- app/deploy/chat-shell/gateway.sh：独立 SSH 身份只接受 SSH_ORIGINAL_COMMAND=run。
-- .github/workflows/prp-chat-shell.yml：候选 workflow；**在 PR 尚未合并到 main 时不会生效**。独立 environment production-shell 的凭据已配置；仓库级开关 `PRP_CHAT_SHELL_ENABLED` 默认未设置，任意命令执行关闭。另有只发送空请求的 `workflow_dispatch` 联通测试。
-- .github/workflows/chat-shell-contract.yml + test_chat_shell.py：不访问生产、无 SSH secrets 的离线协议测试。
+| 组件 | 职责 |
+| --- | --- |
+| `app/deploy/chat-shell/protocol.py` | OpenSSL CMS AES-256-GCM 双向封装、一次性结果证书、严格 JSON、时间戳和任务 ID 校验 |
+| `app/deploy/chat-shell/github_bridge.py` | 接收 owner 的加密评论、使用独立 SSH 凭据发送、把密文结果写回 Issue；仅打印固定错误类别 |
+| `app/deploy/chat-shell/gateway.sh` | 只接受 `SSH_ORIGINAL_COMMAND=run`，无交互式 Shell |
+| `app/deploy/chat-shell/prp_shell_executor.py` | root-owned 入口检查执行开关、解密/验签协议字段、一次性任务认领，降权到 `prp-shell` 执行 |
+| `.github/workflows/prp-chat-shell.yml` | `issue_comment` 执行路径（默认关）与 `workflow_dispatch` 空请求连通测试 |
+| `.github/workflows/chat-shell-contract.yml` | 不使用服务器凭据的离线协议与回归测试 |
 
-**双重默认关闭保护：** GitHub Actions job 需要显式设置仓库变量 `PRP_CHAT_SHELL_ENABLED=true`；服务器新执行器也需要 root:root 0400 的 `/etc/matrix-prp-chat-shell/execution.enabled` 文件，**内容必须逐字为** `PRP_CHAT_SHELL_ALLOW_V1\n`。任一条件不存在，均不能通过常规链路执行真实命令。此标志只在单独获得生产启用授权、所有联调验收后由管理员创建。启用后每组新命令仍须用户在聊天中重新批准。撤销服务器标志或 GitHub 变量任一项即可阻止后续新任务。
+- 加密要求：服务器 RSA 私钥仅留服务器 root 目录；仓库只放公钥证书；结果私钥仅在发起侧当前任务内短暂保留，不得放入 Issue、日志、仓库或普通聊天正文。
+- 评论格式仅允许 `/prp-shell-v1 <job-uuid> <ciphertext>` 与 `/prp-shell-result-v1 <job-uuid> <ciphertext>`；Base64 本身不是加密。
+- **双开关默认关闭：**
+  - 仓库变量 `PRP_CHAT_SHELL_ENABLED=true` 才允许 GitHub Actions 的 `command` 作业启动；
+  - root-only 文件 `/etc/matrix-prp-chat-shell/execution.enabled` 必须为 root:root、0400，精确内容 `PRP_CHAT_SHELL_ALLOW_V1\n`；服务器在解码 CMS 密文前检查该文件。
+- 任何一道开关撤销即可阻止常规链路的新执行请求。两个开关的启用/撤销必须作为**独立的、受控的管理操作**进行。
+- 执行器绑定账号 `prp-shell`，无 sudo/root 权限；`prp-chat-shell` SSH 账号仅用于受限网关。即便非 root Shell 仍可访问其文件权限允许的资源，因此不能把任意 Bash 当作低风险工具。
 
-**关闭状态下的攻击面缩减（待安装）：** `process_request` 首先要求 root-only `execution.enabled` 文件，然后才进行 base64 解析、OpenSSL CMS 解密及任务时效检查。这样即使攻击者拿到了专用 SSH 密钥，在服务器开关关闭时也无法让 root 进程处理自定义 CMS 密文。此项顺序调整属于较新的 PR 分支代码，**服务器上已安装的 `fa2afff2` 执行器尚未包含**，不可把它误判为生产已生效保护。
+## 4. 范围限制与风险
 
-**本机已安装版本注意：** 服务器此前从固定 commit `ff75e80a` 安装的旧版执行器不包含上述主机端标志检查。当前仅更新了 PR 分支源码，**没有更新服务器 /usr/local/sbin/prp-chat-shell-executor**。在将该能力对外开放前必须先按固定、安全审查后的新 SHA 离线验收并原子更新服务器安装文件，不能仅设置 GitHub 变量。新版本的空输入仍会以退出码 2 拒绝，所以 `connectivity-smoke` 可在执行开关关闭时验收 SSH 连通性。
+- 单请求最大命令约 8192 字节；执行超时设定为 1–30 秒；密文有效期约 180 秒；stdout 与 stderr 每流最多记录约 10 KiB。队列延迟导致任务过期时，应拒绝而非延长或重放。
+- 当前**没有命令白名单**；执行虽降权，命令仍可能修改其权限范围内的文件。必须按实际影响逐条人工批准。
+- 超时处理会终止前台进程组，但不保证清理故意脱离进程组的后台子进程。不得将该通道视为有完整沙箱隔离。
+- GitHub 工作流失败可能发生在评论校验、SSH、远端处理或回写等任意阶段。不要仅凭通用失败码推断命令“绝未执行”；检查一次性任务认领和返回证据后再决定是否重新提出新任务。
+- 输出丢失本轮临时私钥后可能无法恢复，不能为“找回输出”擅自重跑敏感命令。
+- **不支持**把“我以后在 GPT 里说批准”理解成自动提权、永久开放远程 Shell 或绕过 root 安全闸。
 
-**没有命令白名单**；但当前 Shell 受 Linux 用户权限约束，不能隐式获取 root。默认单命令最多 30 秒，最长命令 8192 UTF-8 字节，输出每流最多 10 KiB。超时只终止前台进程组，不能保证清理所有人为脱离进程组的后台子进程。
+## 5. 安全关闭与状态核验（服务器 root）
 
-## 后续生产启用前的独立准备（本 PR 没有执行）
+本段只包含**撤销**和验证命令，不会开启执行权限。需在服务器 root 环境中使用有权读取/删除该仓库 Actions Variables 的已认证 `gh`；若 GitHub API 无法访问或权限不足，**必须报错中止，不能声称通道已安全关闭**。服务器侧与 GitHub 状态的核验仅表示查询时刻的状态，不代表其后不会被有权限的管理员再次开启。
 
-1. 审核并冻结代码 SHA，验证所有 CI；单独确认允许合并 workflow，确认不会触发 PRP 自动发布。主分支保护、publication-hold 与现有部署门禁不能绕过。
-2. 由可信管理员在服务器上创建两个相互隔离的账户：
-   - prp-chat-shell：专用 SSH 接入、强制只执行 gateway.sh，禁止 SFTP/端口转发/交互式 Shell；
-   - prp-shell：实际执行命令的低权限账号，不属于 sudo 等特权组。
-3. 服务器独立生成 root-only RSA 私钥/公开证书。将**公开证书**经 SHA256 指纹核对后添加到可信 main 仓库路径；私钥永久留在服务器，不能交给 GitHub、GPT 或普通执行账号。
-4. 根管理员从审阅过的固定版本安装协议脚本、网关与执行器；**网关脚本为 root:root 0555（供 SSH 非 root 账号执行），执行器 root:root 0500，protocol.py root:root 0400**。精确配置 sudoers 仅允许运行这一条固定 Python 执行器命令（无参数），不得授予 shell、docker、sudo 通配符。配置 root-only 重放 SQLite 目录，不触碰现有 prp-deploy 和 prp-inspect SSH 账号。
-5. 配置 GitHub Actions 独立 production-shell 环境中的 PRP_SHELL_HOST、PRP_SHELL_SSH_KEY、PRP_SHELL_KNOWN_HOSTS。不得复用 PRP_DEPLOY_* 或发布密钥，不要授予 workflows: write 或 contents: write。
-6. 先在**隔离测试机**验证带符号命令、unicode、标准输出/错误、退出码、重复评论、非 owner 评论、重放、证书错误、过期、超过 30 秒、输出截断、撤销 SSH 密钥。最后才考虑在正式 PRP 服务器上启用。
+```bash
+set -euo pipefail
+MARKER=/etc/matrix-prp-chat-shell/execution.enabled
+REPO=micor-cjj-spec/matrix-prp
+API="repos/$REPO/actions/variables?per_page=100"
+KEY=PRP_CHAT_SHELL_ENABLED
 
-现有 GitHub 连接器**不能设置 GitHub Actions Secrets**，也不能直接安装服务器 SSH 文件。因此现阶段无法替代管理员完成第 2–5 步。不要误将提交 PR 或 CI 绿灯表述为服务器已经能执行命令。
+# 1. 先撤销服务器端标志，并强制核实不存在。
+rm -f -- "$MARKER"
+test ! -e "$MARKER"
 
-## 本地离线验证
+# 2. 成功调用 GitHub API 才能判断变量是否存在。
+# --paginate 处理多页；查询失败时 set -e 会终止，不得吞掉鉴权/网络错误。
+present="$(gh api --paginate --method GET "$API" \
+  --jq '.variables[] | select(.name == "PRP_CHAT_SHELL_ENABLED") | .name')"
+if [ -n "$present" ]; then
+  gh variable delete "$KEY" --repo "$REPO"
+fi
 
-    python3 -m unittest discover -s app/deploy/chat-shell -p 'test_*.py' -v
+# 3. 必须独立再次成功查询，确认变量已不存在且主机标志仍不存在。
+remaining="$(gh api --paginate --method GET "$API" \
+  --jq '.variables[] | select(.name == "PRP_CHAT_SHELL_ENABLED") | .name')"
+test -z "$remaining"
+test ! -e "$MARKER"
+echo "E2E SECURELY CLOSED"
+```
 
-通过上述测试只证明协议局部行为，不等于真实 ChatGPT 会话、GitHub Actions、SSH 或正式环境验收。
+只有上述所有命令**逐步成功且打印** `E2E SECURELY CLOSED`，才可认为本次检查证实了两道开关在核验时刻均已关闭。若 `gh` 未登录、没有读取变量的权限、API 异常、删除失败或服务器标志仍存在，检查必须以非零状态结束，**不得输出成功结论**。仍须独立确认业务应用发布锁 `app/deploy/publication-hold.json` 未被撤销。
 
-## 风险与回滚
+**恢复临时测试窗口**不是例行默认操作：只有用户再次明确允许具体无副作用测试及限时授权，管理员才可按经审阅流程设置两个开关，并预设服务器侧自动撤销和失败回滚。测试结束立即主动撤销，不等待计时器。
 
-- 用户批准仅针对特定命令；命令/目标发生任何变化必须重新批准。
-- GitHub 事件的 owner 身份只能证明提交评论的 GitHub 用户，不证明实际聊天批准；账户被盗即会产生严重风险。
-- GitHub Actions 的运行和发回结果可能由于队列、网络、超时而不确定；重复触发只能拒绝，不自动重跑。
-- 撤销独立 SSH 密钥和 production-shell 环境 Secrets 即能切断该通道；现有部署路径不应受到影响。
+## 6. 后续迭代边界
 
-## 2026-11-22 手动初始化进度
+V1 已完成单次技术 E2E，但**“无需手动服务器授权即可在日常聊天中永久执行任意 Shell”不是本次交付范围**。若继续提升日常交互，优先将高频操作收敛为细粒度、可审计的只读能力，使用明确的参数约束、授权有效期和范围，而非永久开启通用 Bash。任何设计修改需要独立安全评审、测试、用户批准合并，且不应解除既有 PRP 业务发布锁。
 
-- 已在 Debian 13 生产服务器上创建 `prp-shell` 和 `prp-chat-shell` 两个账号；root-only 加密密钥目录、重放目录和 RSA 证书已存在。
-- 已在服务器本地按固定 commit `ff75e80a` 执行全部 11 项离线测试，全部通过；公钥证书 SHA-256 指纹匹配。校验通过后，执行器、网关与协议模块安装在 `/usr/local/sbin/`。
-- 安装时网关误设为 `0500`，**必须先改为 `0555`**，否则非 root 的 SSH 接入账号无法启动它；脚本仍须 root 所有且父目录不可写。
-- 专用 SSH authorized_keys、sudoers、Actions Secrets 已完成安装与本机空请求验证；**尚未将触发工作流合入 main，也未开启 repo-level 执行开关**，真实 GPT 命令执行通道不可用。
-- 上述 11 项是离线单元测试，尚不能替代独立 SSH 授权、Actions 端到端测试与安全审查。GitHub CI 尚在排队。
-- 2026-11-22 后续进度：已安装独立强制命令 SSH 网关，**本机执行空请求会返回预期拒绝**；GitHub `production-shell` 环境已配置 main-only 策略以及三个独立 Secrets（HOST / SSH_KEY / KNOWN_HOSTS）。此前的“尚未添加”项已完成，不等于 GitHub Runner 外部联通已验收。
-- **新增默认关闭开关：** GitHub Actions `command` job 必须同时满足 `vars.PRP_CHAT_SHELL_ENABLED == 'true'` 才能执行。**不要在完成正式安全评审和端到端验收前设置该变量。**
-- **只用于验证的工作流：** `workflow_dispatch` 会启动 `connectivity-smoke`，它使用已经配置的 Secrets 从 GitHub Runner 访问强制网关，仅发送**空输入**，要求网关返回 `PRP_SHELL_REQUEST_REJECTED`；绝不传递或执行真实命令。该工作流必须存在于 main 才能执行；请先通过所有 CI、审核并单独批准只启用测试通道的合并步骤。
-- **互斥注意：** 这套默认关闭开关是部署期间的保护，不是 ChatGPT 用户批准的密码学验证。不能把“未启用变量”解释为已完成端到端验收。
+历史初始化过程、早期未安装状态和错误分析保留在 PR #273、#296、#299 的审查记录中；以本文的当前状态与最新验证证据为准。
