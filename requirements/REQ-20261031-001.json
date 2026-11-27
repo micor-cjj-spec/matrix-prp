@@ -4,8 +4,8 @@
   "issue_number": 132,
   "title": "多 GPT 会话共享开发任务 MVP",
   "status": "ACTIVE",
-  "version": 40,
-  "updated_at": "2026-11-27T02:13:02.037Z",
+  "version": 41,
+  "updated_at": "2026-11-27T02:27:38.986Z",
   "processed_requests": [
     {
       "request_id": "e296048f-fb80-495a-956a-808c561650ca",
@@ -533,6 +533,19 @@
         "status": "IN_REVIEW",
         "replayed": false
       }
+    },
+    {
+      "request_id": "d4040005-1127-4a04-8601-000000000005",
+      "fingerprint": "efb10bc8b8e61f4d1a23efa03f2e98c245dffc80d68703faa3fee13796853d1e",
+      "actor": "micor-cjj-spec",
+      "receipt": {
+        "type": "accept",
+        "task_id": "T-004",
+        "request_id": "d4040005-1127-4a04-8601-000000000005",
+        "version": 41,
+        "status": "DONE",
+        "replayed": false
+      }
     }
   ],
   "tasks": [
@@ -635,7 +648,7 @@
       "task_id": "T-004",
       "issue_number": 136,
       "title": "验收、安全回归和跨会话操作手册",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "depends_on": [
         "T-001",
         "T-003"
@@ -644,13 +657,7 @@
         "app/scripts/dev-collab/coordinator-cli.test.mjs",
         "app/docs/dev-collab/"
       ],
-      "claim": {
-        "claim_id": "fe01b502-f5ac-4e3b-ac5d-b75f324debce",
-        "worker_id": "chat_t004_ops_20261127",
-        "actor": "micor-cjj-spec",
-        "claimed_at": "2026-11-27T01:34:03.212Z",
-        "generation": 1
-      },
+      "claim": null,
       "pr_number": 500,
       "head_sha": "3e870315cc44965de3676f8fa5726c84dbb5ef34"
     },
