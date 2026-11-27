@@ -1,0 +1,117 @@
+name: PRP observability P4.3B OAuth profile preparation
+on:
+  pull_request:
+    paths:
+      - 'app/observability/p4_3b/**'
+      - '.github/workflows/prp-observability-p4-3b.yml'
+permissions:
+  contents: read
+jobs:
+  profile-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13.5'
+          architecture: x64
+          check-latest: false
+      - name: Verify and adapt exact sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTH=329ca6eb024ca3486e711fabc0ad2c428cde6221
+          SDK=3e7e3afcc8fd2ee5750a76bf3ff579c9f9fe6393
+          P42=fea1d7e1bd83511710e1f768e5c26b3d826f3d78
+          P43A=e99996646c78ff1fd7678675bb7b926fa4eeada6
+          P4=c459ac4c56ebdd2be6808f9f7bac46995625714a
+          test "$(git rev-parse "$AUTH:app/ops/auth_adapter.py")" = e901873b8ccfb1a1806c8ca85767a8c01ea87adc
+          test "$(git rev-parse "$AUTH:app/ops/profile_config.py")" = "$(git rev-parse "$SDK:app/ops/profile_config.py")"
+          test "$(git rev-parse "$SDK:app/ops/sdk_spike_ci.py")" = aabfd47a36d5aab1de3af92225f70c4c05f89829
+          test "$(git rev-parse "$P4:app/observability/p4/ci_grafana_mcp.py")" = e3a220f59b08d9e4aa3758facccf5c5bf5db4d9b
+          work="$(mktemp -d)"
+          trap 'sudo rm -rf "$work"' EXIT
+          git archive "$AUTH" app/ops app/deploy/systemd | tar -x -C "$work"
+          git show "$SDK:app/ops/sdk_spike_ci.py" > "$work/app/ops/sdk_spike_ci.py"
+          git show "$P42:app/observability/p4_2/owner_gateway.py" > "$work/accepted_gateway.py"
+          git show "$P43A:app/observability/p4_3a/runtime.py" > "$work/accepted_runtime.py"
+          python app/observability/p4_3b/materialize.py "$work/accepted_gateway.py" "$work/accepted_runtime.py" "$work/candidate"
+          cp app/observability/p4_3b/{profile_app,ci_profile}.py "$work/candidate/"
+          python -m unittest discover -s "$work/app/ops" -p 'test_*.py' -v
+          python -m venv "$work/venv"
+          "$work/venv/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1' 'uvicorn==0.54.0' 'h11==0.16.0'
+          "$work/venv/bin/python" -m pip check
+          "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
+          PYTHONPATH="$work/app/ops" "$work/venv/bin/python" "$work/candidate/ci_profile.py"
+  dependency-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13.5'
+          architecture: x64
+          check-latest: false
+      - name: Audit installed runtime dependencies and exact public images
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          python -m venv "$work/runtime"
+          python -m venv "$work/auditor"
+          "$work/runtime/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1' 'uvicorn==0.54.0' 'h11==0.16.0'
+          "$work/runtime/bin/python" -m pip check
+          "$work/runtime/bin/python" -m pip list --format=json > "$work/packages.json"
+          "$work/auditor/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'pip-audit==2.10.0'
+          site="$("$work/runtime/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          rc=0
+          "$work/auditor/bin/pip-audit" --strict --format=json --path "$site" > "$work/audit.json" || rc=$?
+          python - "$work/packages.json" "$work/audit.json" "$rc" <<'PY'
+          import json,sys,re
+          norm=lambda s:re.sub(r"[-_.]+","-",s).lower()
+          packages=json.load(open(sys.argv[1]))
+          report=json.load(open(sys.argv[2]))
+          deps=report["dependencies"]
+          assert {norm(x["name"]) for x in deps}=={norm(x["name"]) for x in packages}
+          assert not any("skip_reason" in d for d in deps)
+          findings=0
+          for d in deps:
+              print("OBS_P43B_PACKAGE="+d["name"]+"=="+d["version"])
+              for v in d["vulns"]:
+                  findings+=1
+                  print("OBS_P43B_PY_FINDING="+json.dumps({"package":d["name"],"version":d["version"],"id":v["id"],"fix_versions":v["fix_versions"]}))
+          assert int(sys.argv[3])==(1 if findings else 0)
+          print("OBS_P43B_PY_AUDIT=EVIDENCE_ONLY; FINDINGS="+str(findings))
+          PY
+          scanner='ghcr.io/aquasecurity/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb'
+          docker pull --platform linux/amd64 "$scanner"
+          cache="p43b-scan-${GITHUB_RUN_ID}"
+          docker volume create "$cache"
+          trap 'docker volume rm "$cache" >/dev/null || true; rm -rf "$work"' EXIT
+          for ref in 'grafana/mcp-grafana@sha256:63d4501d3166c2b9242d8a2b5b7df8892c59c6c477be3a2a61bcf8a252671f31' 'grafana/grafana@sha256:81556409ba48b2b922e0adb69a2511337d8ba7578f11962eefa6149a2d815101' 'quay.io/prometheus/prometheus@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9'; do
+            docker run --rm --platform linux/amd64 --cap-drop ALL --security-opt no-new-privileges --mount "type=volume,src=$cache,dst=/cache" "$scanner" image --image-src remote --platform linux/amd64 --cache-dir /cache --scanners vuln --severity HIGH,CRITICAL --ignorefile /dev/null --format json --timeout 7m --exit-code 0 "$ref" > "$work/image.json"
+            python - "$ref" "$work/image.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[2]))
+          results=report["Results"]
+          assert isinstance(results,list) and results
+          count=0
+          for result in results:
+              for v in result.get("Vulnerabilities") or []:
+                  count+=1
+                  print("OBS_P43B_IMAGE_FINDING="+json.dumps({"image":sys.argv[1],"target":result["Target"],**{k:v.get(k) for k in ("Severity","VulnerabilityID","PkgName","InstalledVersion","FixedVersion")}}))
+          print("OBS_P43B_IMAGE_AUDIT="+sys.argv[1]+"|TARGETS="+str(len(results))+"|FINDINGS="+str(count))
+          PY
+          done
+          echo 'OBS_P43B_SECURITY_SCAN=EVIDENCE_ONLY; LIVE_ACTIVATION=NO_GO'
