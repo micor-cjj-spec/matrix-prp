@@ -316,6 +316,44 @@ class StorageRecoveryTests(unittest.TestCase):
             with self.assertRaises(InvalidJob):
                 self.ledger._assert_storage_capacity(0, 0)
 
+    def test_inode_reserve_checked_before_creating_nested_directories(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from executor import MIN_FREE_INODES
+        nested = job()
+        nested["nonce"] = "c" * 32
+        path = "a/b/c/run.py"
+        data = b"print('hello')"
+        nested["manifest"].update(entrypoint=path, files=[inline(path, data)])
+        nested["manifestSha256"] = manifest_sha256(nested["manifest"])
+        jid = self.ledger.accept(nested, NOW)
+        digest = nested["manifestSha256"]
+        folder = self.root / "jobs" / jid
+
+        def capacity(extra):
+            return SimpleNamespace(f_bavail=1000000, f_frsize=4096,
+                                   f_favail=MIN_FREE_INODES + extra)
+
+        # Four directories plus one temporary inode are required.
+        with patch("executor.os.statvfs", return_value=capacity(1)):
+            with self.assertRaisesRegex(InvalidJob, "inode reserve exhausted"):
+                self.ledger.receive_file(jid, digest, path, [data], NOW)
+        self.assertFalse(folder.exists())
+        self.assertEqual(self.ledger.status(jid, digest)["state"], "RECEIVED")
+
+        # Existing safe parents must not be charged again; b, c and file remain.
+        existing = self.ledger._directory(jid) / "a"
+        existing.mkdir(mode=0o700)
+        with patch("executor.os.statvfs", return_value=capacity(2)):
+            with self.assertRaisesRegex(InvalidJob, "inode reserve exhausted"):
+                self.ledger.receive_file(jid, digest, path, [data], NOW)
+        self.assertFalse((existing / "b").exists())
+        with patch("executor.os.statvfs", return_value=capacity(3)):
+            self.ledger.receive_file(jid, digest, path, [data], NOW)
+        self.assertEqual((folder / path).read_bytes(), data)
+        self.ledger.verify(jid, digest, NOW)
+        self.assertEqual(self.ledger.status(jid, digest)["state"], "VERIFIED")
+
     def test_partial_recovery_preserves_durable_request_barrier(self):
         from unittest.mock import patch
         folder = self.ledger._directory(self.id)
