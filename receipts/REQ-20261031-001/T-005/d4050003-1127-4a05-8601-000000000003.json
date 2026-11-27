@@ -1,0 +1,92 @@
+{
+  "body": {
+    "schema_version": 1,
+    "repository_id": 1261866723,
+    "requirement_id": "REQ-20261031-001",
+    "task_id": "T-005",
+    "submit_request_id": "d4050003-1127-4a05-8601-000000000003",
+    "submit_version": 48,
+    "lease_fingerprint": "e579c659847d57b9bbd1189af682a2d134a6d0e102eddf4d63d982b3626875b5",
+    "pr_number": 518,
+    "head_sha": "e268fb5e636ec84aa522f9b0ddf2b0c86ab4221b",
+    "base_ref": "integrate/REQ-20261031-001",
+    "base_sha": "8785c72e17b225832fa5356e72f97e3d948d1182",
+    "head_ref": "task/req-20261031-001-t005-acceptance-20261127",
+    "state_sha": "19d518e905124a76e01195dcccca2a03f6482962",
+    "state_version": 48,
+    "captured_at": "2026-11-27T05:14:26.987Z",
+    "capture_origin": {
+      "request_id": "d4050004-1127-4a05-8601-000000000004",
+      "source_issue": 520,
+      "issue_created_at": "2026-11-27T05:14:07Z",
+      "run_id": 45944578630,
+      "main_sha": "3afa2accb6e7a0f26a6a1dcadaa774aee1915210"
+    },
+    "synthetic_merge_sha": "ce88454a2a526ba1e039a137890ca3d2e9549a5f",
+    "tree_sha": "cc36454fd8e181a039f3bc3593d3626ec8076bf7",
+    "workflow_blobs": {
+      ".github/workflows/ci.yml": "58a471a26155f4190eaa4ff6c4cf64589c56713e",
+      ".github/workflows/feature-impact.yml": "f5ae5ee0bec23b559448233574292759b4543661",
+      ".github/workflows/prp-dev-collab-contract.yml": "c1373ee788d3469aea37624328f4e53e66a68f9c"
+    },
+    "checks": [
+      {
+        "name": "backend-tests",
+        "check_id": 140310449780,
+        "run_id": 45937674772,
+        "run_attempt": 2,
+        "workflow_path": ".github/workflows/ci.yml",
+        "completed_at": "2026-11-27T04:05:22Z"
+      },
+      {
+        "name": "web-build",
+        "check_id": 140310471262,
+        "run_id": 45937674772,
+        "run_attempt": 2,
+        "workflow_path": ".github/workflows/ci.yml",
+        "completed_at": "2026-11-27T04:04:41Z"
+      },
+      {
+        "name": "mobile-build",
+        "check_id": 140310457784,
+        "run_id": 45937674772,
+        "run_attempt": 2,
+        "workflow_path": ".github/workflows/ci.yml",
+        "completed_at": "2026-11-27T04:04:58Z"
+      },
+      {
+        "name": "db-migration-integration",
+        "check_id": 140310452577,
+        "run_id": 45937674772,
+        "run_attempt": 2,
+        "workflow_path": ".github/workflows/ci.yml",
+        "completed_at": "2026-11-27T04:05:43Z"
+      },
+      {
+        "name": "video-db-integration",
+        "check_id": 140310421485,
+        "run_id": 45937674772,
+        "run_attempt": 2,
+        "workflow_path": ".github/workflows/ci.yml",
+        "completed_at": "2026-11-27T04:05:31Z"
+      },
+      {
+        "name": "impact-report",
+        "check_id": 140304527449,
+        "run_id": 45937674850,
+        "run_attempt": 1,
+        "workflow_path": ".github/workflows/feature-impact.yml",
+        "completed_at": "2026-11-27T04:04:10Z"
+      },
+      {
+        "name": "dev-collab-contract",
+        "check_id": 140304527131,
+        "run_id": 45937674809,
+        "run_attempt": 1,
+        "workflow_path": ".github/workflows/prp-dev-collab-contract.yml",
+        "completed_at": "2026-11-27T04:03:38Z"
+      }
+    ]
+  },
+  "digest": "adf1dca69770af6646b5bd8c8e532e3e3ea8637eae5bfcad3bb3971572334a4a"
+}
