@@ -254,25 +254,46 @@ def journal_binds(entries,chain,endpoint,fingerprint,boot_id,now,invocation,mono
 
 
 def configuration_files():
-    files = set();directories = set()
+    # Exactly the terminal #517/P7.3C receiver-only template; no conditional
+    # includes, additional Match directives or alternate spellings are accepted.
+    reviewed = "# Review only: append to a copy of the target's complete config for validation.\n# Do not place in an early Include or reload SSH before separate approval.\nMatch User prp-remote-v11\n    AuthenticationMethods publickey\n    PubkeyAuthentication yes\n    PasswordAuthentication no\n    KbdInteractiveAuthentication no\n    GSSAPIAuthentication no\n    HostbasedAuthentication no\n    PermitEmptyPasswords no\n    AuthorizedKeysFile /etc/matrix-prp-remote-executor-v11/authorized_keys\n    AuthorizedKeysCommand none\n    TrustedUserCAKeys none\n    AuthorizedPrincipalsFile none\n    AuthorizedPrincipalsCommand none\n    ForceCommand prp-receive-v11\n    PermitTTY no\n    DisableForwarding yes\n    AllowAgentForwarding no\n    AllowTcpForwarding no\n    AllowStreamLocalForwarding no\n    X11Forwarding no\n    PermitTunnel no\n    PermitUserRC no\n    MaxSessions 1\nMatch all\n".encode('ascii')
+    files = set();directories = set();parsed = {}
     def walk(path,depth=0):
         require(depth<=4 and len(files)<32,"SSH_CONFIG_LIMIT")
         p = Path(path);require(str(p).startswith('/etc/ssh/') and not p.is_symlink(),"SSH_CONFIG_UNSUPPORTED")
         if p in files:return
         files.add(p);directories.add(p.parent)
-        for line in bounded_file(p,65536).decode('utf-8').splitlines():
-            tokens = shlex.split(line,comments=True)
-            if not tokens:continue
-            # A conservative first version supports global policy only. Match requires another reviewed collector.
-            require(tokens[0].lower()!='match',"SSH_MATCH_POLICY_UNSUPPORTED")
-            if tokens[0].lower()=='include':
-                for pattern in tokens[1:]:
+        data=bounded_file(p,65536)
+        parsed[str(p)]=sha(data)
+        prefix=data
+        if depth==0 and data.endswith(reviewed):
+            prefix=data[:-len(reviewed)]
+            require(not prefix or prefix.endswith(b'\n'),"SSH_MATCH_POLICY_UNSUPPORTED")
+        # Inspect the complete unapproved prefix and every Include. Accept only
+        # unambiguous line syntax; in particular '=' and quoted keyword forms
+        # must not evade the Match/Include inventory.
+        require(not any(c<32 and c not in (9,10) or c==127 for c in data),"SSH_CONFIG_UNSUPPORTED")
+        for line in prefix.decode('utf-8').split('\n'):
+            if not line.strip(' \t') or line.lstrip(' \t').startswith('#'):continue
+            require(not line.endswith('\\'),"SSH_CONFIG_UNSUPPORTED")
+            directive=re.fullmatch(r'[ \t]*([A-Za-z][A-Za-z0-9]*)(?:[ \t]+(.*))?',line)
+            require(directive is not None,"SSH_CONFIG_UNSUPPORTED")
+            keyword=directive[1].lower()
+            require(keyword!='match',"SSH_MATCH_POLICY_UNSUPPORTED")
+            if keyword=='include':
+                # Only literal, unquoted path/glob tokens and whitespace-delimited
+                # comments; never interpret a conditional or ambiguous Include.
+                value=directive[2] or ''
+                value=re.split(r'[ \t]+#',value,1)[0].strip(' \t')
+                patterns=re.split(r'[ \t]+',value)
+                require(all(re.fullmatch(r'[A-Za-z0-9_./*?\[\]-]+',p) for p in patterns),"SSH_CONFIG_UNSUPPORTED")
+                for pattern in patterns:
                     if not pattern.startswith('/'):pattern='/etc/ssh/'+pattern
                     require(pattern.startswith('/etc/ssh/') and '..' not in Path(pattern).parts,"SSH_CONFIG_UNSUPPORTED")
                     directories.add(Path(pattern).parent)
                     for include in sorted(glob.glob(pattern)):walk(include,depth+1)
     walk('/etc/ssh/sshd_config')
-    return sorted(files),sorted(directories)
+    return sorted(files),sorted(directories),parsed
 
 
 def loaded_configuration(records,daemon_birth):
@@ -328,8 +349,9 @@ def collect_policy(challenge):
     entries=[json.loads(line) for line in journal.splitlines()]
     auth=journal_binds(entries,chain,endpoint,fingerprint,boot_id,time.time(),invocation,time.clock_gettime(time.CLOCK_BOOTTIME))
     require(key_record['ctime']/1e9 < process_birth(auth),"SSH_KEY_CHANGED_AFTER_AUTHENTICATION")
-    files,directories=configuration_files()
+    files,directories,parsed=configuration_files()
     config_records=[record(str(p)) for p in [*files,*directories]]
+    require(all(records[path].get('sha256')==digest for path,digest in parsed.items()),"SSH_POLICY_CHANGED_DURING_PROOF")
     loaded=loaded_configuration(config_records,daemon_birth(master))
     args=['/usr/sbin/sshd','-T','-C','user=prp-deploy,host='+endpoint[2]+',addr='+endpoint[2]+',laddr='+endpoint[0]+',lport='+str(endpoint[1])]
     output=bounded_command(args).decode('utf-8')

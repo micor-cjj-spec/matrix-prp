@@ -59,6 +59,91 @@ class LivePolicyAttestorTests(unittest.TestCase):
             with self.assertRaises(policy.CollectionError):policy.journal_binds([],chain,endpoint,key,'boot',200,'a'*32,200)
             with self.assertRaises(policy.CollectionError):policy.journal_binds([record],chain,endpoint,key+'B','boot',200,'a'*32,200)
 
+    def config_fixture(self, main, included=None):
+        root='/etc/ssh/sshd_config'
+        child='/etc/ssh/sshd_config.d/10-fixture.conf'
+        mapping={root:main}
+        if included is not None:mapping[child]=included
+        with patch.object(policy,'bounded_file',side_effect=lambda p,*args:mapping[str(p)]), \
+             patch.object(policy.Path,'is_symlink',return_value=False), \
+             patch.object(policy.glob,'glob',return_value=[child] if included is not None else []):
+            return policy.configuration_files()
+
+    def reviewed_match(self):
+        return (Path(__file__).parent/'remote-executor-v11/p73c-review/sshd-match.conf.review').read_bytes()
+
+    def test_reviewed_terminal_match_preserves_complete_file_inventory_and_hash(self):
+        main=b'Include /etc/ssh/sshd_config.d/*.conf\nUseDNS no\n'
+        child=b'PubkeyAuthentication yes\n'
+        for data in [main,main+b'\n'+self.reviewed_match()]:
+            files,dirs,parsed=self.config_fixture(data,child)
+            self.assertEqual(set(map(str,files)),{'/etc/ssh/sshd_config','/etc/ssh/sshd_config.d/10-fixture.conf'})
+            self.assertEqual(set(map(str,dirs)),{'/etc/ssh','/etc/ssh/sshd_config.d'})
+            self.assertEqual(parsed,{'/etc/ssh/sshd_config':policy.sha(data),'/etc/ssh/sshd_config.d/10-fixture.conf':policy.sha(child)})
+
+    def test_only_exact_terminal_reviewed_match_is_accepted(self):
+        block=self.reviewed_match()
+        for data in [b'Match all\n',b'Match User prp-deploy\n',b'MaTcH User prp-remote-v11\n',
+                     b'Match=all\n',b'"Match" all\n',b'Match\tall\n',
+                     block.replace(b'PasswordAuthentication no',b'PasswordAuthentication yes'),
+                     block.replace(b'Match all\n',b''),
+                     block.replace(b'Match all\n',b'    Include /etc/ssh/extra.conf\nMatch all\n'),
+                     block+b'UseDNS no\n',block+block,b'Match all\n'+block,
+                     b'UseDNS no'+block,b'Include=/etc/ssh/extra.conf\n',
+                     b'Include "/etc/ssh/extra.conf"\n',b'UseDNS no\x00\n'+block]:
+            with self.subTest(data=data[:80]),self.assertRaises(policy.CollectionError):
+                self.config_fixture(data)
+        for data in [block,b'Match all\n',b'Match=all\n']:
+            with self.subTest(include=data[:80]),self.assertRaises(policy.CollectionError):
+                self.config_fixture(b'Include /etc/ssh/sshd_config.d/*.conf\n'+block,data)
+
+    def test_real_openssh_reviewed_match_preserves_deploy_effective_policy(self):
+        import shutil,subprocess
+        sshd=shutil.which('sshd') or ('/usr/sbin/sshd' if Path('/usr/sbin/sshd').is_file() else None)
+        keygen=shutil.which('ssh-keygen')
+        if not sshd or not keygen or not Path('/run/sshd').is_dir():
+            self.skipTest('isolated OpenSSH executable or privilege separation directory unavailable')
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);key=root/'host';config=root/'sshd_config'
+            subprocess.run([keygen,'-q','-t','ed25519','-N','','-f',str(key)],check=True,timeout=10)
+            original=('HostKey '+str(key)+'\nUseDNS no\nPubkeyAuthentication yes\n').encode()
+            def effective(user):
+                context='user='+user+',host=192.0.2.2,addr=192.0.2.2,laddr=192.0.2.1,lport=22'
+                return subprocess.check_output([sshd,'-T','-f',str(config),'-C',context],stderr=subprocess.PIPE,timeout=10)
+            config.write_bytes(original)
+            before=effective('prp-deploy')
+            config.write_bytes(original+b'\n'+self.reviewed_match())
+            subprocess.run([sshd,'-t','-f',str(config)],check=True,capture_output=True,timeout=10)
+            self.assertEqual(effective('prp-deploy'),before)
+            receiver=effective('prp-remote-v11').splitlines()
+            for expected in [b'authenticationmethods publickey',b'passwordauthentication no',
+                             b'forcecommand prp-receive-v11',b'disableforwarding yes',b'permittty no',
+                             b'authorizedkeysfile /etc/matrix-prp-remote-executor-v11/authorized_keys']:
+                self.assertIn(expected,receiver)
+
+    def test_installer_allows_only_reviewed_match_collection_ast_delta(self):
+        import admin_upgrade_policy_helper as installer
+        before=b'def configuration_files():\n    return 1\ndef collect_policy():\n    return 2\ndef loaded_configuration():\n    return 3\n'
+        after=before.replace(b'return 1',b'return 4').replace(b'return 2',b'return 5')
+        installer.require_match_only_change(before,after)
+        for data in [before,before.replace(b'return 1',b'return 4'),after.replace(b'return 3',b'return 6'),after+b'x=1\n']:
+            with self.subTest(data=data),self.assertRaises(ValueError):
+                installer.require_match_only_change(before,data)
+
+    def test_installer_pins_each_ast_contract_to_its_own_source_digest(self):
+        import admin_upgrade_policy_helper as installer
+        before=b'def daemon_birth():\n    return 1\ndef configuration_files():\n    return 2\ndef collect_policy():\n    return 3\n'
+        clock=before.replace(b'return 1',b'return 4')
+        coexist=before.replace(b'return 2',b'return 5').replace(b'return 3',b'return 6')
+        digest=hashlib.sha256(before).hexdigest()
+        with patch.object(installer,'OLD',digest):
+            self.assertEqual(installer.validate_upgrade(before,clock),digest)
+            with self.assertRaises(ValueError):installer.validate_upgrade(before,coexist)
+        with patch.object(installer,'MATCH_OLD',digest):
+            self.assertEqual(installer.validate_upgrade(before,coexist),digest)
+            with self.assertRaises(ValueError):installer.validate_upgrade(before,clock)
+        with self.assertRaises(ValueError):installer.validate_upgrade(before,coexist)
+
     def test_loaded_configuration_requires_file_and_glob_directory_ctime_before_daemon(self):
         self.assertTrue(policy.loaded_configuration([{'ctime':1_000_000_000},{'ctime':2_000_000_000}],3))
         for records in [[],[{'ctime':4_000_000_000}],[{'missing':True}],[{}],[{'ctime':2_990_000_000}]]:
