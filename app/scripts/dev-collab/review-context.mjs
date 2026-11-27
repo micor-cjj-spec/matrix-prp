@@ -140,6 +140,7 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof,receipt
     return {reviewerAuthorized:true,ciVerified:true,mergedIntoIntegration:true,...(policyProof.ownerAttested?{ownerRulesetAttested:true}:{})}
   }
   check(Number.isInteger(command.pr_number)&&SHA.test(command.head_sha),'MISSING_INTEGRATION_PR')
+  if(historical529)verifyHistorical529Binding(snapshot,command)
   const pr=api(`repos/${REPO}/pulls/${command.pr_number}`)
   const branch=api(`repos/${REPO}/branches/main`)
   check(SHA.test(pr?.merge_commit_sha),'PR_NOT_MERGED')
@@ -159,7 +160,6 @@ export function trustedReviewContext(snapshot,command,env,api,issueProof,receipt
   // Only a fully identified squash candidate may request raw checkout evidence.
   // A missing or malformed ancestry response is not itself squash proof.
   if(historical529){
-    verifyHistorical529Binding(snapshot,command)
     check(!hasDevAncestry(mainAncestryComparison,command.head_sha),'HISTORICAL_529_EXPECTED_SQUASH')
     requireMain(branch)
     requirePolicy()
