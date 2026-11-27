@@ -513,5 +513,5 @@ test('historical #529 close rejects altered run association and test ancestry',(
   const x=api(route)
   if(route.endsWith('/git/commits/'+h529.test))x.parents[1].sha='f'.repeat(40)
   return x
- }),e=>e.message==='HISTORICAL_529_COMMIT_MISMATCH')
+ }),e=>e.message==='HISTORICAL_529_TEST_PARENTS')
 })
