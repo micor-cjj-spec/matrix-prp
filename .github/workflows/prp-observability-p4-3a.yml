@@ -1,0 +1,72 @@
+name: PRP observability P4.3A isolated nonroot runtime
+on:
+  pull_request:
+    paths:
+      - 'app/observability/p4_3a/**'
+      - '.github/workflows/prp-observability-p4-3a.yml'
+permissions:
+  contents: read
+jobs:
+  isolated-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13.5'
+          architecture: x64
+          check-latest: false
+      - name: Verify exact accepted source and exercise isolated process
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTH=329ca6eb024ca3486e711fabc0ad2c428cde6221
+          SDK=3e7e3afcc8fd2ee5750a76bf3ff579c9f9fe6393
+          P4=c459ac4c56ebdd2be6808f9f7bac46995625714a
+          P42=fea1d7e1bd83511710e1f768e5c26b3d826f3d78
+          P3=b0c0521bf345231ac1562db66ef92746828466e3
+          test "$(git rev-parse "$AUTH:app/ops/auth_adapter.py")" = e901873b8ccfb1a1806c8ca85767a8c01ea87adc
+          test "$(git rev-parse "$AUTH:app/ops/admin_grant.py")" = e240d16e0feedb5046a46e48744ef017a7ceb888
+          test "$(git rev-parse "$AUTH:app/ops/audit_store.py")" = 6fe11792639624a4b17314c592881d1e54954ebd
+          test "$(git rev-parse "$AUTH:app/ops/http_boundary.py")" = 19720f4377622e1535763763320e0dd980731ea9
+          test "$(git rev-parse "$AUTH:app/ops/query_contract.py")" = f415a83479c1fa266d89651555ec6eaafed275c1
+          test "$(git rev-parse "$SDK:app/ops/sdk_spike_ci.py")" = aabfd47a36d5aab1de3af92225f70c4c05f89829
+          test "$(git rev-parse "$P4:app/observability/p4/ci_grafana_mcp.py")" = e3a220f59b08d9e4aa3758facccf5c5bf5db4d9b
+          test "$(git rev-parse "$P42:app/observability/p4_2/owner_gateway.py")" = 9898d0102fb75bf538a1eadfea5c25dbb300e826
+          test "$(git rev-parse "$P42:app/observability/p4_2/ci_owner_gateway.py")" = 1cd05335b71953da3fdd4bcf42759147d9420e11
+          test "$(git rev-parse "$P3:app/observability/p3/fixture.py")" = 0384dee80ac635397b8dcc9170bfecce513773cf
+          work="$(mktemp -d)"
+          chmod 755 "$work"
+          trap 'sudo rm -rf "$work"' EXIT
+          git archive "$AUTH" app/ops app/deploy/systemd | tar -x -C "$work"
+          git show "$SDK:app/ops/sdk_spike_ci.py" > "$work/app/ops/sdk_spike_ci.py"
+          git show "$P4:app/observability/p4/ci_grafana_mcp.py" > "$work/p4_1_ci.py"
+          git archive "$P42" app/observability/p4_2 | tar -x -C "$work"
+          python -m unittest discover -s "$work/app/ops" -p 'test_*.py' -v
+          python -m venv "$work/venv"
+          "$work/venv/bin/python" -m pip --isolated install --only-binary=:all: --no-cache-dir 'mcp==2.3.0' 'httpx==0.28.1' 'uvicorn==0.54.0' 'h11==0.16.0'
+          "$work/venv/bin/python" -m pip check
+          "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
+          sudo chown -R root:root "$work/venv"
+          sudo chmod -R go-w "$work/venv"
+          cp app/observability/p4_3a/{ci_runtime,runtime}.py "$work/app/observability/p4_2/"
+          # Only instrument a temporary CI harness, not the accepted source.
+          # Preserve all original P4.2 checks; hook once after positive readiness.
+          python - "$work/app/observability/p4_2/ci_owner_gateway.py" <<'PY'
+          import sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          source = path.read_text()
+          anchor = '            check(now % 30 == 0, "real-samples-at-fixed-window-end")'
+          assert source.count(anchor) == 1
+          hook = "\n            from ci_runtime import exercise\n            exercise(mcp_url, upstream_caller, viewer_token, work, p41_path, Path(__file__).resolve().parent / 'owner_gateway.py')"
+          # Refresh fixture clock only after the extra real-process test.
+          hook += '\n            p41.eventually(aligned_metrics_ready, "post-process-aligned-metric-readiness", seconds=90)\n            now = ready["now"]'
+          path.write_text(source.replace(anchor, anchor + hook))
+          PY
+          "$work/venv/bin/python" "$work/app/observability/p4_2/ci_owner_gateway.py" "$work" "$work/p4_1_ci.py"
