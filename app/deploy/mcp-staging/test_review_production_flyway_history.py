@@ -65,9 +65,32 @@ class ProductionFlywayHistoryReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "POLICY_DIGEST_OR_SCOPE_DRIFT"):
                 m.source_scripts(candidate)
             shutil.copyfile(v30, candidate / v30.name)
-            (candidate / "V31__unreviewed.sql").write_text("CREATE TABLE unsafe (id INT);")
+            # An unreviewed *next* version must be rejected by the policy gate,
+            # independently of duplicate-version rejection. V31 is now allocated.
+            latest = max(int(sql.name.split("__", 1)[0][1:])
+                         for sql in candidate.glob("V*.sql"))
+            unexpected = candidate / f"V{latest + 1}__unreviewed.sql"
+            unexpected.write_text("CREATE TABLE unsafe (id INT);")
             with self.assertRaisesRegex(ValueError, "POLICY_VERSION_DRIFT"):
                 m.source_scripts(candidate)
+            unexpected.unlink()
+
+            # Keep an independent, exact rejection check for a duplicate version.
+            duplicate = candidate / f"V{latest}__unreviewed.sql"
+            duplicate.write_text("CREATE TABLE unsafe (id INT);")
+            with self.assertRaisesRegex(ValueError, "DUPLICATE_CANDIDATE_MIGRATION_VERSION"):
+                m.source_scripts(candidate)
+            duplicate.unlink()
+
+            # The accepted V31 SQL bytes must also remain pinned by policy.
+            v31 = candidate / "V31__personal_os_goals_and_assertions.sql"
+            if v31.is_file():
+                original = v31.read_bytes()
+                v31.write_bytes(original + b"\n--tampered\n")
+                with self.assertRaisesRegex(ValueError, "POLICY_DIGEST_OR_SCOPE_DRIFT"):
+                    m.source_scripts(candidate)
+                v31.write_bytes(original)
+                self.assertEqual(m.source_scripts(candidate), self.scripts)
 
     def test_expected_local_migrations_are_strict_1_to_29(self):
         self.assertEqual(set(self.scripts), set(range(1, 30)))
