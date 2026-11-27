@@ -84,12 +84,40 @@ export function verifyWorkflowProvenance(checks, {sha,prNumber,baseRef,headRef,m
   check(checks && Number.isInteger(checks.total_count) &&
     Array.isArray(checks.check_runs) && checks.total_count===checks.check_runs.length &&
     checks.total_count<=100,'INCOMPLETE_CHECK_PAGINATION')
-  const recent = new Map()
+  // A push on the same dev HEAD can publish newer check IDs than the PR
+  // run. Exclude only a fully identified same-repo push from this exact
+  // workflow/branch/SHA; keep every other candidate fail-closed.
+  const recent = new Map(), pushFallback = new Map(), candidateRuns = new Map()
+  const candidateRun = id => {
+    if(!candidateRuns.has(id))candidateRuns.set(id,loadRun(id))
+    return candidateRuns.get(id)
+  }
   for(const job of checks.check_runs){
     if(!REQUIRED_CHECKS.includes(job?.name) || job?.app?.slug!=='github-actions') continue
     check(Number.isSafeInteger(job.id)&&job.id>0,'INVALID_CHECK_ID')
-    const old=recent.get(job.name)
-    if(!old || job.id>old.id)recent.set(job.name,job)
+    const match=typeof job.details_url==='string' && job.details_url.match(
+      /^https:\/\/github\.com\/micor-cjj-spec\/matrix-prp\/actions\/runs\/(\d+)\/job\/(\d+)$/)
+    const runId=match?Number(match[1]):null
+    const validRunRef=!!match && Number(match[2])===job.id &&
+      Number.isSafeInteger(runId) && runId>0
+    const run=validRunRef?candidateRun(runId):null
+    const expected=WORKFLOW_FOR_CHECK[job.name]
+    const sameHeadPush=job.app?.id===15368 && job.head_sha===sha && validRunRef &&
+      run?.id===runId && run?.event==='push' && run?.head_sha===sha &&
+      run?.head_branch===headRef &&
+      run?.repository?.full_name===REPO && run?.repository?.id===1261866723 &&
+      run?.head_repository?.full_name===REPO && run?.head_repository?.id===1261866723 &&
+      run?.path===expected && run?.name===WORKFLOW_NAME[expected]
+    const target=sameHeadPush?pushFallback:recent
+    const old=target.get(job.name)
+    if(!old || job.id>old.job.id)target.set(job.name,{job,runId:validRunRef?runId:null})
+  }
+  // If a check exists only as a push, retain it as the selected candidate so
+  // the existing event/PR provenance checks reject it rather than skipping it.
+  for(const name of REQUIRED_CHECKS){
+    const selected=recent.get(name)??pushFallback.get(name)
+    check(selected,'CHECK_MISSING_'+name)
+    recent.set(name,selected)
   }
   if(checkout!==undefined)check(checkout&&baseRef==='main'&&headRef==='dev'&&SHA.test(checkout.baseSha||'')&&typeof checkout.loadLog==='function','REVIEW_CHECKOUT_INPUT')
   const seenRun = new Map(), seenJobs=new Map(), checkouts=[]
