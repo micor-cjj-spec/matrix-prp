@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'app/observability/p4_3b/**'
+      - 'app/observability/p4_3c3/**'
       - '.github/workflows/prp-observability-p4-3b.yml'
 permissions:
   contents: read
@@ -47,6 +48,12 @@ jobs:
           python app/observability/p4_3b/materialize.py --install-locked "$work/venv"
           "$work/venv/bin/python" "$work/app/ops/sdk_spike_ci.py"
           PYTHONPATH="$work/app/ops" "$work/venv/bin/python" "$work/candidate/ci_profile.py"
+          # Preserve the entire direct-profile suite. Tunnel-only candidate
+          # operates on separate copies, exact accepted materializer and lock.
+          cp -a "$work/app/ops" "$work/tunnel-ops"
+          cp -a "$work/candidate" "$work/tunnel-candidate"
+          python app/observability/p4_3c3/materialize_tunnel.py "$work/tunnel-ops" "$work/tunnel-candidate"
+          PYTHONPATH="$work/tunnel-ops" "$work/venv/bin/python" "$work/tunnel-candidate/ci_profile.py"
   dependency-evidence:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
