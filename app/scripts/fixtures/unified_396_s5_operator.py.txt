@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""One-time operator S5 cross-module synthetic UAT. No credentials or IDs in stdout."""
+import datetime as dt
+import fcntl
+import importlib.util
+import json
+import os
+import re
+import secrets
+import stat
+import subprocess
+import sys
+from decimal import Decimal
+from pathlib import Path
+
+def require(ok, code):
+    if not ok:
+        raise RuntimeError(code)
+
+spec = importlib.util.spec_from_file_location("p420", Path(__file__).with_name("p420.py"))
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+ROOT = m.CREDENTIAL_DIR
+IMAGES = {
+    m.BACKEND: "sha256:396fc37f266ad8d197d074367d7a70ccdcf43f8c20909bfdc0119aa0dbdd3a89",
+    m.GATEWAY: "sha256:f67163b616f1ee2fc931cc164934e5ddd5d89afd0b75c32cdb8a07b4b1999551",
+    m.MYSQL: "sha256:0f1a0ccadda3a1734d1db557e203ec58621d56fa248525016e85fe4f631311ec",
+}
+PATHS = {
+    "task": "/api/tasks",
+    "record": "/api/records",
+    "video": "/api/video/folders",
+    "practice": "/api/practice/subjects",
+    "account": "/api/finance/accounts",
+    "category": "/api/finance/categories",
+    "finance": "/api/finance/transactions",
+}
+DATE = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=8)).date().isoformat()
+MONTH = DATE[:7]
+SUMMARY = "/api/finance/summary/monthly?month=" + MONTH
+RUN = "UAT396-" + secrets.token_hex(8)
+TOKENS = {}
+BASE = {}
+ATTEMPTED = {}
+RESULT = {}
+CLEANUP = {}
+PHASE = "PREFLIGHT"
+JOURNAL = Path(__file__).with_name("local-private-journal.json")
+
+def save_local():
+    # Private work directory; synthetic markers/IDs only; never credentials/tokens.
+    payload = {"run": RUN, "attempted": list(ATTEMPTED.values()), "phase": PHASE,
+               "results": RESULT, "cleanup": CLEANUP}
+    tmp = JOURNAL.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        os.chmod(tmp, 0o600)
+        json.dump(payload, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, JOURNAL)
+
+def verify_stage():
+    meta = m.inspect_target()
+    m.validate_target(meta)
+    env = meta["backend"]["env"]
+    require(env.get("MATRIX_PRP_MCP_OAUTH_ISSUER") ==
+            "https://auth-test.micor.top/realms/prp-mcp", "STAGE_ISSUER_MISMATCH")
+    require(env.get("MATRIX_PRP_MCP_OAUTH_RESOURCE") ==
+            "https://prp-test.micor.top/api/mcp", "STAGE_RESOURCE_MISMATCH")
+    for container, image in IMAGES.items():
+        actual = m._run(["docker", "inspect", "--format", "{{.Image}}", container])
+        require(actual == image, "STAGE_IMAGE_MISMATCH")
+    # Fixed read-only SELECT using the staging app account, not root.
+    sql = ("START TRANSACTION READ ONLY;\n"
+           "SELECT version FROM flyway_schema_history WHERE success=1 "
+           "AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1;\n"
+           "SELECT COUNT(*) FROM flyway_schema_history WHERE success=0;\nCOMMIT;\n")
+    command = ["docker", "exec", "-i", m.MYSQL, "sh", "-c",
+               'test "$MYSQL_DATABASE" = "matrix_prp_unified_stage" && '
+               'test "$MYSQL_USER" = "prp_unified" && '
+               'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --protocol=TCP --host=127.0.0.1 '
+               '--user="$MYSQL_USER" --database="$MYSQL_DATABASE" --batch --skip-column-names']
+    require(m._run(command, input_text=sql).splitlines() == ["31", "0"],
+            "STAGE_SCHEMA_MISMATCH")
+
+def load_b(a):
+    # B may be stored alongside A or in its own private directory.
+    # Never recurse through /root or guess a password. Optional explicit private file path.
+    explicit = os.environ.get("B_FILE")
+    if explicit:
+        candidates = [Path(explicit)]
+    else:
+        candidates = list(ROOT.glob("*.json"))
+        sibling = ROOT.with_name(ROOT.name + "-b")
+        if sibling.is_dir() and not sibling.is_symlink():
+            candidates += list(sibling.glob("*.json"))
+        candidates = [p for p in candidates if p != m.CREDENTIAL_FILE]
+    valid = []
+    original_dir, original_file = m.CREDENTIAL_DIR, m.CREDENTIAL_FILE
+    for p in candidates:
+        try:
+            require(p.is_absolute() and p.parent.resolve() == p.parent and not p.is_symlink(),
+                    "B_PATH_INVALID")
+            m.CREDENTIAL_DIR, m.CREDENTIAL_FILE = p.parent, p
+            c = m.read_existing_credentials()
+            if c["user_id"] != a["user_id"] and c["username"] != a["username"]:
+                m.query_ordinary_identity_readonly(c)
+                valid.append(c)
+        except Exception:
+            continue
+        finally:
+            m.CREDENTIAL_DIR, m.CREDENTIAL_FILE = original_dir, original_file
+    require(len(valid) == 1, "B_CREDENTIAL_FILE_NOT_UNIQUELY_VERIFIED")
+    return valid[0]
+
+def raw(path, method="GET", payload=None, who=None):
+    return m.http_json(path, method=method, payload=payload,
+                       token=TOKENS.get(who) if who else None)
+
+def success(path, method="GET", payload=None, who=None):
+    status, ctype, body = raw(path, method, payload, who)
+    require(status == 200 and m.valid_json_type(ctype) and
+            isinstance(body, dict) and body.get("code") == "SUCCESS",
+            "API_CONTRACT_FAILURE")
+    return body.get("data")
+
+def login(who, c):
+    m.query_ordinary_identity_readonly(c)
+    d = success("/api/auth/login", "POST", {"username": c["username"], "password": c["password"]})
+    require(isinstance(d, dict) and isinstance(d.get("user"), dict), "LOGIN_SHAPE")
+    user = d["user"]
+    token = d.get("token")
+    require(user.get("id") == c["user_id"] and user.get("username") == c["username"]
+            and user.get("administrator") is False and d.get("tokenType") == "Bearer"
+            and isinstance(token, str) and len(token) <= 8192
+            and re.fullmatch(r"[-_A-Za-z0-9]+\.[-_A-Za-z0-9]+\.[-_A-Za-z0-9]+", token),
+            "LOGIN_IDENTITY_MISMATCH")
+    TOKENS[who] = token
+    me = success("/api/users/me", who=who)
+    require(isinstance(me, dict) and me.get("id") == c["user_id"]
+            and me.get("username") == c["username"] and me.get("administrator") is False,
+            "CURRENT_IDENTITY_MISMATCH")
+
+def items(who, kind):
+    rows = success(PATHS[kind], who=who)
+    require(isinstance(rows, list) and all(isinstance(r, dict) and
+            type(r.get("id")) is int and r["id"] > 0 for r in rows), "LIST_SHAPE")
+    require(len({r["id"] for r in rows}) == len(rows), "LIST_DUPLICATE_ID")
+    return {r["id"]: r for r in rows}
+
+def marker(who):
+    return RUN + "-" + who
+
+def matches(row, who, kind):
+    tag = marker(who)
+    if kind in ("task", "record"):
+        return row.get("title") == tag
+    if kind == "finance":
+        return row.get("merchant") == tag
+    return row.get("name") in (tag, tag + "-v2")
+
+def lookup(who, kind, rid):
+    rows = items(who, kind)
+    require(rid in rows and matches(rows[rid], who, kind), "OWN_ROW_NOT_FOUND")
+    return rows[rid]
+
+def check_values(row, expected):
+    for key, value in expected.items():
+        if key == "amount" or key == "openingBalance":
+            require(row.get(key) is not None and Decimal(str(row[key])) == Decimal(str(value)),
+                    "DECIMAL_MISMATCH")
+        else:
+            require(row.get(key) == value, "FIELD_MISMATCH")
+
+def create(who, kind, data, expected):
+    key = (who, kind)
+    require(key not in ATTEMPTED, "DUPLICATE_CREATE_ATTEMPT")
+    require(not any(matches(row, who, kind) for row in items(who, kind).values()),
+            "MARKER_COLLISION")
+    rec = {"owner": who, "kind": kind, "marker": marker(who), "id": None}
+    ATTEMPTED[key] = rec
+    save_local()
+    obj = success(PATHS[kind], "POST", data, who)
+    require(isinstance(obj, dict) and type(obj.get("id")) is int and obj["id"] > 0,
+            "CREATE_RESPONSE_ID")
+    rid = obj["id"]
+    require(rid not in BASE[key], "CREATE_RETURNED_BASELINE_ID")
+    rec["id"] = rid
+    save_local()
+    check_values(lookup(who, kind, rid), expected)
+    return rid
+
+def deny(who, path, method, payload=None):
+    status, _, _ = raw(path, method, payload, who)
+    require(status in (403, 404), "CROSS_OWNER_DENIAL_FAILED")
+
+def amount_summary(who):
+    d = success(SUMMARY, who=who)
+    require(isinstance(d, dict), "SUMMARY_SHAPE")
+    return tuple(Decimal(str(d[k])) for k in ("income", "expense", "balance"))
+
+def check_summary(who, baseline, expense):
+    i, e, b = baseline
+    require(amount_summary(who) == (i, e + expense, b - expense),
+            "MONTHLY_FINANCE_DELTA_MISMATCH")
+
+def verify_absent(who, kind, rid):
+    require(rid not in items(who, kind), "CROSS_OWNER_LIST_LEAK")
+
+def exercise(kind):
+    ids, initial, updated = {}, {}, {}
+    for who in ("A", "B"):
+        tag = marker(who)
+        if kind == "task":
+            initial[who] = {"moduleCode":"life","title":tag,"description":"synthetic-v1",
+                            "priority":"low","dueDate":DATE}
+            updated[who] = dict(initial[who], description="synthetic-v2", priority="high")
+        elif kind == "record":
+            initial[who] = {"moduleCode":"life","title":tag,"content":"synthetic-v1",
+                            "recordDate":DATE,"tagIds":[]}
+            updated[who] = dict(initial[who], content="synthetic-v2")
+        elif kind == "video":
+            initial[who] = {"parentId":None,"name":tag}
+            updated[who] = dict(initial[who], name=tag+"-v2")
+        elif kind == "practice":
+            initial[who] = {"parentId":None,"name":tag,"description":"synthetic-v1"}
+            updated[who] = dict(initial[who], name=tag+"-v2",description="synthetic-v2")
+        else:
+            account = {"name":tag,"type":"cash","currency":"CNY","openingBalance":0,
+                       "note":"synthetic"}
+            category = {"name":tag,"type":"expense","color":"#2563eb","note":"synthetic"}
+            create(who, "account", account, account)
+            create(who, "category", category, category)
+            initial[who] = {"type":"expense","amount":12.34,"category":tag,
+                            "account":tag,"merchant":tag,"note":"synthetic-v1",
+                            "transactionDate":DATE}
+            updated[who] = dict(initial[who], amount=23.45, note="synthetic-v2")
+        expected = {k:v for k,v in initial[who].items() if k != "tagIds"}
+        ids[who] = create(who, kind, initial[who], expected)
+        if kind == "finance":
+            check_summary(who, FIN_BASE[who], Decimal("12.34"))
+    require(ids["A"] != ids["B"], "TEST_IDS_NOT_DISTINCT")
+    for who, other in (("A","B"),("B","A")):
+        rid = ids[who]
+        verify_absent(other, kind, rid)
+        if kind == "video":
+            deny(other, "/api/video/items?folderId="+str(rid), "GET")
+        if kind == "practice":
+            deny(other, "/api/practice/subjects/"+str(rid)+"/banks", "GET")
+        path = PATHS[kind] + "/" + str(rid)
+        success(path, "PUT", updated[who], who)
+        expected = {k:v for k,v in updated[who].items() if k != "tagIds"}
+        check_values(lookup(who, kind, rid), expected)
+        if kind == "finance":
+            check_summary(who, FIN_BASE[who], Decimal("23.45"))
+        # Use valid payload and only the other synthetic owner's test ID.
+        hostile = dict(updated[who])
+        if kind == "finance":
+            hostile["account"] = marker(other)
+            hostile["category"] = marker(other)
+        deny(other, path, "PUT", hostile)
+        deny(other, path, "DELETE")
+        check_values(lookup(who, kind, rid), expected)
+        verify_absent(other, kind, rid)
+    RESULT[kind] = "CRUD_AND_BIDIRECTIONAL_ISOLATION_PASS"
+
+def cleanup():
+    # Delete only this run's exact markers through the original owner's API.
+    # Transactions first; dependent setup account/category afterwards.
+    order = ("finance","task","record","video","practice","category","account")
+    for kind in order:
+        for who in ("A","B"):
+            key = (who,kind)
+            if key not in ATTEMPTED:
+                continue
+            try:
+                rows = items(who,kind)
+                matching = [rid for rid,row in rows.items() if matches(row,who,kind)]
+                rec = ATTEMPTED[key]
+                require(len(matching) <= 1, "AMBIGUOUS_CLEANUP")
+                if matching:
+                    rid = matching[0]
+                    require(rid not in BASE[key] and
+                            (rec["id"] is None or rid == rec["id"]), "CLEANUP_ID_MISMATCH")
+                    success(PATHS[kind]+"/"+str(rid), "DELETE", who=who)
+                after = items(who,kind)
+                require(not any(matches(row,who,kind) for row in after.values()), "CLEANUP_REMAINS")
+                if rec["id"] is not None:
+                    require(rec["id"] not in after, "CLEANUP_ID_STILL_PRESENT")
+                CLEANUP[who+"_"+kind] = "API_ABSENT"
+            except Exception:
+                CLEANUP[who+"_"+kind] = "REVIEW_REQUIRED"
+            save_local()
+
+lock = None
+FIN_BASE = {}
+failure = None
+baseline_ok = False
+try:
+    require(os.geteuid() == 0 and stat.S_IMODE(Path(__file__).parent.stat().st_mode) == 0o700,
+            "PRIVATE_ROOT_WORKDIR_REQUIRED")
+    verify_stage()
+    a = m.read_existing_credentials()
+    lock = os.open(ROOT / ".s5-cross-module.lock",
+                   os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    b = load_b(a)
+    login("A", a)
+    login("B", b)
+    for who in ("A","B"):
+        for kind in PATHS:
+            BASE[(who,kind)] = items(who,kind)
+            require(not any(matches(row,who,kind) for row in BASE[(who,kind)].values()),
+                    "BASELINE_MARKER_COLLISION")
+        FIN_BASE[who] = amount_summary(who)
+    PHASE = "TEST"
+    save_local()
+    for kind in ("task","finance","record","video","practice"):
+        PHASE = kind
+        exercise(kind)
+        save_local()
+except Exception as exc:
+    # Never print exception details or response bodies. Only our fixed diagnostic labels.
+    label = str(exc)
+    failure = label if type(exc) is RuntimeError and re.fullmatch(r"[A-Z0-9_]{1,80}", label) else "LOCAL_OR_API_ERROR"
+finally:
+    if ATTEMPTED:
+        PHASE = "CLEANUP"
+        cleanup()
+        try:
+            baseline_ok = all(items(w,k) == v for (w,k),v in BASE.items())
+            baseline_ok = baseline_ok and all(amount_summary(w) == FIN_BASE[w] for w in ("A","B"))
+            verify_stage()
+            m.query_ordinary_identity_readonly(a)
+            m.query_ordinary_identity_readonly(b)
+        except Exception:
+            baseline_ok = False
+    PHASE = "FINISHED"
+    save_local()
+    if lock is not None:
+        os.close(lock)
+
+passed = (failure is None and len(RESULT) == 5 and baseline_ok
+          and len(CLEANUP) == len(ATTEMPTED) and all(x == "API_ABSENT" for x in CLEANUP.values()))
+print(json.dumps({
+    "state": "CROSS_MODULE_UAT_PASS" if passed else "CROSS_MODULE_UAT_REVIEW_REQUIRED",
+    "failure": failure, "moduleResults": RESULT, "cleanup": CLEANUP,
+    "visibleBaselineRestored": baseline_ok,
+    "createdAccounts": False, "healthTestsExecuted": False,
+    "aiProviderCalled": False, "databaseWritesDirect": False,
+    "automatedRunnerEnabled": False, "productionAuthorized": False,
+    "liveVerified": False,
+}, indent=2))
+sys.exit(0 if passed else 1)

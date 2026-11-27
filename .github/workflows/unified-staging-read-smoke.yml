@@ -10,6 +10,11 @@ on:
       - 'app/scripts/unified_staging_task_request*'
       - 'app/scripts/unified_staging_task_receipt*'
       - 'app/scripts/provision_unified_staging_uat*'
+      - 'app/scripts/test_unified_staging_s5_fixture.py'
+      - 'app/scripts/unified_staging_s5_recovery.py'
+      - 'app/scripts/unified_staging_s5_local_preflight.py'
+      - 'app/scripts/unified_staging_s5_regression.py'
+      - 'app/scripts/fixtures/unified_396_s5_operator.py.txt'
       - '.github/workflows/unified-staging-read-smoke.yml'
 
 permissions:
@@ -32,3 +37,5 @@ jobs:
         run: node app/scripts/unified_staging_smoke_review.cjs --fixture
       - name: Run mocked staging provisioning and GET-only smoke contract tests
         run: python3 -m unittest discover -s app/scripts -p 'test_provision_unified_staging_uat.py'
+      - name: Rehearse pinned S5 business regression with fake transport only
+        run: python3 -m unittest discover -s app/scripts -p 'test_unified_staging_s5_fixture.py' -v

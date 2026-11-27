@@ -1,0 +1,1336 @@
+"""Execute the pinned historical S5 source with fake transport only, never a real helper."""
+import contextlib
+import hashlib
+import importlib.util
+import io
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import tempfile
+import types
+import unittest
+from decimal import Decimal
+from pathlib import Path
+from unittest.mock import patch
+
+from unified_staging_s5_recovery import (assess_interrupted_journal, capture_baseline,
+    persist_baseline_once, read_baseline, compare_baseline, BASELINE_FILE, build_offline_receipt)
+
+SOURCE = Path(__file__).with_name("fixtures") / "unified_396_s5_operator.py.txt"
+DIGEST = "2c199c8b0fae7bdaaae2a10cc3d06f2bfd8fd33ee8c096b9399d4ccb1eb0d04c"
+IMAGES = {
+    "backend": "sha256:396fc37f266ad8d197d074367d7a70ccdcf43f8c20909bfdc0119aa0dbdd3a89",
+    "gateway": "sha256:f67163b616f1ee2fc931cc164934e5ddd5d89afd0b75c32cdb8a07b4b1999551",
+    "mysql": "sha256:0f1a0ccadda3a1734d1db557e203ec58621d56fa248525016e85fe4f631311ec",
+}
+PATHS = {
+    "/api/tasks": "task", "/api/records": "record",
+    "/api/video/folders": "video", "/api/practice/subjects": "practice",
+    "/api/finance/accounts": "account", "/api/finance/categories": "category",
+    "/api/finance/transactions": "finance",
+}
+MODULES = {"task", "finance", "record", "video", "practice"}
+CLEANUP_KEYS = {w + "_" + k for w in ("A", "B") for k in PATHS.values()}
+
+
+class FakeHelper:
+    BACKEND, GATEWAY, MYSQL = "backend", "gateway", "mysql"
+
+    def __init__(self, work, fault):
+        self.fault = fault
+        self.CREDENTIAL_DIR = work / "credentials"
+        self.CREDENTIAL_DIR.mkdir(mode=0o700)
+        self.CREDENTIAL_FILE = self.CREDENTIAL_DIR / "a.json"
+        self.CREDENTIAL_FILE.touch()
+        (self.CREDENTIAL_DIR / "b.json").touch()
+        self.credentials = {
+            w: {"user_id": uid, "username": "fixture_" + w,
+                "password": "fixture-password-" + w}
+            for w, uid in (("A", 1), ("B", 2))
+        }
+        self.rows = {(w, kind): {} for w in ("A", "B") for kind in PATHS.values()}
+        # Existing unrelated records must survive unchanged.
+        self.rows["A", "task"][90] = {"id": 90, "title": "unrelated"}
+        self.next_id = 100
+        self.calls = []
+        self.mutations = []
+        self.fault_used = False
+
+    def inspect_target(self):
+        return {"backend": {"env": {
+            "MATRIX_PRP_MCP_OAUTH_ISSUER": "https://auth-test.micor.top/realms/prp-mcp",
+            "MATRIX_PRP_MCP_OAUTH_RESOURCE": "https://prp-test.micor.top/api/mcp",
+        }}}
+
+    def validate_target(self, metadata):
+        if self.fault == "target":
+            raise RuntimeError("STAGE_TARGET_MISMATCH")
+
+    def _run(self, command, input_text=None):
+        if command[:4] == ["docker", "inspect", "--format", "{{.Image}}"]:
+            return "wrong-image" if self.fault == "image" else IMAGES[command[4]]
+        if (command[:5] == ["docker", "exec", "-i", "mysql", "sh"]
+                and input_text and input_text.startswith("START TRANSACTION READ ONLY;")
+                and "flyway_schema_history" in input_text):
+            return "30\n0" if self.fault == "schema" else "31\n0"
+        raise AssertionError("unexpected fake command")
+
+    def read_existing_credentials(self):
+        who = {"a.json": "A", "b.json": "B"}[self.CREDENTIAL_FILE.name]
+        if who == "B" and self.fault == "missing_b":
+            raise RuntimeError("INVALID_B")
+        return dict(self.credentials[who])
+
+    def query_ordinary_identity_readonly(self, c):
+        if c not in self.credentials.values():
+            raise AssertionError("unknown synthetic identity")
+
+    @staticmethod
+    def valid_json_type(ctype):
+        return ctype == "application/json"
+
+    @staticmethod
+    def ok(data):
+        return 200, "application/json", {"code": "SUCCESS", "data": data}
+
+    @staticmethod
+    def denied():
+        return 404, "application/json", None
+
+    def http_json(self, path, *, method="GET", payload=None, token=None):
+        self.calls.append((method, path))
+        if path == "/api/auth/login" and method == "POST":
+            w = next(w for w, c in self.credentials.items()
+                     if payload == {"username": c["username"], "password": c["password"]})
+            c = self.credentials[w]
+            return self.ok({"user": {"id": c["user_id"], "username": c["username"],
+                                     "administrator": self.fault == "admin"},
+                            "tokenType": "Bearer", "token": "fake." + w + ".jwt"})
+        w = {"fake.A.jwt": "A", "fake.B.jwt": "B"}[token]
+        other = "B" if w == "A" else "A"
+        if path == "/api/users/me" and method == "GET":
+            c = self.credentials[w]
+            return self.ok({"id": c["user_id"], "username": c["username"],
+                            "administrator": False})
+        if path.startswith("/api/finance/summary/monthly?month=") and method == "GET":
+            exp = sum((Decimal(str(r["amount"])) for r in self.rows[w, "finance"].values()),
+                      Decimal("0"))
+            if self.fault == "finance_delta" and exp:
+                exp += 1
+            return self.ok({"income": "0", "expense": str(exp), "balance": str(-exp)})
+        if path.startswith("/api/video/items?folderId=") or re.fullmatch(
+                r"/api/practice/subjects/\d+/banks", path):
+            if method != "GET":
+                raise AssertionError("unexpected method")
+            return self.denied()
+        match = next((p for p in PATHS if path == p or path.startswith(p + "/")), None)
+        if match is None:
+            raise AssertionError("unexpected route")
+        kind = PATHS[match]
+        rows = self.rows[w, kind]
+        if path == match and method == "GET":
+            values = list(rows.values())
+            if self.fault == "leak" and self.rows[other, kind]:
+                values += [r for r in self.rows[other, kind].values() if r["id"] >= 100]
+            return self.ok([dict(r) for r in values])
+        if path == match and method == "POST":
+            self.next_id += 1
+            rid = self.next_id
+            rows[rid] = dict(payload, id=rid)
+            self.mutations.append((w, kind, method, rid))
+            if self.fault == "lost_create" and not self.fault_used:
+                self.fault_used = True
+                raise OSError("simulated lost response after commit")
+            if self.fault == "ambiguous" and not self.fault_used:
+                self.fault_used = True
+                self.next_id += 1
+                rows[self.next_id] = dict(payload, id=self.next_id)
+                raise OSError("simulated ambiguous create")
+            return self.ok(dict(rows[rid]))
+        rid = int(path[len(match) + 1:])
+        if rid not in rows:
+            if self.fault == "cross_owner" and method == "PUT" and rid in self.rows[other, kind]:
+                return self.ok({})
+            return self.denied()
+        if rid < 100:
+            raise AssertionError("attempted mutation of baseline row")
+        if method == "PUT":
+            rows[rid] = dict(payload, id=rid)
+            self.mutations.append((w, kind, method, rid))
+            return self.ok(dict(rows[rid]))
+        if method == "DELETE":
+            if self.fault == "cleanup":
+                return 500, "application/json", None
+            del rows[rid]
+            self.mutations.append((w, kind, method, rid))
+            return self.ok({})
+        raise AssertionError("unexpected method")
+
+
+
+
+class IntegratedFakeHelper(FakeHelper):
+    """Capture the actual simulated preflight observations before first mutation.
+
+    This class is deliberately test-only. It never imports the real transport.
+    """
+    def __init__(self, work, fault):
+        super().__init__(work, fault)
+        self.work = work
+        self.actual_uid = os.geteuid()
+        self.observed = {}
+        self.observed_summaries = {}
+        self.months = set()
+        self.context = None
+        self.sidecar_ready = False
+        self.sidecar_failed = False
+
+    def http_json(self, path, *, method="GET", payload=None, token=None):
+        who = {"fake.A.jwt": "A", "fake.B.jwt": "B"}.get(token)
+        if path != "/api/auth/login" and method in ("POST", "PUT", "DELETE"):
+            if not self.sidecar_ready:
+                if self.sidecar_failed:
+                    raise RuntimeError("BASELINE_NOT_DURABLE")
+                try:
+                    journal = json.loads((self.work / "local-private-journal.json").read_text())
+                    attempts = journal["attempted"]
+                    if (method != "POST" or len(attempts) != 1
+                            or attempts[0]["owner"] != who
+                            or attempts[0]["kind"] != PATHS.get(path)
+                            or attempts[0]["id"] is not None
+                            or len(self.months) != 1 or self.mutations):
+                        raise RuntimeError("BASELINE_ORDER_MISMATCH")
+                    self.context = {
+                        "run": journal["run"], "month": next(iter(self.months)),
+                        "target": "https://prp-test.micor.top", "schema": 31,
+                        "images": dict(IMAGES),
+                        "owners": {w: self.credentials[w]["user_id"] for w in ("A", "B")},
+                        "sourceSha256": DIGEST,
+                    }
+                    baseline = capture_baseline(self.context, self.observed, self.observed_summaries)
+                    # Historical script mocks geteuid to 0; the sidecar must
+                    # check the actual temporary directory owner instead.
+                    with patch.object(os, "geteuid", return_value=self.actual_uid):
+                        if self.fault == "baseline_io":
+                            raise OSError("simulated persistence failure")
+                        persist_baseline_once(self.work, baseline)
+                        if read_baseline(self.work) != baseline:
+                            raise RuntimeError("BASELINE_READBACK_MISMATCH")
+                    self.sidecar_ready = True
+                except Exception:
+                    self.sidecar_failed = True
+                    raise RuntimeError("BASELINE_NOT_DURABLE")
+            if not self.sidecar_ready:
+                raise RuntimeError("BASELINE_NOT_DURABLE")
+        result = super().http_json(path, method=method, payload=payload, token=token)
+        if not self.sidecar_ready and not self.sidecar_failed and method == "GET" and who:
+            status, ctype, body = result
+            if status == 200 and ctype == "application/json":
+                if path in PATHS:
+                    self.observed[who + "_" + PATHS[path]] = body["data"]
+                elif path.startswith("/api/finance/summary/monthly?month="):
+                    self.months.add(path.rsplit("=", 1)[1])
+                    self.observed_summaries[who] = body["data"]
+        return result
+
+    def finish_receipt(self, report, journal):
+        if not self.sidecar_ready:
+            # No baseline means no eligible pass, even for an empty journal.
+            return build_offline_receipt(report, journal, None, self.context, {}, {})
+        if self.fault == "post_baseline_drift":
+            self.rows["A", "task"][90]["title"] = "simulated drift after cleanup"
+        if self.fault == "corrupt_sidecar":
+            (self.work / BASELINE_FILE).write_text("{}")
+        try:
+            baseline = read_baseline(self.work)
+        except (OSError, ValueError):
+            baseline = None
+        snapshots, summaries = {}, {}
+        for who in ("A", "B"):
+            for path, kind in PATHS.items():
+                status, _, body = self.http_json(path, token="fake." + who + ".jwt")
+                if status == 200:
+                    snapshots[who + "_" + kind] = body["data"]
+            status, _, body = self.http_json(
+                "/api/finance/summary/monthly?month=" + self.context["month"],
+                token="fake." + who + ".jwt")
+            if status == 200:
+                summaries[who] = body["data"]
+        if self.fault in ("journal_missing_ids", "journal_duplicate_ids"):
+            # Mutate only the final report-side fixture, not the historical
+            # source or the interrupted-run reconciliation policy.
+            journal = json.loads(json.dumps(journal))
+            if self.fault == "journal_missing_ids":
+                for entry in journal["attempted"]:
+                    entry["id"] = None
+            else:
+                task = [entry for entry in journal["attempted"] if entry["kind"] == "task"]
+                task[1]["id"] = task[0]["id"]
+        return build_offline_receipt(report, journal, baseline, self.context, snapshots, summaries)
+
+
+def run_fixture(fault=None, *, integrated=False):
+    raw = SOURCE.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != DIGEST:
+        raise AssertionError("historical source digest changed")
+    with tempfile.TemporaryDirectory(prefix="prp-s62-fixture-") as tmp:
+        work = Path(tmp)
+        helper = (IntegratedFakeHelper if integrated else FakeHelper)(work, fault)
+        output = io.StringIO()
+        # Loader interception injects the fake helper instead of loading p420.py.
+        fake_spec = types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=lambda _: None))
+        def forbid(*args, **kwargs):
+            raise AssertionError("offline fixture attempted real network or process")
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(importlib.util, "spec_from_file_location", return_value=fake_spec))
+            stack.enter_context(patch.object(importlib.util, "module_from_spec", return_value=helper))
+            stack.enter_context(patch.object(os, "geteuid", return_value=0))
+            stack.enter_context(patch.dict(os.environ, {"B_FILE": ""}))
+            stack.enter_context(patch.object(socket, "socket", side_effect=forbid))
+            stack.enter_context(patch.object(socket, "create_connection", side_effect=forbid))
+            stack.enter_context(patch.object(subprocess, "Popen", side_effect=forbid))
+            stack.enter_context(contextlib.redirect_stdout(output))
+            try:
+                exec(compile(raw, str(work / "cross_uat.py"), "exec"),
+                     {"__file__": str(work / "cross_uat.py"), "__name__": "__main__"})
+            except SystemExit as exc:
+                exit_code = exc.code
+            else:
+                raise AssertionError("missing exit status")
+        report = json.loads(output.getvalue())
+        journal = json.loads((work / "local-private-journal.json").read_text())
+        for text in (output.getvalue(), json.dumps(journal)):
+            if "fixture-password" in text or "fake.A.jwt" in text or "fake.B.jwt" in text:
+                raise AssertionError("credential leak")
+        if integrated:
+            helper.receipt = helper.finish_receipt(report, journal)
+        return exit_code, report, helper, journal
+
+
+class S5OfflineReuseTests(unittest.TestCase):
+    def assert_review(self, fault, expected_failure=None):
+        code, report, helper, journal = run_fixture(fault)
+        self.assertEqual(code, 1)
+        self.assertEqual(report["state"], "CROSS_MODULE_UAT_REVIEW_REQUIRED")
+        if expected_failure:
+            self.assertEqual(report["failure"], expected_failure)
+        self.assertFalse(report["liveVerified"])
+        self.assertFalse(report["productionAuthorized"])
+        self.assertFalse(report["automatedRunnerEnabled"])
+        return report, helper, journal
+
+    def test_success_all_modules_and_cleanup(self):
+        code, report, helper, journal = run_fixture()
+        self.assertEqual(code, 0)
+        self.assertEqual(report["state"], "CROSS_MODULE_UAT_PASS")
+        self.assertEqual(set(report["moduleResults"]), MODULES)
+        self.assertEqual(set(report["cleanup"]), CLEANUP_KEYS)
+        self.assertEqual(set(report["cleanup"].values()), {"API_ABSENT"})
+        self.assertTrue(report["visibleBaselineRestored"])
+        self.assertEqual(helper.rows["A", "task"], {90: {"id": 90, "title": "unrelated"}})
+        self.assertEqual(sum(len(v) for v in helper.rows.values()), 1)
+        self.assertEqual(sum(m[2] == "POST" for m in helper.mutations), 14)
+        self.assertEqual(sum(m[2] == "DELETE" for m in helper.mutations), 14)
+        self.assertFalse(report["createdAccounts"])
+        self.assertFalse(report["healthTestsExecuted"])
+        self.assertFalse(report["aiProviderCalled"])
+        self.assertFalse(report["databaseWritesDirect"])
+        self.assertFalse(report["automatedRunnerEnabled"])
+        self.assertFalse(report["productionAuthorized"])
+        self.assertFalse(report["liveVerified"])
+
+    def test_bad_preflight_never_writes(self):
+        for fault, reason in (("target", "STAGE_TARGET_MISMATCH"),
+                              ("image", "STAGE_IMAGE_MISMATCH"),
+                              ("schema", "STAGE_SCHEMA_MISMATCH"),
+                              ("missing_b", "B_CREDENTIAL_FILE_NOT_UNIQUELY_VERIFIED"),
+                              ("admin", "LOGIN_IDENTITY_MISMATCH")):
+            with self.subTest(fault=fault):
+                report, helper, _ = self.assert_review(fault, reason)
+                self.assertEqual(helper.mutations, [])
+                self.assertEqual(report["cleanup"], {})
+
+    def test_cross_owner_acceptance_is_failure(self):
+        report, _, _ = self.assert_review("cross_owner", "CROSS_OWNER_DENIAL_FAILED")
+        self.assertTrue(report["visibleBaselineRestored"])
+        self.assertNotIn("task", report["moduleResults"])
+
+    def test_cross_owner_list_leak_is_failure(self):
+        self.assert_review("leak")
+
+    def test_finance_delta_mismatch_is_failure(self):
+        report, _, _ = self.assert_review("finance_delta", "MONTHLY_FINANCE_DELTA_MISMATCH")
+        self.assertTrue(report["visibleBaselineRestored"])
+
+    def test_lost_create_response_cleanup_by_marker(self):
+        report, helper, journal = self.assert_review("lost_create", "LOCAL_OR_API_ERROR")
+        self.assertEqual(report["cleanup"], {"A_task": "API_ABSENT"})
+        self.assertTrue(report["visibleBaselineRestored"])
+        self.assertIsNone(journal["attempted"][0]["id"])
+        self.assertEqual(sum(len(v) for v in helper.rows.values()), 1)
+
+    def test_ambiguous_create_refuses_unsafe_cleanup(self):
+        report, helper, _ = self.assert_review("ambiguous", "LOCAL_OR_API_ERROR")
+        self.assertEqual(report["cleanup"], {"A_task": "REVIEW_REQUIRED"})
+        self.assertFalse(report["visibleBaselineRestored"])
+        self.assertFalse(any(m[2] == "DELETE" for m in helper.mutations))
+
+    def test_cleanup_failure_never_passes(self):
+        report, _, _ = self.assert_review("cleanup")
+        self.assertIn("REVIEW_REQUIRED", report["cleanup"].values())
+        self.assertFalse(report["visibleBaselineRestored"])
+
+
+class S5RecoveryReviewTests(unittest.TestCase):
+    def setUp(self):
+        self.run = "UAT396-0123456789abcdef"
+        self.marker = self.run + "-A"
+        self.journal = {
+            "run": self.run, "phase": "task",
+            "attempted": [{"owner": "A", "kind": "task", "marker": self.marker, "id": 101}],
+            "results": {}, "cleanup": {},
+        }
+        self.snapshots = {"A_task": [], "B_task": []}
+
+    def assess(self):
+        result = assess_interrupted_journal(self.journal, self.snapshots)
+        for k in ("baselineRestored", "liveVerified", "cleanupAuthorized", "productionAuthorized"):
+            self.assertIs(result[k], False)
+        self.assertNotIn(self.marker, json.dumps(result))
+        return result
+
+    def test_known_id_residual(self):
+        self.snapshots["A_task"] = [{"id": 101, "title": self.marker}]
+        self.assertEqual(self.assess()["entries"], {"A_task": "KNOWN_ID_REMAINS"})
+
+    def test_unconfirmed_create_residual(self):
+        self.journal["attempted"][0]["id"] = None
+        self.snapshots["A_task"] = [{"id": 101, "title": self.marker}]
+        self.assertEqual(self.assess()["entries"], {"A_task": "UNCONFIRMED_CREATE_REMAINS"})
+
+    def test_id_and_marker_conflicts(self):
+        for row in ({"id": 101, "title": "unrelated"}, {"id": 102, "title": self.marker}):
+            with self.subTest(row=row):
+                self.snapshots["A_task"] = [row]
+                self.assertEqual(self.assess()["entries"], {"A_task": "ID_MARKER_CONFLICT"})
+
+    def test_ambiguous_marker(self):
+        self.snapshots["A_task"] = [{"id": i, "title": self.marker} for i in (101, 102)]
+        self.assertEqual(self.assess()["entries"], {"A_task": "AMBIGUOUS_MARKER"})
+
+    def test_cross_owner_conflict(self):
+        for row in ({"id": 101, "title": "unrelated"}, {"id": 102, "title": self.marker}):
+            with self.subTest(row=row):
+                self.snapshots["B_task"] = [row]
+                self.assertEqual(self.assess()["entries"], {"A_task": "CROSS_OWNER_CONFLICT"})
+
+    def test_missing_snapshot_or_duplicate_id(self):
+        del self.snapshots["B_task"]
+        self.assertEqual(self.assess()["state"], "INCOMPLETE_SNAPSHOTS")
+        self.snapshots["B_task"] = [{"id": 2}, {"id": 2}]
+        self.assertEqual(self.assess()["state"], "INVALID_SNAPSHOT")
+
+    def test_invalid_journal(self):
+        self.journal["attempted"][0]["marker"] = "wrong"
+        self.assertEqual(self.assess()["state"], "INVALID_JOURNAL")
+        self.journal["attempted"][0]["marker"] = self.marker
+        self.journal["attempted"].append(dict(self.journal["attempted"][0]))
+        self.assertEqual(self.assess()["state"], "INVALID_JOURNAL")
+
+    def test_absent_is_not_baseline_restoration(self):
+        self.snapshots["A_task"] = [{"id": 90, "title": "unrelated"}]
+        self.assertEqual(self.assess()["state"], "NO_MARKERS_OBSERVED")
+
+    def test_historical_failed_cleanup_journal(self):
+        code, report, helper, journal = run_fixture("cleanup")
+        self.assertEqual(code, 1)
+        result = assess_interrupted_journal(journal, {
+            w + "_" + k: list(rows.values()) for (w, k), rows in helper.rows.items()
+        })
+        self.assertEqual(result["state"], "RECOVERY_REVIEW_REQUIRED")
+        self.assertEqual(set(result["entries"]), set(report["cleanup"]))
+        self.assertIn("KNOWN_ID_REMAINS", result["entries"].values())
+        self.assertFalse(result["cleanupAuthorized"])
+
+    def test_historical_cleaned_journal(self):
+        code, _, helper, journal = run_fixture()
+        self.assertEqual(code, 0)
+        result = assess_interrupted_journal(journal, {
+            w + "_" + k: list(rows.values()) for (w, k), rows in helper.rows.items()
+        })
+        self.assertEqual(result["state"], "NO_MARKERS_OBSERVED")
+        self.assertEqual(set(result["entries"]), CLEANUP_KEYS)
+        self.assertFalse(result["baselineRestored"])
+
+
+class S5BaselineTests(unittest.TestCase):
+    def setUp(self):
+        self.context = {"run": "UAT396-0123456789abcdef", "month": "2026-11",
+                        "target": "https://prp-test.micor.top", "schema": 31,
+                        "images": dict(IMAGES), "owners": {"A": 1, "B": 2},
+                        "sourceSha256": DIGEST}
+        self.snapshots = {k: [] for k in CLEANUP_KEYS}
+        self.snapshots["A_task"] = [{"id": 90, "title": "unrelated-private"},
+                                    {"id": 91, "title": "second"}]
+        self.summaries = {w: {"income": "0.00", "expense": "0", "balance": "0"}
+                          for w in ("A", "B")}
+        self.baseline = capture_baseline(self.context, self.snapshots, self.summaries)
+
+    def compare(self):
+        result = compare_baseline(self.baseline, self.context, self.snapshots, self.summaries)
+        for k in ("baselineRestored", "liveVerified", "cleanupAuthorized", "productionAuthorized"):
+            self.assertIs(result[k], False)
+        return result
+
+    def test_private_roundtrip_and_no_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persist_baseline_once(tmp, self.baseline)
+            file = Path(tmp) / BASELINE_FILE
+            self.assertEqual(file.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(read_baseline(tmp), self.baseline)
+            self.assertNotIn("unrelated-private", file.read_text())
+            self.assertNotIn(self.context["run"], file.read_text())
+            with self.assertRaises(FileExistsError):
+                persist_baseline_once(tmp, self.baseline)
+            self.assertEqual(read_baseline(tmp), self.baseline)
+            self.assertEqual(list(Path(tmp).iterdir()), [file])
+
+    def test_complete_match_and_row_order(self):
+        self.snapshots["A_task"].reverse()
+        self.summaries["A"]["income"] = 0
+        self.assertEqual(self.compare()["state"], "BASELINE_DIGESTS_MATCH")
+
+    def test_changed_existing_row_detected(self):
+        self.snapshots["A_task"][0]["title"] = "changed"
+        self.assertEqual(self.compare()["entries"], {"A_task": "CHANGED"})
+
+    def test_finance_summary_exact_decimal(self):
+        self.summaries["B"]["expense"] = "0.00000000000000000000000000001"
+        self.assertEqual(self.compare()["entries"], {"finance_summary_B": "CHANGED"})
+
+    def test_missing_and_duplicate_lists(self):
+        self.snapshots["A_task"].append(dict(self.snapshots["A_task"][0]))
+        self.assertEqual(self.compare()["state"], "INVALID_BASELINE_OBSERVATION")
+        del self.snapshots["B_task"]
+        self.assertEqual(self.compare()["state"], "INVALID_BASELINE_OBSERVATION")
+
+    def test_context_binding(self):
+        for key, value in (("month", "2026-12"), ("owners", {"A": 2, "B": 1}),
+                           ("images", {**IMAGES, "backend": "sha256:" + "1"*64})):
+            with self.subTest(key=key):
+                original = self.context[key]
+                self.context[key] = value
+                self.assertEqual(self.compare()["state"], "BASELINE_CONTEXT_MISMATCH")
+                self.context[key] = original
+
+    def test_invalid_context(self):
+        self.context["target"] = "https://micor.top"
+        self.assertEqual(self.compare()["state"], "INVALID_BASELINE_OBSERVATION")
+
+    def test_tamper_and_truncation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persist_baseline_once(tmp, self.baseline)
+            file = Path(tmp) / BASELINE_FILE
+            data = json.loads(file.read_text())
+            data["lists"]["A_task"] = "0"*64
+            file.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "BASELINE_DIGEST_MISMATCH"):
+                read_baseline(tmp)
+            file.write_text("{")
+            with self.assertRaises(ValueError):
+                read_baseline(tmp)
+
+    def test_symlink_and_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / BASELINE_FILE
+            file.symlink_to(Path(tmp) / "missing")
+            with self.assertRaises(OSError):
+                read_baseline(tmp)
+            with self.assertRaises(FileExistsError):
+                persist_baseline_once(tmp, self.baseline)
+            file.unlink()
+            persist_baseline_once(tmp, self.baseline)
+            file.chmod(0o644)
+            with self.assertRaisesRegex(ValueError, "INVALID_BASELINE_FILE"):
+                read_baseline(tmp)
+
+    def test_invalid_summary(self):
+        self.summaries["B"]["expense"] = "NaN"
+        self.assertEqual(self.compare()["state"], "INVALID_BASELINE_OBSERVATION")
+
+
+class S5IntegratedRehearsalTests(unittest.TestCase):
+    def run_integrated(self, fault=None):
+        code, report, helper, journal = run_fixture(fault, integrated=True)
+        receipt = helper.receipt
+        self.assertEqual(receipt["kind"], "S5_OFFLINE_REHEARSAL")
+        for key in ("liveVerified", "baselineRestored", "cleanupAuthorized",
+                    "automatedRunnerEnabled", "productionAuthorized", "deploymentAuthorized"):
+            self.assertIs(receipt[key], False)
+        serialized = json.dumps(receipt)
+        for private in ("UAT396-", "fixture-password", "fake.A.jwt", "unrelated"):
+            self.assertNotIn(private, serialized)
+        return code, report, helper, journal, receipt
+
+    def test_integrated_pass(self):
+        code, _, helper, _, receipt = self.run_integrated()
+        self.assertEqual(code, 0)
+        self.assertTrue(helper.sidecar_ready)
+        self.assertEqual(receipt["state"], "OFFLINE_REHEARSAL_PASS")
+        self.assertEqual(receipt["modulesPassed"], 5)
+        self.assertEqual(receipt["cleanupObservedAbsent"], 14)
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+
+    def test_persistence_failure_blocks_first_business_write(self):
+        code, _, helper, _, receipt = self.run_integrated("baseline_io")
+        self.assertEqual(code, 1)
+        self.assertEqual(helper.mutations, [])
+        self.assertFalse(helper.sidecar_ready)
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_preflight_failure_has_no_baseline_or_writes(self):
+        code, _, helper, _, receipt = self.run_integrated("schema")
+        self.assertEqual(code, 1)
+        self.assertFalse(helper.sidecar_ready)
+        self.assertEqual(helper.mutations, [])
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_lost_create_restored_but_run_not_passed(self):
+        code, _, _, _, receipt = self.run_integrated("lost_create")
+        self.assertEqual(code, 1)
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(receipt["recoveryState"], "NO_MARKERS_OBSERVED")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_failed_cleanup_and_ambiguous_create(self):
+        for fault in ("cleanup", "ambiguous"):
+            with self.subTest(fault=fault):
+                code, _, _, _, receipt = self.run_integrated(fault)
+                self.assertEqual(code, 1)
+                self.assertEqual(receipt["baselineState"], "BASELINE_DIFFERENCE_OBSERVED")
+                self.assertEqual(receipt["recoveryState"], "RECOVERY_REVIEW_REQUIRED")
+                self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_cross_owner_failure_never_promoted(self):
+        code, _, _, _, receipt = self.run_integrated("cross_owner")
+        self.assertEqual(code, 1)
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_drift_after_historical_success(self):
+        code, _, _, _, receipt = self.run_integrated("post_baseline_drift")
+        self.assertEqual(code, 0)
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIFFERENCE_OBSERVED")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_corrupt_sidecar_after_historical_success(self):
+        code, _, _, _, receipt = self.run_integrated("corrupt_sidecar")
+        self.assertEqual(code, 0)
+        self.assertEqual(receipt["baselineState"], "INVALID_BASELINE_OBSERVATION")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+
+    def test_success_receipt_requires_confirmed_ids(self):
+        code, report, _, _, receipt = self.run_integrated("journal_missing_ids")
+        self.assertEqual(code, 0)
+        self.assertEqual(report["state"], "CROSS_MODULE_UAT_PASS")
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(receipt["recoveryState"], "NO_MARKERS_OBSERVED")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_success_receipt_rejects_same_kind_duplicate_ids(self):
+        code, report, _, _, receipt = self.run_integrated("journal_duplicate_ids")
+        self.assertEqual(code, 0)
+        self.assertEqual(report["state"], "CROSS_MODULE_UAT_PASS")
+        self.assertEqual(receipt["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(receipt["recoveryState"], "NO_MARKERS_OBSERVED")
+        self.assertEqual(receipt["state"], "OFFLINE_REVIEW_REQUIRED")
+
+
+
+
+class S5LocalPreflightTests(unittest.TestCase):
+    def setUp(self):
+        import fcntl
+        from unified_staging_s5_local_preflight import LOCK, IMAGES as CURRENT_IMAGES
+        self.fcntl = fcntl
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        root = Path(self.work.name)
+        self.helper = FakeHelper(root, None)
+        self.b_file = self.helper.CREDENTIAL_DIR / "b.json"
+        self.lock = self.helper.CREDENTIAL_DIR / LOCK
+        self.lock.touch(mode=0o600)
+        self.runtime_calls = 0
+        self.observe_calls = 0
+        self.fault = None
+        self.original_http = self.helper.http_json
+        self.original_run = self.helper._run
+
+        def command(cmd, input_text=None):
+            if cmd[:4] == ["docker", "inspect", "--format",
+                           "{{.Id}} {{.Image}} {{.State.StartedAt}} {{.RestartCount}}"]:
+                self.runtime_calls += 1
+                kind = cmd[4]
+                image = IMAGES[kind] if self.fault == "old_image" else CURRENT_IMAGES[kind]
+                identity = {"backend": "a", "gateway": "b", "mysql": "c"}[kind] * 64
+                if self.fault == "runtime_change" and self.runtime_calls > 3:
+                    identity = "d" * 64
+                return identity + " " + image + " 2026-11-26T06:00:00Z 0"
+            return self.original_run(cmd, input_text)
+
+        def http(path, *, method="GET", payload=None, token=None):
+            # No business write method is permitted even in this fake preflight.
+            self.assertTrue(method == "GET" or (method == "POST" and path == "/api/auth/login"))
+            result = self.original_http(path, method=method, payload=payload, token=token)
+            if path == "/api/auth/login":
+                result[2]["data"]["expiresInSeconds"] = 3600
+            if path == "/api/tasks" and method == "GET":
+                self.observe_calls += 1
+                if self.fault == "baseline_drift" and self.observe_calls == 3:
+                    result[2]["data"].append({"id": 91, "title": "changed"})
+                if self.fault == "owner_overlap" and token == "fake.B.jwt":
+                    result[2]["data"].append({"id": 90, "title": "unrelated"})
+            return result
+
+        self.helper._run = command
+        self.helper.http_json = http
+
+        def forbid(*args, **kwargs):
+            raise AssertionError("real network or process forbidden")
+
+        for target in ("socket.socket", "socket.create_connection", "subprocess.Popen", "subprocess.run"):
+            guard = patch(target, side_effect=forbid)
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def run_preflight(self, journal=None):
+        from unified_staging_s5_local_preflight import run_preflight
+        try:
+            return run_preflight(self.helper, self.b_file, journal)
+        finally:
+            self.assertEqual(self.helper.mutations, [])
+            self.assertTrue(all(m == "GET" or (m == "POST" and p == "/api/auth/login")
+                                for m, p in self.helper.calls))
+
+    def test_preflight_only_pass(self):
+        report = self.run_preflight()
+        self.assertEqual(report["state"], "S5_LOCAL_PREFLIGHT_PASS")
+        self.assertEqual(report["ownerLists"], 14)
+        self.assertEqual(report["financeSummaries"], 2)
+        self.assertEqual(report["businessWrites"], 0)
+        self.assertEqual(report["journalState"], "NOT_REQUESTED")
+        self.assertFalse(report["baselineRestored"])
+        self.assertFalse(report["liveVerified"])
+        self.assertEqual(self.runtime_calls, 6)
+        self.assertEqual(self.lock.stat().st_size, 0)
+
+    def test_old_image_rejected_before_login(self):
+        self.fault = "old_image"
+        with self.assertRaisesRegex(RuntimeError, "STAGE_IMAGE_OR_RUNTIME_MISMATCH"):
+            self.run_preflight()
+        self.assertEqual(self.helper.calls, [])
+
+    def test_target_and_schema_rejected(self):
+        for fault, reason in (("target", "STAGE_TARGET_MISMATCH"), ("schema", "STAGE_SCHEMA_MISMATCH")):
+            with self.subTest(fault=fault):
+                self.helper.fault = fault
+                with self.assertRaisesRegex(RuntimeError, reason):
+                    self.run_preflight()
+                self.assertEqual(self.helper.calls, [])
+
+    def test_duplicate_and_admin_identity_rejected(self):
+        original = self.helper.credentials["B"]
+        self.helper.credentials["B"] = dict(self.helper.credentials["A"])
+        with self.assertRaisesRegex(RuntimeError, "DUPLICATE_IDENTITY"):
+            self.run_preflight()
+        self.helper.credentials["B"] = original
+        self.helper.fault = "admin"
+        with self.assertRaisesRegex(RuntimeError, "LOGIN_IDENTITY_MISMATCH"):
+            self.run_preflight()
+
+    def test_held_lock_rejected(self):
+        with self.lock.open("rb") as f:
+            self.fcntl.flock(f, self.fcntl.LOCK_EX | self.fcntl.LOCK_NB)
+            with self.assertRaises(BlockingIOError):
+                self.run_preflight()
+        self.assertEqual(self.helper.calls, [])
+
+    def test_missing_and_unsafe_lock_rejected(self):
+        self.lock.unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.run_preflight()
+        self.lock.touch(mode=0o644)
+        with self.assertRaisesRegex(RuntimeError, "PRIVATE_FILE_REQUIRED"):
+            self.run_preflight()
+        self.assertEqual(self.helper.calls, [])
+
+    def test_runtime_change_rejected(self):
+        self.fault = "runtime_change"
+        with self.assertRaisesRegex(RuntimeError, "RUNTIME_CHANGED"):
+            self.run_preflight()
+
+    def test_baseline_drift_rejected(self):
+        self.fault = "baseline_drift"
+        with self.assertRaisesRegex(RuntimeError, "BASELINE_DRIFT_OR_INVALID"):
+            self.run_preflight()
+
+    def test_cross_owner_list_overlap_rejected(self):
+        self.fault = "owner_overlap"
+        with self.assertRaisesRegex(RuntimeError, "CROSS_OWNER_LIST_OVERLAP"):
+            self.run_preflight()
+
+    def test_journal_residual_blocks_and_no_cleanup(self):
+        run = "UAT396-0123456789abcdef"
+        journal = self.helper.CREDENTIAL_DIR / "old-journal.json"
+        journal.write_text(json.dumps({"run": run, "phase": "TEST", "attempted": [
+            {"owner": "A", "kind": "task", "marker": run + "-A", "id": 101}]}))
+        journal.chmod(0o600)
+        self.helper.rows["A", "task"][101] = {"id": 101, "title": run + "-A"}
+        with self.assertRaisesRegex(RuntimeError, "JOURNAL_REVIEW_REQUIRED"):
+            self.run_preflight(journal)
+        self.assertIn(101, self.helper.rows["A", "task"])
+
+    def test_journal_absence_only_diagnostic(self):
+        run = "UAT396-0123456789abcdef"
+        journal = self.helper.CREDENTIAL_DIR / "old-journal.json"
+        journal.write_text(json.dumps({"run": run, "phase": "TEST", "attempted": [
+            {"owner": "A", "kind": "task", "marker": run + "-A", "id": None}]}))
+        journal.chmod(0o600)
+        report = self.run_preflight(journal)
+        self.assertEqual(report["journalState"], "NO_MARKERS_OBSERVED")
+        self.assertFalse(report["baselineRestored"])
+        self.assertFalse(report["cleanupAuthorized"])
+
+    def test_route_guard_blocks_business_post(self):
+        from unified_staging_s5_local_preflight import success
+        with self.assertRaisesRegex(RuntimeError, "HTTP_ROUTE_BLOCKED"):
+            success(self.helper, "/api/tasks", login_payload={})
+        self.assertEqual(self.helper.calls, [])
+
+    def test_wrong_helper_bytes_never_execute(self):
+        from unified_staging_s5_local_preflight import load_helper
+        helper = self.helper.CREDENTIAL_DIR / "p420.py"
+        helper.write_text("raise AssertionError('must never execute')\n")
+        helper.chmod(0o600)
+        with patch("os.geteuid", return_value=helper.stat().st_uid):
+            # load_helper requires root; verify digest path when root, otherwise root guard.
+            with self.assertRaisesRegex(RuntimeError, "HELPER_DIGEST_MISMATCH|ROOT_REQUIRED"):
+                load_helper(helper)
+
+
+
+
+from unified_staging_s5_regression import OfflineSimulation
+
+
+class RegressionSimulation(FakeHelper, OfflineSimulation):
+    def __init__(self, work, fault=None):
+        super().__init__(work, fault)
+        self.lock = self.CREDENTIAL_DIR / ".s5-cross-module.lock"
+        self.lock.touch(mode=0o600)
+        self.evidence = work / "evidence"
+        self.evidence.mkdir(mode=0o700)
+        self.mutation_requests = []
+
+    def _run(self, command, input_text=None):
+        from unified_staging_s5_local_preflight import IMAGES as CURRENT
+        if command[:4] == ["docker", "inspect", "--format",
+                           "{{.Id}} {{.Image}} {{.State.StartedAt}} {{.RestartCount}}"]:
+            kind = command[4]
+            image = IMAGES[kind] if self.fault == "old_image" else CURRENT[kind]
+            identity = {"backend": "a", "gateway": "b", "mysql": "c"}[kind] * 64
+            if self.fault == "runtime_after_write" and self.mutations:
+                identity = "d" * 64
+            return identity + " " + image + " 2026-11-26T06:00:00Z 0"
+        return super()._run(command, input_text)
+
+    def http_json(self, path, *, method="GET", payload=None, token=None):
+        # Preflight adapter cannot issue any business mutations.
+        if method != "GET" and not (method == "POST" and path == "/api/auth/login"):
+            raise AssertionError("preflight attempted business write")
+        result = super().http_json(path, method=method, payload=payload, token=token)
+        if path == "/api/auth/login":
+            result[2]["data"]["expiresInSeconds"] = 3600
+        return result
+
+    def simulate(self, path, *, method, payload, token):
+        if method != "GET":
+            from unified_staging_s5_regression import JOURNAL
+            baseline = read_baseline(self.evidence)
+            journal = json.loads((self.evidence / JOURNAL).read_bytes())
+            if journal["baselineDigest"] != baseline["contentDigest"]:
+                raise AssertionError("mutation without durable evidence")
+            if method == "POST":
+                kind = PATHS[path]
+                owner = {"fake.A.jwt": "A", "fake.B.jwt": "B"}[token]
+                if not any(e["kind"] == kind and e["owner"] == owner and e["id"] is None
+                           for e in journal["attempted"]):
+                    raise AssertionError("missing durable create attempt")
+            self.mutation_requests.append((method, path, token))
+        if self.fault == "finance_cleanup_failed" and method == "DELETE" and path.startswith(
+                "/api/finance/transactions/"):
+            rid = int(path.rsplit("/", 1)[1])
+            who = {"fake.A.jwt": "A", "fake.B.jwt": "B"}[token]
+            if rid in self.rows[who, "finance"]:
+                return 500, "application/json", None
+        result = super().http_json(path, method=method, payload=payload, token=token)
+        if self.fault == "journal_tamper" and method == "POST" and len(self.mutations) == 1:
+            (self.evidence / "local-private-journal.json").write_text("{}")
+        if self.fault == "post_drift" and method == "DELETE" and len(self.mutations) == 38:
+            self.rows["A", "task"][90]["title"] = "changed"
+        return result
+
+
+class S5RegressionOrchestrationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+        def forbid(*args, **kwargs):
+            raise AssertionError("real network or process forbidden")
+
+        for target in ("socket.socket", "socket.create_connection", "subprocess.Popen", "subprocess.run"):
+            guard = patch(target, side_effect=forbid)
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def run_regression(self, fault=None, before=None):
+        from unified_staging_s5_regression import rehearse
+        sim = RegressionSimulation(self.root, fault)
+        if before:
+            before(sim)
+        result = rehearse(sim, sim.evidence, sim.CREDENTIAL_DIR / "b.json")
+        self.assertEqual(result["businessWrites"], 0)
+        self.assertFalse(result["liveVerified"])
+        self.assertFalse(result["productionAuthorized"])
+        self.assertFalse(result["cleanupAuthorized"])
+        for secret in ("fake.A.jwt", "fake.B.jwt", "fixture-password", "fixture_A", "fixture_B"):
+            self.assertNotIn(secret, json.dumps(result))
+        return sim, result
+
+    def test_integrated_current_preflight_and_crud(self):
+        sim, result = self.run_regression()
+        self.assertEqual(result["state"], "OFFLINE_REHEARSAL_PASS")
+        self.assertEqual(result["modulesPassed"], 5)
+        self.assertEqual(result["cleanupObservedAbsent"], 14)
+        self.assertEqual(result["baselineState"], "BASELINE_DIGESTS_MATCH")
+        journal = json.loads((sim.evidence / "local-private-journal.json").read_bytes())
+        self.assertEqual(journal["phase"], "FINISHED")
+        self.assertEqual(len(journal["attempted"]), 14)
+        self.assertTrue(all(type(a["id"]) is int for a in journal["attempted"]))
+        self.assertEqual((sim.evidence / "local-private-journal.json").stat().st_mode & 0o777, 0o600)
+        self.assertEqual(len(sim.mutations), 38)
+        self.assertEqual(sim.rows["A", "task"], {90: {"id": 90, "title": "unrelated"}})
+        self.assertFalse(any(rows for key, rows in sim.rows.items() if key != ("A", "task")))
+
+    def test_old_pin_blocks_before_mutation(self):
+        sim, result = self.run_regression("old_image")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+        self.assertEqual(list(sim.evidence.iterdir()), [])
+
+    def test_baseline_failure_blocks_first_mutation(self):
+        with patch("unified_staging_s5_regression.persist_baseline_once", side_effect=OSError):
+            sim, result = self.run_regression()
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+
+    def test_journal_failure_blocks_first_mutation(self):
+        with patch("unified_staging_s5_regression.Journal.save", side_effect=OSError):
+            sim, result = self.run_regression()
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+
+    def test_runtime_change_blocks_all_further_mutations(self):
+        sim, result = self.run_regression("runtime_after_write")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(len(sim.mutation_requests), 1)
+        self.assertEqual(len(sim.mutations), 1)
+
+    def test_journal_tamper_blocks_all_further_mutations(self):
+        sim, result = self.run_regression("journal_tamper")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(len(sim.mutation_requests), 1)
+        self.assertEqual(len(sim.mutations), 1)
+
+    def test_lost_create_unique_marker_cleanup_is_not_pass(self):
+        sim, result = self.run_regression("lost_create")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(result["baselineState"], "BASELINE_DIGESTS_MATCH")
+        self.assertEqual(result["cleanupObservedAbsent"], 1)
+        self.assertEqual([m[2] for m in sim.mutations], ["POST", "DELETE"])
+
+    def test_ambiguous_create_never_deletes(self):
+        sim, result = self.run_regression("ambiguous")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(result["cleanupObservedAbsent"], 0)
+        self.assertEqual([m[2] for m in sim.mutations], ["POST"])
+
+    def test_cross_owner_leak_blocks_delete(self):
+        sim, result = self.run_regression("leak")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertFalse(any(m[2] == "DELETE" for m in sim.mutations))
+
+    def test_cross_owner_acceptance_never_passes(self):
+        sim, result = self.run_regression("cross_owner")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+
+    def test_cleanup_failure_never_passes(self):
+        sim, result = self.run_regression("cleanup")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(result["cleanupObservedAbsent"], 0)
+
+    def test_failed_finance_cleanup_protects_setup_objects(self):
+        sim, result = self.run_regression("finance_cleanup_failed")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertTrue(all(sim.rows[w, k] for w in ("A", "B")
+                            for k in ("finance", "account", "category")))
+        self.assertFalse(any(m[2] == "DELETE" and m[1] in ("account", "category")
+                             for m in sim.mutations))
+
+    def test_journal_temp_collision_does_not_unlink_existing_file(self):
+        import os
+        from unified_staging_s5_regression import Journal
+        work = self.root / "evidence"
+        work.mkdir(mode=0o700)
+        existing = work / (".journal-" + "a" * 32)
+        existing.write_text("existing")
+        fd = os.open(work, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        journal = Journal(work, fd)
+        with patch("unified_staging_s5_regression.secrets.token_hex", return_value="a" * 32):
+            with self.assertRaisesRegex(RuntimeError, "JOURNAL_PERSIST_FAILED"):
+                journal.save({"phase": "TEST"})
+        self.assertEqual(existing.read_text(), "existing")
+        self.assertFalse((work / "local-private-journal.json").exists())
+
+    def test_final_drift_never_passes(self):
+        sim, result = self.run_regression("post_drift")
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(result["baselineState"], "BASELINE_DIFFERENCE_OBSERVED")
+
+    def test_nonempty_evidence_dir_not_overwritten(self):
+        def prepare(sim):
+            (sim.evidence / "local-private-journal.json").write_text("old")
+        sim, result = self.run_regression(before=prepare)
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+        self.assertEqual((sim.evidence / "local-private-journal.json").read_text(), "old")
+
+    def test_busy_existing_lock_blocks(self):
+        import fcntl
+        def prepare(sim):
+            f = sim.lock.open("rb")
+            self.addCleanup(f.close)
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        sim, result = self.run_regression(before=prepare)
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+
+    def test_source_tamper_never_executes(self):
+        altered = self.root / "altered.txt"
+        altered.write_text("raise AssertionError('must never execute')\n")
+        with patch("unified_staging_s5_regression.SOURCE", altered):
+            sim, result = self.run_regression()
+        self.assertEqual(result["state"], "OFFLINE_REVIEW_REQUIRED")
+        self.assertEqual(sim.mutation_requests, [])
+
+    def test_unadapted_helper_rejected(self):
+        from unified_staging_s5_regression import rehearse
+        sim = FakeHelper(self.root, None)
+        with self.assertRaisesRegex(RuntimeError, "OFFLINE_SIMULATION_REQUIRED"):
+            rehearse(sim, self.root, sim.CREDENTIAL_DIR / "b.json")
+        self.assertEqual(sim.calls, [])
+
+
+
+
+class LocalAdapterHelper(RegressionSimulation):
+    """Mock exact helper boundary; no real transport even in operator mode."""
+    def http_json(self, path, *, method="GET", payload=None, token=None):
+        if method == "GET" or (method == "POST" and path == "/api/auth/login"):
+            return super().http_json(path, method=method, payload=payload, token=token)
+        return self.simulate(path, method=method, payload=payload, token=token)
+
+
+class S5LocalAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        def forbid(*args, **kwargs):
+            raise AssertionError("real network or process forbidden")
+        for target in ("socket.socket", "socket.create_connection", "subprocess.Popen", "subprocess.run"):
+            guard = patch(target, side_effect=forbid)
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def operator(self, fault=None, before=None):
+        from unified_staging_s5_regression import APPROVAL, run_operator_once
+        helper = LocalAdapterHelper(self.root, fault)
+        if before:
+            before(helper)
+        with patch("unified_staging_s5_regression.load_helper", return_value=helper) as loader:
+            result = run_operator_once(self.root / "p420.py", helper.evidence,
+                                       helper.CREDENTIAL_DIR / "b.json", confirmation=APPROVAL)
+            loader.assert_called_once_with(self.root / "p420.py")
+        self.assertFalse(result["liveVerified"])
+        self.assertFalse(result["productionAuthorized"])
+        self.assertFalse(result["deploymentAuthorized"])
+        self.assertFalse(result["cleanupAuthorized"])
+        self.assertEqual(result["businessMutationRequests"], len(helper.mutation_requests))
+        self.assertEqual(result["executionMode"], "OPERATOR_LIVE")
+        for secret in ("fake.A.jwt", "fake.B.jwt", "fixture-password", "fixture_A", "fixture_B"):
+            self.assertNotIn(secret, json.dumps(result))
+        return helper, result
+
+    def test_operator_mode_distinct_receipt_and_request_ledger(self):
+        helper, result = self.operator()
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_PASS")
+        self.assertEqual(result["businessMutationRequests"], 58)
+        self.assertEqual(result["mutationResponses200"], 38)
+        self.assertEqual(result["mutationResponsesDenied"], 20)
+        self.assertEqual(result["mutationOutcomesUnknown"], 0)
+        self.assertEqual(result["businessWrites"], "NOT_MEASURED")
+        self.assertTrue(result["apiVisibleBaselineMatched"])
+        self.assertTrue(result["liveExecutionPerformed"])
+        self.assertEqual(result["modulesPassed"], 5)
+        self.assertEqual(result["cleanupObservedAbsent"], 14)
+        journal = json.loads((helper.evidence / "local-private-journal.json").read_bytes())
+        self.assertEqual(journal["executionMode"], "OPERATOR_LIVE")
+        self.assertEqual(len(journal["mutationRequests"]), 58)
+        self.assertEqual([x["sequence"] for x in journal["mutationRequests"]], list(range(1, 59)))
+        self.assertTrue(all(x["outcome"] in ("HTTP_200", "HTTP_403", "HTTP_404")
+                            for x in journal["mutationRequests"]))
+        self.assertEqual(len(helper.mutations), 38)
+
+    def test_lost_response_is_not_zero_writes(self):
+        _, result = self.operator("lost_create")
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_REVIEW_REQUIRED")
+        self.assertEqual(result["businessMutationRequests"], 2)
+        self.assertEqual(result["mutationOutcomesUnknown"], 1)
+        self.assertEqual(result["businessWrites"], "NOT_MEASURED")
+
+    def test_changed_runtime_stops_real_adapter_mode(self):
+        _, result = self.operator("runtime_after_write")
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_REVIEW_REQUIRED")
+        self.assertEqual(result["businessMutationRequests"], 1)
+        self.assertFalse(result["apiVisibleBaselineMatched"])
+
+    def test_preflight_failure_reports_zero_requests_not_pass(self):
+        _, result = self.operator("old_image")
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_BLOCKED")
+        self.assertEqual(result["businessMutationRequests"], 0)
+        self.assertEqual(result["businessWrites"], 0)
+        self.assertFalse(result["liveExecutionPerformed"])
+
+    def test_approval_required_before_loading_helper(self):
+        from unified_staging_s5_regression import run_operator_once
+        with patch("unified_staging_s5_regression.load_helper") as loader:
+            with self.assertRaisesRegex(RuntimeError, "OPERATOR_CONFIRMATION_REQUIRED"):
+                run_operator_once(self.root / "p420.py", self.root,
+                                  self.root / "b.json", confirmation="no")
+            loader.assert_not_called()
+
+    def test_inactive_and_out_of_scope_adapter_routes_blocked(self):
+        from unified_staging_s5_regression import _LocalTransport
+        helper = LocalAdapterHelper(self.root)
+        adapter = _LocalTransport(helper)
+        with self.assertRaisesRegex(RuntimeError, "LOCAL_ROUTE_BLOCKED"):
+            adapter._dispatch("/api/tasks", method="POST", payload={}, token="fake.A.jwt")
+        adapter._active = True
+        for path, method, payload in (("/api/health/meals", "POST", {}),
+                                      ("/api/auth/register", "POST", {}),
+                                      ("/api/tasks/1/extra", "DELETE", None),
+                                      ("/api/tasks?x=1", "POST", {}),
+                                      ("/api/tasks/1", "PATCH", {})):
+            with self.subTest(path=path, method=method):
+                with self.assertRaisesRegex(RuntimeError, "LOCAL_ROUTE_BLOCKED"):
+                    adapter._dispatch(path, method=method, payload=payload, token="fake.A.jwt")
+        with self.assertRaisesRegex(RuntimeError, "PREFLIGHT_ROUTE_BLOCKED"):
+            adapter.http_json("/api/tasks", method="POST", payload={}, token="fake.A.jwt")
+        self.assertEqual(helper.calls, [])
+        self.assertEqual(adapter._outcomes, [])
+
+    def test_durable_pending_operation_precedes_dispatch(self):
+        def before(helper):
+            original = helper.simulate
+            def simulate(path, *, method, payload, token):
+                if method != "GET":
+                    data = json.loads((helper.evidence / "local-private-journal.json").read_bytes())
+                    last = data["mutationRequests"][-1]
+                    self.assertEqual(last["method"], method)
+                    self.assertEqual(last["outcome"], "PENDING")
+                    self.assertEqual(last["sequence"], len(helper.mutation_requests) + 1)
+                return original(path, method=method, payload=payload, token=token)
+            helper.simulate = simulate
+        _, result = self.operator(before=before)
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_PASS")
+
+    def test_no_default_cli_or_noninteractive_execution(self):
+        from unified_staging_s5_regression import main
+        with patch("unified_staging_s5_regression.load_helper") as loader:
+            for args in (["runner"], ["runner", "--execute-approved-once", "--helper", "/p420.py",
+                                     "--b-file", "/b.json", "--evidence-dir", "/evidence"]):
+                with patch.object(sys, "argv", args), patch("sys.stdin.isatty", return_value=False):
+                    with self.assertRaises(SystemExit) as exc:
+                        main()
+                    self.assertEqual(exc.exception.code, 2)
+            loader.assert_not_called()
+
+    def test_same_transport_cannot_run_twice(self):
+        from unified_staging_s5_regression import _LocalTransport, _run_once
+        helper = LocalAdapterHelper(self.root, "old_image")
+        adapter = _LocalTransport(helper)
+        result = _run_once(adapter, helper.evidence, helper.CREDENTIAL_DIR / "b.json", live=True)
+        self.assertEqual(result["state"], "S5_LOCAL_REGRESSION_BLOCKED")
+        self.assertFalse(adapter._active)
+        with self.assertRaisesRegex(RuntimeError, "OPERATOR_TRANSPORT_REQUIRED"):
+            _run_once(adapter, helper.evidence, helper.CREDENTIAL_DIR / "b.json", live=True)
+
+
+
+
+class S63AdvisoryEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        def forbid(*args, **kwargs):
+            raise AssertionError("real network or process forbidden")
+        for target in ("socket.socket", "socket.create_connection", "subprocess.Popen", "subprocess.run"):
+            guard = patch(target, side_effect=forbid)
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def claim(self):
+        from unified_staging_s5_local_preflight import IMAGES as PIN
+        return {"commit": "a" * 40, "tree": "b" * 40, "artifact_digest": "sha256:" + "c" * 64,
+                "executor_commit": "d" * 40, "backend_image": PIN["backend"]}
+
+    def run_claim(self, *, live=False, claim=None, fault=None):
+        from unified_staging_s5_regression import rehearse, run_operator_once, APPROVAL
+        helper = LocalAdapterHelper(self.root, fault) if live else RegressionSimulation(self.root, fault)
+        if live:
+            with patch("unified_staging_s5_regression.load_helper", return_value=helper):
+                result = run_operator_once(self.root / "p420.py", helper.evidence,
+                            helper.CREDENTIAL_DIR / "b.json", confirmation=APPROVAL, candidate_claim=claim)
+        else:
+            result = rehearse(helper, helper.evidence, helper.CREDENTIAL_DIR / "b.json", candidate_claim=claim)
+        return helper, result
+
+    def test_synthetic_evidence_binds_exact_bytes_without_promotion(self):
+        from unified_staging_s5_regression import Journal, EVIDENCE_DOMAIN
+        helper, report = self.run_claim(claim=self.claim())
+        self.assertEqual(report["state"], "OFFLINE_REHEARSAL_PASS")
+        e = report["advisoryEvidence"]
+        self.assertEqual(e["state"], "BLOCKED")
+        self.assertEqual(e["source"], "offline_simulation")
+        self.assertTrue(e["regression_complete_claimed"])
+        self.assertEqual(e["candidate"]["commit"], "a" * 40)
+        self.assertEqual(e["candidate_tree_claim"], "b" * 40)
+        self.assertEqual(e["executor_commit_claim"], "d" * 40)
+        self.assertEqual(e["candidate"]["artifact_digest"], "sha256:" + "c" * 64)
+        self.assertEqual(e["schema"], 31)
+        self.assertEqual(set(e["module_results"]), MODULES)
+        self.assertEqual(set(e["cleanup_results"]), CLEANUP_KEYS)
+        self.assertEqual(e["journal_recorded_mutation_outcomes"]["recorded"], 58)
+        for key in ("source_authenticated", "artifact_bytes_verified", "runtime_verified",
+                    "business_uat_verified", "baseline_restored", "current_review_satisfied",
+                    "release_eligible", "approval_authorized", "deployment_authorized",
+                    "production_authorized", "live_verified", "candidate_source_verified"):
+            self.assertIs(e[key], False)
+        self.assertIn("OFFLINE_SIMULATION_NOT_STAGE_BUSINESS_UAT", e["findings"])
+        for field, filename in (("journal_bytes_digest", "local-private-journal.json"),
+                                ("baseline_bytes_digest", BASELINE_FILE)):
+            self.assertEqual(e[field], "sha256:" + hashlib.sha256(
+                             (helper.evidence / filename).read_bytes()).hexdigest())
+        unsigned = {k: v for k, v in e.items() if k != "binding_digest"}
+        self.assertEqual(e["binding_digest"], "sha256:" + hashlib.sha256(Journal.encode(
+            {"domain": EVIDENCE_DOMAIN, "evidence": unsigned})).hexdigest())
+        raw = json.dumps(e)
+        for secret in ("fake.A.jwt", "fake.B.jwt", "fixture-password", "fixture_A", "fixture_B",
+                       "user_id", "UAT396-", "mutationRequests", "attempted", "credentials.json",
+                       "runtimeDigest", "unrelated"):
+            self.assertNotIn(secret, raw)
+        times = [e["window"][k] for k in ("runtime_before_at", "started_at", "finished_at", "runtime_after_at")]
+        self.assertEqual(times, sorted(times))
+
+    def test_mocked_operator_evidence_stays_blocked(self):
+        _, report = self.run_claim(live=True, claim=self.claim())
+        self.assertEqual(report["state"], "S5_LOCAL_REGRESSION_PASS")
+        e = report["advisoryEvidence"]
+        self.assertEqual(e["source"], "operator_regression_claim")
+        self.assertEqual(e["execution_mode"], "OPERATOR_LIVE")
+        self.assertEqual(e["state"], "BLOCKED")
+        self.assertFalse(e["business_uat_verified"])
+        self.assertFalse(e["candidate_source_verified"])
+
+    def test_missing_claim_never_implies_candidate_match(self):
+        _, report = self.run_claim()
+        e = report["advisoryEvidence"]
+        self.assertIsNone(e["candidate"])
+        self.assertIsNone(e["candidate_tree_claim"])
+        self.assertIn("CANDIDATE_CLAIM_MISSING", e["findings"])
+
+    def test_invalid_claim_blocks_before_helper_load(self):
+        from unified_staging_s5_regression import run_operator_once, APPROVAL
+        for claim in ({"commit": "a" * 40}, dict(self.claim(), tree="not-a-sha"),
+                      dict(self.claim(), backend_image="sha256:" + "f" * 64),
+                      dict(self.claim(), arbitrary="injection")):
+            with patch("unified_staging_s5_regression.load_helper") as loader:
+                with self.assertRaisesRegex(RuntimeError, "INVALID_CANDIDATE_CLAIM|CANDIDATE_IMAGE_PIN_MISMATCH"):
+                    run_operator_once(self.root / "p420.py", self.root, self.root / "b.json",
+                                      confirmation=APPROVAL, candidate_claim=claim)
+                loader.assert_not_called()
+
+    def test_lost_create_evidence_never_complete(self):
+        _, report = self.run_claim(live=True, claim=self.claim(), fault="lost_create")
+        self.assertEqual(report["state"], "S5_LOCAL_REGRESSION_REVIEW_REQUIRED")
+        e = report["advisoryEvidence"]
+        self.assertEqual(e["state"], "BLOCKED")
+        self.assertFalse(e["regression_complete_claimed"])
+        self.assertIn("BUSINESS_REGRESSION_INCOMPLETE", e["findings"])
+        self.assertEqual(e["journal_recorded_mutation_outcomes"]["unknown_or_pending"], 1)
+
+    def test_runtime_drift_has_no_advisory_evidence(self):
+        _, report = self.run_claim(live=True, claim=self.claim(), fault="runtime_after_write")
+        self.assertIsNone(report["advisoryEvidence"])
+        self.assertEqual(report["businessMutationRequests"], 1)
+
+    def test_evidence_read_failure_preserves_mutation_counts(self):
+        with patch("unified_staging_s5_regression._baseline_bytes", side_effect=RuntimeError):
+            _, report = self.run_claim(live=True, claim=self.claim())
+        self.assertIsNone(report["advisoryEvidence"])
+        self.assertEqual(report["businessMutationRequests"], 58)
+
+    def test_clock_reversal_suppresses_summary(self):
+        with patch("unified_staging_s5_regression.time.time", side_effect=[200, 201, 202, 199]):
+            _, report = self.run_claim(claim=self.claim())
+        self.assertIsNone(report["advisoryEvidence"])
+
+    def test_local_source_change_suppresses_summary(self):
+        from unified_staging_s5_regression import _source_digests
+        first = _source_digests()
+        second = dict(first, regression="sha256:" + "f" * 64)
+        with patch("unified_staging_s5_regression._source_digests", side_effect=[first, second]):
+            _, report = self.run_claim(claim=self.claim())
+        self.assertIsNone(report["advisoryEvidence"])
+
+    def test_no_cli_partial_candidate_claim(self):
+        from unified_staging_s5_regression import main
+        with patch.object(sys, "argv", ["runner", "--candidate-commit", "a"*40]), \
+             patch("unified_staging_s5_regression.load_helper") as loader:
+            with self.assertRaises(SystemExit) as exc:
+                main()
+            self.assertEqual(exc.exception.code, 2)
+            loader.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
