@@ -1,0 +1,22 @@
+[Unit]
+Description=PRP V1.1 authoritative one-shot handoff
+Requires=prp-remote-executor-v11.service
+After=prp-remote-executor-v11.service
+AssertPathExists=/etc/matrix-prp-remote-executor-v11/receiver.enabled
+AssertPathExists=/etc/matrix-prp-remote-executor-v11/worker.enabled
+AssertPathExists=/etc/matrix-prp-remote-executor-v11/sandbox.enabled
+[Service]
+Type=oneshot
+User=prp-remote-v11
+Group=prp-remote-v11
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+MemoryMax=256M
+MemorySwapMax=0
+TasksMax=32
+CPUQuota=100%
+TimeoutStartSec=260
+TimeoutStopSec=5
+KillMode=control-group
+WorkingDirectory=/opt/matrix-prp-remote-executor-v11/src
+ExecStart=/usr/bin/python3 -E -s /opt/matrix-prp-remote-executor-v11/src/bridge.py handoff-once
