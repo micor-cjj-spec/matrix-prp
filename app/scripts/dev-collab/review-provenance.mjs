@@ -306,3 +306,151 @@ function collectHistorical446(api,pr,branch,checks){
 
  return {HISTORICAL_446_PREFIX,verifyHistorical446Binding,collectHistorical446,verifyHistorical446Evidence}
 })()
+
+
+// Narrow historical #529 recovery mirrors the pinned #446 evidence pattern.
+// The empty run-level PR association is accepted only for this exact merged PR;
+// ordinary verifyWorkflowProvenance remains unchanged and fail-closed.
+export const {HISTORICAL_529_PREFIX,verifyHistorical529Binding,collectHistorical529,verifyHistorical529Evidence}=(()=>{
+const REPO='micor-cjj-spec/matrix-prp'
+const BASE='edd6d76b6c803ea5734f40fc1350ea3b29018562'
+const HEAD='4397169413cd1c43844c7ac21fddc3016e5dfcba'
+const MERGE='c567761ee555e8d4ec9fa120468a74d8dae97fa8'
+const TEST='ed2952343acf7c3f151b4380589dcda60ac5fa18'
+const TREE='1f9721e95c1d4d3029ae1b8c4c18efbdce551a0a'
+const MERGED_AT='2026-11-27T10:48:31Z'
+const TARGET='main'
+const SOURCE='dev'
+const PIN='3d3c42e5aac5ba805825da76410c181273ba90b1'
+const CI='.github/workflows/ci.yml'
+const IMPACT='.github/workflows/feature-impact.yml'
+const CONTRACT='.github/workflows/prp-dev-collab-contract.yml'
+const entries=[
+ ['backend-tests',140448213160,45980919751,2,CI,'CI','v4'],
+ ['web-build',140448215660,45980919751,2,CI,'CI','v4'],
+ ['mobile-build',140448203693,45980919751,2,CI,'CI','v4'],
+ ['db-migration-integration',140448233338,45980919751,2,CI,'CI','v4'],
+ ['video-db-integration',140448231019,45980919751,2,CI,'CI','v4'],
+ ['impact-report',140444287659,45980919689,1,IMPACT,'Feature Impact Report',PIN],
+ ['dev-collab-contract',140444288158,45980919800,1,CONTRACT,'PRP Dev Collaboration Contract',PIN]
+]
+const blobs={
+ [CI]:'2e8ded58e20cf540c033365ed266d0e2045309b6',
+ [IMPACT]:'5a64a9e728f4bb6dd0fc91bb0393b2cca74ae302',
+ [CONTRACT]:'c1373ee788d3469aea37624328f4e53e66a68f9c'
+}
+const files=[
+ ['app/docs/dev-collab/INTEGRATION-ACCEPTANCE.md','added'],
+ ['app/docs/dev-collab/OPERATIONS.md','modified'],
+ ['app/scripts/dev-collab/core.mjs','modified'],
+ ['app/scripts/dev-collab/core.test.mjs','modified'],
+ ['app/scripts/dev-collab/integration-ci-boundary.test.mjs','modified'],
+ ['app/scripts/dev-collab/recovery.mjs','modified'],
+ ['app/scripts/dev-collab/recovery.test.mjs','modified']
+]
+const check=(ok,code)=>{if(!ok)throw new Error(code)}
+const exact=(a,b)=>JSON.stringify(a)===JSON.stringify(b)
+const date=x=>Date.parse(x)
+const HISTORICAL_529_PREFIX='PRP_HISTORICAL_529_V1:'
+
+function verifyHistorical529Binding(snapshot,command){
+ const expected=Array.from({length:9},(_,i)=>'T-'+String(i+1).padStart(3,'0'))
+ const actual=Array.isArray(snapshot?.tasks)?snapshot.tasks.map(t=>t?.task_id).sort():[]
+ check(snapshot?.requirement_id==='REQ-20261031-001'&&snapshot.version===49&&
+   snapshot.status==='ACTIVE'&&actual.length===9&&exact(actual,[...expected].sort())&&
+   snapshot.tasks.every(t=>t.status==='DONE')&&
+   command?.type==='close'&&command.pr_number===529&&command.head_sha===HEAD&&
+   command.note===HISTORICAL_529_PREFIX,'HISTORICAL_529_BINDING')
+ return true
+}
+function verifyCommit(c,sha){
+ check(c?.sha===sha&&c.tree?.sha===TREE,'HISTORICAL_529_COMMIT_MISMATCH')
+ if(sha===TEST)check(exact(c.parents?.map(p=>p.sha),[BASE,HEAD]),'HISTORICAL_529_TEST_PARENTS')
+ else check(exact(c.parents?.map(p=>p.sha),[BASE]),'HISTORICAL_529_MERGE_PARENTS')
+}
+function verifyHistorical529Evidence(e){
+ const p=e?.pr
+ check(p?.number===529&&p.state==='closed'&&p.merged===true&&p.draft===false&&
+   p.merge_commit_sha===MERGE&&p.merged_at===MERGED_AT&&p.changed_files===files.length&&
+   p.base?.ref===TARGET&&p.base?.sha===BASE&&p.base?.repo?.full_name===REPO&&p.base?.repo?.id===1261866723&&
+   p.head?.ref===SOURCE&&p.head?.sha===HEAD&&p.head?.repo?.full_name===REPO&&p.head?.repo?.id===1261866723,
+   'HISTORICAL_529_PR_MISMATCH')
+ check(e.main?.name==='main'&&e.main.protected===true&&
+   /^[a-f0-9]{40}$/.test(e.main.commit?.sha||''),'HISTORICAL_529_MAIN_MISMATCH')
+ verifyCommit(e.testCommit,TEST)
+ verifyCommit(e.mergeCommit,MERGE)
+ check(Array.isArray(e.timeline)&&e.timeline.length>0&&e.timeline.length<100&&
+   e.timeline.filter(x=>x.event==='merged').length===1&&
+   e.timeline.some(x=>x.event==='merged'&&x.commit_id===MERGE&&x.created_at===MERGED_AT)&&
+   !e.timeline.some(x=>/base_ref_changed|head_ref_force_pushed|head_ref_deleted|head_ref_restored/.test(x.event)),
+   'HISTORICAL_529_TIMELINE_MISMATCH')
+ check(Array.isArray(e.files)&&e.files.length===files.length&&
+   exact(e.files.map(x=>[x.filename,x.status]).sort((a,b)=>a[0].localeCompare(b[0])),
+     [...files].sort((a,b)=>a[0].localeCompare(b[0]))),'HISTORICAL_529_FILES_MISMATCH')
+ check(exact(Object.keys(e.workflowBlobs??{}).sort(),Object.keys(blobs).sort())&&
+   Object.entries(blobs).every(([path,sha])=>exact(e.workflowBlobs[path],[sha,sha,sha])),
+   'HISTORICAL_529_WORKFLOW_BLOB_MISMATCH')
+ const c=e.checks
+ check(Number.isInteger(c?.total_count)&&Array.isArray(c.check_runs)&&
+   c.total_count===c.check_runs.length&&c.total_count<=100,'HISTORICAL_529_CHECKS_INCOMPLETE')
+ const checkouts=[]
+ for(const [name,id,runId,attempt,path,workflow,action] of entries){
+   const matchedChecks=c.check_runs.filter(x=>x.id===id)
+   const jobCheck=matchedChecks[0]
+   check(matchedChecks.length===1&&jobCheck.name===name&&jobCheck.app?.id===15368&&
+     jobCheck.app?.slug==='github-actions'&&jobCheck.head_sha===HEAD&&
+     jobCheck.status==='completed'&&jobCheck.conclusion==='success'&&
+     jobCheck.details_url==='https://github.com/'+REPO+'/actions/runs/'+runId+'/job/'+id&&
+     date(jobCheck.started_at)<=date(jobCheck.completed_at)&&date(jobCheck.completed_at)<date(MERGED_AT),
+     'HISTORICAL_529_CHECK_MISMATCH')
+   const run=e.runs?.[runId]
+   check(run?.id===runId&&run.path===path&&run.name===workflow&&run.event==='pull_request'&&
+     run.head_sha===HEAD&&run.head_branch===SOURCE&&run.repository?.full_name===REPO&&
+     run.head_repository?.full_name===REPO&&run.repository?.id===1261866723&&run.head_repository?.id===1261866723&&
+     run.status==='completed'&&run.conclusion==='success'&&run.run_attempt===attempt&&
+     date(run.created_at)<date(MERGED_AT)&&Array.isArray(run.pull_requests)&&
+     (run.pull_requests.length===0||run.pull_requests.length===1&&run.pull_requests.every(q=>
+       q.number===529&&q.head?.sha===HEAD&&q.head?.ref===SOURCE&&q.head?.repo?.id===1261866723&&
+       q.base?.ref===TARGET&&q.base?.sha===BASE&&q.base?.repo?.id===1261866723)),
+     'HISTORICAL_529_RUN_MISMATCH')
+   const list=e.jobs?.[runId]
+   check(Number.isInteger(list?.total_count)&&Array.isArray(list.jobs)&&
+     list.total_count===list.jobs.length&&list.total_count<=100,'HISTORICAL_529_JOBS_INCOMPLETE')
+   const matched=list.jobs.filter(j=>j.id===id)
+   const job=matched[0]
+   check(matched.length===1&&job.name===name&&job.run_id===runId&&job.run_attempt===attempt&&
+     job.head_sha===HEAD&&job.head_branch===SOURCE&&job.workflow_name===workflow&&
+     job.status==='completed'&&job.conclusion==='success'&&
+     date(job.started_at)>=date(run.created_at)&&date(job.completed_at)>=date(job.started_at)&&
+     date(job.completed_at)<date(MERGED_AT),'HISTORICAL_529_JOB_MISMATCH')
+   check(verifyInitialReviewCheckout(e.logs?.[id],job,529,action)===TEST,
+     'HISTORICAL_529_CHECKOUT_REF_OR_SHA')
+   checkouts.push({name,jobId:id,sha:TEST})
+ }
+ return Object.freeze({
+   historicalEvidenceVerified:true,historical529Verified:true,pr:529,head:HEAD,
+   merge:MERGE,syntheticMerge:TEST,tree:TREE,checks:7,
+   squashProof:{mergeCommit:e.mergeCommit,testCommit:e.testCommit,checkouts,workflowBlobs:e.workflowBlobs}
+ })
+}
+function collectHistorical529(api,pr,branch,checks){
+ const root='repos/'+REPO
+ const get=p=>api(root+p)
+ const runIds=[45980919751,45980919689,45980919800]
+ const obj=(keys,fn)=>Object.fromEntries(keys.map(k=>[k,fn(k)]))
+ const timeline=get('/issues/529/timeline?per_page=100&page=1')
+ const page2=get('/issues/529/timeline?per_page=100&page=2')
+ check(Array.isArray(page2)&&page2.length===0,'HISTORICAL_529_TIMELINE_INCOMPLETE')
+ return verifyHistorical529Evidence({
+   pr,main:branch,checks,timeline,
+   files:get('/pulls/529/files?per_page=100'),
+   testCommit:get('/git/commits/'+TEST),
+   mergeCommit:get('/git/commits/'+MERGE),
+   runs:obj(runIds,id=>get('/actions/runs/'+id)),
+   jobs:obj(runIds,id=>get('/actions/runs/'+id+'/jobs?per_page=100&filter=latest')),
+   logs:obj(entries.map(x=>x[1]),id=>get('/actions/jobs/'+id+'/logs')),
+   workflowBlobs:obj(Object.keys(blobs),path=>[BASE,TEST,MERGE].map(ref=>get('/contents/'+path+'?ref='+ref)?.sha))
+ })
+}
+return {HISTORICAL_529_PREFIX,verifyHistorical529Binding,collectHistorical529,verifyHistorical529Evidence}
+})()
